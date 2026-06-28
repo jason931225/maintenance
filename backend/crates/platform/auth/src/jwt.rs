@@ -51,6 +51,12 @@ pub struct AccessTokenInput {
     /// authorization. `None` omits the claim entirely, which keeps view-as and
     /// any future operator-less mint backward compatible.
     pub display_name: Option<String>,
+    /// Runtime-effective custom-role feature keys resolved at token issuance for
+    /// client-side UI hints only. Backend authorization ignores this claim and
+    /// re-resolves effective custom-role grants from the database on every
+    /// request, so a stale token can hide or reveal UI chrome but cannot grant
+    /// access.
+    pub feature_grants: Vec<String>,
     pub issued_at: time::OffsetDateTime,
 }
 
@@ -103,6 +109,11 @@ pub struct AccessClaims {
     /// never allowed on read-only platform view-as tokens.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_roles: Vec<String>,
+    /// Runtime-effective custom-role feature keys for client-side nav/route
+    /// gating hints. These are never consulted by backend authz; request
+    /// principals resolve the live custom policy from the DB on every request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub feature_grants: Vec<String>,
     pub alg: String,
 }
 
@@ -125,6 +136,20 @@ impl AccessClaims {
             )),
         }
     }
+}
+
+fn validate_group_roles(group_roles: &[String]) -> Result<(), AuthError> {
+    for role in group_roles {
+        match role.as_str() {
+            "GROUP_ADMIN" | "GROUP_VIEWER" | "GROUP_FINANCE" => {}
+            _ => {
+                return Err(AuthError::InvalidStoredData(format!(
+                    "unknown group role code: {role}"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -213,6 +238,7 @@ impl JwtIssuer {
                 "view-as tokens cannot carry group roles".to_owned(),
             ));
         }
+        validate_group_roles(&group_roles)?;
         let ttl = if ttl.is_positive() {
             ttl
         } else {
@@ -245,6 +271,7 @@ impl JwtIssuer {
             scope_level,
             scope_node,
             group_roles,
+            feature_grants: input.feature_grants,
             alg: "ES256".to_owned(),
         };
 
@@ -299,5 +326,6 @@ fn verify_access_token(
             "view-as tokens cannot carry group roles".to_owned(),
         ));
     }
+    validate_group_roles(&token.claims.group_roles)?;
     Ok(token.claims)
 }

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
-import type { ArrivalEvent, OpsSummary } from "../api/types";
+import type {
+  ArrivalEvent,
+  OpsSummary,
+  WorkOrderFacetBucket,
+  WorkOrderHistogramBucket,
+  WorkOrderNamedBucket,
+  WorkOrderObjectSetLens,
+} from "../api/types";
 import { useAuth } from "../context/auth";
 import { LoadMoreButton } from "../components/shell/LoadMoreButton";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -17,18 +25,25 @@ type ReadState = "idle" | "loading" | "error";
 export function OpsDashboardPage() {
   const { api } = useAuth();
   const [summary, setSummary] = useState<OpsSummary>();
+  const [lens, setLens] = useState<WorkOrderObjectSetLens>();
   const [readState, setReadState] = useState<ReadState>("loading");
 
   const loadData = useCallback(async () => {
     setReadState("loading");
-    const response = await api
-      .GET("/api/v1/ops/summary", {})
-      .catch(() => undefined);
-    if (!response?.data) {
+    const [summaryResponse, lensResponse] = await Promise.all([
+      api.GET("/api/v1/ops/summary", {}).catch(() => undefined),
+      api
+        .GET("/api/v1/work-orders", {
+          params: { query: { limit: 1, offset: 0 } },
+        })
+        .catch(() => undefined),
+    ]);
+    if (!summaryResponse?.data) {
       setReadState("error");
       return;
     }
-    setSummary(response.data);
+    setSummary(summaryResponse.data);
+    setLens(lensResponse?.data?.lens);
     setReadState("idle");
   }, [api]);
 
@@ -59,7 +74,7 @@ export function OpsDashboardPage() {
           />
         ) : null}
         {summary ? (
-          <OpsContent summary={summary} />
+          <OpsContent summary={summary} lens={lens} />
         ) : readState === "loading" ? (
           <SkeletonCards count={2} lines={3} />
         ) : (
@@ -185,7 +200,13 @@ function ArrivalEventsCard() {
   );
 }
 
-function OpsContent({ summary }: { summary: OpsSummary }) {
+function OpsContent({
+  summary,
+  lens,
+}: {
+  summary: OpsSummary;
+  lens?: WorkOrderObjectSetLens;
+}) {
   const agingHint = ko.ops.alerts.agingHint.replace(
     "{hours}",
     String(summary.aging_hours),
@@ -194,12 +215,253 @@ function OpsContent({ summary }: { summary: OpsSummary }) {
     <div className="grid gap-5">
       <FunnelCard summary={summary} />
       <AlertsCard summary={summary} agingHint={agingHint} />
+      <ObjectSetLensCard lens={lens} />
       <div className="grid gap-5 lg:grid-cols-2">
         <EquipmentCard summary={summary} />
         <MechanicsCard summary={summary} />
       </div>
     </div>
   );
+}
+
+function ObjectSetLensCard({ lens }: { lens?: WorkOrderObjectSetLens }) {
+  const t = ko.ops.lens;
+  if (!lens) {
+    return (
+      <Card>
+        <h2 className="mb-2 text-sm font-semibold text-steel">{t.title}</h2>
+        <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
+          {t.empty}
+        </p>
+      </Card>
+    );
+  }
+
+  const aggregateTiles = [
+    {
+      label: t.total,
+      value: lens.aggregates.total_count,
+      to: "/dispatch",
+    },
+    {
+      label: t.p1,
+      value: lens.aggregates.p1_count,
+      to: routeWithLensFilters({ priority: "P1" }),
+    },
+    {
+      label: t.overdueOpen,
+      value: lens.aggregates.overdue_open_count,
+    },
+    {
+      label: t.unassigned,
+      value: lens.aggregates.unassigned_count,
+    },
+  ];
+
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-steel">{t.title}</h2>
+          <p className="mt-1 text-sm text-steel">{t.description}</p>
+        </div>
+        <Badge>{t.objectSet}</Badge>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {aggregateTiles.map((tile) => (
+          <LensTile
+            key={tile.label}
+            label={tile.label}
+            value={tile.value}
+            to={tile.to}
+          />
+        ))}
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-4">
+        <FacetColumn
+          title={t.statusFacet}
+          buckets={lens.facets.status}
+          labelFor={(value) =>
+            (ko.status as Partial<Record<string, string>>)[value] ?? value
+          }
+        />
+        <FacetColumn
+          title={t.priorityFacet}
+          buckets={lens.facets.priority}
+          labelFor={(value) =>
+            (ko.priority as Partial<Record<string, string>>)[value] ?? value
+          }
+        />
+        <NamedBucketColumn
+          title={t.customerListogram}
+          buckets={lens.listograms.customers}
+        />
+        <NamedBucketColumn
+          title={t.siteListogram}
+          buckets={lens.listograms.sites}
+        />
+      </div>
+      <HistogramRow buckets={lens.histograms.target_due_date} />
+    </Card>
+  );
+}
+
+function LensTile({
+  label,
+  value,
+  to,
+}: {
+  label: string;
+  value: number;
+  to?: string;
+}) {
+  const content = (
+    <>
+      <p className="text-sm text-steel">{label}</p>
+      <p className="text-2xl font-bold text-ink">{value}</p>
+    </>
+  );
+  const className =
+    "rounded-md border border-line bg-muted-panel p-3 transition hover:border-brand-teal hover:bg-brand-teal/5";
+  return to ? (
+    <Link
+      to={to}
+      className={className}
+      aria-label={`${label} ${ko.ops.lens.open}`}
+    >
+      {content}
+    </Link>
+  ) : (
+    <div className="rounded-md border border-line bg-muted-panel p-3">
+      {content}
+    </div>
+  );
+}
+
+function FacetColumn({
+  title,
+  buckets,
+  labelFor,
+}: {
+  title: string;
+  buckets: WorkOrderFacetBucket[];
+  labelFor: (value: string) => string;
+}) {
+  return (
+    <LensBucketColumn
+      title={title}
+      buckets={buckets.map((bucket) => ({
+        key: bucket.value,
+        label: labelFor(bucket.value),
+        count: bucket.count,
+        to: routeWithLensFilters(bucket.filters),
+      }))}
+    />
+  );
+}
+
+function NamedBucketColumn({
+  title,
+  buckets,
+}: {
+  title: string;
+  buckets: WorkOrderNamedBucket[];
+}) {
+  return (
+    <LensBucketColumn
+      title={title}
+      buckets={buckets.map((bucket) => ({
+        key: bucket.id,
+        label: bucket.name,
+        count: bucket.count,
+        to: routeWithLensFilters(bucket.filters),
+      }))}
+    />
+  );
+}
+
+function HistogramRow({ buckets }: { buckets: WorkOrderHistogramBucket[] }) {
+  const t = ko.ops.lens;
+  return (
+    <div className="mt-4">
+      <h3 className="mb-2 text-sm font-semibold text-steel">
+        {t.dueHistogram}
+      </h3>
+      {buckets.length === 0 ? (
+        <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
+          {t.noBuckets}
+        </p>
+      ) : (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {buckets.map((bucket) => (
+            <Link
+              key={bucket.bucket}
+              to={routeWithLensFilters(bucket.filters)}
+              className="min-w-32 rounded-md border border-line bg-muted-panel px-3 py-2 text-sm hover:border-brand-teal hover:bg-brand-teal/5"
+            >
+              <span className="block font-medium text-ink">
+                {bucket.bucket}
+              </span>
+              <span className="text-steel">
+                {bucket.count}
+                {ko.common.countUnit}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LensBucketColumn({
+  title,
+  buckets,
+}: {
+  title: string;
+  buckets: Array<{ key: string; label: string; count: number; to: string }>;
+}) {
+  const t = ko.ops.lens;
+  return (
+    <section>
+      <h3 className="mb-2 text-sm font-semibold text-steel">{title}</h3>
+      {buckets.length === 0 ? (
+        <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
+          {t.noBuckets}
+        </p>
+      ) : (
+        <ul className="grid gap-2">
+          {buckets.slice(0, 6).map((bucket) => (
+            <li key={bucket.key}>
+              <Link
+                to={bucket.to}
+                className="flex items-center justify-between gap-2 rounded-md border border-line bg-muted-panel px-3 py-2 text-sm hover:border-brand-teal hover:bg-brand-teal/5"
+              >
+                <span className="truncate font-medium text-ink">
+                  {bucket.label}
+                </span>
+                <span className="shrink-0 text-steel">
+                  {bucket.count}
+                  {ko.common.countUnit}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function routeWithLensFilters(filters: Record<string, string>): string {
+  const params = new URLSearchParams();
+  Object.entries(filters)
+    .filter(([, value]) => value.trim() !== "")
+    .forEach(([key, value]) => {
+      params.set(key, value);
+    });
+  const query = params.toString();
+  return query ? `/dispatch?${query}` : "/dispatch";
 }
 
 function FunnelCard({ summary }: { summary: OpsSummary }) {
@@ -243,37 +505,41 @@ function AlertsCard({
   summary: OpsSummary;
   agingHint: string;
 }) {
-  const alerts: { label: string; value: number; hint?: string; danger?: boolean }[] =
-    [
-      {
-        label: ko.ops.alerts.aging,
-        value: summary.aging_work_orders,
-        hint: agingHint,
-        danger: summary.aging_work_orders > 0,
-      },
-      {
-        label: ko.ops.alerts.slaBreached,
-        value: summary.sla_breached,
-        danger: summary.sla_breached > 0,
-      },
-      {
-        label: ko.ops.alerts.slaAtRisk,
-        value: summary.sla_at_risk,
-        danger: summary.sla_at_risk > 0,
-      },
-      {
-        label: ko.ops.alerts.pendingApprovals,
-        value: summary.pending_approvals,
-      },
-      {
-        label: ko.ops.alerts.activeSubstitutions,
-        value: summary.active_substitutions,
-      },
-      {
-        label: ko.ops.alerts.openSupport,
-        value: summary.open_support_tickets,
-      },
-    ];
+  const alerts: {
+    label: string;
+    value: number;
+    hint?: string;
+    danger?: boolean;
+  }[] = [
+    {
+      label: ko.ops.alerts.aging,
+      value: summary.aging_work_orders,
+      hint: agingHint,
+      danger: summary.aging_work_orders > 0,
+    },
+    {
+      label: ko.ops.alerts.slaBreached,
+      value: summary.sla_breached,
+      danger: summary.sla_breached > 0,
+    },
+    {
+      label: ko.ops.alerts.slaAtRisk,
+      value: summary.sla_at_risk,
+      danger: summary.sla_at_risk > 0,
+    },
+    {
+      label: ko.ops.alerts.pendingApprovals,
+      value: summary.pending_approvals,
+    },
+    {
+      label: ko.ops.alerts.activeSubstitutions,
+      value: summary.active_substitutions,
+    },
+    {
+      label: ko.ops.alerts.openSupport,
+      value: summary.open_support_tickets,
+    },
+  ];
   return (
     <Card>
       <h2 className="mb-3 text-sm font-semibold text-steel">

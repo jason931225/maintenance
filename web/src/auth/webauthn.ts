@@ -193,7 +193,7 @@ export async function issueEnrollHandoff(
   api: WebAuthnApi,
   requireStepUp = false,
 ): Promise<EnrollHandoffResponse> {
-  const stepUp = requireStepUp ? await assertStepUp(api) : undefined;
+  const stepUp = requireStepUp ? await assertPasskeyStepUp(api) : undefined;
   const result = await api.POST("/api/v1/auth/passkey/enroll-handoff", {
     body: stepUp ? { step_up: stepUp } : {},
   });
@@ -210,7 +210,7 @@ export async function startPasskeyRegistration(
   // assertion of an existing passkey (the backend rejects register/start with
   // 401 otherwise), so a stolen session alone cannot silently enroll a device.
   // Initial enrollment (the user has no passkey yet) skips this.
-  const stepUp = requireStepUp ? await assertStepUp(api) : undefined;
+  const stepUp = requireStepUp ? await assertPasskeyStepUp(api) : undefined;
   const result = await api.POST("/api/v1/auth/passkey/register/start", {
     body: stepUp ? { ...body, step_up: stepUp } : body,
   });
@@ -227,7 +227,7 @@ export async function startPasskeyRegistration(
  * Reuses the discoverable login ceremony — no token is minted, the assertion only
  * proves the caller currently possesses an authenticator.
  */
-async function assertStepUp(
+export async function assertPasskeyStepUp(
   api: WebAuthnApi,
 ): Promise<components["schemas"]["PasskeyStepUpAssertion"]> {
   const ceremony = await startPasskeyLogin(api);

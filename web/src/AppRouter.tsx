@@ -12,7 +12,9 @@ import { RequireDailyPlanRoute } from "./components/RequireDailyPlanRoute";
 import { RequireGroupAdminRoute } from "./components/RequireGroupAdminRoute";
 import { RequireIntegrityRoute } from "./components/RequireIntegrityRoute";
 import { RequireKpiRoute } from "./components/RequireKpiRoute";
+import { RequireMailUseRoute } from "./components/RequireMailUseRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
+import { RequireRoleManageRoute } from "./components/RequireRoleManageRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { PageSpinner } from "./components/states/PageSpinner";
 import { LoginPage } from "./pages/LoginPage";
@@ -64,6 +66,11 @@ const ApprovalsPage = lazy(() =>
 const DailyPlanPage = lazy(() =>
   import("./pages/DailyPlanPage").then((m) => ({ default: m.DailyPlanPage })),
 );
+const CollaborationPage = lazy(() =>
+  import("./pages/CollaborationPage").then((m) => ({
+    default: m.CollaborationPage,
+  })),
+);
 const KpiPage = lazy(() =>
   import("./pages/KpiPage").then((m) => ({ default: m.KpiPage })),
 );
@@ -81,6 +88,9 @@ const ReportingPage = lazy(() =>
 const MessengerPage = lazy(() =>
   import("./pages/MessengerPage").then((m) => ({ default: m.MessengerPage })),
 );
+const MailPage = lazy(() =>
+  import("./pages/MailPage").then((m) => ({ default: m.MailPage })),
+);
 const SupportPage = lazy(() =>
   import("./pages/SupportPage").then((m) => ({ default: m.SupportPage })),
 );
@@ -90,6 +100,11 @@ const EquipmentPage = lazy(() =>
 const EquipmentBrowsePage = lazy(() =>
   import("./pages/EquipmentBrowsePage").then((m) => ({
     default: m.EquipmentBrowsePage,
+  })),
+);
+const EquipmentDetailPage = lazy(() =>
+  import("./pages/EquipmentDetailPage").then((m) => ({
+    default: m.EquipmentDetailPage,
   })),
 );
 const EquipmentManagePage = lazy(() =>
@@ -120,6 +135,11 @@ const EmailSettingsPage = lazy(() =>
 );
 const UsersPage = lazy(() =>
   import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })),
+);
+const PolicyStudioPage = lazy(() =>
+  import("./pages/PolicyStudioPage").then((m) => ({
+    default: m.PolicyStudioPage,
+  })),
 );
 const OrgPage = lazy(() =>
   import("./pages/OrgPage").then((m) => ({ default: m.OrgPage })),
@@ -219,7 +239,7 @@ export function AppRouter() {
 
         {/* Shell-less landing for a just-signed-up user with no role grant yet
             (empty roles or `["MEMBER"]`). ProtectedRoute redirects such a session
-            here instead of onto /dispatch (which the backend 403s). Rendered
+            here instead of onto /work-hub (which the backend 403s). Rendered
             outside the shell — the MEMBER has no nav surface beyond Profile, which
             the page links to. */}
         <Route
@@ -235,7 +255,7 @@ export function AppRouter() {
 
         {/* Vendor platform-admin console — its own shell + nav, gated by the
             `platform` JWT claim. A tenant session hitting /platform is bounced
-            to /dispatch by RequirePlatformRoute; a platform session hitting a
+            to /work-hub by RequirePlatformRoute; a platform session hitting a
             tenant route is bounced to /platform by ProtectedRoute. */}
         <Route element={<RequirePlatformRoute />}>
           <Route path="/platform" element={<PlatformShell />}>
@@ -270,6 +290,7 @@ export function AppRouter() {
           <Route element={<RequireDailyPlanRoute />}>
             <Route path="/daily-plan" element={<DailyPlanPage />} />
           </Route>
+          <Route path="/collaboration" element={<CollaborationPage />} />
           <Route element={<RequireKpiRoute />}>
             <Route path="/kpi" element={<KpiPage />} />
           </Route>
@@ -281,9 +302,13 @@ export function AppRouter() {
           </Route>
           <Route path="/reporting" element={<ReportingPage />} />
           <Route path="/messenger" element={<MessengerPage />} />
+          <Route element={<RequireMailUseRoute />}>
+            <Route path="/mail" element={<MailPage />} />
+          </Route>
           <Route path="/support" element={<SupportPage />} />
           {/* /equipment: equipment browse list (all roles) */}
           <Route path="/equipment" element={<EquipmentBrowsePage />} />
+          <Route path="/equipment/:id" element={<EquipmentDetailPage />} />
           {/* /equipment/manage: equipment CRUD (EquipmentManage roles only) */}
           <Route element={<RequireEquipmentManageRoute />}>
             <Route path="/equipment/manage" element={<EquipmentManagePage />} />
@@ -302,6 +327,9 @@ export function AppRouter() {
           </Route>
           <Route element={<RequireGroupAdminRoute />}>
             <Route path="/settings/group" element={<GroupAdminPage />} />
+          </Route>
+          <Route element={<RequireRoleManageRoute />}>
+            <Route path="/settings/policy" element={<PolicyStudioPage />} />
           </Route>
           <Route element={<RequireAdminRoute />}>
             <Route path="/catalog" element={<CatalogAdminPage />} />

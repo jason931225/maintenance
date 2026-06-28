@@ -37,10 +37,10 @@ import kotlinx.serialization.Contextual
  * @param sourceFilename
  * @param sourceSheet
  * @param sourceRow
- * @param rawRow
- * @param sourceMetadata
  * @param createdAt
  * @param updatedAt
+ * @param employeeNumber
+ * @param orgUnit
  * @param worksiteName
  * @param worksite
  * @param job
@@ -48,6 +48,9 @@ import kotlinx.serialization.Contextual
  * @param hireDate
  * @param exitDate
  * @param status
+ * @param leaveAccrued
+ * @param leaveUsed
+ * @param leaveRemaining
  */
 @Serializable
 
@@ -71,17 +74,17 @@ data class Employee (
     @SerialName(value = "source_row")
     val sourceRow: kotlin.Int,
 
-    @Contextual @SerialName(value = "raw_row")
-    val rawRow: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>,
-
-    @Contextual @SerialName(value = "source_metadata")
-    val sourceMetadata: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>,
-
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,
 
     @Contextual @SerialName(value = "updated_at")
     val updatedAt: java.time.OffsetDateTime,
+
+    @SerialName(value = "employee_number")
+    val employeeNumber: kotlin.String? = null,
+
+    @SerialName(value = "org_unit")
+    val orgUnit: kotlin.String? = null,
 
     @SerialName(value = "worksite_name")
     val worksiteName: kotlin.String? = null,
@@ -102,7 +105,16 @@ data class Employee (
     val exitDate: kotlin.String? = null,
 
     @SerialName(value = "status")
-    val status: kotlin.String? = null
+    val status: kotlin.String? = null,
+
+    @SerialName(value = "leave_accrued")
+    val leaveAccrued: kotlin.String? = null,
+
+    @SerialName(value = "leave_used")
+    val leaveUsed: kotlin.String? = null,
+
+    @SerialName(value = "leave_remaining")
+    val leaveRemaining: kotlin.String? = null
 
 ) {
 

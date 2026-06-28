@@ -15,7 +15,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, OrgId, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
 };
 use mnt_platform_auth::{
     AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier,
@@ -24,6 +25,7 @@ use mnt_platform_auth::{
 };
 use mnt_platform_authz::{
     Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
+    resolve_effective_feature_grants_in_org,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_email::{EmailSender, StubEmailSender};
@@ -652,6 +654,18 @@ impl RestError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "internal",
             message: message.into(),
+        }
+    }
+
+    fn from_kernel(error: KernelError) -> Self {
+        match error.kind {
+            ErrorKind::Validation => RestError::bad_request(error.message),
+            ErrorKind::NotFound => RestError::not_found(error.message),
+            ErrorKind::Forbidden => RestError::forbidden(error.message),
+            ErrorKind::Conflict | ErrorKind::InvalidTransition => {
+                RestError::conflict(error.message)
+            }
+            ErrorKind::Internal => RestError::internal(error.message),
         }
     }
 
@@ -1707,6 +1721,7 @@ async fn start_group_admin_tenant_context(
                 view_as: false,
                 read_only: false,
                 display_name: None,
+                feature_grants: Vec::new(),
                 issued_at: now,
             },
             GROUP_ADMIN_TENANT_CONTEXT_TTL,
@@ -1780,6 +1795,10 @@ struct UserAuthContext {
     /// Clients use these only for UI gating; group-admin endpoints re-resolve
     /// the grant from the database before every cross-tenant action.
     group_roles: Vec<String>,
+    /// Runtime-effective custom-role feature keys resolved at login/refresh time
+    /// for UI gating hints. Backend request authorization ignores the JWT hint
+    /// and re-resolves custom policy from the database on every request.
+    feature_grants: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -1819,6 +1838,7 @@ async fn issue_token_pair(
         read_only: false,
         // DISPLAY-ONLY identity for the topbar; never used for authz.
         display_name: Some(user.display_name.clone()),
+        feature_grants: user.feature_grants.clone(),
         issued_at: now,
     };
     let access_token = if user.group_roles.is_empty() {
@@ -1870,6 +1890,7 @@ fn issue_access_token(
         // DISPLAY-ONLY identity for the topbar; re-loaded from the user on
         // every refresh so a renamed user's token reflects it. Never authz.
         display_name: Some(user.display_name.clone()),
+        feature_grants: user.feature_grants.clone(),
         issued_at: OffsetDateTime::now_utc(),
     };
     if user.group_roles.is_empty() {
@@ -1893,10 +1914,46 @@ async fn load_user_auth_context_in_org(
     org: OrgId,
     user_id: Uuid,
 ) -> Result<UserAuthContext, RestError> {
-    with_org_conn::<_, UserAuthContext, RestError>(pool, org, move |tx| {
+    let mut context = with_org_conn::<_, UserAuthContext, RestError>(pool, org, move |tx| {
         Box::pin(async move { load_user_auth_context_tx(tx, user_id).await })
     })
+    .await?;
+    context.feature_grants = resolve_feature_grant_keys_for_user(pool, &context).await?;
+    Ok(context)
+}
+
+async fn resolve_feature_grant_keys_for_user(
+    pool: &PgPool,
+    context: &UserAuthContext,
+) -> Result<Vec<String>, RestError> {
+    if context.org_id == OrgId::platform() {
+        return Ok(Vec::new());
+    }
+
+    let roles = context
+        .roles
+        .iter()
+        .map(|role| Role::from_str(role).map_err(|err| RestError::internal(err.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let branch_scope = resolve_branch_scope_in_org(pool, context.org_id, context.user_id, &roles)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    let grants = resolve_effective_feature_grants_in_org(
+        pool,
+        context.org_id,
+        context.user_id,
+        &branch_scope,
+    )
     .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    let mut feature_keys = grants
+        .into_iter()
+        .map(|grant| grant.feature.as_str().to_owned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    feature_keys.sort();
+    Ok(feature_keys)
 }
 
 /// Load a user's auth context inside an EXISTING tenant-scoped transaction (the
@@ -1992,6 +2049,7 @@ async fn load_user_auth_context_tx(
         roles,
         branches,
         group_roles,
+        feature_grants: Vec::new(),
     })
 }
 
@@ -2176,35 +2234,43 @@ async fn principal_from_headers(
     services: &AuthServices,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
-    let token = bearer_token(headers)?;
-    let claims = services
-        .jwt_verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is invalid"))?;
-    let roles = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role).map_err(|_| RestError::unauthorized("token contains unknown role"))
-        })
-        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
-    let role_vec = roles.iter().copied().collect::<Vec<_>>();
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token org claim is not a valid uuid"))?;
-    // Resolve the live branch scope from the database rather than trusting the
-    // token's branch claim, matching the authz model's branch-membership gate.
-    // This auth-rest route runs BEFORE the tenant middleware, so arm the GUC with
-    // the verified-token org: `user_branches` is FORCE RLS and would otherwise
-    // return zero branches for a non-super admin under `mnt_rt`.
-    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
+    mnt_platform_request_context::resolve_principal(&services.jwt_verifier, pool, headers)
         .await
-        .map_err(|err| RestError::internal(err.to_string()))?;
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+        .map_err(rest_error_from_request_context)
+}
+
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for auth API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::from_kernel(KernelError::forbidden(
+                "token tier is not valid for this route",
+            ))
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::from_kernel(KernelError::internal(message))
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => RestError::from_kernel(
+            KernelError::internal("no tenant context is bound to the current request"),
+        ),
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 fn authenticated_group_actor(

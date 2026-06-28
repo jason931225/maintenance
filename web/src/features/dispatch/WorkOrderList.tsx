@@ -67,6 +67,12 @@ export function WorkOrderList({
                 <p className="text-sm text-steel">
                   {ko.status[workOrder.status]}
                 </p>
+                <Link
+                  to={`/dispatch?around_work_order_id=${encodeURIComponent(workOrder.id)}`}
+                  className="mt-1 inline-flex text-xs font-medium text-brand-teal underline-offset-2 hover:underline focus-visible:underline"
+                >
+                  {ko.dispatch.searchAround}
+                </Link>
               </div>
               <div>
                 <p className="text-sm font-semibold text-steel">

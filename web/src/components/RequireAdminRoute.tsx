@@ -17,7 +17,7 @@ export function RequireAdminRoute() {
   );
 
   if (!isAdmin) {
-    return <Navigate to="/dispatch" replace />;
+    return <Navigate to="/work-hub" replace />;
   }
 
   return <Outlet />;

@@ -9,9 +9,22 @@
 //! `INTERNALDATE` to the `Date:` header.
 
 use mail_parser::{Address, HeaderValue, MessageParser, MimeHeaders};
-use mnt_comms_application::{FetchedAttachment, FetchedMessage};
+use mnt_comms_application::{FetchedAttachment, FetchedMessage, MAX_INBOUND_ATTACHMENT_BYTES};
 use mnt_comms_domain::MessageAddress;
 use time::OffsetDateTime;
+
+const MAX_SUBJECT_CHARS: usize = 998;
+const MAX_BODY_CHARS: usize = 200_000;
+const MAX_MESSAGE_ID_CHARS: usize = 998;
+const MAX_REFERENCES: usize = 50;
+const MAX_ADDRESSES: usize = 100;
+const MAX_ADDRESS_CHARS: usize = 320;
+const MAX_ADDRESS_NAME_CHARS: usize = 200;
+const MAX_ATTACHMENTS_PER_MESSAGE: usize = 100;
+const MAX_ATTACHMENT_FILENAME_CHARS: usize = 200;
+const MAX_CONTENT_TYPE_CHARS: usize = 120;
+const MAX_ATTACHMENT_BYTES_PER_PART: usize = MAX_INBOUND_ATTACHMENT_BYTES;
+const MAX_ATTACHMENT_BYTES_PER_MESSAGE: usize = MAX_INBOUND_ATTACHMENT_BYTES;
 
 /// The IMAP `FLAGS` the caller observed for this message, mapped to booleans.
 #[derive(Debug, Clone, Copy, Default)]
@@ -46,13 +59,25 @@ pub fn parse_message(
     let to = address_list(parsed.to());
     let cc = address_list(parsed.cc());
 
-    let subject = parsed.subject().unwrap_or_default().to_owned();
-    let body_text = parsed.body_text(0).map(|c| c.into_owned());
-    let body_html = parsed.body_html(0).map(|c| c.into_owned());
+    let subject = parsed
+        .subject()
+        .map(|s| truncate_chars(s, MAX_SUBJECT_CHARS))
+        .unwrap_or_default();
+    let body_text = parsed
+        .body_text(0)
+        .map(|c| truncate_chars(c.as_ref(), MAX_BODY_CHARS));
+    let body_html = parsed
+        .body_html(0)
+        .map(|c| truncate_chars(c.as_ref(), MAX_BODY_CHARS));
 
     let received_at = received_at_from(internal_date, parsed.date());
 
-    let attachments = parsed.attachments().map(part_to_attachment).collect();
+    let mut remaining_attachment_bytes = MAX_ATTACHMENT_BYTES_PER_MESSAGE;
+    let attachments = parsed
+        .attachments()
+        .take(MAX_ATTACHMENTS_PER_MESSAGE)
+        .filter_map(|part| part_to_attachment(part, &mut remaining_attachment_bytes))
+        .collect();
 
     Some(FetchedMessage {
         imap_uid: uid,
@@ -105,11 +130,19 @@ fn header_first_id(value: &HeaderValue<'_>) -> Option<String> {
 /// All message-id tokens in a References header, in order (the chain).
 fn header_id_list(value: &HeaderValue<'_>) -> Vec<String> {
     if let Some(list) = value.as_text_list() {
-        return list.iter().filter_map(|s| clean_id(s)).collect();
+        return list
+            .iter()
+            .filter_map(|s| clean_id(s))
+            .take(MAX_REFERENCES)
+            .collect();
     }
     if let Some(text) = value.as_text() {
         // A space-separated single text value: split into individual ids.
-        return text.split_whitespace().filter_map(clean_id).collect();
+        return text
+            .split_whitespace()
+            .filter_map(clean_id)
+            .take(MAX_REFERENCES)
+            .collect();
     }
     Vec::new()
 }
@@ -130,16 +163,14 @@ fn clean_id(raw: &str) -> Option<String> {
     if unbracketed.is_empty() {
         return None;
     }
-    Some(unbracketed.chars().take(998).collect())
+    Some(truncate_chars(unbracketed, MAX_MESSAGE_ID_CHARS))
 }
 
 /// The first address in a From header → [`MessageAddress`].
 fn first_address(address: &Address<'_>) -> Option<MessageAddress> {
     let addr = address.first()?;
     let email = addr.address()?;
-    MessageAddress::new(email)
-        .ok()
-        .map(|m| m.with_name(addr.name().map(ToOwned::to_owned)))
+    message_address(email, addr.name())
 }
 
 /// Every addressable mailbox in a To/Cc header → [`MessageAddress`] list.
@@ -149,20 +180,28 @@ fn address_list(address: Option<&Address<'_>>) -> Vec<MessageAddress> {
     };
     address
         .iter()
+        .take(MAX_ADDRESSES)
         .filter_map(|addr| {
             let email = addr.address()?;
-            MessageAddress::new(email)
-                .ok()
-                .map(|m| m.with_name(addr.name().map(ToOwned::to_owned)))
+            message_address(email, addr.name())
         })
         .collect()
 }
 
 /// One MIME attachment part → [`FetchedAttachment`] (with decoded bytes).
-fn part_to_attachment(part: &mail_parser::MessagePart<'_>) -> FetchedAttachment {
+fn part_to_attachment(
+    part: &mail_parser::MessagePart<'_>,
+    remaining_attachment_bytes: &mut usize,
+) -> Option<FetchedAttachment> {
+    let contents = part.contents();
+    if !attachment_bytes_fit(contents.len(), *remaining_attachment_bytes) {
+        return None;
+    }
+    *remaining_attachment_bytes -= contents.len();
+
     let filename = part
         .attachment_name()
-        .map(str::to_owned)
+        .map(|name| truncate_chars(name, MAX_ATTACHMENT_FILENAME_CHARS))
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "attachment".to_owned());
     let content_type = part
@@ -171,18 +210,34 @@ fn part_to_attachment(part: &mail_parser::MessagePart<'_>) -> FetchedAttachment 
             Some(sub) => format!("{}/{}", ct.ctype(), sub),
             None => ct.ctype().to_owned(),
         })
+        .map(|ct| truncate_chars(&ct, MAX_CONTENT_TYPE_CHARS))
         .unwrap_or_else(|| "application/octet-stream".to_owned());
-    let content_id = part.content_id().map(str::to_owned);
+    let content_id = part.content_id().and_then(clean_id);
     // An inline part is one referenced from the HTML body by its Content-ID
     // (e.g. an embedded image) rather than a downloadable attachment.
     let is_inline = content_id.is_some();
-    FetchedAttachment {
+    Some(FetchedAttachment {
         filename,
         content_type,
-        bytes: part.contents().to_vec(),
+        bytes: contents.to_vec(),
         content_id,
         is_inline,
-    }
+    })
+}
+
+fn attachment_bytes_fit(byte_len: usize, remaining_attachment_bytes: usize) -> bool {
+    byte_len <= MAX_ATTACHMENT_BYTES_PER_PART && byte_len <= remaining_attachment_bytes
+}
+
+fn message_address(email: &str, name: Option<&str>) -> Option<MessageAddress> {
+    let email = truncate_chars(email.trim(), MAX_ADDRESS_CHARS);
+    MessageAddress::new(email)
+        .ok()
+        .map(|m| m.with_name(name.map(|n| truncate_chars(n.trim(), MAX_ADDRESS_NAME_CHARS))))
+}
+
+fn truncate_chars(value: &str, max: usize) -> String {
+    value.chars().take(max).collect()
 }
 
 #[cfg(test)]
@@ -266,6 +321,123 @@ Content-Disposition: attachment; filename=\"quote.pdf\"\r\n\
         assert_eq!(att.filename, "quote.pdf");
         assert!(att.content_type.starts_with("application/pdf"));
         assert!(!att.bytes.is_empty());
+    }
+
+    #[test]
+    fn caps_hostile_header_body_and_recipient_volume() {
+        let long_subject = "제목".repeat(1_000);
+        let long_html = "<p>".to_owned() + &"본문".repeat(120_000) + "</p>";
+        let references = (0..100)
+            .map(|i| format!("<ref-{i}@example.com>"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let recipients = (0..150)
+            .map(|i| format!("User {i} <user{i}@example.com>"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let raw = format!(
+            "From: {}\r\nTo: {}\r\nSubject: {}\r\nMessage-ID: <{}>\r\nReferences: {}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{}",
+            "\"".to_owned() + &"발신자".repeat(200) + "\" <sender@example.com>",
+            recipients,
+            long_subject,
+            "m".repeat(2_000),
+            references,
+            long_html,
+        );
+
+        let msg = parse_message(7, MessageFlags::default(), None, raw.as_bytes()).unwrap();
+
+        assert_eq!(msg.subject.chars().count(), MAX_SUBJECT_CHARS);
+        assert_eq!(
+            msg.body_html.as_ref().unwrap().chars().count(),
+            MAX_BODY_CHARS
+        );
+        assert_eq!(msg.references.len(), MAX_REFERENCES);
+        assert_eq!(msg.to.len(), MAX_ADDRESSES);
+        assert_eq!(
+            msg.message_id.as_ref().unwrap().chars().count(),
+            MAX_MESSAGE_ID_CHARS
+        );
+        assert_eq!(
+            msg.from
+                .as_ref()
+                .unwrap()
+                .name
+                .as_ref()
+                .unwrap()
+                .chars()
+                .count(),
+            MAX_ADDRESS_NAME_CHARS
+        );
+    }
+
+    #[test]
+    fn caps_attachment_count_and_metadata() {
+        let mut raw = String::from(
+            "From: a@b.com\r\nTo: c@d.com\r\nSubject: Many files\r\nContent-Type: multipart/mixed; boundary=\"BOUND\"\r\n\r\n",
+        );
+        for i in 0..(MAX_ATTACHMENTS_PER_MESSAGE + 20) {
+            raw.push_str("--BOUND\r\n");
+            let filename = format!("{i}-{}.txt", "f".repeat(260));
+            raw.push_str(&format!(
+                "Content-Type: application/{}; name=\"{filename}\"\r\n",
+                "x".repeat(200),
+            ));
+            raw.push_str(&format!(
+                "Content-Disposition: attachment; filename=\"{filename}\"\r\n\r\nfile-{i}\r\n",
+            ));
+        }
+        raw.push_str("--BOUND--\r\n");
+
+        let msg = parse_message(8, MessageFlags::default(), None, raw.as_bytes()).unwrap();
+
+        assert_eq!(msg.attachments.len(), MAX_ATTACHMENTS_PER_MESSAGE);
+        assert!(
+            msg.attachments
+                .iter()
+                .all(|att| att.filename.chars().count() <= MAX_ATTACHMENT_FILENAME_CHARS)
+        );
+        assert!(
+            msg.attachments
+                .iter()
+                .all(|att| att.content_type.chars().count() <= MAX_CONTENT_TYPE_CHARS)
+        );
+    }
+
+    #[test]
+    fn skips_oversized_attachment_part_before_cloning_bytes() {
+        let raw = format!(
+            "From: a@b.com\r\n\
+To: c@d.com\r\n\
+Subject: Huge file\r\n\
+Content-Type: multipart/mixed; boundary=\"BOUND\"\r\n\
+\r\n\
+--BOUND\r\n\
+Content-Type: text/plain\r\n\
+\r\n\
+see attached\r\n\
+--BOUND\r\n\
+Content-Type: application/octet-stream; name=\"huge.bin\"\r\n\
+Content-Disposition: attachment; filename=\"huge.bin\"\r\n\
+\r\n\
+{}\r\n\
+--BOUND--\r\n",
+            "x".repeat(MAX_ATTACHMENT_BYTES_PER_PART + 1),
+        );
+
+        let msg = parse_message(9, MessageFlags::default(), None, raw.as_bytes()).unwrap();
+
+        assert!(msg.attachments.is_empty());
+    }
+
+    #[test]
+    fn attachment_byte_budget_enforces_per_part_and_per_message_limits() {
+        assert!(!attachment_bytes_fit(
+            MAX_ATTACHMENT_BYTES_PER_PART + 1,
+            MAX_ATTACHMENT_BYTES_PER_MESSAGE
+        ));
+        assert!(!attachment_bytes_fit(1, 0));
+        assert!(attachment_bytes_fit(1, 1));
     }
 
     #[test]

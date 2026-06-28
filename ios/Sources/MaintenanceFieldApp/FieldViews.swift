@@ -46,6 +46,11 @@ struct FieldAuthenticatedTabs: View {
                     Label("today_title", systemImage: "list.bullet")
                 }
                 .accessibilityIdentifier(FieldAccessibilityID.todayTab)
+            WorkHubTabView(viewModel: viewModel)
+                .tabItem {
+                    Label("work_hub_title", systemImage: "square.grid.2x2")
+                }
+                .accessibilityIdentifier(FieldAccessibilityID.workHubTab)
             MessengerTabView(viewModel: viewModel)
                 .tabItem {
                     Label("messenger_title", systemImage: "message.fill")
@@ -53,6 +58,72 @@ struct FieldAuthenticatedTabs: View {
                 .accessibilityIdentifier(FieldAccessibilityID.messengerTab)
         }
         .accessibilityIdentifier(FieldAccessibilityID.authenticatedTabs)
+    }
+}
+
+
+struct WorkHubTabView: View {
+    @ObservedObject var viewModel: FieldViewModel
+
+    var body: some View {
+        let summary = viewModel.workHubSummary
+        List {
+            Section {
+                LabeledContent("work_hub_today_count", value: String(summary.todayWorkCount))
+                LabeledContent("work_hub_urgent_count", value: String(summary.urgentWorkCount))
+                LabeledContent("work_hub_target_due_count", value: String(summary.targetDueWorkCount))
+                LabeledContent("location_consent_collection", value: localizedString(summary.gpsMayCollect ? "yes" : "no"))
+            } header: {
+                Text("work_hub_daily_section")
+            } footer: {
+                Text("work_hub_daily_footer")
+            }
+
+            if let messageKey = viewModel.messageKey {
+                Section {
+                    Text(LocalizedStringKey(messageKey))
+                }
+            }
+
+            Section {
+                LabeledContent("work_hub_approval_count", value: String(summary.approvalRelatedCount))
+                LabeledContent("work_hub_pending_sync", value: String(summary.pendingSyncCount))
+                Label("work_hub_passkey_required", systemImage: "person.badge.key")
+                Text("work_hub_sensitive_note")
+            } header: {
+                Text("work_hub_sensitive_section")
+            }
+
+            Section {
+                LabeledContent("work_hub_messenger_count", value: String(summary.messengerThreadCount))
+                Text("work_hub_notifications_note")
+                Text("work_hub_company_mail_note")
+                Text("work_hub_shared_calendar_note")
+                Text("work_hub_polls_note")
+            } header: {
+                Text("work_hub_collaboration_section")
+            } footer: {
+                Text("work_hub_staged_footer")
+            }
+        }
+        .accessibilityIdentifier(FieldAccessibilityID.workHubList)
+        .navigationTitle(Text("work_hub_title"))
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Task {
+                        await viewModel.refreshWorkHub()
+                    }
+                } label: {
+                    Label("refresh", systemImage: "arrow.clockwise")
+                }
+                Button {
+                    Task { await viewModel.logout() }
+                } label: {
+                    Label("logout", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 import { ROLES, type Role } from "../../components/shell/nav";
 import { ko } from "../../i18n/ko";
+import { safeLabel } from "../../lib/utils";
 import type { Team } from "../../api/types";
 
 /** Selectable team codes, mirroring the backend `Team` enum. */
@@ -24,10 +25,8 @@ export function teamLabel(team: Team): string {
 }
 
 export function roleLabel(role: string): string {
-  // Map known role codes to their Korean labels. An unrecognized code (e.g. a
-  // backend enum the client predates) falls back to a human label rather than
-  // surfacing the raw internal code to the user.
-  return (
-    (ko.users.roles as Record<string, string>)[role] ?? ko.common.unknownLabel
-  );
+  // Built-in system roles are localized; tenant/group-created roles may already
+  // be human labels and must remain visible in a configurable enterprise-role
+  // model. `safeLabel` still suppresses UUIDs or blank values.
+  return (ko.users.roles as Record<string, string>)[role] ?? safeLabel(role);
 }

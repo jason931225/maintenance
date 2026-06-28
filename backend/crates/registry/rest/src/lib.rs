@@ -6,47 +6,48 @@
 //! through `with_audit`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::collections::BTreeSet;
-use std::str::FromStr;
-
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    ADDRESS_MAX_CHARS, BranchId, BranchScope, CITY_MAX_CHARS, CONTACT_EMAIL_MAX_CHARS,
-    CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS, CUSTOMER_SITE_NAME_MAX_CHARS, CustomerId,
-    EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId, POSTAL_CODE_MAX_CHARS,
-    PROVINCE_MAX_CHARS, SiteId, TraceContext, UserId, validate_bounded_text,
-    validate_coordinate_pair,
+    ADDRESS_MAX_CHARS, AuditEventId, BranchId, BranchScope, CITY_MAX_CHARS,
+    CONTACT_EMAIL_MAX_CHARS, CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS,
+    CUSTOMER_SITE_NAME_MAX_CHARS, CustomerId, EquipmentId, EquipmentSubstitutionId, ErrorKind,
+    KernelError, POSTAL_CODE_MAX_CHARS, PROVINCE_MAX_CHARS, SiteId, TraceContext, UserId,
+    validate_bounded_text, validate_coordinate_pair,
 };
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{
-    Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
-};
+use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{
     CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
-    DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentListQuery, EquipmentSortBy,
+    DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentListItem, EquipmentListQuery,
+    EquipmentReadQuery, EquipmentSortBy, EquipmentTimelineGraph, EquipmentTimelineGraphQuery,
     RegistryImportReport, SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand,
     SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand,
     UpdateEquipmentFields, UpdateSiteCommand, UpdateSiteFields,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use time::Date;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 pub const EQUIPMENT_PATH: &str = "/api/v1/equipment";
 pub const EQUIPMENT_LIST_PATH: &str = "/api/v1/equipment/list";
 pub const EQUIPMENT_IMPORT_PATH: &str = "/api/v1/equipment/import";
 pub const EQUIPMENT_ID_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}";
+pub const EQUIPMENT_TIMELINE_GRAPH_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/timeline-graph";
 pub const EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/substitutes";
 pub const EQUIPMENT_SUBSTITUTIONS_PATH: &str = "/api/v1/equipment-substitutions";
 pub const EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE: &str =
     "/api/v1/equipment-substitutions/{id}/return";
 pub const EQUIPMENT_BY_LOCATION_PATH: &str = "/api/v1/equipment-by-location";
+pub const OBJECT_ACTION_CATALOG_PATH: &str = "/api/v1/object-actions/catalog";
+pub const OBJECT_ACTION_EXECUTE_PATH: &str = "/api/v1/object-actions/execute";
 pub const CUSTOMERS_PATH: &str = "/api/v1/customers";
 pub const SITES_PATH: &str = "/api/v1/sites";
 pub const SITE_ID_PATH_TEMPLATE: &str = "/api/v1/sites/{id}";
@@ -55,10 +56,13 @@ pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_LIST_PATH,
     EQUIPMENT_IMPORT_PATH,
     EQUIPMENT_ID_PATH_TEMPLATE,
+    EQUIPMENT_TIMELINE_GRAPH_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTIONS_PATH,
     EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
     EQUIPMENT_BY_LOCATION_PATH,
+    OBJECT_ACTION_CATALOG_PATH,
+    OBJECT_ACTION_EXECUTE_PATH,
     CUSTOMERS_PATH,
     SITES_PATH,
     SITE_ID_PATH_TEMPLATE,
@@ -67,11 +71,14 @@ pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
 /// Hard cap on an uploaded master-list workbook. The reference master-list is a
 /// few hundred KiB; 16 MiB leaves generous headroom while bounding memory.
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
+const EQUIPMENT_UPDATE_PROFILE_ACTION_ID: &str = "equipment.update_profile";
+const OBJECT_ACTION_EXECUTION_TOTAL: &str = "object_action_execution_total";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RegistryRestState {
     store: PgRegistryStore,
     jwt_verifier: Option<JwtVerifier>,
+    passkey_step_up: Option<PasskeyService>,
 }
 
 impl RegistryRestState {
@@ -80,7 +87,14 @@ impl RegistryRestState {
         Self {
             store,
             jwt_verifier,
+            passkey_step_up: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_passkey_step_up(mut self, passkey_step_up: Option<PasskeyService>) -> Self {
+        self.passkey_step_up = passkey_step_up;
+        self
     }
 }
 
@@ -112,8 +126,16 @@ pub fn router(state: RegistryRestState) -> Router {
             post(import_master_list).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
         )
         .route(
+            EQUIPMENT_TIMELINE_GRAPH_PATH_TEMPLATE,
+            get(get_equipment_timeline_graph),
+        )
+        .route(OBJECT_ACTION_CATALOG_PATH, get(get_object_action_catalog))
+        .route(OBJECT_ACTION_EXECUTE_PATH, post(execute_object_action))
+        .route(
             EQUIPMENT_ID_PATH_TEMPLATE,
-            axum::routing::patch(update_equipment).delete(delete_equipment),
+            get(get_equipment)
+                .patch(update_equipment)
+                .delete(delete_equipment),
         )
         .route(EQUIPMENT_BY_LOCATION_PATH, get(equipment_by_location))
         .route(CUSTOMERS_PATH, post(create_customer))
@@ -160,7 +182,7 @@ async fn list_equipment_substitutes(
     Path(equipment_id): Path<EquipmentId>,
     Query(query): Query<SubstituteQuery>,
 ) -> Result<Json<SubstituteCandidatePage>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_read_access(&principal)?;
     let include_all_branches = query.all_branches.unwrap_or(false);
     if include_all_branches && !is_super_admin(&principal) {
@@ -276,7 +298,7 @@ async fn equipment_by_location(
     State(state): State<RegistryRestState>,
     headers: HeaderMap,
 ) -> Result<Json<EquipmentByLocationPage>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_read_access(&principal)?;
 
     let items = state
@@ -337,6 +359,26 @@ struct EquipmentListItemResponse {
     updated_at: OffsetDateTime,
 }
 
+impl From<EquipmentListItem> for EquipmentListItemResponse {
+    fn from(item: EquipmentListItem) -> Self {
+        Self {
+            equipment_id: item.equipment_id,
+            branch_id: item.branch_id,
+            equipment_no: item.equipment_no,
+            management_no: item.management_no,
+            status: item.status,
+            model: item.model,
+            maker: item.maker,
+            specification: item.specification,
+            ton_text: item.ton_text,
+            customer_name: item.customer_name,
+            site_name: item.site_name,
+            vin: item.vin,
+            updated_at: item.updated_at,
+        }
+    }
+}
+
 /// GET /api/v1/equipment/list — paginated, filterable, branch-scoped equipment
 /// list. Read access (WorkOrderReadAll, all authenticated roles). Non-SUPER_ADMIN
 /// principals see only rows in their own branch(es) — the same scope guard used
@@ -349,7 +391,7 @@ async fn list_equipment(
     headers: HeaderMap,
     Query(params): Query<EquipmentListQueryParams>,
 ) -> Result<Json<EquipmentListResponse>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_read_access(&principal)?;
 
     let page = state
@@ -371,29 +413,61 @@ async fn list_equipment(
         .map_err(RestError::from_store)?;
 
     Ok(Json(EquipmentListResponse {
-        items: page
-            .items
-            .into_iter()
-            .map(|item| EquipmentListItemResponse {
-                equipment_id: item.equipment_id,
-                branch_id: item.branch_id,
-                equipment_no: item.equipment_no,
-                management_no: item.management_no,
-                status: item.status,
-                model: item.model,
-                maker: item.maker,
-                specification: item.specification,
-                ton_text: item.ton_text,
-                customer_name: item.customer_name,
-                site_name: item.site_name,
-                vin: item.vin,
-                updated_at: item.updated_at,
-            })
-            .collect(),
+        items: page.items.into_iter().map(Into::into).collect(),
         total: page.total,
         limit: page.limit,
         offset: page.offset,
     }))
+}
+
+/// GET /api/v1/equipment/{id} — branch-scoped equipment object read. This uses
+/// the same read authorization and branch filter as the browse list, but avoids
+/// client-side page scanning for direct object links.
+async fn get_equipment(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<EquipmentId>,
+) -> Result<Json<EquipmentListItemResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_read_access(&principal)?;
+
+    let item = state
+        .store
+        .get_equipment(EquipmentReadQuery {
+            branch_scope: principal.branch_scope,
+            equipment_id,
+        })
+        .await
+        .map_err(RestError::from_store)?
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
+
+    Ok(Json(item.into()))
+}
+
+/// GET /api/v1/equipment/{id}/timeline-graph — branch-scoped lifecycle ribbon
+/// and customer/site/equipment/work-order relationship graph for one equipment
+/// object. This is a read-only lens: it uses the same read authorization and
+/// branch scope as `GET /api/v1/equipment/{id}` and returns 404 for a foreign or
+/// missing equipment id without revealing existence.
+async fn get_equipment_timeline_graph(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<EquipmentId>,
+) -> Result<Json<EquipmentTimelineGraph>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_read_access(&principal)?;
+
+    let lens = state
+        .store
+        .equipment_timeline_graph(EquipmentTimelineGraphQuery {
+            branch_scope: principal.branch_scope,
+            equipment_id,
+        })
+        .await
+        .map_err(RestError::from_store)?
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
+
+    Ok(Json(lens))
 }
 
 // ---------------------------------------------------------------------------
@@ -433,7 +507,7 @@ async fn create_customer(
     headers: HeaderMap,
     Json(body): Json<CreateCustomerRequest>,
 ) -> Result<(StatusCode, Json<CreatedCustomerResponse>), RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
     let name = require_bounded_name(body.name, "name")?;
@@ -530,7 +604,7 @@ async fn create_site(
     headers: HeaderMap,
     Json(body): Json<CreateSiteRequest>,
 ) -> Result<(StatusCode, Json<CreatedSiteResponse>), RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
     let name = require_bounded_name(body.name, "name")?;
@@ -684,7 +758,7 @@ async fn update_site(
     Path(site_id): Path<SiteId>,
     Json(body): Json<UpdateSiteRequest>,
 ) -> Result<StatusCode, RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
     // Validate the supplied coordinate edits in the domain. A present-but-null
@@ -863,7 +937,7 @@ async fn assign_equipment_substitute(
     headers: HeaderMap,
     Json(body): Json<AssignSubstituteRequest>,
 ) -> Result<(StatusCode, Json<SubstituteAssignmentResponse>), RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
     let command = SubstituteAssignmentCommand {
@@ -889,7 +963,7 @@ async fn return_equipment_substitute(
     Path(substitution_id): Path<EquipmentSubstitutionId>,
     Json(body): Json<ReturnSubstituteRequest>,
 ) -> Result<Json<SubstituteAssignmentResponse>, RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
     let command = SubstituteReturnCommand {
@@ -916,7 +990,7 @@ async fn import_master_list(
     headers: HeaderMap,
     multipart: Multipart,
 ) -> Result<Json<RegistryImportReport>, RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::MasterListImport)?;
 
     let upload = read_xlsx_upload(multipart).await?;
@@ -974,6 +1048,304 @@ async fn read_xlsx_upload(mut multipart: Multipart) -> Result<XlsxUpload, RestEr
     Err(RestError::from_kernel(KernelError::validation(
         "multipart upload is missing the 'file' field",
     )))
+}
+
+// ---------------------------------------------------------------------------
+// Object actions (CAP-5 governed write-back)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct ObjectActionCatalogQueryParams {
+    object_type: String,
+    object_id: EquipmentId,
+}
+
+#[derive(Debug, Serialize)]
+struct ObjectActionCatalogResponse {
+    object_type: String,
+    object_id: String,
+    actions: Vec<ObjectActionDescriptor>,
+}
+
+#[derive(Debug, Serialize)]
+struct ObjectActionDescriptor {
+    action_id: String,
+    object_type: String,
+    object_id: String,
+    label: String,
+    description: String,
+    submit_label: String,
+    requires_passkey_step_up: bool,
+    risk_level: String,
+    fields: Vec<ObjectActionFieldDescriptor>,
+}
+
+#[derive(Debug, Serialize)]
+struct ObjectActionFieldDescriptor {
+    field_key: String,
+    label: String,
+    field_type: String,
+    required: bool,
+    current_value: Option<String>,
+    options: Vec<ObjectActionFieldOption>,
+}
+
+#[derive(Debug, Serialize)]
+struct ObjectActionFieldOption {
+    value: String,
+    label: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExecuteObjectActionRequest {
+    action_id: String,
+    object_type: String,
+    object_id: EquipmentId,
+    input: Value,
+    #[serde(default)]
+    idempotency_key: Option<String>,
+    #[serde(default)]
+    step_up: Option<ObjectActionStepUpAssertionRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ObjectActionStepUpAssertionRequest {
+    ceremony_id: Uuid,
+    credential: PasskeyAuthenticationCredential,
+}
+
+#[derive(Debug, Serialize)]
+struct ObjectActionExecutionResponse {
+    execution_id: Uuid,
+    action_id: String,
+    object_type: String,
+    object_id: String,
+    status: String,
+    audit_event_id: AuditEventId,
+    target_href: String,
+    message: String,
+}
+
+async fn get_object_action_catalog(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ObjectActionCatalogQueryParams>,
+) -> Result<Json<ObjectActionCatalogResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+    let object_type = normalize_object_type(&query.object_type)?;
+    let equipment = state
+        .store
+        .get_equipment(EquipmentReadQuery {
+            branch_scope: principal.branch_scope.clone(),
+            equipment_id: query.object_id,
+        })
+        .await
+        .map_err(RestError::from_store)?
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
+
+    Ok(Json(ObjectActionCatalogResponse {
+        object_type: object_type.to_owned(),
+        object_id: equipment.equipment_id.to_string(),
+        actions: vec![equipment_update_profile_action(&equipment)],
+    }))
+}
+
+async fn execute_object_action(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Json(body): Json<ExecuteObjectActionRequest>,
+) -> Result<Json<ObjectActionExecutionResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let action_id = object_action_metric_id(&body.action_id);
+    let result = execute_object_action_inner(&state, &principal, body).await;
+    match &result {
+        Ok(_) => record_object_action_execution(EQUIPMENT_UPDATE_PROFILE_ACTION_ID, "succeeded"),
+        Err(error) => {
+            record_object_action_execution(action_id, "rejected");
+            tracing::warn!(
+                event = "object_action_execution_rejected",
+                action_id,
+                error_code = error.code,
+                actor_user_id = %principal.user_id,
+                "object action execution rejected"
+            );
+        }
+    }
+    result.map(Json)
+}
+
+async fn execute_object_action_inner(
+    state: &RegistryRestState,
+    principal: &Principal,
+    body: ExecuteObjectActionRequest,
+) -> Result<ObjectActionExecutionResponse, RestError> {
+    let object_type = normalize_object_type(&body.object_type)?;
+    if body.action_id != EQUIPMENT_UPDATE_PROFILE_ACTION_ID {
+        return Err(RestError::validation("unknown object action"));
+    }
+    if body
+        .idempotency_key
+        .as_deref()
+        .is_some_and(|key| key.len() > 128)
+    {
+        return Err(RestError::validation(
+            "idempotency_key must be 128 characters or fewer",
+        ));
+    }
+    authorize_equipment_feature(principal, Feature::EquipmentManage)?;
+    verify_object_action_step_up(state, principal, body.step_up).await?;
+
+    let input: UpdateEquipmentRequest = serde_json::from_value(body.input)
+        .map_err(|_| RestError::validation("input does not match the equipment action schema"))?;
+    let fields = equipment_fields_from_request(input)?;
+    let trace = TraceContext::generate();
+    let audit_event_id = state
+        .store
+        .update_equipment(UpdateEquipmentCommand {
+            actor: principal.user_id,
+            equipment_id: body.object_id,
+            fields,
+            trace,
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+
+    let equipment_id = body.object_id.to_string();
+    Ok(ObjectActionExecutionResponse {
+        execution_id: Uuid::new_v4(),
+        action_id: EQUIPMENT_UPDATE_PROFILE_ACTION_ID.to_owned(),
+        object_type: object_type.to_owned(),
+        object_id: equipment_id.clone(),
+        status: "succeeded".to_owned(),
+        audit_event_id,
+        target_href: format!("/equipment/{equipment_id}"),
+        message: "장비 정보가 감사 로그와 함께 업데이트되었습니다.".to_owned(),
+    })
+}
+
+async fn verify_object_action_step_up(
+    state: &RegistryRestState,
+    principal: &Principal,
+    step_up: Option<ObjectActionStepUpAssertionRequest>,
+) -> Result<(), RestError> {
+    let step_up = step_up.ok_or_else(|| {
+        RestError::new(
+            StatusCode::PRECONDITION_REQUIRED,
+            "passkey_step_up_required",
+            "object action execution requires a fresh passkey step-up",
+        )
+    })?;
+    let verifier = state.passkey_step_up.as_ref().ok_or_else(|| {
+        RestError::unavailable("passkey step-up is not configured for registry API")
+    })?;
+    verifier
+        .verify_step_up_for_user(
+            state.store.pool(),
+            step_up.ceremony_id,
+            step_up.credential,
+            *principal.user_id.as_uuid(),
+        )
+        .await
+        .map_err(|_| RestError::unauthorized("passkey step-up failed"))?;
+    Ok(())
+}
+
+fn normalize_object_type(raw: &str) -> Result<&'static str, RestError> {
+    match raw.trim() {
+        "equipment" => Ok("equipment"),
+        _ => Err(RestError::validation("object_type must be equipment")),
+    }
+}
+
+fn object_action_metric_id(raw: &str) -> &'static str {
+    match raw {
+        EQUIPMENT_UPDATE_PROFILE_ACTION_ID => EQUIPMENT_UPDATE_PROFILE_ACTION_ID,
+        _ => "unknown",
+    }
+}
+
+fn record_object_action_execution(action_id: &'static str, outcome: &'static str) {
+    metrics::counter!(
+        OBJECT_ACTION_EXECUTION_TOTAL,
+        "action_id" => action_id,
+        "outcome" => outcome,
+    )
+    .increment(1);
+}
+
+fn equipment_update_profile_action(item: &EquipmentListItem) -> ObjectActionDescriptor {
+    ObjectActionDescriptor {
+        action_id: EQUIPMENT_UPDATE_PROFILE_ACTION_ID.to_owned(),
+        object_type: "equipment".to_owned(),
+        object_id: item.equipment_id.to_string(),
+        label: "장비 정보 수정".to_owned(),
+        description:
+            "고객, 현장, 상태, 모델, 규격 같은 장비 마스터 정보를 감사 로그와 함께 수정합니다."
+                .to_owned(),
+        submit_label: "패스키로 수정 실행".to_owned(),
+        requires_passkey_step_up: true,
+        risk_level: "sensitive_write".to_owned(),
+        fields: vec![
+            ObjectActionFieldDescriptor {
+                field_key: "status".to_owned(),
+                label: "상태".to_owned(),
+                field_type: "select".to_owned(),
+                required: false,
+                current_value: Some(equipment_status_wire_value(item.status).to_owned()),
+                options: equipment_status_action_options(),
+            },
+            text_action_field("customer_name", "고객명", Some(&item.customer_name)),
+            text_action_field("site_name", "현장명", Some(&item.site_name)),
+            text_action_field("management_no", "관리번호", item.management_no.as_deref()),
+            text_action_field("model", "모델", item.model.as_deref()),
+            text_action_field("maker", "제조사", item.maker.as_deref()),
+            text_action_field("specification", "규격", Some(&item.specification)),
+            text_action_field("ton_text", "톤수", Some(&item.ton_text)),
+        ],
+    }
+}
+
+fn text_action_field(
+    field_key: &str,
+    label: &str,
+    current_value: Option<&str>,
+) -> ObjectActionFieldDescriptor {
+    ObjectActionFieldDescriptor {
+        field_key: field_key.to_owned(),
+        label: label.to_owned(),
+        field_type: "text".to_owned(),
+        required: false,
+        current_value: current_value.map(ToOwned::to_owned),
+        options: vec![],
+    }
+}
+
+fn equipment_status_action_options() -> Vec<ObjectActionFieldOption> {
+    [
+        (EquipmentStatus::Rented, "임대"),
+        (EquipmentStatus::Spare, "예비"),
+        (EquipmentStatus::Disposed, "폐기"),
+        (EquipmentStatus::Replacement, "대차"),
+        (EquipmentStatus::Sold, "매각"),
+    ]
+    .into_iter()
+    .map(|(status, label)| ObjectActionFieldOption {
+        value: equipment_status_wire_value(status).to_owned(),
+        label: label.to_owned(),
+    })
+    .collect()
+}
+
+fn equipment_status_wire_value(status: EquipmentStatus) -> &'static str {
+    match status {
+        EquipmentStatus::Rented => "rented",
+        EquipmentStatus::Spare => "spare",
+        EquipmentStatus::Disposed => "disposed",
+        EquipmentStatus::Replacement => "replacement",
+        EquipmentStatus::Sold => "sold",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1046,7 +1418,7 @@ async fn create_equipment(
     headers: HeaderMap,
     Json(body): Json<CreateEquipmentRequest>,
 ) -> Result<(StatusCode, Json<CreateEquipmentResponse>), RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
     let equipment_no = EquipmentNo::parse(body.equipment_no).map_err(RestError::from_kernel)?;
@@ -1189,9 +1561,27 @@ async fn update_equipment(
     Path(equipment_id): Path<EquipmentId>,
     Json(body): Json<UpdateEquipmentRequest>,
 ) -> Result<StatusCode, RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
+    let fields = equipment_fields_from_request(body)?;
+    state
+        .store
+        .update_equipment(UpdateEquipmentCommand {
+            actor: principal.user_id,
+            equipment_id,
+            fields,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn equipment_fields_from_request(
+    body: UpdateEquipmentRequest,
+) -> Result<UpdateEquipmentFields, RestError> {
     let fields = UpdateEquipmentFields {
         customer_name: body.customer_name,
         site_name: body.site_name,
@@ -1231,18 +1621,7 @@ async fn update_equipment(
             "no equipment fields to update",
         )));
     }
-    state
-        .store
-        .update_equipment(UpdateEquipmentCommand {
-            actor: principal.user_id,
-            equipment_id,
-            fields,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .map_err(RestError::from_store)?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(fields)
 }
 
 async fn delete_equipment(
@@ -1250,7 +1629,7 @@ async fn delete_equipment(
     headers: HeaderMap,
     Path(equipment_id): Path<EquipmentId>,
 ) -> Result<StatusCode, RestError> {
-    let principal = principal_from_headers_db(&state, &headers).await?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
 
     state
@@ -1304,39 +1683,48 @@ fn authorize_equipment_feature(principal: &Principal, feature: Feature) -> Resul
     authorize(principal, Action::new(feature), branch).map_err(RestError::from_kernel)
 }
 
-async fn principal_from_headers_db(
+async fn principal_from_headers(
     state: &RegistryRestState,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for registry API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let role_vec: Vec<Role> = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<_, _>>()?;
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    // Arm the verified-token org explicitly: this path resolves the principal and
-    // may run before the per-request tenant middleware has set CURRENT_ORG.
-    let branch_scope = resolve_branch_scope_in_org(state.store.pool(), org_id, user_id, &role_vec)
+    mnt_platform_request_context::resolve_principal(verifier, state.store.pool(), headers)
         .await
-        .map_err(RestError::from_kernel)?;
-    let roles = role_vec.iter().copied().collect::<BTreeSet<_>>();
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+        .map_err(rest_error_from_request_context)
+}
+
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for registry API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::forbidden("token tier is not valid for this route")
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::internal(message)
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => {
+            RestError::internal("no tenant context is bound to the current request")
+        }
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 fn authorize_read_access(principal: &Principal) -> Result<(), RestError> {
@@ -1358,69 +1746,6 @@ fn is_super_admin(principal: &Principal) -> bool {
     principal.roles.contains(&Role::SuperAdmin)
 }
 
-fn principal_from_headers(
-    state: &RegistryRestState,
-    headers: &HeaderMap,
-) -> Result<Principal, RestError> {
-    let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
-        RestError::unavailable("JWT verification is not configured for registry API")
-    })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
-}
-
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?;
-    header_value
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
-}
-
-fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles_vec: Vec<Role> = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<_, _>>()?;
-    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
-    let branch_scope = if roles_vec
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch)
-                    .map_err(|_| RestError::unauthorized("token contains an invalid branch id"))
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        BranchScope::Branches(branches)
-    };
-
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
-}
-
 #[derive(Debug)]
 struct RestError {
     status: StatusCode,
@@ -1429,6 +1754,14 @@ struct RestError {
 }
 
 impl RestError {
+    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+
     fn from_store(error: PgRegistryError) -> Self {
         match error {
             PgRegistryError::Domain(error) => Self::from_kernel(error),
@@ -1469,6 +1802,14 @@ impl RestError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             code: "unauthorized",
+            message: message.into(),
+        }
+    }
+
+    fn validation(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "validation",
             message: message.into(),
         }
     }

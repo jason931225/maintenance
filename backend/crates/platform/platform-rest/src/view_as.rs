@@ -246,6 +246,7 @@ async fn start_view_as(
                 // view-as banner already names the acting tenant/role, and the
                 // operator's own identity is audited separately at start/exit.
                 display_name: None,
+                feature_grants: Vec::new(),
                 issued_at: now,
             },
             VIEW_AS_TOKEN_TTL,
@@ -372,6 +373,7 @@ async fn start_tenant_context(
                 view_as: false,
                 read_only: false,
                 display_name: None,
+                feature_grants: Vec::new(),
                 issued_at: now,
             },
             TENANT_CONTEXT_TOKEN_TTL,

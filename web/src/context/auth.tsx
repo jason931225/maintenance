@@ -41,6 +41,12 @@ export interface AuthSession {
    * group-admin APIs re-resolve live grants before every cross-tenant action.
    */
   group_roles?: string[];
+  /**
+   * JWT `feature_grants` claim: runtime-effective custom-role feature keys used
+   * only as client-side UI hints. The backend re-resolves live policy on every
+   * request, so this never grants access by itself.
+   */
+  feature_grants?: string[];
   /** JWT `branches` claim; the first entry scopes admin actions like issuing OTPs. */
   branches?: string[];
   /**
@@ -163,6 +169,7 @@ function decodeAccessClaims(accessToken: string): {
   email?: string;
   roles?: string[];
   group_roles?: string[];
+  feature_grants?: string[];
   branches?: string[];
   isPlatform?: boolean;
 } {
@@ -186,6 +193,7 @@ function decodeAccessClaims(accessToken: string): {
       email?: unknown;
       roles?: unknown;
       group_roles?: unknown;
+      feature_grants?: unknown;
       branches?: unknown;
       platform?: unknown;
     };
@@ -204,6 +212,11 @@ function decodeAccessClaims(accessToken: string): {
         : undefined,
       group_roles: Array.isArray(claims.group_roles)
         ? claims.group_roles.filter((r): r is string => typeof r === "string")
+        : undefined,
+      feature_grants: Array.isArray(claims.feature_grants)
+        ? claims.feature_grants.filter((feature): feature is string =>
+            typeof feature === "string",
+          )
         : undefined,
       branches: Array.isArray(claims.branches)
         ? claims.branches.filter((b): b is string => typeof b === "string")

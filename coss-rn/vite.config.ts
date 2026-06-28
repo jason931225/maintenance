@@ -7,6 +7,9 @@ export default defineConfig({
   define: {
     __DEV__: JSON.stringify(process.env.NODE_ENV !== 'production'),
   },
+  optimizeDeps: {
+    exclude: ['react-native', 'react-native-video'],
+  },
   resolve: {
     alias: [
       { find: /^react-native$/, replacement: 'react-native-web' },

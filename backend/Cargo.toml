@@ -19,6 +19,8 @@ members = [
   "crates/workorder/*",
   "crates/messenger/*",
   "crates/comms/*",
+  "crates/payroll/*",
+  "crates/erp/*",
   "crates/platform/*",
   "ci/gates/*",
 ]
@@ -193,6 +195,8 @@ mnt-comms-adapter-postgres = { path = "crates/comms/adapter-postgres" }
 mnt-comms-adapter-smtp = { path = "crates/comms/adapter-smtp" }
 mnt-comms-adapter-imap = { path = "crates/comms/adapter-imap" }
 mnt-comms-rest = { path = "crates/comms/rest" }
+mnt-payroll-domain = { path = "crates/payroll/domain" }
+mnt-erp-domain = { path = "crates/erp/domain" }
 mnt-dispatch-domain = { path = "crates/dispatch/domain" }
 mnt-dispatch-application = { path = "crates/dispatch/application" }
 mnt-dispatch-adapter-postgres = { path = "crates/dispatch/adapter-postgres" }

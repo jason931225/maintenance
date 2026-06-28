@@ -2,8 +2,9 @@ import { Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { EquipmentListItem, EquipmentSortBy, EquipmentStatus } from "../api/types";
+import { ObjectLink } from "../components/object/ObjectLink";
 import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
+import { DataTable, type DataTableColumn } from "../components/ui/data-table";
 import { Input } from "../components/ui/input";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
@@ -11,9 +12,11 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { LoadMoreButton } from "../components/shell/LoadMoreButton";
 import { EquipmentDetailDialog } from "../features/equipment/EquipmentDetailDialog";
+import { equipmentStatusBadgeClass } from "../features/equipment/equipment-format";
 import { useAuth } from "../context/auth";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { formatKoreanDate } from "../lib/datetime";
+import { Mono } from "../lib/format";
 import { safeLabel } from "../lib/utils";
 import { ko } from "../i18n/ko";
 
@@ -48,17 +51,82 @@ function statusLabel(status: EquipmentStatus): string {
   return ko.equipment.statuses[status];
 }
 
-function statusClassName(status: EquipmentStatus): string {
-  switch (status) {
-    case "rented":
-      return "bg-signal/10 text-signal border-signal/30";
-    case "spare":
-      return "bg-muted-panel text-steel border-line";
-    case "disposed":
-      return "bg-red-50 text-red-700 border-red-200";
-    default:
-      return "";
-  }
+function equipmentColumns(
+  canManage: boolean,
+): Array<DataTableColumn<EquipmentListItem>> {
+  const actionLabel = canManage
+    ? ko.equipment.browse.editAction
+    : ko.equipment.browse.viewAction;
+
+  return [
+    {
+      key: "equipment_no",
+      header: ko.equipment.browse.colEquipmentNo,
+      cellClassName: "text-xs font-medium text-ink",
+      cell: (item) => <Mono>{item.equipment_no}</Mono>,
+    },
+    {
+      key: "management_no",
+      header: ko.equipment.browse.colManagementNo,
+      cellClassName: "text-steel",
+      cell: (item) =>
+        item.management_no ? <Mono>{item.management_no}</Mono> : ko.common.notSet,
+    },
+    {
+      key: "status",
+      header: ko.equipment.browse.colStatus,
+      cell: (item) => (
+        <Badge className={equipmentStatusBadgeClass(item.status)}>
+          {statusLabel(item.status)}
+        </Badge>
+      ),
+    },
+    {
+      key: "model",
+      header: ko.equipment.browse.colModel,
+      cellClassName: "text-ink",
+      cell: (item) => safeLabel(item.model, item.maker),
+    },
+    {
+      key: "customer",
+      header: ko.equipment.browse.colCustomer,
+      cellClassName: "text-ink",
+      cell: (item) => (
+        <>
+          <span className="font-medium">{safeLabel(item.customer_name)}</span>
+          <span className="mx-1 text-steel">/</span>
+          <span className="text-steel">{safeLabel(item.site_name)}</span>
+        </>
+      ),
+    },
+    {
+      key: "updated_at",
+      header: ko.equipment.browse.colUpdatedAt,
+      cellClassName: "text-steel",
+      cell: (item) => formatKoreanDate(item.updated_at),
+    },
+    {
+      key: "action",
+      header: <span className="sr-only">{ko.equipment.browse.rowAction}</span>,
+      cell: (item) => (
+        <ObjectLink
+          to={`/equipment/${item.equipment_id}`}
+          state={{ equipment: item }}
+          objectTypeLabel={ko.equipment.browse.objectType}
+          objectLabel={item.equipment_no}
+          ariaLabel={`${actionLabel}: ${item.equipment_no}`}
+          className="px-2 py-1 text-steel no-underline hover:bg-muted-panel hover:text-ink hover:no-underline"
+          onClick={(event) => {
+            // The row still opens the legacy quick-view popup; stop bubbling so
+            // this deep-link action navigates to the object page instead.
+            event.stopPropagation();
+          }}
+        >
+          {actionLabel}
+        </ObjectLink>
+      ),
+    },
+  ];
 }
 
 function resetPagination(
@@ -251,116 +319,27 @@ export function EquipmentBrowseSurface({
       ) : items.length === 0 ? (
         <PageEmpty message={ko.equipment.browse.empty} />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-line bg-white">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line bg-muted-panel/40 text-left text-steel">
-                  <th className="px-4 py-3 font-medium">
-                    {ko.equipment.browse.colEquipmentNo}
-                  </th>
-                  <th className="px-4 py-3 font-medium">
-                    {ko.equipment.browse.colManagementNo}
-                  </th>
-                  <th className="px-4 py-3 font-medium">
-                    {ko.equipment.browse.colStatus}
-                  </th>
-                  <th className="px-4 py-3 font-medium">
-                    {ko.equipment.browse.colModel}
-                  </th>
-                  <th className="px-4 py-3 font-medium">
-                    {ko.equipment.browse.colCustomer}
-                  </th>
-                  <th className="px-4 py-3 font-medium">
-                    {ko.equipment.browse.colUpdatedAt}
-                  </th>
-                  <th className="px-4 py-3 font-medium">
-                    <span className="sr-only">
-                      {ko.equipment.browse.rowAction}
-                    </span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {items.map((item) => (
-                  <tr
-                    key={item.equipment_id}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`${ko.equipment.browse.rowAction}: ${item.equipment_no}`}
-                    className="cursor-pointer hover:bg-muted-panel/30 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
-                    onClick={() => { handleRowOpen(item); }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        handleRowOpen(item);
-                      }
-                    }}
-                  >
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-ink">
-                      {item.equipment_no}
-                    </td>
-                    <td className="px-4 py-3 text-steel">
-                      {item.management_no ?? ko.common.notSet}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge className={statusClassName(item.status)}>
-                        {statusLabel(item.status)}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-ink">
-                      {safeLabel(item.model, item.maker)}
-                    </td>
-                    <td className="px-4 py-3 text-ink">
-                      <span className="font-medium">
-                        {safeLabel(item.customer_name)}
-                      </span>
-                      <span className="mx-1 text-steel">/</span>
-                      <span className="text-steel">
-                        {safeLabel(item.site_name)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-steel">
-                      {formatKoreanDate(item.updated_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(event) => {
-                          // The row already opens the popup; stop the bubble so
-                          // we don't fire the row handler a second time.
-                          event.stopPropagation();
-                          handleRowOpen(item);
-                        }}
-                        aria-label={`${
-                          canManage
-                            ? ko.equipment.browse.editAction
-                            : ko.equipment.browse.viewAction
-                        }: ${item.equipment_no}`}
-                      >
-                        {canManage
-                          ? ko.equipment.browse.editAction
-                          : ko.equipment.browse.viewAction}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {hasMore ? (
-            <div className="border-t border-line p-4">
-              <LoadMoreButton
-                onClick={handleLoadMore}
-                isLoading={readState === "loading-more"}
-                loaded={items.length}
-                total={total}
-              />
-            </div>
-          ) : null}
-        </div>
+        <DataTable
+          rows={items}
+          columns={equipmentColumns(canManage)}
+          getRowKey={(item) => item.equipment_id}
+          getRowAriaLabel={(item) =>
+            `${ko.equipment.browse.rowAction}: ${item.equipment_no}`
+          }
+          onRowClick={handleRowOpen}
+          footer={
+            hasMore ? (
+              <div className="border-t border-line p-4">
+                <LoadMoreButton
+                  onClick={handleLoadMore}
+                  isLoading={readState === "loading-more"}
+                  loaded={items.length}
+                  total={total}
+                />
+              </div>
+            ) : null
+          }
+        />
       )}
 
       <EquipmentDetailDialog

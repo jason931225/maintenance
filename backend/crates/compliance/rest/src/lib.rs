@@ -1,9 +1,6 @@
 //! REST API for Location Information Act consent controls.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::collections::BTreeSet;
-use std::str::FromStr;
-
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -16,11 +13,10 @@ use mnt_compliance_application::{
 };
 use mnt_compliance_domain::{LocationConsent, LocationConsentState, LocationPing};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, LocationPingId, OrgId, Timestamp, TraceContext,
-    UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, LocationPingId, Timestamp, TraceContext, UserId,
 };
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use serde::{Deserialize, Serialize};
 
 pub const COMPLIANCE_ROUTE_PATHS: &[&str] = &[
@@ -134,7 +130,7 @@ async fn get_status(
     headers: HeaderMap,
     Query(query): Query<StatusQuery>,
 ) -> Result<Json<LocationConsentStatusResponse>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let branch_id = resolve_requested_branch(&principal, query.branch_id)?;
     authorize(&principal, Action::new(Feature::Login), branch_id)
         .map_err(RestError::from_kernel)?;
@@ -184,7 +180,7 @@ async fn transition_consent(
     body: TransitionRequest,
     kind: ConsentTransitionKind,
 ) -> Result<Json<LocationConsentStatusResponse>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let branch_id = resolve_requested_branch(&principal, body.branch_id)?;
     authorize(&principal, Action::new(Feature::Login), branch_id)
         .map_err(RestError::from_kernel)?;
@@ -211,7 +207,7 @@ async fn record_location_ping(
     headers: HeaderMap,
     Json(body): Json<LocationPingRequest>,
 ) -> Result<StatusCode, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let branch_id = resolve_requested_branch(&principal, body.branch_id)?;
     authorize(&principal, Action::new(Feature::Login), branch_id)
         .map_err(RestError::from_kernel)?;
@@ -239,7 +235,7 @@ async fn list_ledger(
     headers: HeaderMap,
     Query(query): Query<LedgerRequest>,
 ) -> Result<Json<LocationConsentLedgerPage>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_ledger_read(&principal, query.branch_id)?;
     let page = state
         .store
@@ -254,7 +250,7 @@ async fn export_ledger_csv(
     headers: HeaderMap,
     Query(query): Query<LedgerRequest>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_ledger_read(&principal, query.branch_id)?;
     let page = state
         .store
@@ -314,19 +310,8 @@ fn authorize_ledger_read(
         Some(branch_id) => authorize(principal, Action::new(Feature::AuditLogRead), branch_id)
             .map_err(RestError::from_kernel),
         None => match &principal.branch_scope {
-            BranchScope::All => {
-                let has_feature_permission = principal.roles.iter().any(|role| {
-                    mnt_platform_authz::permission_for(*role, Feature::AuditLogRead)
-                        .satisfies_for_rest()
-                });
-                if has_feature_permission {
-                    Ok(())
-                } else {
-                    Err(RestError::from_kernel(KernelError::forbidden(
-                        "role is not allowed to use feature",
-                    )))
-                }
-            }
+            BranchScope::All => authorize_org_wide(principal, Action::new(Feature::AuditLogRead))
+                .map_err(RestError::from_kernel),
             BranchScope::Branches(branches) if branches.len() == 1 => {
                 let Some(branch_id) = branches.iter().copied().next() else {
                     return Err(RestError::from_kernel(KernelError::validation(
@@ -350,7 +335,7 @@ async fn list_arrival_events(
     headers: HeaderMap,
     Query(query): Query<LedgerRequest>,
 ) -> Result<Json<ArrivalEventPage>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_arrival_read(&principal, query.branch_id)?;
     let page = state
         .store
@@ -385,17 +370,8 @@ fn authorize_arrival_read(
             .map_err(RestError::from_kernel),
         None => match &principal.branch_scope {
             BranchScope::All => {
-                let has_feature_permission = principal.roles.iter().any(|role| {
-                    mnt_platform_authz::permission_for(*role, Feature::OpsDashboardRead)
-                        .satisfies_for_rest()
-                });
-                if has_feature_permission {
-                    Ok(())
-                } else {
-                    Err(RestError::from_kernel(KernelError::forbidden(
-                        "role is not allowed to use feature",
-                    )))
-                }
+                authorize_org_wide(principal, Action::new(Feature::OpsDashboardRead))
+                    .map_err(RestError::from_kernel)
             }
             BranchScope::Branches(branches) if branches.len() == 1 => {
                 let Some(branch_id) = branches.iter().copied().next() else {
@@ -472,68 +448,50 @@ fn csv_field(value: &str) -> String {
     }
 }
 
-fn principal_from_headers(
+async fn principal_from_headers(
     state: &ComplianceRestState,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
-    let verifier = state
-        .jwt_verifier
-        .as_ref()
-        .ok_or_else(|| RestError::unavailable("JWT verification is not configured"))?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
+        RestError::unavailable("JWT verification is not configured for compliance API")
+    })?;
+    mnt_platform_request_context::resolve_principal(verifier, state.store.pool(), headers)
+        .await
+        .map_err(rest_error_from_request_context)
 }
 
-fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles_vec: Vec<Role> = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<_, _>>()?;
-    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
-    let branch_scope = if roles_vec
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch)
-                    .map_err(|_| RestError::unauthorized("token contains an invalid branch id"))
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        BranchScope::Branches(branches)
-    };
-
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
-}
-
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?;
-    header_value
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for compliance API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::from_kernel(KernelError::forbidden(
+                "token tier is not valid for this route",
+            ))
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::from_kernel(KernelError::internal(message))
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => RestError::from_kernel(
+            KernelError::internal("no tenant context is bound to the current request"),
+        ),
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 fn current_trace_context() -> TraceContext {
@@ -619,15 +577,5 @@ impl IntoResponse for RestError {
             }),
         )
             .into_response()
-    }
-}
-
-trait PermissionLevelExt {
-    fn satisfies_for_rest(self) -> bool;
-}
-
-impl PermissionLevelExt for mnt_platform_authz::PermissionLevel {
-    fn satisfies_for_rest(self) -> bool {
-        matches!(self, Self::Allow)
     }
 }

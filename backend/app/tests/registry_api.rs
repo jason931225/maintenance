@@ -3,7 +3,7 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, EquipmentId, OrgId, UserId};
+use mnt_kernel_core::{BranchId, EquipmentId, OrgId, UserId, WorkOrderId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -111,6 +111,165 @@ async fn substitutes_endpoint_is_branch_scoped_and_super_admin_can_expand(pool: 
     );
 }
 
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn equipment_timeline_graph_is_branch_scoped_and_links_work_orders(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch = seed_branch(&pool, "Timeline Region", "Timeline Branch").await;
+    let other_branch = seed_branch(&pool, "Timeline Other Region", "Timeline Other").await;
+    let admin = seed_user_with_branch(&pool, "ADMIN", branch).await;
+    let equipment = seed_equipment(
+        &pool,
+        branch,
+        EquipmentFixture::new("TFO25-0290", "290", "임대", "좌식", "2.5T"),
+    )
+    .await;
+    let hidden_equipment = seed_equipment(
+        &pool,
+        other_branch,
+        EquipmentFixture::new("TFO25-0777", "777", "임대", "좌식", "2.5T"),
+    )
+    .await;
+    let work_order = seed_work_order(&pool, branch, equipment, admin, "20260613-101").await;
+
+    let admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin,
+        vec!["ADMIN".to_owned()],
+        vec![branch],
+    )
+    .unwrap();
+    let service = build_router(app_state(pool, public_key_pem).unwrap());
+
+    let response = get_json(
+        service.clone(),
+        &format!("/api/v1/equipment/{equipment}/timeline-graph"),
+        &admin_token,
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.json);
+    assert_eq!(
+        response.json["equipment"]["equipment_id"],
+        equipment.to_string()
+    );
+    assert_eq!(response.json["work_order_count"], 1);
+    assert!(
+        lifecycle_kinds(&response.json).contains(&"rental_started"),
+        "{:?}",
+        response.json["lifecycle_events"]
+    );
+    assert!(
+        lifecycle_kinds(&response.json).contains(&"work_order"),
+        "{:?}",
+        response.json["lifecycle_events"]
+    );
+    assert!(
+        graph_node_ids(&response.json)
+            .iter()
+            .any(|id| id == &format!("work_order:{work_order}")),
+        "{:?}",
+        response.json["graph"]["nodes"]
+    );
+    assert!(
+        graph_edge_kinds(&response.json).contains(&"has_work_order"),
+        "{:?}",
+        response.json["graph"]["edges"]
+    );
+
+    let hidden = get_json(
+        service,
+        &format!("/api/v1/equipment/{hidden_equipment}/timeline-graph"),
+        &admin_token,
+    )
+    .await;
+    assert_eq!(hidden.status, StatusCode::NOT_FOUND, "{:?}", hidden.json);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn object_action_catalog_and_executor_are_governed(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch = seed_branch(&pool, "Action Region", "Action Branch").await;
+    let admin = seed_user_with_branch(&pool, "ADMIN", branch).await;
+    let equipment = seed_equipment(
+        &pool,
+        branch,
+        EquipmentFixture::new("AFO25-0290", "290", "임대", "좌식", "2.5T"),
+    )
+    .await;
+
+    let admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin,
+        vec!["ADMIN".to_owned()],
+        vec![branch],
+    )
+    .unwrap();
+    let service = build_router(app_state(pool.clone(), public_key_pem).unwrap());
+
+    let catalog = get_json(
+        service.clone(),
+        &format!("/api/v1/object-actions/catalog?object_type=equipment&object_id={equipment}"),
+        &admin_token,
+    )
+    .await;
+    assert_eq!(catalog.status, StatusCode::OK, "{:?}", catalog.json);
+    assert_eq!(catalog.json["object_type"], "equipment");
+    assert_eq!(
+        catalog.json["actions"][0]["action_id"],
+        "equipment.update_profile"
+    );
+    assert_eq!(catalog.json["actions"][0]["requires_passkey_step_up"], true);
+    assert!(
+        catalog.json["actions"][0]["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field["field_key"] == "status" && field["field_type"] == "select"),
+        "{:?}",
+        catalog.json["actions"][0]["fields"]
+    );
+
+    let rejected = post_json(
+        service,
+        "/api/v1/object-actions/execute",
+        &admin_token,
+        serde_json::json!({
+            "action_id": "equipment.update_profile",
+            "object_type": "equipment",
+            "object_id": equipment,
+            "input": {
+                "status": "spare"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(
+        rejected.status,
+        StatusCode::PRECONDITION_REQUIRED,
+        "{:?}",
+        rejected.json
+    );
+    assert_eq!(rejected.json["error"]["code"], "passkey_step_up_required");
+
+    let audit_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'equipment.update'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(audit_count, 0, "rejected action must not write audit");
+}
+
 struct JsonResponse {
     status: StatusCode,
     json: Value,
@@ -133,12 +292,58 @@ async fn get_json(service: axum::Router, uri: &str, token: &str) -> JsonResponse
     JsonResponse { status, json }
 }
 
+async fn post_json(service: axum::Router, uri: &str, token: &str, body: Value) -> JsonResponse {
+    let response = service
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    JsonResponse { status, json }
+}
+
 fn equipment_numbers(json: &Value) -> Vec<&str> {
     json["items"]
         .as_array()
         .unwrap()
         .iter()
         .map(|item| item["equipment_no"].as_str().unwrap())
+        .collect()
+}
+
+fn lifecycle_kinds(json: &Value) -> Vec<&str> {
+    json["lifecycle_events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["kind"].as_str().unwrap())
+        .collect()
+}
+
+fn graph_node_ids(json: &Value) -> Vec<&str> {
+    json["graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|node| node["id"].as_str().unwrap())
+        .collect()
+}
+
+fn graph_edge_kinds(json: &Value) -> Vec<&str> {
+    json["graph"]["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|edge| edge["kind"].as_str().unwrap())
         .collect()
 }
 
@@ -168,6 +373,7 @@ fn issue_token(
         view_as: false,
         read_only: false,
         display_name: None,
+        feature_grants: Vec::new(),
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }
@@ -297,13 +503,15 @@ async fn seed_equipment(
             branch_id, customer_id, site_id, equipment_no, management_no,
             manufacturer_code, kind_code, power_code, power_label, status,
             placement_location, specification, ton_text, ton_milli,
-            model, source_sheet, source_row, org_id
+            model, asset_registered_on, rental_started_on, acquisition_date,
+            source_sheet, source_row, org_id
         )
         VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9, $10,
             $11, $12, $13, $14,
-            $15, 'test fixture', 1, $16
+            $15, '2024-01-10', '2024-02-01', '2024-01-15',
+            'test fixture', 1, $16
         )
         RETURNING id
         "#,
@@ -328,6 +536,47 @@ async fn seed_equipment(
     .await
     .unwrap();
     EquipmentId::from_uuid(equipment_id)
+}
+
+async fn seed_work_order(
+    pool: &PgPool,
+    branch_id: BranchId,
+    equipment_id: EquipmentId,
+    requested_by: UserId,
+    request_no: &str,
+) -> WorkOrderId {
+    let work_order_id = WorkOrderId::new();
+    let (customer_id, site_id): (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT customer_id, site_id FROM registry_equipment WHERE id = $1")
+            .bind(*equipment_id.as_uuid())
+            .fetch_one(pool)
+            .await
+            .unwrap();
+
+    sqlx::query(
+        r#"
+        INSERT INTO work_orders (
+            id, request_no, branch_id, equipment_id, customer_id, site_id,
+            requested_by, status, priority, symptom, target_due_at, org_id
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, 'ASSIGNED', 'P1', 'Timeline graph fixture', '2026-06-13T10:00:00Z', $8
+        )
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(request_no)
+    .bind(*branch_id.as_uuid())
+    .bind(*equipment_id.as_uuid())
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(*requested_by.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    work_order_id
 }
 
 fn ton_milli(ton: &str) -> Option<i32> {

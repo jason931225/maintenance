@@ -1,7 +1,7 @@
 import { Navigate, Outlet } from "react-router-dom";
 
 import { useAuth } from "../context/auth";
-import { hasAnyRole, ROLES } from "./shell/nav";
+import { FEATURES, hasAnyFeatureGrant, hasAnyRole, ROLES } from "./shell/nav";
 
 /**
  * JWT roles allowed to read KPI dashboards (backend `KpiRead`:
@@ -17,11 +17,16 @@ const KPI_ROLES = [ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
  * unreachable by direct URL for roles whose nav hides it. The backend re-checks
  * authorization on every call.
  */
+const KPI_FEATURES = [FEATURES.KPI_READ] as const;
+
 export function RequireKpiRoute() {
   const { session } = useAuth();
 
-  if (!hasAnyRole(session?.roles, KPI_ROLES)) {
-    return <Navigate to="/dispatch" replace />;
+  if (
+    !hasAnyRole(session?.roles, KPI_ROLES) &&
+    !hasAnyFeatureGrant(session?.feature_grants, KPI_FEATURES)
+  ) {
+    return <Navigate to="/work-hub" replace />;
   }
 
   return <Outlet />;

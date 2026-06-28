@@ -426,7 +426,7 @@ export interface paths {
         };
         /**
          * List branch-scoped work orders
-         * @description Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+         * @description Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
          */
         get: operations["listWorkOrders"];
         put?: never;
@@ -710,6 +710,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hr/org-chart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the tenant HR organization chart
+         * @description Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows remain preserved in the employee directory.
+         */
+        get: operations["getHrOrgChart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/leave-balances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List employee leave-balance rows
+         * @description Read-only HR leave summary extracted from imported employee workbooks. Payroll and sensitive columns remain preserved in raw import JSON unless explicitly modeled.
+         */
+        get: operations["listHrLeaveBalances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/attendance-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List branch-scoped attendance summaries
+         * @description Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+         */
+        get: operations["listHrAttendanceSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employees/import": {
         parameters: {
             query?: never;
@@ -737,7 +797,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Read one branch-scoped equipment master row
+         * @description Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals only receive rows in their own branch scope; a foreign or missing id returns 404 without revealing existence.
+         */
+        get: operations["getEquipment"];
         put?: never;
         post?: never;
         /**
@@ -752,6 +816,66 @@ export interface paths {
          * @description Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
          */
         patch: operations["updateEquipment"];
+        trace?: never;
+    };
+    "/api/v1/equipment/{id}/timeline-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one equipment lifecycle ribbon and relationship graph
+         * @description Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order graph visible within the caller's branch scope. A foreign or missing equipment id returns 404 without revealing existence.
+         */
+        get: operations["getEquipmentTimelineGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-actions/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read governed object-action descriptors for one object
+         * @description Returns typed, UI-renderable action descriptors for a console object. The initial CAP-5 vertical slice supports equipment actions and requires EquipmentManage. Missing or foreign equipment returns 404 through the same branch-scoped object read used by the equipment detail page.
+         */
+        get: operations["getObjectActionCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-actions/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute a governed audited object action
+         * @description Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice supports `equipment.update_profile`.
+         */
+        post: operations["executeObjectAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/sync": {
@@ -2240,6 +2364,204 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/policy/features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List canonical policy feature catalog for Policy Studio */
+        get: operations["listPolicyFeatures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List built-in role templates and tenant custom roles */
+        get: operations["listPolicyRoles"];
+        put?: never;
+        /**
+         * Create a tenant custom role definition
+         * @description Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+         */
+        post: operations["createPolicyRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/roles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a tenant custom role definition
+         * @description Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+         */
+        patch: operations["updatePolicyRole"];
+        trace?: never;
+    };
+    "/api/v1/policy/roles/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Publish, roll back, or retire a tenant custom role
+         * @description Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+         */
+        patch: operations["updatePolicyRoleStatus"];
+        trace?: never;
+    };
+    "/api/v1/policy/roles/{id}/status-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview custom-role lifecycle status impact
+         * @description Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+         */
+        post: operations["previewPolicyRoleStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Policy Studio audit evidence
+         * @description Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+         */
+        get: operations["listPolicyAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/role-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List safe starter templates for tenant custom roles
+         * @description Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+         */
+        get: operations["listPolicyRoleTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List custom-role assignments for one user
+         * @description Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+         */
+        get: operations["listPolicyAssignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/users/{id}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace one user's custom-role assignments
+         * @description Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+         */
+        put: operations["replacePolicyAssignments"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/users/{id}/assignment-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview requested custom-role assignment impact for one user
+         * @description Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+         */
+        post: operations["previewPolicyAssignments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -3275,10 +3597,114 @@ export interface components {
             /** Format: int64 */
             offset: number;
         };
+        EquipmentTimelineGraph: {
+            equipment: components["schemas"]["EquipmentTimelineEquipment"];
+            lifecycle_events: components["schemas"]["EquipmentLifecycleEvent"][];
+            graph: components["schemas"]["EquipmentRelationshipGraph"];
+            /** Format: int64 */
+            work_order_count: number;
+            /** Format: int64 */
+            cost_ledger_total_won: number;
+        };
+        EquipmentTimelineEquipment: {
+            equipment_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            management_no?: string | null;
+            status: components["schemas"]["EquipmentStatus"];
+            model?: string | null;
+            maker?: string | null;
+            customer_id: components["schemas"]["Uuid"];
+            customer_name: string;
+            site_id: components["schemas"]["Uuid"];
+            site_name: string;
+        };
+        EquipmentLifecycleEvent: {
+            id: string;
+            kind: string;
+            label: string;
+            description?: string | null;
+            event_date?: components["schemas"]["Date"] | null;
+            occurred_at?: components["schemas"]["Timestamp"] | null;
+            href?: string | null;
+        };
+        EquipmentRelationshipGraph: {
+            nodes: components["schemas"]["EquipmentGraphNode"][];
+            edges: components["schemas"]["EquipmentGraphEdge"][];
+        };
+        EquipmentGraphNode: {
+            id: string;
+            node_type: string;
+            label: string;
+            subtitle?: string | null;
+            href?: string | null;
+            current: boolean;
+        };
+        EquipmentGraphEdge: {
+            from: string;
+            to: string;
+            kind: string;
+            label: string;
+        };
+        ObjectActionCatalogResponse: {
+            object_type: string;
+            object_id: components["schemas"]["Uuid"];
+            actions: components["schemas"]["ObjectActionDescriptor"][];
+        };
+        ObjectActionDescriptor: {
+            /** @example equipment.update_profile */
+            action_id: string;
+            object_type: string;
+            object_id: components["schemas"]["Uuid"];
+            label: string;
+            description: string;
+            submit_label: string;
+            requires_passkey_step_up: boolean;
+            /** @enum {string} */
+            risk_level: "sensitive_write";
+            fields: components["schemas"]["ObjectActionFieldDescriptor"][];
+        };
+        ObjectActionFieldDescriptor: {
+            field_key: string;
+            label: string;
+            /** @enum {string} */
+            field_type: "text" | "select";
+            required: boolean;
+            current_value?: string | null;
+            options: components["schemas"]["ObjectActionFieldOption"][];
+        };
+        ObjectActionFieldOption: {
+            value: string;
+            label: string;
+        };
+        ExecuteObjectActionRequest: {
+            /** @enum {string} */
+            action_id: "equipment.update_profile";
+            /** @enum {string} */
+            object_type: "equipment";
+            object_id: components["schemas"]["Uuid"];
+            /** @description Typed action payload. For `equipment.update_profile`, this is UpdateEquipmentRequest. */
+            input: components["schemas"]["UpdateEquipmentRequest"];
+            idempotency_key?: string | null;
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        ObjectActionExecutionResponse: {
+            execution_id: components["schemas"]["Uuid"];
+            action_id: string;
+            object_type: string;
+            object_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "succeeded";
+            audit_event_id: components["schemas"]["Uuid"];
+            target_href: string;
+            message: string;
+        };
         Employee: {
             id: components["schemas"]["Uuid"];
             company: string;
             name: string;
+            employee_number?: string | null;
+            org_unit?: string | null;
             worksite_name?: string | null;
             worksite?: string | null;
             job?: string | null;
@@ -3286,16 +3712,13 @@ export interface components {
             hire_date?: string | null;
             exit_date?: string | null;
             status?: string | null;
+            leave_accrued?: string | null;
+            leave_used?: string | null;
+            leave_remaining?: string | null;
             source_filename: string;
             source_sheet: string;
             /** Format: int32 */
             source_row: number;
-            raw_row: {
-                [key: string]: unknown;
-            };
-            source_metadata: {
-                [key: string]: unknown;
-            };
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };
@@ -3319,6 +3742,80 @@ export interface components {
             inserted: number;
             updated: number;
             companies: components["schemas"]["EmployeeImportCompanySummary"][];
+        };
+        HrOrgChartEmployee: {
+            id: components["schemas"]["Uuid"];
+            name: string;
+            employee_number?: string | null;
+            status: string;
+        };
+        HrOrgChartPosition: {
+            title: string;
+            /** Format: int64 */
+            total: number;
+            employees: components["schemas"]["HrOrgChartEmployee"][];
+        };
+        HrOrgChartUnit: {
+            name: string;
+            /** Format: int64 */
+            total: number;
+            positions: components["schemas"]["HrOrgChartPosition"][];
+        };
+        HrOrgChartCompany: {
+            company: string;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            active: number;
+            units: components["schemas"]["HrOrgChartUnit"][];
+        };
+        HrOrgChartResponse: {
+            companies: components["schemas"]["HrOrgChartCompany"][];
+        };
+        LeaveBalanceSummary: {
+            accrued: string;
+            used: string;
+            remaining: string;
+        };
+        LeaveBalanceItem: {
+            id: components["schemas"]["Uuid"];
+            company: string;
+            name: string;
+            employee_number?: string | null;
+            org_unit?: string | null;
+            position?: string | null;
+            leave_accrued?: string | null;
+            leave_used?: string | null;
+            leave_remaining?: string | null;
+        };
+        LeaveBalancePage: {
+            items: components["schemas"]["LeaveBalanceItem"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            summary: components["schemas"]["LeaveBalanceSummary"];
+        };
+        AttendanceSummaryItem: {
+            user_id: components["schemas"]["Uuid"];
+            display_name: string;
+            /** Format: int64 */
+            arrivals: number;
+            /** Format: int64 */
+            departures: number;
+            last_kind?: string | null;
+            last_event_at?: components["schemas"]["Timestamp"] | null;
+        };
+        AttendanceSummaryPage: {
+            items: components["schemas"]["AttendanceSummaryItem"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
         };
         AssignmentSummary: {
             id: components["schemas"]["Uuid"];
@@ -3391,6 +3888,62 @@ export interface components {
             offset: number;
             /** Format: int64 */
             total: number;
+            lens?: components["schemas"]["WorkOrderObjectSetLens"];
+        };
+        WorkOrderObjectSetLens: {
+            /** @enum {string} */
+            object_type: "work_order";
+            aggregates: components["schemas"]["WorkOrderLensAggregates"];
+            facets: components["schemas"]["WorkOrderLensFacets"];
+            histograms: components["schemas"]["WorkOrderLensHistograms"];
+            listograms: components["schemas"]["WorkOrderLensListograms"];
+        };
+        WorkOrderLensAggregates: {
+            /** Format: int64 */
+            total_count: number;
+            /** Format: int64 */
+            p1_count: number;
+            /** Format: int64 */
+            overdue_open_count: number;
+            /** Format: int64 */
+            unassigned_count: number;
+        };
+        WorkOrderLensFacets: {
+            status: components["schemas"]["WorkOrderFacetBucket"][];
+            priority: components["schemas"]["WorkOrderFacetBucket"][];
+        };
+        WorkOrderFacetBucket: {
+            value: string;
+            /** Format: int64 */
+            count: number;
+            filters: {
+                [key: string]: string;
+            };
+        };
+        WorkOrderLensHistograms: {
+            target_due_date: components["schemas"]["WorkOrderHistogramBucket"][];
+        };
+        WorkOrderHistogramBucket: {
+            /** Format: date */
+            bucket: string;
+            /** Format: int64 */
+            count: number;
+            filters: {
+                [key: string]: string;
+            };
+        };
+        WorkOrderLensListograms: {
+            customers: components["schemas"]["WorkOrderNamedBucket"][];
+            sites: components["schemas"]["WorkOrderNamedBucket"][];
+        };
+        WorkOrderNamedBucket: {
+            id: components["schemas"]["Uuid"];
+            name: string;
+            /** Format: int64 */
+            count: number;
+            filters: {
+                [key: string]: string;
+            };
         };
         ApprovalItemSource: {
             /** @enum {string} */
@@ -4493,6 +5046,200 @@ export interface components {
          * @enum {string}
          */
         AccountStatus: "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
+        PolicyPermissionResponse: {
+            feature_key: string;
+            /** @enum {string} */
+            permission_level: "deny" | "request_only" | "limited" | "allow";
+        };
+        /** @description ABAC/PBAC condition metadata attached to a custom policy role. These constraints are persisted for audit and preview. Runtime evaluation supports data-backed branch narrowing and team matching; unsupported ABAC/PBAC attributes remain visible but fail closed until implemented. */
+        PolicyConditionResponse: {
+            condition_key: string;
+            /** @enum {string} */
+            attribute: "group" | "tenant" | "organization" | "org" | "department" | "team" | "position" | "employment_status" | "assignment" | "location" | "site" | "branch" | "device_posture" | "purpose" | "action" | "resource" | "sensitive_action";
+            /** @enum {string} */
+            operator: "equals" | "not_equals" | "in";
+            values: string[];
+        };
+        PolicyDefaultPermissionResponse: {
+            role_key: string;
+            /** @enum {string} */
+            permission_level: "deny" | "request_only" | "limited" | "allow";
+        };
+        PolicyFeatureResponse: {
+            feature_key: string;
+            elevated: boolean;
+            default_permissions: components["schemas"]["PolicyDefaultPermissionResponse"][];
+        };
+        SystemPolicyRoleResponse: {
+            role_key: string;
+            display_name: string;
+            status: string;
+            is_system: boolean;
+            permissions: components["schemas"]["PolicyPermissionResponse"][];
+        };
+        PolicyRoleResponse: {
+            id: components["schemas"]["Uuid"];
+            role_key: string;
+            display_name: string;
+            description: string | null;
+            /**
+             * @description Requested lifecycle status. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+             * @enum {string}
+             */
+            status: "DRAFT" | "ACTIVE" | "RETIRED";
+            is_system: boolean;
+            permissions: components["schemas"]["PolicyPermissionResponse"][];
+            conditions: components["schemas"]["PolicyConditionResponse"][];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        PolicyRoleCatalogResponse: {
+            policy_version: components["schemas"]["PolicyVersionResponse"];
+            system_roles: components["schemas"]["SystemPolicyRoleResponse"][];
+            custom_roles: components["schemas"]["PolicyRoleResponse"][];
+        };
+        /** @description Monotonic tenant policy revision. Version 0 means no custom policy write has occurred yet; every role or custom-role assignment write bumps the stored version for future effective-policy cache invalidation. */
+        PolicyVersionResponse: {
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        /** @description Append-only Policy Studio audit evidence. Console UI should render human-safe summaries and avoid exposing raw target identifiers by default; the identifiers remain in the API for export and traceability. */
+        PolicyAuditEventResponse: {
+            id: components["schemas"]["Uuid"];
+            actor?: components["schemas"]["Uuid"];
+            action: string;
+            /** @enum {string} */
+            target_type: "policy_role" | "policy_role_assignment";
+            target_id: string;
+            before_snapshot?: {
+                [key: string]: unknown;
+            } | null;
+            after_snapshot?: {
+                [key: string]: unknown;
+            } | null;
+            trace_id: string;
+            span_id: string;
+            occurred_at: components["schemas"]["Timestamp"];
+        };
+        CreatePolicyRoleRequest: {
+            role_key: string;
+            display_name: string;
+            description?: string | null;
+            permissions: components["schemas"]["PolicyPermissionResponse"][];
+            conditions?: components["schemas"]["PolicyConditionResponse"][];
+        };
+        UpdatePolicyRoleRequest: {
+            display_name: string;
+            description?: string | null;
+            permissions: components["schemas"]["PolicyPermissionResponse"][];
+            conditions?: components["schemas"]["PolicyConditionResponse"][];
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        UpdatePolicyRoleStatusRequest: {
+            /**
+             * @description Requested lifecycle status for read-only impact preview. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+             * @enum {string}
+             */
+            status: "DRAFT" | "ACTIVE" | "RETIRED";
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        PolicyRoleStatusPreviewRequest: {
+            /** @enum {string} */
+            status: "DRAFT" | "ACTIVE" | "RETIRED";
+        };
+        PolicyRoleStatusPreviewResponse: {
+            role_id: components["schemas"]["Uuid"];
+            role_key: string;
+            display_name: string;
+            /** @enum {string} */
+            current_status: "DRAFT" | "ACTIVE" | "RETIRED";
+            /** @enum {string} */
+            requested_status: "DRAFT" | "ACTIVE" | "RETIRED";
+            /** Format: int64 */
+            permission_count: number;
+            /** Format: int64 */
+            condition_count: number;
+            /** Format: int64 */
+            planned_assignment_count: number;
+            requires_passkey_step_up: boolean;
+            /** @description True when changing this role status would make existing assignments gain or lose runtime-effective custom-role grants on the next request. */
+            effective_runtime_change: boolean;
+            warnings: ("passkey_step_up_required" | "no_status_change" | "assigned_users_may_gain_or_lose_runtime_permissions" | "rollback_disables_assigned_custom_role_runtime_grants" | "retire_disables_assigned_custom_role_runtime_grants" | "publish_enables_assigned_custom_role_runtime_grants")[];
+        };
+        PolicyRoleTemplateResponse: {
+            template_key: string;
+            /** @description Suggested custom role key to copy into CreatePolicyRoleRequest. */
+            role_key: string;
+            display_name: string;
+            /** @description Stable grouping key for UI sections. */
+            category: string;
+            description: string;
+            permissions: components["schemas"]["PolicyPermissionResponse"][];
+        };
+        PolicyRoleAssignmentResponse: {
+            user_id: components["schemas"]["Uuid"];
+            role_id: components["schemas"]["Uuid"];
+            role_key: string;
+            display_name: string;
+            /** @enum {string} */
+            status: "DRAFT" | "ACTIVE" | "RETIRED";
+            /** Format: uuid */
+            assigned_by: string | null;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        PolicyRoleAssignmentDeltaResponse: {
+            added_role_ids: components["schemas"]["Uuid"][];
+            removed_role_ids: components["schemas"]["Uuid"][];
+            unchanged_role_ids: components["schemas"]["Uuid"][];
+        };
+        /** @description Per-custom-role impact row for assignment preview. Runtime fields are computed by the same fail-closed evaluator used for the top-level preview: only ACTIVE roles whose supported conditions (branch and team) match the target user's live attributes/scope and whose permissions are supported can expose runtime grants. */
+        PolicyRoleImpactResponse: {
+            role_id: components["schemas"]["Uuid"];
+            role_key: string;
+            display_name: string;
+            /** @enum {string} */
+            status: "DRAFT" | "ACTIVE" | "RETIRED";
+            /** @description True only when this custom role will produce supported runtime feature grants for the target user after the assignment is saved. */
+            runtime_effective: boolean;
+            /** @description Deterministic fail-closed reasons explaining why this role is planning/audit-only for the target user. */
+            runtime_warnings: ("custom_role_status_not_active" | "custom_role_condition_unsupported_by_runtime_evaluator" | "custom_role_condition_invalid_branch_value" | "custom_role_condition_outside_target_branch_scope" | "custom_role_condition_outside_target_attributes" | "custom_role_no_runtime_allowed_permissions")[];
+            conditions: components["schemas"]["PolicyConditionResponse"][];
+        };
+        PolicyFeatureGrantPreviewResponse: {
+            feature_key: string;
+            /** @enum {string} */
+            permission_level: "request_only" | "limited" | "allow";
+            /** @enum {string} */
+            source_type: "system_role" | "custom_role";
+            source_key: string;
+            source_label: string;
+        };
+        PolicyAssignmentPreviewResponse: {
+            user_id: components["schemas"]["Uuid"];
+            preview_receipt_id: components["schemas"]["Uuid"];
+            preview_receipt_expires_at: components["schemas"]["Timestamp"];
+            /** @description True when the requested saved assignment set contains at least one ACTIVE custom role that will produce runtime-effective feature grants for the target user's live branch scope. DRAFT/RETIRED roles, unsupported conditions, invalid branch values, and reserved elevated/scope-widening features remain fail-closed. */
+            effective: boolean;
+            system_roles: string[];
+            current_role_ids: components["schemas"]["Uuid"][];
+            requested_role_ids: components["schemas"]["Uuid"][];
+            delta: components["schemas"]["PolicyRoleAssignmentDeltaResponse"];
+            custom_roles: components["schemas"]["PolicyRoleImpactResponse"][];
+            /** @description Effective runtime grant preview. Custom-role rows are included only for runtime_effective custom roles; DRAFT roles, unsupported conditions, branch/team mismatches, and unsupported permissions are reported through custom_roles[].runtime_warnings instead of being shown as grants. */
+            feature_grants: components["schemas"]["PolicyFeatureGrantPreviewResponse"][];
+            /** @description Preview-level warnings. Includes deterministic custom-role runtime warning codes when any requested role is planning/audit-only. */
+            warnings: string[];
+        };
+        /** @description Custom-role assignment replacement. The preview endpoint accepts `role_ids` only. The mutating replacement endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id` from a current impact preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side so the audit trail binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective on the next request when their grants and conditions pass the fail-closed runtime evaluator. */
+        ReplacePolicyRoleAssignmentsRequest: {
+            role_ids?: components["schemas"]["Uuid"][];
+            /** @description Must be true for the mutating replacement endpoint after the caller reviewed the assignment impact preview. The preview endpoint ignores this field. Omitted values are treated as false by the server. */
+            preview_acknowledged?: boolean;
+            preview_receipt_id?: components["schemas"]["Uuid"];
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
         UserSummary: {
             id: components["schemas"]["Uuid"];
             display_name: string;
@@ -5204,6 +5951,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
     };
@@ -5652,6 +6400,8 @@ export interface operations {
                 assigned_to?: string;
                 customer_id?: components["schemas"]["Uuid"];
                 site_id?: components["schemas"]["Uuid"];
+                /** @description Search around this seed work order; returns branch/RLS-visible orders sharing the seed's customer, site, or equipment, including the seed. */
+                around_work_order_id?: components["schemas"]["Uuid"];
                 target_due_from?: components["schemas"]["Timestamp"];
                 target_due_to?: components["schemas"]["Timestamp"];
                 limit?: number;
@@ -6301,6 +7051,78 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    getHrOrgChart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization chart grouped from imported employee rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HrOrgChartResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listHrLeaveBalances: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Leave-balance rows and aggregate totals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveBalancePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listHrAttendanceSummary: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attendance summaries for users within the caller's branch scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceSummaryPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     importEmployees: {
         parameters: {
             query?: never;
@@ -6332,6 +7154,38 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getEquipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Equipment master row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentListItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     deleteEquipment: {
@@ -6392,6 +7246,116 @@ export interface operations {
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
             /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getEquipmentTimelineGraph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Equipment lifecycle and relationship graph lens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentTimelineGraph"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getObjectActionCatalog: {
+        parameters: {
+            query: {
+                object_type: "equipment";
+                object_id: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Governed action descriptors for the object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectActionCatalogResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    executeObjectAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecuteObjectActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Object action execution receipt with audit provenance. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectActionExecutionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT or passkey step-up verification is not configured. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8003,6 +8967,426 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listPolicyFeatures: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canonical features and built-in matrix defaults. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyFeatureResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listPolicyRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Built-in system role templates and tenant custom role definitions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleCatalogResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createPolicyRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePolicyRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Custom role definition created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updatePolicyRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePolicyRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated custom role definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT or passkey step-up verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updatePolicyRoleStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePolicyRoleStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated custom role. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT or passkey step-up verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    previewPolicyRoleStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyRoleStatusPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Read-only status impact preview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleStatusPreviewResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listPolicyAuditEvents: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent policy audit evidence rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyAuditEventResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listPolicyRoleTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Safe custom-role starter templates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleTemplateResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listPolicyAssignments: {
+        parameters: {
+            query: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Planned custom-role assignments for the requested user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleAssignmentResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    replacePolicyAssignments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplacePolicyRoleAssignmentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Planned assignments after replacement. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRoleAssignmentResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT or passkey step-up verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    previewPolicyAssignments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplacePolicyRoleAssignmentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Preview of assignment delta and resulting grants. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyAssignmentPreviewResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     listUsers: {

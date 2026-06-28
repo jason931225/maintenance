@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  FEATURES,
   GROUP_ROLES,
   NAV_GROUPS,
   ROLES,
+  hasAnyFeatureGrant,
   hasAnyRole,
   hasGroupAdminRole,
   isNavItemVisible,
@@ -19,9 +21,10 @@ const ALL_ITEM_KEYS = NAV_GROUPS.flatMap((group) =>
 function visibleItems(
   roles: readonly string[],
   groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
 ): string[] {
   return ALL_ITEM_KEYS.filter((key) =>
-    isNavItemVisible(key, roles, groupRoles),
+    isNavItemVisible(key, roles, groupRoles, featureGrants),
   );
 }
 
@@ -36,8 +39,10 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "intake",
     "approvals",
     "daily-plan",
+    "collaboration",
     "inspection",
     "messenger",
+    "mail",
     "support",
     "kpi",
     "ops",
@@ -52,6 +57,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "location",
     "employees",
     "users",
+    "policy",
     "email",
     "security",
     "profile",
@@ -63,8 +69,10 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "intake",
     "approvals",
     "daily-plan",
+    "collaboration",
     "inspection",
     "messenger",
+    "mail",
     "support",
     "kpi",
     "ops",
@@ -89,7 +97,9 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "dispatch",
     "dispatch-map",
     "intake",
+    "collaboration",
     "messenger",
+    "mail",
     "support",
     "kpi",
     "reporting",
@@ -109,6 +119,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "dispatch-map",
     "intake",
     "daily-plan",
+    "collaboration",
     "messenger",
     "support",
     "reporting",
@@ -123,7 +134,9 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "dispatch",
     "dispatch-map",
     "intake",
+    "collaboration",
     "messenger",
+    "mail",
     "support",
     "reporting",
     "equipment",
@@ -153,7 +166,34 @@ describe("nav role gating", () => {
       expect(isNavItemVisible("org", [role])).toBe(false);
       expect(isNavItemVisible("sites", [role])).toBe(false);
       expect(isNavItemVisible("email", [role])).toBe(false);
+      expect(isNavItemVisible("policy", [role])).toBe(false);
     }
+  });
+
+  it("shows the mailbox (MailUse) to built-in holders or an effective MailUse custom grant", () => {
+    expect(isNavItemVisible("mail", [ROLES.RECEPTIONIST])).toBe(true);
+    expect(isNavItemVisible("mail", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("mail", [ROLES.EXECUTIVE])).toBe(true);
+    expect(isNavItemVisible("mail", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("mail", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("mail", [ROLES.MEMBER])).toBe(false);
+    expect(
+      isNavItemVisible("mail", [ROLES.MEMBER], undefined, [FEATURES.MAIL_USE]),
+    ).toBe(true);
+  });
+
+  it("shows policy studio to SUPER_ADMIN or an effective RoleManage custom grant", () => {
+    expect(isNavItemVisible("policy", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("policy", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("policy", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("policy", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("policy", [ROLES.RECEPTIONIST])).toBe(false);
+    expect(isNavItemVisible("policy", [ROLES.MEMBER])).toBe(false);
+    expect(
+      isNavItemVisible("policy", [ROLES.MEMBER], undefined, [
+        FEATURES.ROLE_MANAGE,
+      ]),
+    ).toBe(true);
   });
 
   it("shows the mail-account config (MailAccountManage) only to ADMIN and SUPER_ADMIN", () => {
@@ -237,7 +277,20 @@ describe("nav role gating", () => {
       (role) => role !== ROLES.MEMBER,
     );
     for (const role of grantedRoles) {
-      for (const key of ["work-hub", "dispatch", "dispatch-map", "intake", "messenger", "support", "reporting", "equipment", "financial", "location", "profile"]) {
+      for (const key of [
+        "work-hub",
+        "dispatch",
+        "dispatch-map",
+        "intake",
+        "collaboration",
+        "messenger",
+        "support",
+        "reporting",
+        "equipment",
+        "financial",
+        "location",
+        "profile",
+      ]) {
         expect(isNavItemVisible(key, [role])).toBe(true);
       }
     }
@@ -255,6 +308,7 @@ describe("nav role gating", () => {
         "dispatch-map",
         "intake",
         "messenger",
+        "mail",
         "support",
         "reporting",
         "equipment",
@@ -310,5 +364,12 @@ describe("nav role gating", () => {
     expect(hasAnyRole([ROLES.MECHANIC], [ROLES.SUPER_ADMIN, ROLES.ADMIN])).toBe(false);
     expect(hasAnyRole(undefined, [ROLES.ADMIN])).toBe(false);
     expect(hasAnyRole([], [ROLES.ADMIN])).toBe(false);
+  });
+
+  it("hasAnyFeatureGrant matches runtime-effective custom-role UI hints", () => {
+    expect(hasAnyFeatureGrant([FEATURES.MAIL_USE], [FEATURES.MAIL_USE])).toBe(true);
+    expect(hasAnyFeatureGrant([FEATURES.MAIL_USE], [FEATURES.KPI_READ])).toBe(false);
+    expect(hasAnyFeatureGrant(undefined, [FEATURES.MAIL_USE])).toBe(false);
+    expect(hasAnyFeatureGrant([], [FEATURES.MAIL_USE])).toBe(false);
   });
 });

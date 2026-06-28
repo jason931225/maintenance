@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, UserId};
 use mnt_platform_authz::{
-    Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
-    repository_filter, resolve_branch_scope_in_org,
+    Action, BranchColumn, EffectiveFeatureGrant, Feature, PermissionLevel, Principal, Role,
+    authorize, authorize_org_wide, permission_for, repository_filter, resolve_branch_scope_in_org,
+    resolve_effective_feature_grants_in_org,
 };
 use sqlx::PgPool;
 
@@ -18,7 +19,7 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 44] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 45] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage, EmployeeDirectoryRead,
@@ -27,9 +28,9 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 44] {
         IntegrityFindingsRead, KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse,
         MasterListImport, OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
         PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
-        RegionManage, RentalQuoteManage, SalesManage, SubordinateUserCreate, TargetManage,
-        UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart,
-        WorkReportSubmit,
+        RegionManage, RentalQuoteManage, RoleManage, SalesManage, SubordinateUserCreate,
+        TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
+        WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -58,6 +59,7 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 44] {
         (UserManage, [D, D, D, A, D, A]),
         (SubordinateUserCreate, [D, D, D, L, D, A]),
         (ElevatedRoleGrant, [D, D, D, D, D, A]),
+        (RoleManage, [D, D, D, D, D, A]),
         (RegionManage, [D, D, D, A, A, A]),
         (BranchManage, [D, D, D, A, A, A]),
         (EquipmentManage, [D, D, D, A, A, A]),
@@ -114,7 +116,7 @@ fn role_enum_uses_canonical_database_codes() {
 #[test]
 fn member_role_is_default_deny_except_login() {
     // The open-signup default tier: it can authenticate but nothing else until an
-    // admin elevates it. `Login` is its only `Allow` cell across all 44 features.
+    // admin elevates it. `Login` is its only `Allow` cell across all features.
     for feature in Feature::ALL {
         let level = permission_for(Role::Member, feature);
         if feature == Feature::Login {
@@ -142,7 +144,7 @@ fn member_role_is_default_deny_except_login() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 44);
+    assert_eq!(Feature::ALL.len(), 45);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {
@@ -302,6 +304,81 @@ fn empty_scope_denies_even_allowed_features() {
 }
 
 #[test]
+fn effective_custom_grant_extends_authorize_without_widening_branch_scope() {
+    let branch = BranchId::new();
+    let other_branch = BranchId::new();
+    let actor =
+        principal(Role::Member, BranchScope::single(branch)).with_effective_feature_grants(vec![
+            EffectiveFeatureGrant::new(
+                Feature::WorkOrderCreate,
+                PermissionLevel::Allow,
+                BranchScope::single(branch),
+            ),
+        ]);
+
+    authorize(&actor, Action::new(Feature::WorkOrderCreate), branch).unwrap();
+
+    let static_denied =
+        authorize(&actor, Action::new(Feature::PriorityManage), branch).unwrap_err();
+    assert_eq!(static_denied.kind, ErrorKind::Forbidden);
+
+    let cross_branch =
+        authorize(&actor, Action::new(Feature::WorkOrderCreate), other_branch).unwrap_err();
+    assert_eq!(cross_branch.kind, ErrorKind::Forbidden);
+}
+
+#[test]
+fn effective_custom_grant_honors_permission_level_semantics() {
+    let branch = BranchId::new();
+    let actor =
+        principal(Role::Member, BranchScope::single(branch)).with_effective_feature_grants(vec![
+            EffectiveFeatureGrant::new(
+                Feature::TargetManage,
+                PermissionLevel::RequestOnly,
+                BranchScope::single(branch),
+            ),
+        ]);
+
+    authorize(&actor, Action::request(Feature::TargetManage), branch).unwrap();
+
+    let full_action = authorize(&actor, Action::new(Feature::TargetManage), branch).unwrap_err();
+    assert_eq!(full_action.kind, ErrorKind::Forbidden);
+}
+
+#[test]
+fn org_wide_authorize_uses_effective_grants_but_never_widens_branch_grants() {
+    let all_branch_actor =
+        principal(Role::Member, BranchScope::All).with_effective_feature_grants(vec![
+            EffectiveFeatureGrant::new(
+                Feature::AuditLogRead,
+                PermissionLevel::Allow,
+                BranchScope::All,
+            ),
+        ]);
+
+    authorize_org_wide(&all_branch_actor, Action::new(Feature::AuditLogRead)).unwrap();
+
+    let branch = BranchId::new();
+    let branch_only_actor = principal(Role::Member, BranchScope::All)
+        .with_effective_feature_grants(vec![EffectiveFeatureGrant::new(
+            Feature::AuditLogRead,
+            PermissionLevel::Allow,
+            BranchScope::single(branch),
+        )]);
+    let branch_only_err =
+        authorize_org_wide(&branch_only_actor, Action::new(Feature::AuditLogRead))
+            .expect_err("branch-scoped custom grants must not authorize all-branch reads");
+    assert_eq!(branch_only_err.kind, ErrorKind::Forbidden);
+
+    let no_all_scope_actor = principal(Role::Admin, BranchScope::single(branch));
+    let no_all_scope_err =
+        authorize_org_wide(&no_all_scope_actor, Action::new(Feature::AuditLogRead)).expect_err(
+            "built-in permissions still need all-branch scope for branch-omitted org reads",
+        );
+    assert_eq!(no_all_scope_err.kind, ErrorKind::Forbidden);
+}
+
+#[test]
 fn repository_filter_helper_is_default_deny_and_uses_binds() {
     let column = BranchColumn::new("work_orders.branch_id").unwrap();
 
@@ -365,6 +442,178 @@ async fn resolves_super_admin_to_all_scope_without_memberships(pool: PgPool) {
     assert_eq!(scope, BranchScope::All);
 }
 
+#[sqlx::test(migrations = "../db/migrations")]
+async fn resolves_active_custom_policy_role_grants_fail_closed(pool: PgPool) {
+    let seeded = seed_user_with_two_branches_and_one_membership(&pool, "MEMBER").await;
+    let user_id = UserId::from_uuid(seeded.user);
+    let member_branch = BranchId::from_uuid(seeded.member_branch);
+    let other_branch = BranchId::from_uuid(seeded.other_branch);
+    sqlx::query("UPDATE users SET team = '정비' WHERE id = $1")
+        .bind(seeded.user)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let active_role = seed_policy_role(
+        &pool,
+        "custom_work_order_creator",
+        "ACTIVE",
+        &[
+            (Feature::WorkOrderCreate, PermissionLevel::Allow),
+            (Feature::RoleManage, PermissionLevel::Allow),
+        ],
+        &[],
+    )
+    .await;
+    let draft_role = seed_policy_role(
+        &pool,
+        "draft_priority_manager",
+        "DRAFT",
+        &[(Feature::PriorityManage, PermissionLevel::Allow)],
+        &[],
+    )
+    .await;
+    let branch_mismatch_role = seed_policy_role(
+        &pool,
+        "other_branch_starter",
+        "ACTIVE",
+        &[(Feature::WorkOrderStart, PermissionLevel::Allow)],
+        &[("branch", "equals", vec![other_branch.to_string()])],
+    )
+    .await;
+    let team_match_role = seed_policy_role(
+        &pool,
+        "maintenance_team_reporter",
+        "ACTIVE",
+        &[(Feature::WorkReportSubmit, PermissionLevel::Allow)],
+        &[(
+            "team",
+            "in",
+            vec!["MAINTENANCE".to_owned(), "예방".to_owned()],
+        )],
+    )
+    .await;
+    let team_mismatch_role = seed_policy_role(
+        &pool,
+        "reception_team_reviewer",
+        "ACTIVE",
+        &[(Feature::CompletionReview, PermissionLevel::Allow)],
+        &[("team", "equals", vec!["RECEPTION".to_owned()])],
+    )
+    .await;
+    let unsupported_condition_role = seed_policy_role(
+        &pool,
+        "department_evidence",
+        "ACTIVE",
+        &[(Feature::EvidenceAttach, PermissionLevel::Allow)],
+        &[("department", "equals", vec!["field-service".to_owned()])],
+    )
+    .await;
+    let negative_branch_condition_role = seed_policy_role(
+        &pool,
+        "negative_branch_evidence",
+        "ACTIVE",
+        &[(Feature::WorkOrderEditIntake, PermissionLevel::Allow)],
+        &[("branch", "not_equals", vec![member_branch.to_string()])],
+    )
+    .await;
+    let invalid_branch_condition_role = seed_policy_role(
+        &pool,
+        "invalid_branch_assignee",
+        "ACTIVE",
+        &[(Feature::AssigneeManage, PermissionLevel::Allow)],
+        &[("branch", "equals", vec!["not-a-branch-uuid".to_owned()])],
+    )
+    .await;
+    assign_policy_roles(
+        &pool,
+        seeded.user,
+        &[
+            active_role,
+            draft_role,
+            branch_mismatch_role,
+            team_match_role,
+            team_mismatch_role,
+            unsupported_condition_role,
+            negative_branch_condition_role,
+            invalid_branch_condition_role,
+        ],
+    )
+    .await;
+
+    let grants = resolve_effective_feature_grants_in_org(
+        &pool,
+        OrgId::knl(),
+        user_id,
+        &BranchScope::single(member_branch),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        grants.len(),
+        2,
+        "only active ordinary in-scope grants with supported matching conditions apply"
+    );
+    assert!(
+        grants
+            .iter()
+            .any(|grant| grant.feature == Feature::WorkOrderCreate
+                && grant.permission == PermissionLevel::Allow)
+    );
+    assert!(
+        grants
+            .iter()
+            .any(|grant| grant.feature == Feature::WorkReportSubmit
+                && grant.permission == PermissionLevel::Allow)
+    );
+
+    let actor = principal(Role::Member, BranchScope::single(member_branch))
+        .with_effective_feature_grants(grants);
+    authorize(&actor, Action::new(Feature::WorkOrderCreate), member_branch).unwrap();
+    authorize(
+        &actor,
+        Action::new(Feature::WorkReportSubmit),
+        member_branch,
+    )
+    .expect("matching team ABAC condition should become runtime-effective");
+
+    let elevated = authorize(&actor, Action::new(Feature::RoleManage), member_branch).unwrap_err();
+    assert_eq!(elevated.kind, ErrorKind::Forbidden);
+
+    let inactive = authorize(&actor, Action::new(Feature::PriorityManage), member_branch)
+        .expect_err("draft custom roles must not become effective");
+    assert_eq!(inactive.kind, ErrorKind::Forbidden);
+
+    let condition_mismatch = authorize(&actor, Action::new(Feature::WorkOrderStart), member_branch)
+        .expect_err("branch condition mismatch must fail closed");
+    assert_eq!(condition_mismatch.kind, ErrorKind::Forbidden);
+
+    let team_mismatch = authorize(
+        &actor,
+        Action::new(Feature::CompletionReview),
+        member_branch,
+    )
+    .expect_err("team condition mismatch must fail closed");
+    assert_eq!(team_mismatch.kind, ErrorKind::Forbidden);
+
+    let unsupported = authorize(&actor, Action::new(Feature::EvidenceAttach), member_branch)
+        .expect_err("unsupported runtime ABAC conditions must fail closed");
+    assert_eq!(unsupported.kind, ErrorKind::Forbidden);
+
+    let negative_operator = authorize(
+        &actor,
+        Action::new(Feature::WorkOrderEditIntake),
+        member_branch,
+    )
+    .expect_err("negative branch operators must fail closed for runtime grants");
+    assert_eq!(negative_operator.kind, ErrorKind::Forbidden);
+
+    let invalid_branch = authorize(&actor, Action::new(Feature::AssigneeManage), member_branch)
+        .expect_err("invalid branch condition values must fail closed");
+    assert_eq!(invalid_branch.kind, ErrorKind::Forbidden);
+}
+
 struct SeededBranches {
     user: uuid::Uuid,
     member_branch: uuid::Uuid,
@@ -425,5 +674,84 @@ async fn seed_user_with_two_branches_and_one_membership(
         user,
         member_branch,
         other_branch,
+    }
+}
+
+async fn seed_policy_role(
+    pool: &PgPool,
+    role_key: &str,
+    status: &str,
+    permissions: &[(Feature, PermissionLevel)],
+    conditions: &[(&str, &str, Vec<String>)],
+) -> uuid::Uuid {
+    let role_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO policy_roles (
+            org_id, role_key, display_name, status, is_system
+        ) VALUES ($1, $2, $3, $4, false)
+        RETURNING id
+        "#,
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(role_key)
+    .bind(format!("Role {role_key}"))
+    .bind(status)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    for (feature, permission) in permissions {
+        sqlx::query(
+            r#"
+            INSERT INTO policy_role_permissions (
+                org_id, role_id, feature_key, permission_level
+            ) VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(*OrgId::knl().as_uuid())
+        .bind(role_id)
+        .bind(feature.as_str())
+        .bind(permission.as_str())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    for (index, (attribute, operator, values)) in conditions.iter().enumerate() {
+        sqlx::query(
+            r#"
+            INSERT INTO policy_role_conditions (
+                org_id, role_id, condition_key, attribute, operator, condition_values
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(*OrgId::knl().as_uuid())
+        .bind(role_id)
+        .bind(format!("condition_{index}"))
+        .bind(attribute)
+        .bind(operator)
+        .bind(values)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    role_id
+}
+
+async fn assign_policy_roles(pool: &PgPool, user_id: uuid::Uuid, role_ids: &[uuid::Uuid]) {
+    for role_id in role_ids {
+        sqlx::query(
+            r#"
+            INSERT INTO user_role_assignments (org_id, user_id, role_id)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind(*OrgId::knl().as_uuid())
+        .bind(user_id)
+        .bind(role_id)
+        .execute(pool)
+        .await
+        .unwrap();
     }
 }

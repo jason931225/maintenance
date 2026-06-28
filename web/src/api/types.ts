@@ -1,5 +1,32 @@
 import type { components } from "@maintenance/api-client-ts";
 
+export type PolicyPermissionResponse =
+  components["schemas"]["PolicyPermissionResponse"];
+export type PolicyDefaultPermissionResponse =
+  components["schemas"]["PolicyDefaultPermissionResponse"];
+export type PolicyFeatureResponse =
+  components["schemas"]["PolicyFeatureResponse"];
+export type SystemPolicyRoleResponse =
+  components["schemas"]["SystemPolicyRoleResponse"];
+export type PolicyRoleResponse = components["schemas"]["PolicyRoleResponse"];
+export type PolicyRoleCatalogResponse =
+  components["schemas"]["PolicyRoleCatalogResponse"];
+export type PolicyAuditEventResponse =
+  components["schemas"]["PolicyAuditEventResponse"];
+export type PolicyRoleStatusPreviewResponse =
+  components["schemas"]["PolicyRoleStatusPreviewResponse"];
+export type CreatePolicyRoleRequest =
+  components["schemas"]["CreatePolicyRoleRequest"];
+export type UpdatePolicyRoleRequest =
+  components["schemas"]["UpdatePolicyRoleRequest"];
+export type PolicyRoleTemplateResponse =
+  components["schemas"]["PolicyRoleTemplateResponse"];
+export type PolicyRoleAssignmentResponse =
+  components["schemas"]["PolicyRoleAssignmentResponse"];
+export type PolicyAssignmentPreviewResponse =
+  components["schemas"]["PolicyAssignmentPreviewResponse"];
+export type ReplacePolicyRoleAssignmentsRequest =
+  components["schemas"]["ReplacePolicyRoleAssignmentsRequest"];
 export type PasskeySummary = components["schemas"]["PasskeySummary"];
 export type WorkOrderSummary = components["schemas"]["WorkOrderSummary"];
 export type WorkOrderListItem = components["schemas"]["WorkOrderListItem"];
@@ -14,6 +41,14 @@ export type ApprovalPolicyContext =
   components["schemas"]["ApprovalPolicyContext"];
 export type ApprovalItem = components["schemas"]["ApprovalItem"];
 export type ApprovalItemsPage = components["schemas"]["ApprovalItemsPage"];
+export type WorkOrderObjectSetLens =
+  components["schemas"]["WorkOrderObjectSetLens"];
+export type WorkOrderFacetBucket =
+  components["schemas"]["WorkOrderFacetBucket"];
+export type WorkOrderHistogramBucket =
+  components["schemas"]["WorkOrderHistogramBucket"];
+export type WorkOrderNamedBucket =
+  components["schemas"]["WorkOrderNamedBucket"];
 export type CreateWorkOrderRequest =
   components["schemas"]["CreateWorkOrderRequest"];
 export type EquipmentLookupResponse =
@@ -26,8 +61,7 @@ export type UpdateEquipmentRequest =
   components["schemas"]["UpdateEquipmentRequest"];
 export type AssetLifecycleCostSummary =
   components["schemas"]["AssetLifecycleCostSummary"];
-export type SubstituteCandidate =
-  components["schemas"]["SubstituteCandidate"];
+export type SubstituteCandidate = components["schemas"]["SubstituteCandidate"];
 export type SubstituteCandidatePage =
   components["schemas"]["SubstituteCandidatePage"];
 export type SubstituteAssignment =
@@ -38,6 +72,22 @@ export type EquipmentByLocationPage =
 export type ArrivalEventPage = components["schemas"]["ArrivalEventPage"];
 export type EquipmentListItem = components["schemas"]["EquipmentListItem"];
 export type EquipmentListPage = components["schemas"]["EquipmentListPage"];
+export type EquipmentTimelineGraph =
+  components["schemas"]["EquipmentTimelineGraph"];
+export type EquipmentLifecycleEvent =
+  components["schemas"]["EquipmentLifecycleEvent"];
+export type EquipmentGraphNode = components["schemas"]["EquipmentGraphNode"];
+export type EquipmentGraphEdge = components["schemas"]["EquipmentGraphEdge"];
+export type ObjectActionCatalogResponse =
+  components["schemas"]["ObjectActionCatalogResponse"];
+export type ObjectActionDescriptor =
+  components["schemas"]["ObjectActionDescriptor"];
+export type ObjectActionFieldDescriptor =
+  components["schemas"]["ObjectActionFieldDescriptor"];
+export type ExecuteObjectActionRequest =
+  components["schemas"]["ExecuteObjectActionRequest"];
+export type ObjectActionExecutionResponse =
+  components["schemas"]["ObjectActionExecutionResponse"];
 export type EquipmentSortBy = components["schemas"]["EquipmentSortBy"];
 export type UpdateSiteRequest = components["schemas"]["UpdateSiteRequest"];
 export type CreateCustomerRequest =
@@ -76,8 +126,7 @@ export type OpsFunnel = components["schemas"]["OpsFunnel"];
 export type OpsEquipmentStatus = components["schemas"]["OpsEquipmentStatus"];
 export type OpsMechanicLoad = components["schemas"]["OpsMechanicLoad"];
 export type TokenPairResponse = components["schemas"]["TokenPairResponse"];
-export type MessengerThreadKind =
-  components["schemas"]["MessengerThreadKind"];
+export type MessengerThreadKind = components["schemas"]["MessengerThreadKind"];
 export type MessengerThreadSummary =
   components["schemas"]["MessengerThreadSummary"];
 export type MessengerThreadListResponse =
@@ -110,32 +159,26 @@ export type LocationConsentState =
   components["schemas"]["LocationConsentState"];
 export type LocationConsentStatus =
   components["schemas"]["LocationConsentStatus"];
-export type SupportTicketStatus =
-  components["schemas"]["SupportTicketStatus"];
+export type SupportTicketStatus = components["schemas"]["SupportTicketStatus"];
 export type SupportTicketPriority =
   components["schemas"]["SupportTicketPriority"];
 export type SupportTicketCategory =
   components["schemas"]["SupportTicketCategory"];
-export type SupportTicketOrigin =
-  components["schemas"]["SupportTicketOrigin"];
+export type SupportTicketOrigin = components["schemas"]["SupportTicketOrigin"];
 export type SupportTicketSummary =
   components["schemas"]["SupportTicketSummary"];
 export type SupportTicketComment =
   components["schemas"]["SupportTicketComment"];
-export type SupportTicketDetail =
-  components["schemas"]["SupportTicketDetail"];
-export type SupportTicketPage =
-  components["schemas"]["SupportTicketPage"];
+export type SupportTicketDetail = components["schemas"]["SupportTicketDetail"];
+export type SupportTicketPage = components["schemas"]["SupportTicketPage"];
 export type CreateInternalTicketRequest =
   components["schemas"]["CreateInternalTicketRequest"];
 export type CustomerIntakeRequest =
   components["schemas"]["CustomerIntakeRequest"];
-export type AssignTicketRequest =
-  components["schemas"]["AssignTicketRequest"];
+export type AssignTicketRequest = components["schemas"]["AssignTicketRequest"];
 export type TransitionTicketRequest =
   components["schemas"]["TransitionTicketRequest"];
-export type AddCommentRequest =
-  components["schemas"]["AddCommentRequest"];
+export type AddCommentRequest = components["schemas"]["AddCommentRequest"];
 export type SupportIntakeAck = components["schemas"]["SupportIntakeAck"];
 
 export type FinancialConfigSnapshot =
@@ -182,10 +225,8 @@ export type InquiryStatus = components["schemas"]["InquiryStatus"];
 export type ListingMediaView = components["schemas"]["ListingMediaView"];
 export type SalesListingView = components["schemas"]["SalesListingView"];
 export type SalesListingPage = components["schemas"]["SalesListingPage"];
-export type CustomerInquiryView =
-  components["schemas"]["CustomerInquiryView"];
-export type CustomerInquiryPage =
-  components["schemas"]["CustomerInquiryPage"];
+export type CustomerInquiryView = components["schemas"]["CustomerInquiryView"];
+export type CustomerInquiryPage = components["schemas"]["CustomerInquiryPage"];
 export type SubmitInquiryRequest =
   components["schemas"]["SubmitInquiryRequest"];
 export type CreateListingRequest =
@@ -219,6 +260,17 @@ export type ConfigureMailAccountRequest =
   components["schemas"]["ConfigureMailAccountRequest"];
 export type MailTestConnectionResult =
   components["schemas"]["MailTestConnectionResult"];
+export type SendMailRequest = components["schemas"]["SendMailRequest"];
+export type SendMailResult = components["schemas"]["SendMailResult"];
+export type MailAddress = components["schemas"]["MailAddress"];
+export type MailFolderView = components["schemas"]["MailFolderView"];
+export type MailThreadView = components["schemas"]["MailThreadView"];
+export type MailThreadDetail = components["schemas"]["MailThreadDetail"];
+export type MailMessageView = components["schemas"]["MailMessageView"];
+export type MailAttachmentView =
+  components["schemas"]["MailAttachmentView"];
+export type MailAttachmentDownload =
+  components["schemas"]["MailAttachmentDownload"];
 
 // Integrity engine (#12 / #34): governance findings (review-needed anomalies).
 export type GovernanceFinding = components["schemas"]["GovernanceFinding"];
@@ -249,3 +301,8 @@ export type EmployeeDirectoryItem = components["schemas"]["Employee"];
 export type EmployeeDirectoryPage = components["schemas"]["EmployeePage"];
 export type EmployeeImportSummary =
   components["schemas"]["EmployeeImportReport"];
+export type HrOrgChartResponse =
+  components["schemas"]["HrOrgChartResponse"];
+export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
+export type AttendanceSummaryPage =
+  components["schemas"]["AttendanceSummaryPage"];

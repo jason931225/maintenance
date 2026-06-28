@@ -3,6 +3,7 @@ import {
   Building2,
   CalendarCheck,
   CalendarClock,
+  CalendarDays,
   CheckSquare,
   ClipboardList,
   Inbox,
@@ -25,6 +26,7 @@ import {
   UserCircle,
   Users,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 /**
  * Canonical role codes, mirroring the backend `Role` enum in
@@ -54,6 +56,33 @@ export const GROUP_ROLES = {
 
 export type GroupRole = (typeof GROUP_ROLES)[keyof typeof GROUP_ROLES];
 
+export const FEATURES = {
+  WORK_ORDER_READ_ALL: "work_order_read_all",
+  WORK_ORDER_CREATE: "work_order_create",
+  COMPLETION_REVIEW: "completion_review",
+  DAILY_PLAN_REQUEST: "daily_plan_request",
+  DAILY_PLAN_REVIEW: "daily_plan_review",
+  ORG_WIDE_QUEUE_TRIAGE: "org_wide_queue_triage",
+  KPI_READ: "kpi_read",
+  USER_MANAGE: "user_manage",
+  ROLE_MANAGE: "role_manage",
+  REGION_MANAGE: "region_manage",
+  BRANCH_MANAGE: "branch_manage",
+  EQUIPMENT_MANAGE: "equipment_manage",
+  PURCHASE_REQUEST_READ: "purchase_request_read",
+  INSPECTION_SCHEDULE_MANAGE: "inspection_schedule_manage",
+  AUDIT_LOG_READ: "audit_log_read",
+  OPS_DASHBOARD_READ: "ops_dashboard_read",
+  SALES_MANAGE: "sales_manage",
+  INTEGRITY_FINDINGS_READ: "integrity_findings_read",
+  INTEGRITY_FINDING_TRIAGE: "integrity_finding_triage",
+  MAIL_ACCOUNT_MANAGE: "mail_account_manage",
+  MAIL_USE: "mail_use",
+  EMPLOYEE_DIRECTORY_READ: "employee_directory_read",
+} as const;
+
+export type FeatureGrant = (typeof FEATURES)[keyof typeof FEATURES];
+
 /** True when `roles` contains at least one of `allowed`. */
 export function hasAnyRole(
   roles: readonly string[] | undefined,
@@ -69,6 +98,16 @@ export function hasGroupAdminRole(
   return groupRoles?.includes(GROUP_ROLES.GROUP_ADMIN) ?? false;
 }
 
+export function hasAnyFeatureGrant(
+  featureGrants: readonly string[] | undefined,
+  allowed: readonly FeatureGrant[],
+): boolean {
+  if (!featureGrants || featureGrants.length === 0) return false;
+  return featureGrants.some((feature) =>
+    (allowed as readonly string[]).includes(feature),
+  );
+}
+
 /**
  * A "pending" session: a just-signed-up user who holds no operational role yet —
  * either an empty/absent roles claim or the placeholder `["MEMBER"]`. The backend
@@ -82,6 +121,7 @@ export function isPendingMember(roles: readonly string[] | undefined): boolean {
 }
 
 const ADMIN_ROLES: readonly Role[] = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
+const ROLE_MANAGE_ROLES: readonly Role[] = [ROLES.SUPER_ADMIN];
 /**
  * The five operational tenant roles (every role except the no-grant MEMBER).
  * Used to gate the shared pages — dispatch, intake, equipment, etc. — that the
@@ -133,6 +173,13 @@ const EMPLOYEE_DIRECTORY_ROLES: readonly Role[] = [
  * ADMIN must not read findings about themselves). Mirrors RequireIntegrityRoute.
  */
 const INTEGRITY_ROLES: readonly Role[] = [ROLES.EXECUTIVE, ROLES.SUPER_ADMIN];
+/** Roles allowed to use the corporate mailbox (backend `MailUse`). */
+const MAIL_USE_ROLES: readonly Role[] = [
+  ROLES.RECEPTIONIST,
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.SUPER_ADMIN,
+];
 
 /**
  * Per-item role gate. Default-deny: only `profile` is intentionally left ungated
@@ -163,6 +210,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // intake (WorkOrderCreate/EditIntake): the five operational roles, not MEMBER.
   ["intake", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
+  // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied;
+  // mail server configuration remains the separate admin-only `email` item.
+  ["mail", MAIL_USE_ROLES],
   ["support", OPERATIONAL_ROLES],
   ["reporting", OPERATIONAL_ROLES],
   ["equipment", OPERATIONAL_ROLES],
@@ -174,11 +224,13 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["catalog", ADMIN_ROLES],
   // daily-plan (DailyPlanRequest / DailyPlanReview): MECHANIC/ADMIN/SUPER_ADMIN.
   ["daily-plan", DAILY_PLAN_ROLES],
+  ["collaboration", OPERATIONAL_ROLES],
   ["kpi", KPI_ROLES],
   // ops (OpsDashboardRead): SUPER_ADMIN/ADMIN only, matching the
   // `RequireAdminRoute` guard on `/ops` and the backend permission matrix.
   ["ops", ADMIN_ROLES],
   ["users", ADMIN_ROLES],
+  ["policy", ROLE_MANAGE_ROLES],
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
@@ -199,6 +251,31 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["integrity", INTEGRITY_ROLES],
 ]);
 
+const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
+  ["work-hub", [FEATURES.WORK_ORDER_READ_ALL]],
+  ["dispatch", [FEATURES.WORK_ORDER_READ_ALL]],
+  ["dispatch-map", [FEATURES.WORK_ORDER_READ_ALL]],
+  ["intake", [FEATURES.WORK_ORDER_CREATE]],
+  ["approvals", [FEATURES.COMPLETION_REVIEW]],
+  [
+    "daily-plan",
+    [
+      FEATURES.DAILY_PLAN_REQUEST,
+      FEATURES.DAILY_PLAN_REVIEW,
+      FEATURES.ORG_WIDE_QUEUE_TRIAGE,
+    ],
+  ],
+  ["kpi", [FEATURES.KPI_READ]],
+  ["mail", [FEATURES.MAIL_USE]],
+  ["employees", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["policy", [FEATURES.ROLE_MANAGE]],
+  ["equipment-manage", [FEATURES.EQUIPMENT_MANAGE]],
+  [
+    "integrity",
+    [FEATURES.INTEGRITY_FINDINGS_READ, FEATURES.INTEGRITY_FINDING_TRIAGE],
+  ],
+]);
+
 /**
  * Whether a nav item is visible to a session carrying `roles`. Every
  * destination-bearing item now carries an explicit role gate (default-deny);
@@ -210,11 +287,16 @@ export function isNavItemVisible(
   itemKey: string,
   roles: readonly string[] | undefined,
   groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
 ): boolean {
   if (itemKey === "group") return hasGroupAdminRole(groupRoles);
   const gate = ITEM_ROLE_GATES.get(itemKey);
-  if (!gate) return true;
-  return hasAnyRole(roles, gate);
+  const featureGate = ITEM_FEATURE_GATES.get(itemKey);
+  if (!gate && !featureGate) return true;
+  return (
+    (gate ? hasAnyRole(roles, gate) : false) ||
+    (featureGate ? hasAnyFeatureGrant(featureGrants, featureGate) : false)
+  );
 }
 
 export const NAV_GROUPS = [
@@ -262,6 +344,12 @@ export const NAV_GROUPS = [
         Icon: CalendarCheck,
       },
       {
+        key: "collaboration",
+        href: "/collaboration",
+        labelKey: "nav.collaboration",
+        Icon: CalendarDays,
+      },
+      {
         key: "inspection",
         href: "/inspection",
         labelKey: "nav.inspection",
@@ -272,6 +360,12 @@ export const NAV_GROUPS = [
         href: "/messenger",
         labelKey: "nav.messenger",
         Icon: MessageSquare,
+      },
+      {
+        key: "mail",
+        href: "/mail",
+        labelKey: "nav.mail",
+        Icon: Mail,
       },
       {
         key: "support",
@@ -400,6 +494,12 @@ export const NAV_GROUPS = [
         labelKey: "nav.users",
         Icon: Users,
       },
+      {
+        key: "policy",
+        href: "/settings/policy",
+        labelKey: "nav.policy",
+        Icon: ShieldAlert,
+      },
       // email (MailAccountManage): tenant corporate mail-account config. ADMIN/
       // SUPER_ADMIN only — gated by ITEM_ROLE_GATES("email") and the
       // RequireAdminRoute guard on /settings/email.
@@ -433,3 +533,56 @@ export const NAV_GROUPS = [
 
 export type NavGroupKey = (typeof NAV_GROUPS)[number]["key"];
 export type NavItemKey = (typeof NAV_GROUPS)[number]["items"][number]["key"];
+
+export interface VisibleNavItem {
+  key: string;
+  href: string;
+  labelKey: string;
+  groupKey: string;
+  groupLabelKey: string;
+  Icon: LucideIcon;
+}
+
+/**
+ * Flatten the role-gated nav registry for shell-level surfaces such as the
+ * command palette and route breadcrumbs. The sidebar remains the visual rail;
+ * this helper keeps every secondary navigation surface on the same
+ * deny-by-default visibility rules.
+ */
+export function visibleNavItemsForRoles(
+  roles: readonly string[] | undefined,
+  groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
+): VisibleNavItem[] {
+  return NAV_GROUPS.flatMap((group) =>
+    group.items
+      .filter((item) => isNavItemVisible(item.key, roles, groupRoles, featureGrants))
+      .map((item) => ({
+        key: item.key,
+        href: item.href,
+        labelKey: item.labelKey,
+        groupKey: group.key,
+        groupLabelKey: group.label,
+        Icon: item.Icon,
+      })),
+  );
+}
+
+/**
+ * Resolve the closest visible nav destination for a path. Exact matches win,
+ * then the longest prefix match supports object detail routes such as
+ * `/equipment/:id` without misclassifying `/equipment/manage`.
+ */
+export function visibleNavItemForPath(
+  pathname: string,
+  roles: readonly string[] | undefined,
+  groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
+): VisibleNavItem | undefined {
+  const items = visibleNavItemsForRoles(roles, groupRoles, featureGrants);
+  const exact = items.find((item) => item.href === pathname);
+  if (exact) return exact;
+  return items
+    .filter((item) => pathname.startsWith(`${item.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+}

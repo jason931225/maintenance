@@ -1,17 +1,14 @@
 //! Messenger REST API.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::collections::BTreeSet;
-use std::str::FromStr;
-
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, OrgId, ThreadId,
-    TraceContext, UserId, WorkOrderId,
+    BranchId, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, TraceContext, UserId,
+    WorkOrderId,
 };
 use mnt_messenger_adapter_postgres::{PgMessengerError, PgMessengerStore};
 use mnt_messenger_application::{
@@ -19,8 +16,8 @@ use mnt_messenger_application::{
     SearchMessagesQuery, SendMessageCommand,
 };
 use mnt_messenger_domain::ThreadKind;
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Principal, Role};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::Principal;
 use serde::{Deserialize, Serialize};
 
 pub const MESSENGER_ROUTE_PATHS: &[&str] = &[
@@ -126,7 +123,7 @@ async fn create_thread(
     headers: HeaderMap,
     Json(body): Json<CreateThreadRequest>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let summary = state
         .store
         .create_thread(CreateThreadCommand {
@@ -150,7 +147,7 @@ async fn list_threads(
     headers: HeaderMap,
     Query(query): Query<LimitQuery>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let items = state
         .store
         .list_threads(ListThreadsQuery {
@@ -169,7 +166,7 @@ async fn send_message(
     Path(thread_id): Path<ThreadId>,
     Json(body): Json<SendMessageRequest>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let message = state
         .store
         .send_message(SendMessageCommand {
@@ -192,7 +189,7 @@ async fn message_page(
     Path(thread_id): Path<ThreadId>,
     Query(query): Query<MessagePageParams>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let page = state
         .store
         .message_page(MessagePageQuery {
@@ -213,7 +210,7 @@ async fn mark_thread_read(
     Path(thread_id): Path<ThreadId>,
     Json(body): Json<ReadReceiptRequest>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let receipt = state
         .store
         .mark_thread_read(MarkThreadReadCommand {
@@ -234,7 +231,7 @@ async fn search_messages(
     headers: HeaderMap,
     Query(query): Query<SearchParams>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let items = state
         .store
         .search_messages(SearchMessagesQuery {
@@ -320,65 +317,48 @@ impl IntoResponse for RestError {
     }
 }
 
-fn principal_from_headers(
+async fn principal_from_headers(
     state: &MessengerRestState,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for messenger API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    mnt_platform_request_context::resolve_principal(verifier, state.store.pool(), headers)
+        .await
+        .map_err(rest_error_from_request_context)
 }
 
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?;
-    header_value
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
-}
-
-fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles_vec: Vec<Role> = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<_, _>>()?;
-    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
-    let branch_scope = if roles_vec
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch)
-                    .map_err(|_| RestError::unauthorized("token contains an invalid branch id"))
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        BranchScope::Branches(branches)
-    };
-
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for messenger API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::from_kernel(KernelError::forbidden(
+                "token tier is not valid for this route",
+            ))
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::from_kernel(KernelError::internal(message))
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => RestError::from_kernel(
+            KernelError::internal("no tenant context is bound to the current request"),
+        ),
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }

@@ -14,7 +14,9 @@ import { getDefaultKpiPeriod } from "./features/kpi/kpi-format";
 import {
   equipmentLookup,
   kpiReport,
+  supportTicketPage,
   tokenPair,
+  workOrderLens,
   workOrderListItems,
   workOrders,
 } from "./test/fixtures";
@@ -29,6 +31,31 @@ const lookupRequests: URL[] = [];
 let createWorkOrderRequest: unknown;
 let rejectRequest: { url: URL; body: unknown } | undefined;
 const activeBranchId = "00000000-0000-4000-8000-000000000001";
+const homeDailyPlan = {
+  id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+  branch_id: activeBranchId,
+  mechanic_id: "00000000-0000-4000-8000-000000000099",
+  plan_date: "2026-06-16",
+  status: "REQUESTED",
+};
+const homeSupportTicket = {
+  id: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+  branch_id: activeBranchId,
+  origin: "CUSTOMER",
+  category: "OPERATIONAL",
+  priority: "URGENT",
+  status: "OPEN",
+  title: "출고 일정 확인 요청",
+  requester_user_id: "00000000-0000-4000-8000-0000000000aa",
+  requester_name: "고객사",
+  assignee_user_id: "00000000-0000-4000-8000-0000000000bb",
+  assignee_name: null,
+  due_at: "2026-06-12T12:00:00Z",
+  created_at: "2026-06-12T08:00:00Z",
+  updated_at: "2026-06-12T08:00:00Z",
+  resolved_at: null,
+  closed_at: null,
+} as const;
 
 const messengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
@@ -110,6 +137,7 @@ const server = setupServer(
       limit: Number(url.searchParams.get("limit") ?? 100),
       offset: Number(url.searchParams.get("offset") ?? 0),
       total: items.length,
+      lens: workOrderLens,
     });
   }),
   http.get("*/api/v1/kpi", ({ request }) => {
@@ -118,11 +146,20 @@ const server = setupServer(
     return HttpResponse.json(kpiReport);
   }),
   http.get("*/api/v1/ops/summary", () => HttpResponse.json(opsSummary)),
+  http.get("*/api/daily-work-plans", () =>
+    HttpResponse.json({ items: [homeDailyPlan] }),
+  ),
+  http.get("*/api/v1/support/tickets", () =>
+    HttpResponse.json(supportTicketPage([homeSupportTicket])),
+  ),
   http.get("*/api/v1/branches", () =>
     HttpResponse.json([
       { id: activeBranchId, name: "본사" },
       { id: equipmentLookup.branch_id, name: "지점 B" },
     ]),
+  ),
+  http.get("*/api/v1/users", () =>
+    HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
   ),
   http.get("*/api/v1/location/arrival-events", () =>
     HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
@@ -161,25 +198,18 @@ const server = setupServer(
     createWorkOrderRequest = await request.json();
     return HttpResponse.json(workOrders[0], { status: 201 });
   }),
-  http.get("*/api/messenger/threads", () =>
-    HttpResponse.json({ items: [] }),
-  ),
-  http.get("*/api/daily-work-plans", () =>
-    HttpResponse.json({ items: [] }),
-  ),
-  http.get("*/api/v1/support/tickets", () =>
-    HttpResponse.json({ items: [], next_cursor: null, total: 0 }),
-  ),
-  http.post(
-    "*/api/v1/work-orders/:workOrderId/reject",
-    async ({ request }) => {
-      rejectRequest = { url: new URL(request.url), body: await request.json() };
-      return HttpResponse.json({ ...workOrders[1], status: "REJECTED" });
-    },
-  ),
+  http.get("*/api/messenger/threads", () => HttpResponse.json({ items: [] })),
+  http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
+  http.get("*/api/v1/mail/threads", () => HttpResponse.json([])),
+  http.post("*/api/v1/work-orders/:workOrderId/reject", async ({ request }) => {
+    rejectRequest = { url: new URL(request.url), body: await request.json() };
+    return HttpResponse.json({ ...workOrders[1], status: "REJECTED" });
+  }),
 );
 
-beforeAll(() => { server.listen({ onUnhandledRequest: "error" }); });
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "error" });
+});
 afterEach(() => {
   server.resetHandlers();
   window.localStorage.removeItem("knl_cookie_notice_v1");
@@ -192,7 +222,9 @@ afterEach(() => {
   createWorkOrderRequest = undefined;
   rejectRequest = undefined;
 });
-afterAll(() => { server.close(); });
+afterAll(() => {
+  server.close();
+});
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -236,6 +268,11 @@ const mechanicSession: AuthSession = {
   roles: ["MECHANIC"],
 };
 
+const receptionistSession: AuthSession = {
+  ...authenticatedSession,
+  roles: ["RECEPTIONIST"],
+};
+
 const opsSummary = {
   funnel: { received: 2, assigned: 1, in_progress: 3, completed: 5 },
   aging_hours: 24,
@@ -261,7 +298,10 @@ const opsSummary = {
   open_support_tickets: 4,
 };
 
-function renderAt(path: string, session: AuthSession | undefined = authenticatedSession) {
+function renderAt(
+  path: string,
+  session: AuthSession | undefined = authenticatedSession,
+) {
   const ctx = makeAuthContext(session);
   return render(
     <AuthContext.Provider value={ctx}>
@@ -281,9 +321,15 @@ describe("ProtectedRoute unit", () => {
       <AuthContext.Provider value={unauthCtx}>
         <MemoryRouter initialEntries={["/dispatch"]}>
           <Routes>
-            <Route path="/login" element={<div data-testid="login-page">login</div>} />
+            <Route
+              path="/login"
+              element={<div data-testid="login-page">login</div>}
+            />
             <Route element={<ProtectedRoute />}>
-              <Route path="/dispatch" element={<div data-testid="dispatch-page">dispatch</div>} />
+              <Route
+                path="/dispatch"
+                element={<div data-testid="dispatch-page">dispatch</div>}
+              />
             </Route>
           </Routes>
         </MemoryRouter>
@@ -299,9 +345,15 @@ describe("ProtectedRoute unit", () => {
       <AuthContext.Provider value={authCtx}>
         <MemoryRouter initialEntries={["/dispatch"]}>
           <Routes>
-            <Route path="/login" element={<div data-testid="login-page">login</div>} />
+            <Route
+              path="/login"
+              element={<div data-testid="login-page">login</div>}
+            />
             <Route element={<ProtectedRoute />}>
-              <Route path="/dispatch" element={<div data-testid="dispatch-page">dispatch</div>} />
+              <Route
+                path="/dispatch"
+                element={<div data-testid="dispatch-page">dispatch</div>}
+              />
             </Route>
           </Routes>
         </MemoryRouter>
@@ -314,7 +366,7 @@ describe("ProtectedRoute unit", () => {
 
 describe("AppRouter authenticated", () => {
   it("renders the protected work hub page when authenticated", async () => {
-    renderAt("/work-hub");
+    renderAt("/work-hub", adminSession);
     expect(
       await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
     ).toBeVisible();
@@ -350,7 +402,9 @@ describe("routing", () => {
       within(notice).getByRole("link", { name: "개인정보 처리방침 보기" }),
     ).toHaveAttribute("href", "/privacy");
 
-    await user.click(within(notice).getByRole("button", { name: "확인했습니다" }));
+    await user.click(
+      within(notice).getByRole("button", { name: "확인했습니다" }),
+    );
 
     await waitFor(() => {
       expect(
@@ -420,7 +474,10 @@ describe("routing", () => {
     // /kpi is KpiRead-gated (RequireKpiRoute) — render with a KpiRead role.
     renderAt("/kpi", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "임원 KPI 대시보드", level: 1 }),
+      await screen.findByRole("heading", {
+        name: "임원 KPI 대시보드",
+        level: 1,
+      }),
     ).toBeVisible();
   });
 
@@ -442,7 +499,7 @@ describe("routing", () => {
   });
 
   it("redirects unknown authenticated paths to /work-hub", async () => {
-    renderAt("/does-not-exist");
+    renderAt("/does-not-exist", adminSession);
     expect(
       await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
     ).toBeVisible();
@@ -452,9 +509,7 @@ describe("routing", () => {
 describe("DispatchPage", () => {
   it("loads the work order list from the read API", async () => {
     renderAt("/dispatch");
-    expect(
-      (await screen.findAllByText("20260612-001"))[0],
-    ).toBeVisible();
+    expect((await screen.findAllByText("20260612-001"))[0]).toBeVisible();
     expect(
       screen.getByRole("heading", { name: "작업지시 목록" }),
     ).toBeVisible();
@@ -466,6 +521,29 @@ describe("DispatchPage", () => {
           (url) =>
             url.pathname === "/api/v1/work-orders" &&
             !url.search.includes("status"),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("searches around a work order from the row action", async () => {
+    const user = userEvent.setup();
+    renderAt("/dispatch");
+
+    expect((await screen.findAllByText("20260612-001"))[0]).toBeVisible();
+    listRequests.length = 0;
+    await user.click(screen.getAllByRole("link", { name: "주변 검색" })[0]);
+
+    expect(
+      screen.getByText("오브젝트 렌즈 필터가 적용되었습니다."),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(
+        listRequests.some(
+          (url) =>
+            url.pathname === "/api/v1/work-orders" &&
+            url.searchParams.get("around_work_order_id") ===
+              workOrderListItems[0].id,
         ),
       ).toBe(true);
     });
@@ -491,9 +569,7 @@ describe("ApprovalsPage", () => {
     expect((await screen.findAllByText("20260612-002"))[0]).toBeVisible();
     // The row's 반려 opens a dialog scoped to THAT order; the memo lives in the
     // dialog so it can never be applied to a different order.
-    await user.click(
-      screen.getByRole("button", { name: "20260612-002 반려" }),
-    );
+    await user.click(screen.getByRole("button", { name: "20260612-002 반려" }));
     const dialog = screen.getByRole("dialog");
     await user.type(
       within(dialog).getByLabelText("반려 메모"),
@@ -538,17 +614,85 @@ describe("OpsDashboardPage", () => {
     expect(await screen.findByText("김정비")).toBeVisible();
     // The aging-alert tile renders the configured hour threshold.
     expect(screen.getByText("24시간 초과 미해결")).toBeVisible();
+    expect(
+      await screen.findByRole("heading", {
+        name: "작업지시 오브젝트 렌즈",
+        level: 2,
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: /P1 긴급/ })).toHaveAttribute(
+      "href",
+      "/dispatch?priority=P1",
+    );
+    const receivedLensLink = screen
+      .getAllByRole("link", { name: /접수/ })
+      .find(
+        (link) => link.getAttribute("href") === "/dispatch?status=RECEIVED",
+      );
+    if (!receivedLensLink) {
+      throw new Error("received lens drill link was not rendered");
+    }
+    expect(receivedLensLink).toHaveAttribute(
+      "href",
+      "/dispatch?status=RECEIVED",
+    );
+  });
+
+  it("drills from an object-set lens tile into the dispatch object set", async () => {
+    const user = userEvent.setup();
+    renderAt("/ops", adminSession);
+
+    const p1Tile = await screen.findByRole("link", { name: /P1 긴급/ });
+    listRequests.length = 0;
+    await user.click(p1Tile);
+
+    expect(
+      await screen.findByRole("heading", { name: "작업지시 목록", level: 2 }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("오브젝트 렌즈 필터가 적용되었습니다."),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(
+        listRequests.some(
+          (url) =>
+            url.pathname === "/api/v1/work-orders" &&
+            url.searchParams.get("priority") === "P1",
+        ),
+      ).toBe(true);
+    });
   });
 
   it("redirects a mechanic away from /ops (role-gated)", async () => {
     renderAt("/ops", mechanicSession);
 
-    // RequireAdminRoute bounces a non-admin to /dispatch.
+    // RequireAdminRoute bounces a non-admin to the authenticated work hub.
     expect(
-      await screen.findByRole("heading", { name: "작업지시 목록" }),
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "운영 대시보드" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("MailPage route guard", () => {
+  it("allows MailUse roles to reach the mailbox", async () => {
+    renderAt("/mail", receptionistSession);
+
+    expect(
+      await screen.findByRole("heading", { name: "메일함", level: 1 }),
+    ).toBeVisible();
+  });
+
+  it("redirects mechanics away from /mail", async () => {
+    renderAt("/mail", mechanicSession);
+
+    expect(
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "메일함" }),
     ).not.toBeInTheDocument();
   });
 });

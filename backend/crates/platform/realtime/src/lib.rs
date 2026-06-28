@@ -5,7 +5,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,11 +14,11 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use mnt_kernel_core::{BranchId, BranchScope, MessageId, OrgId, ThreadId, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, MessageId, OrgId, ThreadId, UserId};
 use mnt_messenger_application::{
     MessageNotifier, MessageNotifyFuture, MessagePostedNotification, MessageSummary,
 };
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
+use mnt_platform_auth::JwtVerifier;
 use mnt_platform_db::{DbError, with_org_conn};
 use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
@@ -871,7 +870,7 @@ async fn websocket_handler(
     Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, RealtimeApiError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     Ok(ws
         // Browser clients carry the bearer token as a `Sec-WebSocket-Protocol`
         // subprotocol pair (`bearer, <token>`); the WebSocket handshake REQUIRES
@@ -963,7 +962,7 @@ fn close_frame_for_notice(notice: &DisconnectNotice) -> (u16, String) {
     }
 }
 
-fn principal_from_headers(
+async fn principal_from_headers(
     state: &RealtimeRestState,
     headers: &HeaderMap,
 ) -> Result<RealtimePrincipal, RealtimeApiError> {
@@ -975,10 +974,22 @@ fn principal_from_headers(
         )
     })?;
     let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RealtimeApiError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    let pool = state.hub.pool.as_ref().ok_or_else(|| {
+        RealtimeApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+            "realtime database is not configured",
+        )
+    })?;
+    let principal =
+        mnt_platform_request_context::resolve_principal_from_bearer_token(verifier, pool, token)
+            .await
+            .map_err(realtime_error_from_request_context)?;
+    Ok(RealtimePrincipal {
+        user_id: principal.user_id,
+        branch_scope: principal.branch_scope,
+        org_id: principal.org_id,
+    })
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RealtimeApiError> {
@@ -1021,38 +1032,41 @@ fn websocket_protocol_bearer_token(headers: &HeaderMap) -> Result<Option<&str>, 
     Ok(token)
 }
 
-fn principal_from_claims(claims: AccessClaims) -> Result<RealtimePrincipal, RealtimeApiError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RealtimeApiError::unauthorized("token subject is not a valid user id"))?;
-    // The realtime router runs OUTSIDE the tenant org middleware, so the
-    // subscriber's org is taken straight from the verified JWT `org` claim and
-    // carried on the principal for replay reads.
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RealtimeApiError::unauthorized("token contains an invalid org id"))?;
-    let has_global_scope = claims
-        .roles
-        .iter()
-        .any(|role| matches!(role.as_str(), "SUPER_ADMIN" | "EXECUTIVE"));
-    let branch_scope = if has_global_scope {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch).map_err(|_| {
-                    RealtimeApiError::unauthorized("token contains an invalid branch id")
-                })
-            })
-            .collect::<Result<_, _>>()?;
-        BranchScope::Branches(branches)
-    };
-
-    Ok(RealtimePrincipal {
-        user_id,
-        branch_scope,
-        org_id,
-    })
+fn realtime_error_from_request_context(err: RequestContextError) -> RealtimeApiError {
+    match err {
+        RequestContextError::VerifierUnavailable => RealtimeApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+            "JWT verification is not configured for realtime",
+        ),
+        RequestContextError::WrongTokenTier => RealtimeApiError::new(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "token tier is not valid for this route",
+        ),
+        RequestContextError::AccessScope(error) if error.kind == ErrorKind::Forbidden => {
+            RealtimeApiError::new(StatusCode::FORBIDDEN, "forbidden", error.message)
+        }
+        RequestContextError::AccessScope(error) => {
+            RealtimeApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", error.message)
+        }
+        RequestContextError::BranchScope(message)
+        | RequestContextError::EffectivePolicy(message) => {
+            RealtimeApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", message)
+        }
+        RequestContextError::MissingOrg => RealtimeApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "no tenant context is bound to the current request",
+        ),
+        RequestContextError::MissingBearer => {
+            RealtimeApiError::unauthorized("missing or malformed bearer token")
+        }
+        RequestContextError::InvalidToken => RealtimeApiError::unauthorized("invalid bearer token"),
+        RequestContextError::InvalidClaim(message) => {
+            RealtimeApiError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]

@@ -29,7 +29,7 @@ tracked below.
 | **CI / supply chain** | **Strong** | fmt + clippy `-D warnings` + workspace tests; `mnt-gate-*` (layer-boundary, audit-coverage, migration-safety, pii-no-logs); tri-client drift; cosign keyless signing; SLSA provenance + SPDX SBOM; blocking Trivy HIGH/CRITICAL; cargo-audit + npm-audit; Renovate digest pinning. |
 | **Deploy / DR** | **Strong** | Argo CD GitOps (self-heal + prune); Argo Rollouts blue/green with smoke-gate auto-rollback; CNPG + Barman PITR to OCI (RPO ≤ 5m / RTO ≤ 1h) with **tested** restore + PITR drills; OpenTofu IaC. |
 | **Security posture** | **Strong** | default-deny NetworkPolicies; PSS `restricted`; hardened securityContexts (non-root, drop ALL, seccomp, readOnlyRootFS on Rust pods); cert-manager + Let's Encrypt; HSTS + strict CSP; comprehensive tested RBAC (5 roles × 32 features, dual role+branch gate). |
-| **Observability** | **Improving** | Structured JSON logs; OTLP tracing in code; health/readiness/startup probes; OpenSLO objectives. **Now:** Prometheus `/metrics` backing the SLOs + opt-in ServiceMonitor/PrometheusRule. **Gap:** no monitoring stack deployed; no alert routing. |
+| **Observability** | **Improving** | Structured JSON logs; OTLP tracing in code; health/readiness/startup probes; OpenSLO objectives; Palantir/Foundry-derived operating benchmark captured in [`docs/benchmarks/palantir-foundry-ops-benchmark.md`](benchmarks/palantir-foundry-ops-benchmark.md). **Now:** Prometheus `/metrics` backing the SLOs + opt-in ServiceMonitor/PrometheusRule. **Gap:** no monitoring stack deployed; no alert routing/test-fired runbooks. |
 | **High availability** | **Capped by infra** | Single node ⇒ correlated replica failure; single CNPG instance; single worker (no leader election). PDBs/blue-green are present but structurally limited to voluntary disruptions. |
 
 ## Delivered this session (in-repo, verified)
@@ -71,6 +71,9 @@ tracked below.
    Alertmanager + Grafana) so the new `/metrics`, ServiceMonitor, and
    PrometheusRule actually flow, with paging wired (the GO-LIVE-CHECKLIST §4
    alerting blocker). Resource-tight on a single 24GB node — pairs with A.1.
+   The Palantir/Foundry benchmark additionally requires each production action
+   to prove audit/log/metric/trace/runbook diagnosis for one success and one
+   denied/failure path before claiming enterprise-operable.
 
 ### B. In-repo (Eng, no new spend) — recommended next
 

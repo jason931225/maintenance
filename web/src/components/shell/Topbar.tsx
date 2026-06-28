@@ -1,4 +1,4 @@
-import { LogOut, MapPin, Menu, RefreshCw, User } from "lucide-react";
+import { LogOut, MapPin, Menu, RefreshCw, Search, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -12,9 +12,13 @@ import { hasGroupAdminRole, isPendingMember } from "./nav";
 
 interface TopbarProps {
   onOpenMobileSidebar: () => void;
+  onOpenCommandPalette?: () => void;
 }
 
-export function Topbar({ onOpenMobileSidebar }: TopbarProps) {
+export function Topbar({
+  onOpenMobileSidebar,
+  onOpenCommandPalette,
+}: TopbarProps) {
   const title = useCurrentTitle();
 
   return (
@@ -34,6 +38,23 @@ export function Topbar({ onOpenMobileSidebar }: TopbarProps) {
           <p className="text-sm font-medium text-steel truncate">{title}</p>
         ) : null}
       </div>
+
+      {onOpenCommandPalette ? (
+        <button
+          type="button"
+          aria-label={ko.shell.commandPalette.open}
+          onClick={onOpenCommandPalette}
+          className="hidden min-w-44 items-center justify-between gap-3 rounded-lg border border-line bg-muted-panel/60 px-3 py-1.5 text-sm text-steel transition hover:bg-muted-panel hover:text-ink focus-visible:outline-2 focus-visible:outline-signal md:flex"
+        >
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <Search size={15} aria-hidden="true" className="shrink-0" />
+            <span className="truncate">{ko.shell.commandPalette.trigger}</span>
+          </span>
+          <kbd className="rounded border border-line bg-white px-1.5 py-0.5 text-[10px] font-semibold text-steel">
+            Ctrl/⌘K
+          </kbd>
+        </button>
+      ) : null}
 
       {/* Branch chip */}
       <BranchChip />

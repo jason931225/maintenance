@@ -18,6 +18,7 @@ Consumed by `mnt-app` / `mnt-worker` via `envFrom`. Required keys:
 | `MNT_JWT_PUBLIC_KEY_PEM` | ES256 public key (verifies JWTs) |
 | `MNT_S3_ACCESS_KEY_ID` | OCI Customer Secret Key — access key (evidence bucket) |
 | `MNT_S3_SECRET_ACCESS_KEY` | OCI Customer Secret Key — secret |
+| `MNT_MAIL_MASTER_KEY` | Base64-encoded 32-byte webmail credential KEK from OCI Vault |
 
 Optional (enable when the integrations go live — operator-blocked on KCC 신고 /
 Kakao / FCM credentials): `MNT_FCM_*`, `MNT_SOLAPI_*`.
@@ -35,10 +36,18 @@ operator creates them once the approved sender is provisioned). Until they are
 set the app logs the OTP via a stub sender instead of relaying it, so the app
 boots without them. Setting any `MNT_EMAIL_*` member requires the full group.
 
+`MNT_MAIL_MASTER_KEY` is the webmail envelope-encryption key (KEK) used to seal
+tenant mail-server credentials. Generate exactly 32 random bytes, base64-encode
+them, store the value in **OCI Vault**, then project it into `mnt-secrets`. Never
+commit, log, paste into tickets, or reuse this key across environments. With
+`MNT_MAIL_ENABLED=true` but this key absent, the app still boots and mail APIs
+return 503; once it is present, the IMAP sync worker can run when object storage
+is also configured.
+
 ```sh
 # Generate a fresh ES256 keypair (do NOT reuse ops/.dev-secrets — those are dev-only).
-# The private key MUST be PKCS#8 (-----BEGIN PRIVATE KEY-----): jsonwebtoken's
-# from_ec_pem rejects the legacy SEC1 (-----BEGIN EC PRIVATE KEY-----) that
+# The private key MUST be PKCS#8 PEM: jsonwebtoken's
+# from_ec_pem rejects the legacy SEC1 EC-private-key PEM format that
 # `openssl ecparam -genkey` emits (the app fails to boot with jwt InvalidKeyFormat).
 # `openssl genpkey` produces PKCS#8 directly.
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out jwt-private.pem
@@ -48,8 +57,15 @@ kubectl create secret generic mnt-secrets -n maintenance \
   --from-file=MNT_JWT_PRIVATE_KEY_PEM=jwt-private.pem \
   --from-file=MNT_JWT_PUBLIC_KEY_PEM=jwt-public.pem \
   --from-literal=MNT_S3_ACCESS_KEY_ID=<oci-access-key> \
-  --from-literal=MNT_S3_SECRET_ACCESS_KEY=<oci-secret-key>
+  --from-literal=MNT_S3_SECRET_ACCESS_KEY=<oci-secret-key> \
+  --from-literal=MNT_MAIL_MASTER_KEY=<base64-32-byte-key-from-oci-vault>
 rm -f jwt-private.pem jwt-public.pem
+
+# Example local generator for the value that must be stored in OCI Vault first:
+python3 - <<'PY'
+import base64, os
+print(base64.b64encode(os.urandom(32)).decode())
+PY
 ```
 
 ## `oci-objectstore-creds` — CNPG backup credentials

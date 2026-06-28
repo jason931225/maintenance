@@ -11,29 +11,33 @@ use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
-    BranchId, BranchScope, CustomerId, EquipmentId, EquipmentSubstitutionId, KernelError, SiteId,
-    TraceContext, UserId,
+    AuditEventId, BranchId, BranchScope, CustomerId, EquipmentId, EquipmentSubstitutionId,
+    KernelError, SiteId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
     CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
-    DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentListItem, EquipmentListPage,
-    EquipmentListQuery, EquipmentSortBy, ImportSheet, MasterListEquipment, ParsedMasterList,
-    RegistryImportReport, RegistryRowError, SiteLocationGroup, SubstituteAssignment,
-    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
-    UpdateEquipmentCommand, UpdateSiteCommand, UpdateSiteFields, customer_create_audit_event,
-    equipment_create_audit_event, equipment_delete_audit_event, equipment_update_audit_event,
-    registry_import_audit_event, site_create_audit_event, site_update_audit_event,
-    substitute_assign_audit_event, substitute_return_audit_event,
+    DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentCostLedgerSummary,
+    EquipmentGraphEdge, EquipmentGraphNode, EquipmentLifecycleEvent, EquipmentListItem,
+    EquipmentListPage, EquipmentListQuery, EquipmentReadQuery, EquipmentRelationshipGraph,
+    EquipmentSortBy, EquipmentTimelineBase, EquipmentTimelineEquipment, EquipmentTimelineGraph,
+    EquipmentTimelineGraphQuery, EquipmentTimelineSubstitution, EquipmentTimelineWorkOrder,
+    ImportSheet, MasterListEquipment, ParsedMasterList, RegistryImportReport, RegistryRowError,
+    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateSiteCommand,
+    UpdateSiteFields, customer_create_audit_event, equipment_create_audit_event,
+    equipment_delete_audit_event, equipment_update_audit_event, registry_import_audit_event,
+    site_create_audit_event, site_update_audit_event, substitute_assign_audit_event,
+    substitute_return_audit_event,
 };
 use mnt_registry_domain::{
     EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
     rank_substitute_candidates,
 };
 use serde_json::json;
-use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
-use time::{Date, OffsetDateTime, macros::format_description};
+use sqlx::{PgConnection, PgPool, Postgres, QueryBuilder, Row, Transaction};
+use time::{Date, OffsetDateTime, Time, macros::format_description};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PgRegistryError {
@@ -358,7 +362,7 @@ impl PgRegistryStore {
     pub async fn update_equipment(
         &self,
         command: UpdateEquipmentCommand,
-    ) -> Result<(), PgRegistryError> {
+    ) -> Result<AuditEventId, PgRegistryError> {
         if command.fields.is_empty() {
             return Err(KernelError::validation("no equipment fields to update").into());
         }
@@ -377,6 +381,7 @@ impl PgRegistryStore {
             command.occurred_at,
         )?
         .with_org(org);
+        let audit_event_id = event.id;
         let equipment_id = command.equipment_id;
         let branch_uuid = *existing.branch_id.as_uuid();
         let fields = command.fields;
@@ -421,7 +426,8 @@ impl PgRegistryStore {
                 apply_scalar_equipment_update(tx, equipment_id, &fields).await
             })
         })
-        .await
+        .await?;
+        Ok(audit_event_id)
     }
 
     /// Soft-delete one equipment row by marking it 폐기 (Disposed). Never hard
@@ -654,6 +660,126 @@ impl PgRegistryStore {
             limit,
             offset,
         })
+    }
+
+    /// Branch-scoped equipment-by-id read for object-detail pages. RLS is armed
+    /// via `with_org_conn`; the explicit branch filter mirrors
+    /// [`Self::list_equipment`] so a branch-scoped principal gets a 404-equivalent
+    /// miss for another branch instead of a leaked row.
+    pub async fn get_equipment(
+        &self,
+        query: EquipmentReadQuery,
+    ) -> Result<Option<EquipmentListItem>, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let branch_scope = query.branch_scope;
+        let equipment_id = *query.equipment_id.as_uuid();
+
+        with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let mut builder = QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT
+                        e.id            AS equipment_id,
+                        e.branch_id     AS branch_id,
+                        e.equipment_no  AS equipment_no,
+                        e.management_no AS management_no,
+                        e.status        AS status,
+                        e.model         AS model,
+                        e.maker         AS maker,
+                        e.specification AS specification,
+                        e.ton_text      AS ton_text,
+                        c.name          AS customer_name,
+                        s.name          AS site_name,
+                        e.vin           AS vin,
+                        e.updated_at    AS updated_at
+                    FROM registry_equipment e
+                    JOIN registry_customers c ON c.id = e.customer_id
+                    JOIN registry_sites s ON s.id = e.site_id
+                    WHERE e.id =
+                    "#,
+                );
+                builder.push_bind(equipment_id);
+                push_equipment_branch_scope_filter(&mut builder, &branch_scope);
+
+                builder
+                    .build()
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                    .as_ref()
+                    .map(equipment_list_item_from_row)
+                    .transpose()
+            })
+        })
+        .await
+    }
+
+    /// Branch-scoped equipment lifecycle + relationship graph lens. RLS is armed
+    /// via `with_org_conn`, and the same explicit branch-scope filter used by
+    /// [`Self::get_equipment`] gates the root equipment, recent work orders,
+    /// cost ledger summary, and substitution history.
+    pub async fn equipment_timeline_graph(
+        &self,
+        query: EquipmentTimelineGraphQuery,
+    ) -> Result<Option<EquipmentTimelineGraph>, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let branch_scope = query.branch_scope;
+        let equipment_id = *query.equipment_id.as_uuid();
+
+        with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let mut base_builder = QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT
+                        e.id                  AS equipment_id,
+                        e.branch_id           AS branch_id,
+                        e.equipment_no        AS equipment_no,
+                        e.management_no       AS management_no,
+                        e.status              AS status,
+                        e.model               AS model,
+                        e.maker               AS maker,
+                        e.customer_id         AS customer_id,
+                        c.name                AS customer_name,
+                        e.site_id             AS site_id,
+                        s.name                AS site_name,
+                        e.asset_registered_on AS asset_registered_on,
+                        e.rental_started_on   AS rental_started_on,
+                        e.acquisition_date    AS acquisition_date,
+                        e.created_at          AS created_at,
+                        e.updated_at          AS updated_at
+                    FROM registry_equipment e
+                    JOIN registry_customers c ON c.id = e.customer_id
+                    JOIN registry_sites s ON s.id = e.site_id
+                    WHERE e.id =
+                    "#,
+                );
+                base_builder.push_bind(equipment_id);
+                push_equipment_branch_scope_filter(&mut base_builder, &branch_scope);
+                let Some(base_row) = base_builder.build().fetch_optional(tx.as_mut()).await? else {
+                    return Ok(None);
+                };
+                let base = equipment_timeline_base_from_row(&base_row)?;
+
+                let work_orders =
+                    fetch_equipment_timeline_work_orders(tx.as_mut(), equipment_id, &branch_scope)
+                        .await?;
+                let substitutions = fetch_equipment_timeline_substitutions(
+                    tx.as_mut(),
+                    equipment_id,
+                    &branch_scope,
+                )
+                .await?;
+                let cost_summary =
+                    fetch_equipment_cost_summary(tx.as_mut(), equipment_id, &branch_scope).await?;
+                let lens = equipment_timeline_graph_from_parts(
+                    base,
+                    work_orders,
+                    substitutions,
+                    cost_summary,
+                );
+                Ok(Some(lens))
+            })
+        })
+        .await
     }
 
     /// Apply a partial coordinate/address update to one site, audited with
@@ -1183,19 +1309,7 @@ fn push_equipment_list_filters(
     q_normalized: &Option<String>,
 ) {
     // Branch-scope guard (always applied — mirrors push_site_branch_filter).
-    match branch_scope {
-        BranchScope::All => {}
-        BranchScope::Branches(branches) if branches.is_empty() => {
-            builder.push(" AND FALSE");
-            return;
-        }
-        BranchScope::Branches(branches) => {
-            let branch_ids = branches.iter().map(|id| *id.as_uuid()).collect::<Vec<_>>();
-            builder.push(" AND e.branch_id = ANY(");
-            builder.push_bind(branch_ids);
-            builder.push(")");
-        }
-    }
+    push_equipment_branch_scope_filter(builder, branch_scope);
 
     // Explicit branch_id filter (must be within scope — already enforced above).
     if let Some(bid) = branch_id_filter {
@@ -1260,6 +1374,25 @@ fn push_equipment_list_filters(
     }
 }
 
+fn push_equipment_branch_scope_filter(
+    builder: &mut QueryBuilder<Postgres>,
+    branch_scope: &BranchScope,
+) {
+    match branch_scope {
+        BranchScope::All => {}
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" AND FALSE");
+            return;
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches.iter().map(|id| *id.as_uuid()).collect::<Vec<_>>();
+            builder.push(" AND e.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+        }
+    }
+}
+
 fn equipment_list_item_from_row(
     row: &sqlx::postgres::PgRow,
 ) -> Result<EquipmentListItem, PgRegistryError> {
@@ -1279,6 +1412,420 @@ fn equipment_list_item_from_row(
         vin: row.try_get("vin")?,
         updated_at: row.try_get("updated_at")?,
     })
+}
+
+async fn fetch_equipment_timeline_work_orders(
+    conn: &mut PgConnection,
+    equipment_id: uuid::Uuid,
+    branch_scope: &BranchScope,
+) -> Result<Vec<EquipmentTimelineWorkOrder>, PgRegistryError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            w.id            AS id,
+            w.request_no    AS request_no,
+            w.status        AS status,
+            w.priority      AS priority,
+            w.symptom       AS symptom,
+            w.created_at    AS created_at,
+            w.updated_at    AS updated_at,
+            w.target_due_at AS target_due_at
+        FROM work_orders w
+        WHERE w.equipment_id =
+        "#,
+    );
+    builder.push_bind(equipment_id);
+    push_branch_scope_column_filter(&mut builder, "w.branch_id", branch_scope);
+    builder.push(" ORDER BY w.created_at DESC LIMIT 8");
+
+    let rows = builder.build().fetch_all(conn).await?;
+    rows.iter()
+        .map(equipment_timeline_work_order_from_row)
+        .collect()
+}
+
+async fn fetch_equipment_timeline_substitutions(
+    conn: &mut PgConnection,
+    equipment_id: uuid::Uuid,
+    branch_scope: &BranchScope,
+) -> Result<Vec<EquipmentTimelineSubstitution>, PgRegistryError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            sub.id                      AS id,
+            sub.source_equipment_id     AS source_equipment_id,
+            sub.substitute_equipment_id AS substitute_equipment_id,
+            sub.assignment_location     AS assignment_location,
+            sub.assigned_at             AS assigned_at,
+            sub.returned_at             AS returned_at
+        FROM equipment_substitutions sub
+        WHERE (sub.source_equipment_id =
+        "#,
+    );
+    builder.push_bind(equipment_id);
+    builder.push(" OR sub.substitute_equipment_id = ");
+    builder.push_bind(equipment_id);
+    builder.push(")");
+    push_branch_scope_column_filter(&mut builder, "sub.branch_id", branch_scope);
+    builder.push(" ORDER BY sub.assigned_at DESC LIMIT 6");
+
+    let rows = builder.build().fetch_all(conn).await?;
+    rows.iter()
+        .map(equipment_timeline_substitution_from_row)
+        .collect()
+}
+
+async fn fetch_equipment_cost_summary(
+    conn: &mut PgConnection,
+    equipment_id: uuid::Uuid,
+    branch_scope: &BranchScope,
+) -> Result<EquipmentCostLedgerSummary, PgRegistryError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            COUNT(*)::BIGINT               AS entry_count,
+            COALESCE(SUM(amount_won), 0)::BIGINT AS total_won,
+            MAX(entry_at)                  AS latest_entry_at
+        FROM equipment_cost_ledger l
+        WHERE l.equipment_id =
+        "#,
+    );
+    builder.push_bind(equipment_id);
+    push_branch_scope_column_filter(&mut builder, "l.branch_id", branch_scope);
+
+    let row = builder.build().fetch_one(conn).await?;
+    Ok(EquipmentCostLedgerSummary {
+        entry_count: row.try_get("entry_count")?,
+        total_won: row.try_get("total_won")?,
+        latest_entry_at: row.try_get("latest_entry_at")?,
+    })
+}
+
+fn equipment_timeline_base_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EquipmentTimelineBase, PgRegistryError> {
+    let status: String = row.try_get("status")?;
+    Ok(EquipmentTimelineBase {
+        equipment_id: EquipmentId::from_uuid(row.try_get("equipment_id")?),
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        equipment_no: row.try_get("equipment_no")?,
+        management_no: row.try_get("management_no")?,
+        status: EquipmentStatus::parse(&status)?,
+        model: row.try_get("model")?,
+        maker: row.try_get("maker")?,
+        customer_id: CustomerId::from_uuid(row.try_get("customer_id")?),
+        customer_name: row.try_get("customer_name")?,
+        site_id: SiteId::from_uuid(row.try_get("site_id")?),
+        site_name: row.try_get("site_name")?,
+        asset_registered_on: row.try_get("asset_registered_on")?,
+        rental_started_on: row.try_get("rental_started_on")?,
+        acquisition_date: row.try_get("acquisition_date")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn equipment_timeline_work_order_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EquipmentTimelineWorkOrder, PgRegistryError> {
+    Ok(EquipmentTimelineWorkOrder {
+        id: WorkOrderId::from_uuid(row.try_get("id")?),
+        request_no: row.try_get("request_no")?,
+        status: row.try_get("status")?,
+        priority: row.try_get("priority")?,
+        symptom: row.try_get("symptom")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        target_due_at: row.try_get("target_due_at")?,
+    })
+}
+
+fn equipment_timeline_substitution_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EquipmentTimelineSubstitution, PgRegistryError> {
+    Ok(EquipmentTimelineSubstitution {
+        id: EquipmentSubstitutionId::from_uuid(row.try_get("id")?),
+        source_equipment_id: EquipmentId::from_uuid(row.try_get("source_equipment_id")?),
+        substitute_equipment_id: EquipmentId::from_uuid(row.try_get("substitute_equipment_id")?),
+        assignment_location: row.try_get("assignment_location")?,
+        assigned_at: row.try_get("assigned_at")?,
+        returned_at: row.try_get("returned_at")?,
+    })
+}
+
+fn equipment_timeline_graph_from_parts(
+    base: EquipmentTimelineBase,
+    work_orders: Vec<EquipmentTimelineWorkOrder>,
+    substitutions: Vec<EquipmentTimelineSubstitution>,
+    cost_summary: EquipmentCostLedgerSummary,
+) -> EquipmentTimelineGraph {
+    let mut event_drafts = Vec::new();
+    push_lifecycle_timestamp_event(
+        &mut event_drafts,
+        "equipment-created",
+        "created",
+        "장비 마스터 생성",
+        Some(base.equipment_no.clone()),
+        base.created_at,
+        Some(format!("/equipment/{}", base.equipment_id)),
+    );
+    if let Some(date) = base.asset_registered_on {
+        push_lifecycle_date_event(
+            &mut event_drafts,
+            "asset-registered",
+            "asset_registered",
+            "자산 등록",
+            None,
+            date,
+            Some(format!("/equipment/{}", base.equipment_id)),
+        );
+    }
+    if let Some(date) = base.acquisition_date {
+        push_lifecycle_date_event(
+            &mut event_drafts,
+            "acquisition",
+            "acquisition",
+            "취득",
+            None,
+            date,
+            Some("/financial".to_owned()),
+        );
+    }
+    if let Some(date) = base.rental_started_on {
+        push_lifecycle_date_event(
+            &mut event_drafts,
+            "rental-started",
+            "rental_started",
+            "임대 시작",
+            Some(base.site_name.clone()),
+            date,
+            Some("/dispatch-map".to_owned()),
+        );
+    }
+
+    for work_order in &work_orders {
+        push_lifecycle_timestamp_event(
+            &mut event_drafts,
+            &format!("work-order-{}", work_order.id),
+            "work_order",
+            &format!("작업지시 {}", work_order.request_no),
+            Some(format!("{} · {}", work_order.status, work_order.priority)),
+            work_order.created_at,
+            Some(format!("/work-orders/{}", work_order.id)),
+        );
+    }
+
+    if cost_summary.entry_count > 0
+        && let Some(latest_entry_at) = cost_summary.latest_entry_at
+    {
+        push_lifecycle_timestamp_event(
+            &mut event_drafts,
+            "cost-ledger",
+            "cost_ledger",
+            "비용 원장 반영",
+            Some(format!(
+                "{}건 · {}원",
+                cost_summary.entry_count, cost_summary.total_won
+            )),
+            latest_entry_at,
+            Some("/financial".to_owned()),
+        );
+    }
+
+    for substitution in &substitutions {
+        let relationship = if substitution.source_equipment_id == base.equipment_id {
+            "대차 투입"
+        } else {
+            "대차 제공"
+        };
+        push_lifecycle_timestamp_event(
+            &mut event_drafts,
+            &format!("substitution-assigned-{}", substitution.id),
+            "substitution_assigned",
+            relationship,
+            Some(substitution.assignment_location.clone()),
+            substitution.assigned_at,
+            Some(format!("/equipment/{}", base.equipment_id)),
+        );
+        if let Some(returned_at) = substitution.returned_at {
+            push_lifecycle_timestamp_event(
+                &mut event_drafts,
+                &format!("substitution-returned-{}", substitution.id),
+                "substitution_returned",
+                "대차 반환",
+                Some(substitution.assignment_location.clone()),
+                returned_at,
+                Some(format!("/equipment/{}", base.equipment_id)),
+            );
+        }
+    }
+
+    event_drafts.sort_by_key(|draft| draft.sort_key);
+    let lifecycle_events = event_drafts.into_iter().map(|draft| draft.event).collect();
+    let graph = equipment_relationship_graph(&base, &work_orders);
+    let work_order_count = i64::try_from(work_orders.len()).unwrap_or(i64::MAX);
+
+    EquipmentTimelineGraph {
+        equipment: EquipmentTimelineEquipment {
+            equipment_id: base.equipment_id,
+            branch_id: base.branch_id,
+            equipment_no: base.equipment_no,
+            management_no: base.management_no,
+            status: base.status,
+            model: base.model,
+            maker: base.maker,
+            customer_id: base.customer_id,
+            customer_name: base.customer_name,
+            site_id: base.site_id,
+            site_name: base.site_name,
+        },
+        lifecycle_events,
+        graph,
+        work_order_count,
+        cost_ledger_total_won: cost_summary.total_won,
+    }
+}
+
+#[derive(Debug)]
+struct EquipmentLifecycleEventDraft {
+    sort_key: OffsetDateTime,
+    event: EquipmentLifecycleEvent,
+}
+
+fn push_lifecycle_timestamp_event(
+    events: &mut Vec<EquipmentLifecycleEventDraft>,
+    id: &str,
+    kind: &str,
+    label: &str,
+    description: Option<String>,
+    occurred_at: OffsetDateTime,
+    href: Option<String>,
+) {
+    events.push(EquipmentLifecycleEventDraft {
+        sort_key: occurred_at,
+        event: EquipmentLifecycleEvent {
+            id: id.to_owned(),
+            kind: kind.to_owned(),
+            label: label.to_owned(),
+            description,
+            event_date: None,
+            occurred_at: Some(occurred_at),
+            href,
+        },
+    });
+}
+
+fn push_lifecycle_date_event(
+    events: &mut Vec<EquipmentLifecycleEventDraft>,
+    id: &str,
+    kind: &str,
+    label: &str,
+    description: Option<String>,
+    event_date: Date,
+    href: Option<String>,
+) {
+    events.push(EquipmentLifecycleEventDraft {
+        sort_key: event_date.with_time(Time::MIDNIGHT).assume_utc(),
+        event: EquipmentLifecycleEvent {
+            id: id.to_owned(),
+            kind: kind.to_owned(),
+            label: label.to_owned(),
+            description,
+            event_date: Some(event_date),
+            occurred_at: None,
+            href,
+        },
+    });
+}
+
+fn equipment_relationship_graph(
+    base: &EquipmentTimelineBase,
+    work_orders: &[EquipmentTimelineWorkOrder],
+) -> EquipmentRelationshipGraph {
+    let customer_node = format!("customer:{}", base.customer_id);
+    let site_node = format!("site:{}", base.site_id);
+    let equipment_node = format!("equipment:{}", base.equipment_id);
+    let mut nodes = vec![
+        EquipmentGraphNode {
+            id: customer_node.clone(),
+            node_type: "customer".to_owned(),
+            label: base.customer_name.clone(),
+            subtitle: Some("고객".to_owned()),
+            href: Some(format!("/dispatch?customer_id={}", base.customer_id)),
+            current: false,
+        },
+        EquipmentGraphNode {
+            id: site_node.clone(),
+            node_type: "site".to_owned(),
+            label: base.site_name.clone(),
+            subtitle: Some("현장".to_owned()),
+            href: Some(format!("/dispatch?site_id={}", base.site_id)),
+            current: false,
+        },
+        EquipmentGraphNode {
+            id: equipment_node.clone(),
+            node_type: "equipment".to_owned(),
+            label: base.equipment_no.clone(),
+            subtitle: base.model.clone(),
+            href: Some(format!("/equipment/{}", base.equipment_id)),
+            current: true,
+        },
+    ];
+    let mut edges = vec![
+        EquipmentGraphEdge {
+            from: customer_node,
+            to: site_node.clone(),
+            kind: "owns_site".to_owned(),
+            label: "고객-현장".to_owned(),
+        },
+        EquipmentGraphEdge {
+            from: site_node,
+            to: equipment_node.clone(),
+            kind: "hosts_equipment".to_owned(),
+            label: "현장-장비".to_owned(),
+        },
+    ];
+
+    for work_order in work_orders.iter().take(6) {
+        let work_order_node = format!("work_order:{}", work_order.id);
+        nodes.push(EquipmentGraphNode {
+            id: work_order_node.clone(),
+            node_type: "work_order".to_owned(),
+            label: work_order.request_no.clone(),
+            subtitle: Some(format!("{} · {}", work_order.status, work_order.priority)),
+            href: Some(format!("/work-orders/{}", work_order.id)),
+            current: false,
+        });
+        edges.push(EquipmentGraphEdge {
+            from: equipment_node.clone(),
+            to: work_order_node,
+            kind: "has_work_order".to_owned(),
+            label: "정비 이력".to_owned(),
+        });
+    }
+
+    EquipmentRelationshipGraph { nodes, edges }
+}
+
+fn push_branch_scope_column_filter(
+    builder: &mut QueryBuilder<Postgres>,
+    column: &str,
+    branch_scope: &BranchScope,
+) {
+    match branch_scope {
+        BranchScope::All => {}
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" AND FALSE");
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches.iter().map(|id| *id.as_uuid()).collect::<Vec<_>>();
+            builder.push(" AND ");
+            builder.push(column);
+            builder.push(" = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+        }
+    }
 }
 
 /// Restrict the by-location aggregation to `scope`'s branches. `s.branch_id` is

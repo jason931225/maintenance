@@ -18,6 +18,7 @@ export const cossHeroVideo = {
   path: cossHeroVideoPath,
   legacyUri: `https://www.cossok.com${cossHeroVideoPath}`,
   targetUri: `https://www.cosskorea.com${cossHeroVideoPath}`,
+  publicUri: `https://www.cosskorea.com${cossHeroVideoPath}`, // keep the large source video on the vendor CDN, not in git
   contentType: 'video/mp4',
   contentLengthBytes: 29386296,
 } as const;

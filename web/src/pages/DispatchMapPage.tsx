@@ -292,6 +292,7 @@ function ArrivalEventsPanel({
   state: ArrivalLoadState;
   onSelectSite: (siteId: string) => void;
 }) {
+
   return (
     <Card className="grid gap-3">
       <div>

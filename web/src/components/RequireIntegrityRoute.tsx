@@ -1,7 +1,7 @@
 import { Navigate, Outlet } from "react-router-dom";
 
 import { useAuth } from "../context/auth";
-import { hasAnyRole, ROLES } from "./shell/nav";
+import { FEATURES, hasAnyFeatureGrant, hasAnyRole, ROLES } from "./shell/nav";
 
 /**
  * JWT roles allowed to read and triage integrity findings (backend
@@ -20,11 +20,19 @@ const INTEGRITY_ROLES = [ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
  * (including ADMIN) whose nav hides it. The backend re-checks authorization on
  * every call.
  */
+const INTEGRITY_FEATURES = [
+  FEATURES.INTEGRITY_FINDINGS_READ,
+  FEATURES.INTEGRITY_FINDING_TRIAGE,
+] as const;
+
 export function RequireIntegrityRoute() {
   const { session } = useAuth();
 
-  if (!hasAnyRole(session?.roles, INTEGRITY_ROLES)) {
-    return <Navigate to="/dispatch" replace />;
+  if (
+    !hasAnyRole(session?.roles, INTEGRITY_ROLES) &&
+    !hasAnyFeatureGrant(session?.feature_grants, INTEGRITY_FEATURES)
+  ) {
+    return <Navigate to="/work-hub" replace />;
   }
 
   return <Outlet />;

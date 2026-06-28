@@ -152,6 +152,57 @@ describe("LoginPage sign-in", () => {
       await screen.findByText("시도가 너무 많습니다. 잠시 후 다시 시도하세요."),
     ).toBeVisible();
   });
+
+  it("redirects an already signed-in user without next to the work hub", async () => {
+    server.use(
+      http.get("*/api/v1/work-orders", () =>
+        HttpResponse.json({ items: [], limit: 8, offset: 0, total: 0 }),
+      ),
+      http.get("*/api/daily-work-plans", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+      http.get("*/api/v1/support/tickets", () =>
+        HttpResponse.json({ items: [], next_cursor: null, total: 0 }),
+      ),
+      http.get("*/api/v1/ops/summary", () =>
+        HttpResponse.json({
+          funnel: { received: 0, assigned: 0, in_progress: 0, completed: 0 },
+          aging_hours: 24,
+          aging_work_orders: 0,
+          sla_breached: 0,
+          sla_at_risk: 0,
+          mechanic_load: [],
+          equipment_status: {
+            rented: 0,
+            spare: 0,
+            scrapped: 0,
+            replacement: 0,
+            sold: 0,
+          },
+          active_substitutions: 0,
+          pending_approvals: 0,
+          open_support_tickets: 0,
+        }),
+      ),
+    );
+
+    renderApp(
+      "/login",
+      makeAuthContext({
+        session: {
+          access_token: "a",
+          roles: ["ADMIN"],
+        },
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "로그인", level: 2 }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("requires_passkey_setup routing", () => {

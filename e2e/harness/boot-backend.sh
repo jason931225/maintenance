@@ -17,7 +17,7 @@ BACKEND_DIR="${REPO_ROOT}/backend"
 AUTH_DIR="${E2E_DIR}/.auth"
 PID_FILE="${AUTH_DIR}/backend.pid"
 LOG_FILE="${AUTH_DIR}/backend.log"
-MNT_APP_BIN="${MNT_APP_BIN:-${BACKEND_DIR}/target/debug/mnt-app}"
+MNT_APP_BIN="${MNT_APP_BIN:-}"
 
 mkdir -p "${AUTH_DIR}"
 
@@ -63,13 +63,16 @@ export MNT_DISPATCH_JOBS_ENABLED=false
 export RUST_LOG="${RUST_LOG:-info}"
 
 echo "boot-backend: starting mnt-app api on ${MNT_HTTP_ADDR}" >&2
-if [[ -x "${MNT_APP_BIN}" ]]; then
+if [[ -n "${MNT_APP_BIN}" && -x "${MNT_APP_BIN}" ]]; then
   "${MNT_APP_BIN}" >"${LOG_FILE}" 2>&1 &
 else
   # Build/run from source: force sqlx offline so the apalis-postgres dep (and
   # our own queries) compile against the committed `.sqlx` cache, not the empty
   # mnt_e2e DB (which lacks `apalis.jobs` until migrations run).
-  ( cd "${BACKEND_DIR}" && SQLX_OFFLINE=true cargo run -q -p mnt-app >"${LOG_FILE}" 2>&1 ) &
+  ( cd "${BACKEND_DIR}" && \
+    CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}" \
+    CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/.tmp/cargo-target-e2e}" \
+    SQLX_OFFLINE=true cargo run -q -p mnt-app >"${LOG_FILE}" 2>&1 ) &
 fi
 BACKEND_PID=$!
 echo "${BACKEND_PID}" >"${PID_FILE}"

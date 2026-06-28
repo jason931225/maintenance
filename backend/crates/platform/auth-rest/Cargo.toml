@@ -17,6 +17,7 @@ mnt-platform-db = { workspace = true }
 mnt-platform-email = { workspace = true }
 mnt-platform-group = { path = "../group" }
 mnt-platform-provisioning = { path = "../provisioning" }
+mnt-platform-request-context = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }

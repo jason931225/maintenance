@@ -23,7 +23,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -38,12 +38,11 @@ use mnt_comms_application::{
 };
 use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
 use mnt_comms_domain::{MailSecurity, MessageAddress};
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId};
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use time::OffsetDateTime;
 
 pub const MAIL_ACCOUNT_PATH: &str = "/api/v1/mail/account";
@@ -209,7 +208,7 @@ async fn get_account(
     State(state): State<CommsRestState>,
     headers: HeaderMap,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailAccountManage)?;
     let cipher = state.cipher_ref()?;
     let service = AccountService::new(state.store.clone(), state.sender.clone(), cipher);
@@ -228,7 +227,7 @@ async fn put_account(
     headers: HeaderMap,
     Json(body): Json<ConfigureAccountRequest>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailAccountManage)?;
     let cipher = state.cipher_ref()?;
     let service = AccountService::new(state.store.clone(), state.sender.clone(), cipher);
@@ -266,7 +265,7 @@ async fn test_account(
     State(state): State<CommsRestState>,
     headers: HeaderMap,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailAccountManage)?;
     let cipher = state.cipher_ref()?;
     // Probe SMTP first (rate-limited + decrypted inside the service). A failure
@@ -331,7 +330,7 @@ async fn send_impl(
     body: SendRequest,
     kind: SendKind,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
     let cipher = state.cipher_ref()?;
     let service = SendService::new(
@@ -410,7 +409,7 @@ async fn list_folders(
     State(state): State<CommsRestState>,
     headers: HeaderMap,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
     let _cipher = state.cipher_ref()?; // gate the feature on a configured KEK
     let Some(account) = read_account(&state, principal.org_id).await? else {
@@ -429,7 +428,7 @@ async fn list_threads(
     headers: HeaderMap,
     Query(params): Query<ThreadListQuery>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
     let _cipher = state.cipher_ref()?;
     let Some(account) = read_account(&state, principal.org_id).await? else {
@@ -462,7 +461,7 @@ async fn get_thread(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
     let _cipher = state.cipher_ref()?;
     let thread_id =
@@ -487,7 +486,7 @@ async fn get_message(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
     let _cipher = state.cipher_ref()?;
     let message_id =
@@ -512,7 +511,7 @@ async fn download_attachment(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
     let _cipher = state.cipher_ref()?;
     let attachment_id =
@@ -647,65 +646,48 @@ fn representative_branch(branch_scope: &BranchScope) -> Result<BranchId, RestErr
     }
 }
 
-fn principal_from_headers(
+async fn principal_from_headers(
     state: &CommsRestState,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for the mail API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    mnt_platform_request_context::resolve_principal(verifier, state.pool(), headers)
+        .await
+        .map_err(rest_error_from_request_context)
 }
 
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
-}
-
-fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let org_id = mnt_kernel_core::OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token org is not a valid id"))?;
-    let roles_vec: Vec<Role> = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<_, _>>()?;
-    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
-    let branch_scope = if roles_vec
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch)
-                    .map_err(|_| RestError::unauthorized("token contains an invalid branch id"))
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        BranchScope::Branches(branches)
-    };
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for the mail API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::forbidden("token tier is not valid for this route")
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::internal(message)
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => {
+            RestError::internal("no tenant context is bound to the current request")
+        }
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

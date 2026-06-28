@@ -45,6 +45,10 @@ pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
         // Conglomerate grouping identity only. Authorization data is NOT here:
         // group_memberships and group_role_grants are owner-only resolver tables.
         ("groups", "group identity metadata only, no tenant data"),
+        (
+            "feature_catalog",
+            "canonical policy feature keys only, no tenant data",
+        ),
         // Pre-auth throttle: keyed on (ip, purpose), exists before any user/org
         // is resolved. Transient, no tenant.
         ("auth_rate_limit", "pre-auth throttle, no resolved tenant"),

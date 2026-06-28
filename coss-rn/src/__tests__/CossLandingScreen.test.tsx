@@ -103,6 +103,7 @@ describe('CossLandingScreen', () => {
     expect(cossHeroVideo.targetUri).toBe(
       'https://www.cosskorea.com/html/_skin/files/coss_main_all_251229.mp4?ver=251224',
     );
+    expect(cossHeroVideo.publicUri).toBe(cossHeroVideo.targetUri);
     expect(typeof parallaxScroll.props.onScroll).toBe('function');
     expect(getByTestId('fixed-video-parallax-layer')).toBeTruthy();
     expect(getByTestId('hero-parallax-copy')).toBeTruthy();

@@ -45,8 +45,8 @@ use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
 use mnt_platform_auth::{
     AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
-    JwtVerifier, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH, android_assetlinks_json,
-    apple_app_site_association_json,
+    JwtVerifier, PasskeyService, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH,
+    WebauthnSettings, android_assetlinks_json, apple_app_site_association_json,
 };
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -93,6 +93,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use url::Url;
 
 mod hr;
 mod mail_sync;
@@ -291,6 +292,19 @@ fn build_view_as_issuer(config: &AuthRestConfig) -> Result<JwtIssuer, AppError> 
         config.jwt_public_key_pem.as_bytes(),
     )
     .map_err(|err| AppError::Config(format!("invalid view-as issuer key material: {err}")))
+}
+
+fn policy_step_up_from_auth_config(config: &AuthRestConfig) -> Result<PasskeyService, AppError> {
+    let rp_origin = Url::parse(&config.rp_origin)
+        .map_err(|err| AppError::Config(format!("invalid WebAuthn RP origin: {err}")))?;
+    PasskeyService::new(WebauthnSettings {
+        rp_id: config.rp_id.clone(),
+        rp_origin,
+        rp_name: config.rp_name.clone(),
+        extra_allowed_origins: Vec::new(),
+        ceremony_ttl: config.ceremony_ttl,
+    })
+    .map_err(|err| AppError::Config(format!("invalid policy step-up WebAuthn config: {err}")))
 }
 
 impl AppConfig {
@@ -776,6 +790,11 @@ pub struct AppState {
     /// `jwt_verifier`). `None` when no private key is configured — the view-as
     /// START endpoint then returns 503.
     view_as_issuer: Option<JwtIssuer>,
+    /// Fresh passkey step-up verifier for sensitive policy-authoring actions.
+    /// Built from the auth-rest WebAuthn RP settings; if auth-rest is disabled,
+    /// policy lifecycle changes fail closed instead of accepting bearer-only
+    /// publish/rollback requests.
+    policy_step_up: Option<PasskeyService>,
     auth_rest: Option<AuthRestState>,
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
     /// Object store + bucket backing the public storefront media-serve route.
@@ -816,6 +835,11 @@ impl AppState {
             .as_ref()
             .map(build_view_as_issuer)
             .transpose()?;
+        let policy_step_up = config
+            .auth_rest
+            .as_ref()
+            .map(policy_step_up_from_auth_config)
+            .transpose()?;
         let auth_rest = match &database {
             DatabaseDependency::Postgres(pool) => match &config.auth_rest {
                 Some(auth_config) => Some(
@@ -833,6 +857,7 @@ impl AppState {
             database,
             jwt_verifier,
             view_as_issuer,
+            policy_step_up,
             auth_rest,
             evidence_storage: None,
             sales_media_storage: None,
@@ -1313,10 +1338,10 @@ pub fn build_router(state: AppState) -> Router {
                     )
                     .with_trusted_proxy_count(state.config.trusted_proxy_count),
                 ))
-                .merge(mnt_identity_rest::router(IdentityRestState::new(
-                    org_store,
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_identity_rest::router(
+                    IdentityRestState::new(org_store, state.jwt_verifier.clone())
+                        .with_passkey_step_up(state.policy_step_up.clone()),
+                ))
                 .merge(mnt_compliance_rest::router(ComplianceRestState::new(
                     compliance_store,
                     state.jwt_verifier.clone(),
@@ -1325,10 +1350,10 @@ pub fn build_router(state: AppState) -> Router {
                     integrity_store,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_registry_rest::router(RegistryRestState::new(
-                    registry_store,
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_registry_rest::router(
+                    RegistryRestState::new(registry_store, state.jwt_verifier.clone())
+                        .with_passkey_step_up(state.policy_step_up.clone()),
+                ))
                 .merge(hr::router(hr::HrState::new(
                     pool.clone(),
                     state.jwt_verifier.clone(),

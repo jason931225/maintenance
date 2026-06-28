@@ -24,6 +24,7 @@
 package com.maintenance.api.client.model
 
 import com.maintenance.api.client.model.WorkOrderListItem
+import com.maintenance.api.client.model.WorkOrderObjectSetLens
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -36,6 +37,7 @@ import kotlinx.serialization.Contextual
  * @param limit
  * @param offset
  * @param total
+ * @param lens
  */
 @Serializable
 
@@ -51,7 +53,10 @@ data class WorkOrderListPage (
     val offset: kotlin.Long,
 
     @SerialName(value = "total")
-    val total: kotlin.Long
+    val total: kotlin.Long,
+
+    @SerialName(value = "lens")
+    val lens: WorkOrderObjectSetLens? = null
 
 ) {
 

@@ -58,7 +58,9 @@ describe("SlaBadge", () => {
         now={NOW}
       />,
     );
-    expect(screen.getByText("정상")).toBeVisible();
+    const badge = screen.getByText("정상");
+    expect(badge).toBeVisible();
+    expect(badge).toHaveClass("border-tone-success-border", "bg-tone-success-bg", "text-tone-success-text");
   });
 
   it("renders 임박 for an at-risk work order", () => {
@@ -68,7 +70,9 @@ describe("SlaBadge", () => {
         now={NOW}
       />,
     );
-    expect(screen.getByText("임박")).toBeVisible();
+    const badge = screen.getByText("임박");
+    expect(badge).toBeVisible();
+    expect(badge).toHaveClass("border-tone-warning-border", "bg-tone-warning-bg", "text-tone-warning-text");
   });
 
   it("renders 위반 for a breached work order", () => {
@@ -78,7 +82,9 @@ describe("SlaBadge", () => {
         now={NOW}
       />,
     );
-    expect(screen.getByText("위반")).toBeVisible();
+    const badge = screen.getByText("위반");
+    expect(badge).toBeVisible();
+    expect(badge).toHaveClass("border-tone-danger-border", "bg-tone-danger-bg", "text-tone-danger-text");
   });
 
   it("renders nothing when no SLA applies", () => {

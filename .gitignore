@@ -1,4 +1,5 @@
 # Rust
+.tmp/
 backend/target/
 **/*.rs.bk
 

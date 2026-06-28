@@ -3,6 +3,32 @@ import MaintenanceAPIClient
 import MaintenanceFieldCore
 import SwiftUI
 
+struct WorkHubSummary: Equatable {
+    let todayWorkCount: Int
+    let urgentWorkCount: Int
+    let approvalRelatedCount: Int
+    let pendingSyncCount: Int
+    let messengerThreadCount: Int
+    let targetDueWorkCount: Int
+    let gpsMayCollect: Bool
+
+    static func build(
+        today: [TechnicianWorkOrder],
+        messengerState: MessengerState,
+        gpsMayCollect: Bool
+    ) -> WorkHubSummary {
+        WorkHubSummary(
+            todayWorkCount: today.count,
+            urgentWorkCount: today.filter { $0.priority == .p1 }.count,
+            approvalRelatedCount: today.filter { $0.status == .reportSubmitted || $0.status == .adminReview }.count,
+            pendingSyncCount: today.filter { $0.syncState != .synced }.count,
+            messengerThreadCount: messengerState.threads.count,
+            targetDueWorkCount: today.filter { $0.targetDueAt != nil }.count,
+            gpsMayCollect: gpsMayCollect
+        )
+    }
+}
+
 @MainActor
 final class FieldViewModel: ObservableObject {
     @Published var loginState: LoginState = .signedOut()
@@ -20,6 +46,14 @@ final class FieldViewModel: ObservableObject {
     @Published var messengerSearchQuery = ""
     @Published var messengerHasSearched = false
     @Published var locationConsent: Components.Schemas.LocationConsentStatus?
+
+    var workHubSummary: WorkHubSummary {
+        WorkHubSummary.build(
+            today: today,
+            messengerState: messengerState,
+            gpsMayCollect: locationConsent?.mayCollect == true
+        )
+    }
 
     private let authRepository: PasskeyAuthRepository
     private let workOrderRepository: WorkOrderRepository
@@ -94,6 +128,32 @@ final class FieldViewModel: ObservableObject {
             today = await workOrderRepository.cachedToday()
             messageKey = "error_network"
         }
+        isLoading = false
+    }
+
+    func refreshWorkHub() async {
+        isLoading = true
+        var failed = false
+
+        do {
+            _ = try await workOrderRepository.replayPending()
+            _ = await evidenceRepository.uploadPending()
+            today = try await workOrderRepository.refreshToday()
+            locationConsent = try await locationConsentRepository.status()
+        } catch {
+            today = await workOrderRepository.cachedToday()
+            failed = true
+        }
+
+        do {
+            _ = await messengerRepository.replayPending()
+            let threads = try await messengerRepository.loadThreads()
+            messengerState = messengerReducer.reduce(messengerState, .threadsLoaded(threads))
+        } catch {
+            failed = true
+        }
+
+        messageKey = failed ? "error_network" : nil
         isLoading = false
     }
 

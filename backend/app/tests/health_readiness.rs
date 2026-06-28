@@ -70,6 +70,16 @@ async fn metrics_endpoint_exposes_the_slo_http_duration_histogram()
         .await?;
     assert_eq!(health.status(), StatusCode::OK);
 
+    // Policy Studio emits a feature counter from the identity router. Exercise
+    // the same bounded label shape here so the scrape path proves both the
+    // generic RED histogram and feature-specific operation counters are exposed.
+    metrics::counter!(
+        "policy_studio_operation_total",
+        "operation" => "preview_assignments",
+        "outcome" => "success",
+    )
+    .increment(1);
+
     let metrics = app
         .oneshot(Request::builder().uri("/metrics").body(Body::empty())?)
         .await?;
@@ -83,6 +93,12 @@ async fn metrics_endpoint_exposes_the_slo_http_duration_histogram()
     assert!(
         text.contains("service_name=\"mnt-app-api\""),
         "histogram series must carry the service_name label the SLO filters on; got:\n{text}"
+    );
+    assert!(
+        text.contains("policy_studio_operation_total")
+            && text.contains("operation=\"preview_assignments\"")
+            && text.contains("outcome=\"success\""),
+        "policy studio counter must expose only bounded operation/outcome labels; got:\n{text}"
     );
     Ok(())
 }

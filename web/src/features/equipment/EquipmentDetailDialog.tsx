@@ -13,7 +13,9 @@ import { Dialog } from "../../components/ui/dialog";
 import { FeedbackBanner } from "../../components/states/FeedbackBanner";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
+import { equipmentStatusBadgeClass } from "./equipment-format";
 import { formatKoreanDate } from "../../lib/datetime";
+import { Mono } from "../../lib/format";
 import { safeLabel } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
 
@@ -87,18 +89,6 @@ function onlyValue(values: Array<string | null | undefined>): string | undefined
   return unique.length === 1 ? unique[0] : undefined;
 }
 
-function statusClassName(status: EquipmentStatus): string {
-  switch (status) {
-    case "rented":
-      return "bg-signal/10 text-signal border-signal/30";
-    case "spare":
-      return "bg-muted-panel text-steel border-line";
-    case "disposed":
-      return "bg-red-50 text-red-700 border-red-200";
-    default:
-      return "";
-  }
-}
 
 /**
  * In-list equipment detail popup opened from the equipment browse list. Shows
@@ -238,7 +228,7 @@ export function EquipmentDetailDialog({
         <h2 id={titleId} className="text-lg font-semibold text-ink">
           {editing ? ko.equipment.detail.edit : ko.equipment.detail.view}
         </h2>
-        <Badge className={statusClassName(form?.status ?? item.status)}>
+        <Badge className={equipmentStatusBadgeClass(form?.status ?? item.status)}>
           {ko.equipment.statuses[form?.status ?? item.status]}
         </Badge>
       </div>
@@ -465,7 +455,7 @@ function DetailRow({ label, value, mono }: DetailRowProps) {
       <dd
         className={
           mono
-            ? "font-mono text-sm text-ink"
+            ? "font-mono tabular-nums tracking-tight text-sm text-ink"
             : "text-sm text-ink"
         }
       >
@@ -518,7 +508,7 @@ function ReadOnlyRow({ label, value }: ReadOnlyRowProps) {
   return (
     <div className="grid gap-2">
       <span className="text-sm font-medium text-steel">{label}</span>
-      <span className="font-mono text-sm text-ink">{value}</span>
+      <Mono className="text-sm text-ink">{value}</Mono>
     </div>
   );
 }

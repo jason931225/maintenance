@@ -41,6 +41,7 @@ import com.maintenance.api.client.model.AssetLifecycleCostSummary
 import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
+import com.maintenance.api.client.model.AttendanceSummaryPage
 import com.maintenance.api.client.model.BranchSummary
 import com.maintenance.api.client.model.CompleteInspectionRoundRequest
 import com.maintenance.api.client.model.ComputeRentalQuoteRequest
@@ -58,6 +59,7 @@ import com.maintenance.api.client.model.CreateListingRequest
 import com.maintenance.api.client.model.CreateListingResponse
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
+import com.maintenance.api.client.model.CreatePolicyRoleRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
 import com.maintenance.api.client.model.CreateRegionRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
@@ -78,10 +80,12 @@ import com.maintenance.api.client.model.EnrollHandoffRequest
 import com.maintenance.api.client.model.EnrollHandoffResponse
 import com.maintenance.api.client.model.EquipmentAutocompletePage
 import com.maintenance.api.client.model.EquipmentByLocationPage
+import com.maintenance.api.client.model.EquipmentListItem
 import com.maintenance.api.client.model.EquipmentListPage
 import com.maintenance.api.client.model.EquipmentLookupResponse
 import com.maintenance.api.client.model.EquipmentSortBy
 import com.maintenance.api.client.model.EquipmentStatus
+import com.maintenance.api.client.model.EquipmentTimelineGraph
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
@@ -89,15 +93,18 @@ import com.maintenance.api.client.model.EvidencePresignResponse
 import com.maintenance.api.client.model.EvidenceStagingPresignRequest
 import com.maintenance.api.client.model.EvidenceStagingPresignResponse
 import com.maintenance.api.client.model.EvidenceStatusResponse
+import com.maintenance.api.client.model.ExecuteObjectActionRequest
 import com.maintenance.api.client.model.FindingStatus
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
 import com.maintenance.api.client.model.GovernanceFinding
+import com.maintenance.api.client.model.HrOrgChartResponse
 import com.maintenance.api.client.model.InquiryAck
 import com.maintenance.api.client.model.InquiryStatus
 import com.maintenance.api.client.model.InspectionRoundSummary
 import com.maintenance.api.client.model.InspectionSchedulePage
 import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
+import com.maintenance.api.client.model.LeaveBalancePage
 import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
 import com.maintenance.api.client.model.ListingType
@@ -119,6 +126,8 @@ import com.maintenance.api.client.model.MessengerMessageSummary
 import com.maintenance.api.client.model.MessengerReadReceiptSummary
 import com.maintenance.api.client.model.MessengerThreadListResponse
 import com.maintenance.api.client.model.MessengerThreadSummary
+import com.maintenance.api.client.model.ObjectActionCatalogResponse
+import com.maintenance.api.client.model.ObjectActionExecutionResponse
 import com.maintenance.api.client.model.OpsSummary
 import com.maintenance.api.client.model.OtpRedeemRequest
 import com.maintenance.api.client.model.OtpRedeemResponse
@@ -131,6 +140,15 @@ import com.maintenance.api.client.model.PasskeyRegisterFinishResponse
 import com.maintenance.api.client.model.PasskeyRegisterStartRequest
 import com.maintenance.api.client.model.PasskeyRegisterStartResponse
 import com.maintenance.api.client.model.PasskeySummary
+import com.maintenance.api.client.model.PolicyAssignmentPreviewResponse
+import com.maintenance.api.client.model.PolicyAuditEventResponse
+import com.maintenance.api.client.model.PolicyFeatureResponse
+import com.maintenance.api.client.model.PolicyRoleAssignmentResponse
+import com.maintenance.api.client.model.PolicyRoleCatalogResponse
+import com.maintenance.api.client.model.PolicyRoleResponse
+import com.maintenance.api.client.model.PolicyRoleStatusPreviewRequest
+import com.maintenance.api.client.model.PolicyRoleStatusPreviewResponse
+import com.maintenance.api.client.model.PolicyRoleTemplateResponse
 import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.PrivacyConsentAcceptRequest
@@ -142,6 +160,7 @@ import com.maintenance.api.client.model.RegistryImportReport
 import com.maintenance.api.client.model.RejectPurchaseRequest
 import com.maintenance.api.client.model.RejectWorkOrderRequest
 import com.maintenance.api.client.model.RentalQuoteSummary
+import com.maintenance.api.client.model.ReplacePolicyRoleAssignmentsRequest
 import com.maintenance.api.client.model.RespondP1DispatchRequest
 import com.maintenance.api.client.model.RestartPurchaseRequest
 import com.maintenance.api.client.model.ReturnSubstituteRequest
@@ -179,6 +198,8 @@ import com.maintenance.api.client.model.UpdateBranchRequest
 import com.maintenance.api.client.model.UpdateEquipmentRequest
 import com.maintenance.api.client.model.UpdateInquiryStatusRequest
 import com.maintenance.api.client.model.UpdateListingRequest
+import com.maintenance.api.client.model.UpdatePolicyRoleRequest
+import com.maintenance.api.client.model.UpdatePolicyRoleStatusRequest
 import com.maintenance.api.client.model.UpdateRegionRequest
 import com.maintenance.api.client.model.UpdateSelfProfileRequest
 import com.maintenance.api.client.model.UpdateSiteRequest
@@ -3291,6 +3312,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/policy/roles
+     * Create a tenant custom role definition
+     * Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+     * @param createPolicyRoleRequest
+     * @return PolicyRoleResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createPolicyRole(createPolicyRoleRequest: CreatePolicyRoleRequest) : PolicyRoleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createPolicyRoleWithHttpInfo(createPolicyRoleRequest = createPolicyRoleRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/policy/roles
+     * Create a tenant custom role definition
+     * Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+     * @param createPolicyRoleRequest
+     * @return ApiResponse<PolicyRoleResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createPolicyRoleWithHttpInfo(createPolicyRoleRequest: CreatePolicyRoleRequest) : ApiResponse<PolicyRoleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createPolicyRoleRequestConfig(createPolicyRoleRequest = createPolicyRoleRequest)
+
+        return@withContext request<CreatePolicyRoleRequest, PolicyRoleResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createPolicyRole
+     *
+     * @param createPolicyRoleRequest
+     * @return RequestConfig
+     */
+    fun createPolicyRoleRequestConfig(createPolicyRoleRequest: CreatePolicyRoleRequest) : RequestConfig<CreatePolicyRoleRequest> {
+        val localVariableBody = createPolicyRoleRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/policy/roles",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/financial/purchase-requests
      * Attach a 거래명세표 evidence record and open a purchase request
      *
@@ -4311,6 +4406,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/object-actions/execute
+     * Execute a governed audited object action
+     * Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice supports &#x60;equipment.update_profile&#x60;.
+     * @param executeObjectActionRequest
+     * @return ObjectActionExecutionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun executeObjectAction(executeObjectActionRequest: ExecuteObjectActionRequest) : ObjectActionExecutionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = executeObjectActionWithHttpInfo(executeObjectActionRequest = executeObjectActionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectActionExecutionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/object-actions/execute
+     * Execute a governed audited object action
+     * Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice supports &#x60;equipment.update_profile&#x60;.
+     * @param executeObjectActionRequest
+     * @return ApiResponse<ObjectActionExecutionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun executeObjectActionWithHttpInfo(executeObjectActionRequest: ExecuteObjectActionRequest) : ApiResponse<ObjectActionExecutionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = executeObjectActionRequestConfig(executeObjectActionRequest = executeObjectActionRequest)
+
+        return@withContext request<ExecuteObjectActionRequest, ObjectActionExecutionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation executeObjectAction
+     *
+     * @param executeObjectActionRequest
+     * @return RequestConfig
+     */
+    fun executeObjectActionRequestConfig(executeObjectActionRequest: ExecuteObjectActionRequest) : RequestConfig<ExecuteObjectActionRequest> {
+        val localVariableBody = executeObjectActionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/object-actions/execute",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/execute
      * Execute an approved purchase request and feed the amount into the equipment cost ledger
      *
@@ -4850,6 +5019,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/equipment/{id}
+     * Read one branch-scoped equipment master row
+     * Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals only receive rows in their own branch scope; a foreign or missing id returns 404 without revealing existence.
+     * @param id
+     * @return EquipmentListItem
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getEquipment(id: java.util.UUID) : EquipmentListItem = withContext(Dispatchers.IO) {
+        val localVarResponse = getEquipmentWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentListItem
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment/{id}
+     * Read one branch-scoped equipment master row
+     * Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals only receive rows in their own branch scope; a foreign or missing id returns 404 without revealing existence.
+     * @param id
+     * @return ApiResponse<EquipmentListItem?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getEquipmentWithHttpInfo(id: java.util.UUID) : ApiResponse<EquipmentListItem?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getEquipmentRequestConfig(id = id)
+
+        return@withContext request<Unit, EquipmentListItem>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getEquipment
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getEquipmentRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost
      * Per-asset lifecycle cost, TCO, and gross margin
      * Read-gated (EquipmentCostLedgerRead). Returns the asset&#39;s acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
@@ -4923,6 +5165,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/equipment/{id}/timeline-graph
+     * Read one equipment lifecycle ribbon and relationship graph
+     * Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order graph visible within the caller&#39;s branch scope. A foreign or missing equipment id returns 404 without revealing existence.
+     * @param id
+     * @return EquipmentTimelineGraph
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getEquipmentTimelineGraph(id: java.util.UUID) : EquipmentTimelineGraph = withContext(Dispatchers.IO) {
+        val localVarResponse = getEquipmentTimelineGraphWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentTimelineGraph
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment/{id}/timeline-graph
+     * Read one equipment lifecycle ribbon and relationship graph
+     * Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order graph visible within the caller&#39;s branch scope. A foreign or missing equipment id returns 404 without revealing existence.
+     * @param id
+     * @return ApiResponse<EquipmentTimelineGraph?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getEquipmentTimelineGraphWithHttpInfo(id: java.util.UUID) : ApiResponse<EquipmentTimelineGraph?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getEquipmentTimelineGraphRequestConfig(id = id)
+
+        return@withContext request<Unit, EquipmentTimelineGraph>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getEquipmentTimelineGraph
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getEquipmentTimelineGraphRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment/{id}/timeline-graph".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/evidence/{evidenceId}/status
      * Poll the server-side processing status of an evidence row
      *
@@ -4988,6 +5303,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/evidence/{evidenceId}/status".replace("{"+"evidenceId"+"}", encodeURIComponent(evidenceId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/hr/org-chart
+     * Read the tenant HR organization chart
+     * Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows remain preserved in the employee directory.
+     * @return HrOrgChartResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getHrOrgChart() : HrOrgChartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getHrOrgChartWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as HrOrgChartResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/org-chart
+     * Read the tenant HR organization chart
+     * Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows remain preserved in the employee directory.
+     * @return ApiResponse<HrOrgChartResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getHrOrgChartWithHttpInfo() : ApiResponse<HrOrgChartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getHrOrgChartRequestConfig()
+
+        return@withContext request<Unit, HrOrgChartResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getHrOrgChart
+     *
+     * @return RequestConfig
+     */
+    fun getHrOrgChartRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/org-chart",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -5364,6 +5749,102 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/mail/threads/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * enum for parameter objectType
+     */
+     enum class ObjectTypeGetObjectActionCatalog(val value: kotlin.String) {
+         @SerialName(value = "equipment") EQUIPMENT("equipment");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /api/v1/object-actions/catalog
+     * Read governed object-action descriptors for one object
+     * Returns typed, UI-renderable action descriptors for a console object. The initial CAP-5 vertical slice supports equipment actions and requires EquipmentManage. Missing or foreign equipment returns 404 through the same branch-scoped object read used by the equipment detail page.
+     * @param objectType
+     * @param objectId
+     * @return ObjectActionCatalogResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getObjectActionCatalog(objectType: ObjectTypeGetObjectActionCatalog, objectId: java.util.UUID) : ObjectActionCatalogResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getObjectActionCatalogWithHttpInfo(objectType = objectType, objectId = objectId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectActionCatalogResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/object-actions/catalog
+     * Read governed object-action descriptors for one object
+     * Returns typed, UI-renderable action descriptors for a console object. The initial CAP-5 vertical slice supports equipment actions and requires EquipmentManage. Missing or foreign equipment returns 404 through the same branch-scoped object read used by the equipment detail page.
+     * @param objectType
+     * @param objectId
+     * @return ApiResponse<ObjectActionCatalogResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getObjectActionCatalogWithHttpInfo(objectType: ObjectTypeGetObjectActionCatalog, objectId: java.util.UUID) : ApiResponse<ObjectActionCatalogResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getObjectActionCatalogRequestConfig(objectType = objectType, objectId = objectId)
+
+        return@withContext request<Unit, ObjectActionCatalogResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getObjectActionCatalog
+     *
+     * @param objectType
+     * @param objectId
+     * @return RequestConfig
+     */
+    fun getObjectActionCatalogRequestConfig(objectType: ObjectTypeGetObjectActionCatalog, objectId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("object_type", listOf(objectType.value))
+                put("object_id", listOf(objectId.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/object-actions/catalog",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -6796,7 +7277,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * Paginated tenant HR employee directory
      * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
      * @param company Filter by workbook sheet/company name. (optional)
-     * @param limit  (optional, default to 50L)
+     * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return EmployeePage
      * @throws IllegalStateException If the request is not correctly configured
@@ -6807,7 +7288,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEmployees(company: kotlin.String? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : EmployeePage = withContext(Dispatchers.IO) {
+    suspend fun listEmployees(company: kotlin.String? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeePage = withContext(Dispatchers.IO) {
         val localVarResponse = listEmployeesWithHttpInfo(company = company, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
@@ -6830,7 +7311,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * Paginated tenant HR employee directory
      * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
      * @param company Filter by workbook sheet/company name. (optional)
-     * @param limit  (optional, default to 50L)
+     * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return ApiResponse<EmployeePage?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -6850,7 +7331,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * To obtain the request config of the operation listEmployees
      *
      * @param company Filter by workbook sheet/company name. (optional)
-     * @param limit  (optional, default to 50L)
+     * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
@@ -7230,6 +7711,174 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/equipment/{id}/substitutes".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/hr/attendance-summary
+     * List branch-scoped attendance summaries
+     * Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return AttendanceSummaryPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listHrAttendanceSummary(limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : AttendanceSummaryPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listHrAttendanceSummaryWithHttpInfo(limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceSummaryPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/attendance-summary
+     * List branch-scoped attendance summaries
+     * Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<AttendanceSummaryPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listHrAttendanceSummaryWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AttendanceSummaryPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listHrAttendanceSummaryRequestConfig(limit = limit, offset = offset)
+
+        return@withContext request<Unit, AttendanceSummaryPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listHrAttendanceSummary
+     *
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listHrAttendanceSummaryRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/attendance-summary",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/hr/leave-balances
+     * List employee leave-balance rows
+     * Read-only HR leave summary extracted from imported employee workbooks. Payroll and sensitive columns remain preserved in raw import JSON unless explicitly modeled.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return LeaveBalancePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listHrLeaveBalances(limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : LeaveBalancePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listHrLeaveBalancesWithHttpInfo(limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveBalancePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/leave-balances
+     * List employee leave-balance rows
+     * Read-only HR leave summary extracted from imported employee workbooks. Payroll and sensitive columns remain preserved in raw import JSON unless explicitly modeled.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<LeaveBalancePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listHrLeaveBalancesWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<LeaveBalancePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listHrLeaveBalancesRequestConfig(limit = limit, offset = offset)
+
+        return@withContext request<Unit, LeaveBalancePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listHrLeaveBalances
+     *
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listHrLeaveBalancesRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/leave-balances",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -8001,6 +8650,370 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/policy/assignments
+     * List custom-role assignments for one user
+     * Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+     * @param userId
+     * @return kotlin.collections.List<PolicyRoleAssignmentResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPolicyAssignments(userId: java.util.UUID) : kotlin.collections.List<PolicyRoleAssignmentResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyAssignmentsWithHttpInfo(userId = userId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyRoleAssignmentResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/policy/assignments
+     * List custom-role assignments for one user
+     * Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+     * @param userId
+     * @return ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPolicyAssignmentsWithHttpInfo(userId: java.util.UUID) : ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyAssignmentsRequestConfig(userId = userId)
+
+        return@withContext request<Unit, kotlin.collections.List<PolicyRoleAssignmentResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPolicyAssignments
+     *
+     * @param userId
+     * @return RequestConfig
+     */
+    fun listPolicyAssignmentsRequestConfig(userId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("user_id", listOf(userId.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/policy/assignments",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/policy/audit-events
+     * List Policy Studio audit evidence
+     * Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+     * @param limit  (optional, default to 20L)
+     * @return kotlin.collections.List<PolicyAuditEventResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPolicyAuditEvents(limit: kotlin.Long? = 20L) : kotlin.collections.List<PolicyAuditEventResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyAuditEventsWithHttpInfo(limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyAuditEventResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/policy/audit-events
+     * List Policy Studio audit evidence
+     * Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+     * @param limit  (optional, default to 20L)
+     * @return ApiResponse<kotlin.collections.List<PolicyAuditEventResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPolicyAuditEventsWithHttpInfo(limit: kotlin.Long?) : ApiResponse<kotlin.collections.List<PolicyAuditEventResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyAuditEventsRequestConfig(limit = limit)
+
+        return@withContext request<Unit, kotlin.collections.List<PolicyAuditEventResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPolicyAuditEvents
+     *
+     * @param limit  (optional, default to 20L)
+     * @return RequestConfig
+     */
+    fun listPolicyAuditEventsRequestConfig(limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/policy/audit-events",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/policy/features
+     * List canonical policy feature catalog for Policy Studio
+     *
+     * @return kotlin.collections.List<PolicyFeatureResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPolicyFeatures() : kotlin.collections.List<PolicyFeatureResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyFeaturesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyFeatureResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/policy/features
+     * List canonical policy feature catalog for Policy Studio
+     *
+     * @return ApiResponse<kotlin.collections.List<PolicyFeatureResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPolicyFeaturesWithHttpInfo() : ApiResponse<kotlin.collections.List<PolicyFeatureResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyFeaturesRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<PolicyFeatureResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPolicyFeatures
+     *
+     * @return RequestConfig
+     */
+    fun listPolicyFeaturesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/policy/features",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/policy/role-templates
+     * List safe starter templates for tenant custom roles
+     * Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+     * @return kotlin.collections.List<PolicyRoleTemplateResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPolicyRoleTemplates() : kotlin.collections.List<PolicyRoleTemplateResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyRoleTemplatesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyRoleTemplateResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/policy/role-templates
+     * List safe starter templates for tenant custom roles
+     * Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+     * @return ApiResponse<kotlin.collections.List<PolicyRoleTemplateResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPolicyRoleTemplatesWithHttpInfo() : ApiResponse<kotlin.collections.List<PolicyRoleTemplateResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyRoleTemplatesRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<PolicyRoleTemplateResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPolicyRoleTemplates
+     *
+     * @return RequestConfig
+     */
+    fun listPolicyRoleTemplatesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/policy/role-templates",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/policy/roles
+     * List built-in role templates and tenant custom roles
+     *
+     * @return PolicyRoleCatalogResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPolicyRoles() : PolicyRoleCatalogResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyRolesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleCatalogResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/policy/roles
+     * List built-in role templates and tenant custom roles
+     *
+     * @return ApiResponse<PolicyRoleCatalogResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPolicyRolesWithHttpInfo() : ApiResponse<PolicyRoleCatalogResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyRolesRequestConfig()
+
+        return@withContext request<Unit, PolicyRoleCatalogResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPolicyRoles
+     *
+     * @return RequestConfig
+     */
+    fun listPolicyRolesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/policy/roles",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/regions
      * List all regions
      *
@@ -8283,12 +9296,13 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * GET /api/v1/work-orders
      * List branch-scoped work orders
-     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values.
+     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values. &#x60;around_work_order_id&#x60; searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
      * @param status  (optional)
      * @param priority  (optional)
      * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
      * @param customerId  (optional)
      * @param siteId  (optional)
+     * @param aroundWorkOrderId Search around this seed work order; returns branch/RLS-visible orders sharing the seed&#39;s customer, site, or equipment, including the seed. (optional)
      * @param targetDueFrom  (optional)
      * @param targetDueTo  (optional)
      * @param limit  (optional, default to 50L)
@@ -8302,8 +9316,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listWorkOrders(status: kotlin.collections.List<WorkOrderStatus>? = null, priority: kotlin.collections.List<PriorityLevel>? = null, assignedTo: kotlin.String? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, targetDueFrom: java.time.OffsetDateTime? = null, targetDueTo: java.time.OffsetDateTime? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : WorkOrderListPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listWorkOrdersWithHttpInfo(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
+    suspend fun listWorkOrders(status: kotlin.collections.List<WorkOrderStatus>? = null, priority: kotlin.collections.List<PriorityLevel>? = null, assignedTo: kotlin.String? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, aroundWorkOrderId: java.util.UUID? = null, targetDueFrom: java.time.OffsetDateTime? = null, targetDueTo: java.time.OffsetDateTime? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : WorkOrderListPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkOrdersWithHttpInfo(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, aroundWorkOrderId = aroundWorkOrderId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderListPage
@@ -8323,12 +9337,13 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * GET /api/v1/work-orders
      * List branch-scoped work orders
-     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values.
+     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values. &#x60;around_work_order_id&#x60; searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
      * @param status  (optional)
      * @param priority  (optional)
      * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
      * @param customerId  (optional)
      * @param siteId  (optional)
+     * @param aroundWorkOrderId Search around this seed work order; returns branch/RLS-visible orders sharing the seed&#39;s customer, site, or equipment, including the seed. (optional)
      * @param targetDueFrom  (optional)
      * @param targetDueTo  (optional)
      * @param limit  (optional, default to 50L)
@@ -8339,8 +9354,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listWorkOrdersWithHttpInfo(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<WorkOrderListPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listWorkOrdersRequestConfig(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
+    suspend fun listWorkOrdersWithHttpInfo(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, aroundWorkOrderId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<WorkOrderListPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkOrdersRequestConfig(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, aroundWorkOrderId = aroundWorkOrderId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
 
         return@withContext request<Unit, WorkOrderListPage>(
             localVariableConfig
@@ -8355,13 +9370,14 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
      * @param customerId  (optional)
      * @param siteId  (optional)
+     * @param aroundWorkOrderId Search around this seed work order; returns branch/RLS-visible orders sharing the seed&#39;s customer, site, or equipment, including the seed. (optional)
      * @param targetDueFrom  (optional)
      * @param targetDueTo  (optional)
      * @param limit  (optional, default to 50L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listWorkOrdersRequestConfig(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listWorkOrdersRequestConfig(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, aroundWorkOrderId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -8379,6 +9395,9 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
                 }
                 if (siteId != null) {
                     put("site_id", listOf(siteId.toString()))
+                }
+                if (aroundWorkOrderId != null) {
+                    put("around_work_order_id", listOf(aroundWorkOrderId.toString()))
                 }
                 if (targetDueFrom != null) {
                     put("target_due_from", listOf(parseDateToQueryString<java.time.OffsetDateTime>(targetDueFrom)))
@@ -8777,6 +9796,160 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/evidence/presign",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/policy/users/{id}/assignment-preview
+     * Preview requested custom-role assignment impact for one user
+     * Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return PolicyAssignmentPreviewResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun previewPolicyAssignments(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : PolicyAssignmentPreviewResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = previewPolicyAssignmentsWithHttpInfo(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyAssignmentPreviewResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/policy/users/{id}/assignment-preview
+     * Preview requested custom-role assignment impact for one user
+     * Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return ApiResponse<PolicyAssignmentPreviewResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun previewPolicyAssignmentsWithHttpInfo(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : ApiResponse<PolicyAssignmentPreviewResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = previewPolicyAssignmentsRequestConfig(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext request<ReplacePolicyRoleAssignmentsRequest, PolicyAssignmentPreviewResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation previewPolicyAssignments
+     *
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return RequestConfig
+     */
+    fun previewPolicyAssignmentsRequestConfig(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : RequestConfig<ReplacePolicyRoleAssignmentsRequest> {
+        val localVariableBody = replacePolicyRoleAssignmentsRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/policy/users/{id}/assignment-preview".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/policy/roles/{id}/status-preview
+     * Preview custom-role lifecycle status impact
+     * Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+     * @param id
+     * @param policyRoleStatusPreviewRequest
+     * @return PolicyRoleStatusPreviewResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun previewPolicyRoleStatus(id: java.util.UUID, policyRoleStatusPreviewRequest: PolicyRoleStatusPreviewRequest) : PolicyRoleStatusPreviewResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = previewPolicyRoleStatusWithHttpInfo(id = id, policyRoleStatusPreviewRequest = policyRoleStatusPreviewRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleStatusPreviewResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/policy/roles/{id}/status-preview
+     * Preview custom-role lifecycle status impact
+     * Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+     * @param id
+     * @param policyRoleStatusPreviewRequest
+     * @return ApiResponse<PolicyRoleStatusPreviewResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun previewPolicyRoleStatusWithHttpInfo(id: java.util.UUID, policyRoleStatusPreviewRequest: PolicyRoleStatusPreviewRequest) : ApiResponse<PolicyRoleStatusPreviewResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = previewPolicyRoleStatusRequestConfig(id = id, policyRoleStatusPreviewRequest = policyRoleStatusPreviewRequest)
+
+        return@withContext request<PolicyRoleStatusPreviewRequest, PolicyRoleStatusPreviewResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation previewPolicyRoleStatus
+     *
+     * @param id
+     * @param policyRoleStatusPreviewRequest
+     * @return RequestConfig
+     */
+    fun previewPolicyRoleStatusRequestConfig(id: java.util.UUID, policyRoleStatusPreviewRequest: PolicyRoleStatusPreviewRequest) : RequestConfig<PolicyRoleStatusPreviewRequest> {
+        val localVariableBody = policyRoleStatusPreviewRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/policy/roles/{id}/status-preview".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -9227,6 +10400,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.DELETE,
             path = "/api/platform/orgs/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PUT /api/v1/policy/users/{id}/assignments
+     * Replace one user&#39;s custom-role assignments
+     * Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return kotlin.collections.List<PolicyRoleAssignmentResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun replacePolicyAssignments(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : kotlin.collections.List<PolicyRoleAssignmentResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = replacePolicyAssignmentsWithHttpInfo(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyRoleAssignmentResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/v1/policy/users/{id}/assignments
+     * Replace one user&#39;s custom-role assignments
+     * Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun replacePolicyAssignmentsWithHttpInfo(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = replacePolicyAssignmentsRequestConfig(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext request<ReplacePolicyRoleAssignmentsRequest, kotlin.collections.List<PolicyRoleAssignmentResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation replacePolicyAssignments
+     *
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return RequestConfig
+     */
+    fun replacePolicyAssignmentsRequestConfig(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : RequestConfig<ReplacePolicyRoleAssignmentsRequest> {
+        val localVariableBody = replacePolicyRoleAssignmentsRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/v1/policy/users/{id}/assignments".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -11594,6 +12844,160 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/sales/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/policy/roles/{id}
+     * Update a tenant custom role definition
+     * Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+     * @param id
+     * @param updatePolicyRoleRequest
+     * @return PolicyRoleResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updatePolicyRole(id: java.util.UUID, updatePolicyRoleRequest: UpdatePolicyRoleRequest) : PolicyRoleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = updatePolicyRoleWithHttpInfo(id = id, updatePolicyRoleRequest = updatePolicyRoleRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/policy/roles/{id}
+     * Update a tenant custom role definition
+     * Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+     * @param id
+     * @param updatePolicyRoleRequest
+     * @return ApiResponse<PolicyRoleResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updatePolicyRoleWithHttpInfo(id: java.util.UUID, updatePolicyRoleRequest: UpdatePolicyRoleRequest) : ApiResponse<PolicyRoleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updatePolicyRoleRequestConfig(id = id, updatePolicyRoleRequest = updatePolicyRoleRequest)
+
+        return@withContext request<UpdatePolicyRoleRequest, PolicyRoleResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updatePolicyRole
+     *
+     * @param id
+     * @param updatePolicyRoleRequest
+     * @return RequestConfig
+     */
+    fun updatePolicyRoleRequestConfig(id: java.util.UUID, updatePolicyRoleRequest: UpdatePolicyRoleRequest) : RequestConfig<UpdatePolicyRoleRequest> {
+        val localVariableBody = updatePolicyRoleRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/policy/roles/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/policy/roles/{id}/status
+     * Publish, roll back, or retire a tenant custom role
+     * Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+     * @param id
+     * @param updatePolicyRoleStatusRequest
+     * @return PolicyRoleResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updatePolicyRoleStatus(id: java.util.UUID, updatePolicyRoleStatusRequest: UpdatePolicyRoleStatusRequest) : PolicyRoleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = updatePolicyRoleStatusWithHttpInfo(id = id, updatePolicyRoleStatusRequest = updatePolicyRoleStatusRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/policy/roles/{id}/status
+     * Publish, roll back, or retire a tenant custom role
+     * Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+     * @param id
+     * @param updatePolicyRoleStatusRequest
+     * @return ApiResponse<PolicyRoleResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updatePolicyRoleStatusWithHttpInfo(id: java.util.UUID, updatePolicyRoleStatusRequest: UpdatePolicyRoleStatusRequest) : ApiResponse<PolicyRoleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updatePolicyRoleStatusRequestConfig(id = id, updatePolicyRoleStatusRequest = updatePolicyRoleStatusRequest)
+
+        return@withContext request<UpdatePolicyRoleStatusRequest, PolicyRoleResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updatePolicyRoleStatus
+     *
+     * @param id
+     * @param updatePolicyRoleStatusRequest
+     * @return RequestConfig
+     */
+    fun updatePolicyRoleStatusRequestConfig(id: java.util.UUID, updatePolicyRoleStatusRequest: UpdatePolicyRoleStatusRequest) : RequestConfig<UpdatePolicyRoleStatusRequest> {
+        val localVariableBody = updatePolicyRoleStatusRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/policy/roles/{id}/status".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

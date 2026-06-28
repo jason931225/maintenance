@@ -42,15 +42,31 @@ export default function Video({
     flattenedStyle.position === 'absolute' &&
     flattenedStyle.width === undefined &&
     flattenedStyle.height === undefined;
+  const uri = sourceUri(source);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (paused) {
+      video.pause();
+      return;
+    }
+    void video.play().catch(() => {
+      // Autoplay can still be denied by a browser policy; the poster/background remains visible.
+    });
+  }, [paused, uri]);
 
   return React.createElement('video', {
+    ref: videoRef,
     'aria-label': accessibilityLabel,
     autoPlay: !paused,
     controls,
     loop: repeat,
     muted,
     playsInline: true,
-    src: sourceUri(source),
+    preload: 'auto',
+    src: uri,
     style: {
       ...flattenedStyle,
       ...(fillParent ? { width: '100%', height: '100%' } : null),

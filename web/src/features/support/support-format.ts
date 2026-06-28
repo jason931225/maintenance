@@ -6,6 +6,7 @@ import type {
 } from "../../api/types";
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
+import { toneBadgeClass } from "../../lib/semantic";
 
 export const SUPPORT_STATUSES: SupportTicketStatus[] = [
   "OPEN",
@@ -53,15 +54,15 @@ export function originLabel(origin: SupportTicketOrigin): string {
 export function statusBadgeClass(status: SupportTicketStatus): string {
   switch (status) {
     case "OPEN":
-      return "border-sky-300 bg-sky-50 text-sky-900";
+      return toneBadgeClass("info");
     case "IN_PROGRESS":
-      return "border-indigo-300 bg-indigo-50 text-indigo-900";
+      return toneBadgeClass("accent");
     case "ON_HOLD":
-      return "border-amber-300 bg-amber-50 text-amber-900";
+      return toneBadgeClass("warning");
     case "RESOLVED":
-      return "border-emerald-300 bg-emerald-50 text-emerald-900";
+      return toneBadgeClass("success");
     case "CLOSED":
-      return "border-line bg-muted-panel text-steel";
+      return toneBadgeClass("neutral");
   }
 }
 
@@ -69,13 +70,12 @@ export function statusBadgeClass(status: SupportTicketStatus): string {
 export function priorityBadgeClass(priority: SupportTicketPriority): string {
   switch (priority) {
     case "URGENT":
-      return "border-red-300 bg-red-50 text-red-900";
+      return toneBadgeClass("danger");
     case "HIGH":
-      return "border-orange-300 bg-orange-50 text-orange-900";
+      return toneBadgeClass("warning");
     case "MEDIUM":
-      return "border-line bg-muted-panel text-steel";
     case "LOW":
-      return "border-line bg-muted-panel text-steel";
+      return toneBadgeClass("neutral");
   }
 }
 
@@ -143,6 +143,16 @@ export function slaState(
   if (dueMs <= nowMs) return "overdue";
   if (dueMs - nowMs <= soonMs) return "dueSoon";
   return "ok";
+}
+
+/** Tailwind classes for support SLA badges, backed by the shared tone map. */
+export function slaStateBadgeClass(state: Exclude<SlaState, "ok" | "none">): string {
+  switch (state) {
+    case "overdue":
+      return toneBadgeClass("danger");
+    case "dueSoon":
+      return toneBadgeClass("warning");
+  }
 }
 
 /** Compact KST datetime (`YYYY-MM-DD HH:mm`); the not-set label when unset. */

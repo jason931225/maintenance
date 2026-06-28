@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -60,6 +61,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maintenance.api.client.model.AttachmentStage
 import com.maintenance.api.client.model.LocationConsentState
 import com.maintenance.api.client.model.LocationConsentStatus
+import com.maintenance.api.client.model.PriorityLevel
+import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkResultType
 import com.maintenance.field.AppContainer
 import com.maintenance.field.R
@@ -72,6 +75,7 @@ import com.maintenance.field.data.messenger.MessengerReducer
 import com.maintenance.field.data.messenger.MessengerSendState
 import com.maintenance.field.data.messenger.MessengerState
 import com.maintenance.field.data.messenger.MessengerThread
+import com.maintenance.field.data.offline.SyncState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -80,6 +84,34 @@ import kotlinx.coroutines.launch
 
 private val messengerTimestampFormatter: DateTimeFormatter =
     DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault())
+
+internal data class WorkHubSummary(
+    val todayWorkCount: Int,
+    val urgentWorkCount: Int,
+    val approvalRelatedCount: Int,
+    val pendingSyncCount: Int,
+    val messengerThreadCount: Int,
+    val targetDueWorkCount: Int,
+    val gpsMayCollect: Boolean,
+) {
+    companion object {
+        fun build(
+            today: List<TechnicianWorkOrder>,
+            messengerState: MessengerState,
+            gpsMayCollect: Boolean,
+        ): WorkHubSummary = WorkHubSummary(
+            todayWorkCount = today.size,
+            urgentWorkCount = today.count { it.priority == PriorityLevel.P1 },
+            approvalRelatedCount = today.count {
+                it.status == WorkOrderStatus.REPORT_SUBMITTED || it.status == WorkOrderStatus.ADMIN_REVIEW
+            },
+            pendingSyncCount = today.count { it.syncState != SyncState.SYNCED },
+            messengerThreadCount = messengerState.threads.size,
+            targetDueWorkCount = today.count { it.targetDueAt != null },
+            gpsMayCollect = gpsMayCollect,
+        )
+    }
+}
 
 @Composable
 fun FieldApp(container: AppContainer) {
@@ -339,6 +371,32 @@ fun FieldApp(container: AppContainer) {
                             },
                             onSelect = { selectedId = it.id.toString() },
                         )
+                    } else if (selectedTab == 1) {
+                        WorkHubScreen(
+                            summary = WorkHubSummary.build(
+                                today = orders,
+                                messengerState = messengerState,
+                                gpsMayCollect = locationConsent?.mayCollect == true,
+                            ),
+                            busy = busy,
+                            modifier = Modifier.weight(1f),
+                            onRefresh = {
+                                scope.launch {
+                                    busy = true
+                                    runCatching {
+                                        container.offlineQueue.replayPending()
+                                        container.evidence.uploadPending()
+                                        container.messenger.replayPending()
+                                        container.workOrders.refreshToday()
+                                        refreshMessenger()
+                                        locationConsent = container.locationConsent.status()
+                                    }.onFailure {
+                                        snackbarHostState.showSnackbar(operationFailedMessage)
+                                    }
+                                    busy = false
+                                }
+                            },
+                        )
                     } else {
                         MessengerScreen(
                             state = messengerState,
@@ -459,8 +517,99 @@ private fun FieldTabRow(
         FilterChip(
             selected = selectedTab == 1,
             onClick = { onSelect(1) },
+            label = { Text(stringResource(R.string.work_hub_title)) },
+        )
+        FilterChip(
+            selected = selectedTab == 2,
+            onClick = { onSelect(2) },
             label = { Text(stringResource(R.string.messenger_title)) },
         )
+    }
+}
+
+
+@Composable
+internal fun WorkHubScreen(
+    summary: WorkHubSummary,
+    busy: Boolean,
+    modifier: Modifier = Modifier,
+    onRefresh: () -> Unit,
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.work_hub_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(
+                onClick = onRefresh,
+                enabled = !busy,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.refresh))
+            }
+        }
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                WorkHubCard(title = stringResource(R.string.work_hub_daily_section)) {
+                    Text(stringResource(R.string.work_hub_today_count_format, summary.todayWorkCount))
+                    Text(stringResource(R.string.work_hub_urgent_count_format, summary.urgentWorkCount))
+                    Text(stringResource(R.string.work_hub_target_due_count_format, summary.targetDueWorkCount))
+                    Text(stringResource(R.string.location_consent_collection_format, stringResource(if (summary.gpsMayCollect) R.string.yes else R.string.no)))
+                    Text(stringResource(R.string.work_hub_daily_footer), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                WorkHubCard(title = stringResource(R.string.work_hub_sensitive_section)) {
+                    Text(stringResource(R.string.work_hub_approval_count_format, summary.approvalRelatedCount))
+                    Text(stringResource(R.string.work_hub_pending_sync_format, summary.pendingSyncCount))
+                    Text(stringResource(R.string.work_hub_passkey_required), style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.work_hub_sensitive_note), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                WorkHubCard(title = stringResource(R.string.work_hub_collaboration_section)) {
+                    Text(stringResource(R.string.work_hub_messenger_count_format, summary.messengerThreadCount))
+                    Text(stringResource(R.string.work_hub_notifications_note))
+                    Text(stringResource(R.string.work_hub_company_mail_note))
+                    Text(stringResource(R.string.work_hub_shared_calendar_note))
+                    Text(stringResource(R.string.work_hub_polls_note))
+                    Text(stringResource(R.string.work_hub_staged_footer), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkHubCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
     }
 }
 

@@ -13,6 +13,7 @@ mnt-identity-adapter-postgres = { workspace = true }
 mnt-identity-application = { workspace = true }
 mnt-identity-domain = { workspace = true }
 mnt-kernel-core = { workspace = true }
+metrics = { workspace = true }
 mnt-platform-auth = { path = "../../platform/auth" }
 mnt-platform-authz = { path = "../../platform/authz" }
 mnt-platform-db = { workspace = true }
@@ -31,6 +32,8 @@ tokio = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 mnt-platform-db = { workspace = true }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+url = "2.5.8"
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
 
 [lints]
 workspace = true

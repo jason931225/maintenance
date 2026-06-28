@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
 use axum::extract::{Path, Query, RawQuery, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
@@ -17,7 +17,7 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, DailyPlanId, DeviceId, ErrorKind, EvidenceId,
     KernelError, OrgId, TraceContext, UserId, WorkOrderId,
 };
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
+use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{
     Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
 };
@@ -411,19 +411,21 @@ struct WorkOrderListQuery {
     assigned_to: Option<String>,
     customer_id: Option<uuid::Uuid>,
     site_id: Option<uuid::Uuid>,
+    around_work_order_id: Option<uuid::Uuid>,
     target_due_from: Option<time::OffsetDateTime>,
     target_due_to: Option<time::OffsetDateTime>,
     limit: Option<i64>,
     offset: Option<i64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct NormalizedWorkOrderListQuery {
     statuses: Vec<String>,
     priorities: Vec<String>,
     assigned_to: Option<UserId>,
     customer_id: Option<uuid::Uuid>,
     site_id: Option<uuid::Uuid>,
+    around_work_order_id: Option<uuid::Uuid>,
     target_due_from: Option<time::OffsetDateTime>,
     target_due_to: Option<time::OffsetDateTime>,
     limit: i64,
@@ -452,6 +454,7 @@ struct WorkOrderListPage {
     limit: i64,
     offset: i64,
     total: i64,
+    lens: WorkOrderObjectSetLens,
 }
 
 #[derive(Debug, Serialize)]
@@ -539,6 +542,69 @@ struct AssignmentSummary {
     mechanic_name: String,
     role: String,
     assigned_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderObjectSetLens {
+    object_type: &'static str,
+    aggregates: WorkOrderLensAggregates,
+    facets: WorkOrderLensFacets,
+    histograms: WorkOrderLensHistograms,
+    listograms: WorkOrderLensListograms,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderLensAggregates {
+    total_count: i64,
+    p1_count: i64,
+    overdue_open_count: i64,
+    unassigned_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderLensFacets {
+    status: Vec<WorkOrderFacetBucket>,
+    priority: Vec<WorkOrderFacetBucket>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderFacetBucket {
+    value: String,
+    count: i64,
+    filters: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderLensHistograms {
+    target_due_date: Vec<WorkOrderHistogramBucket>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderHistogramBucket {
+    bucket: String,
+    count: i64,
+    filters: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderLensListograms {
+    customers: Vec<WorkOrderNamedBucket>,
+    sites: Vec<WorkOrderNamedBucket>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderNamedBucket {
+    id: uuid::Uuid,
+    name: String,
+    count: i64,
+    filters: BTreeMap<String, String>,
+}
+
+struct WorkOrderNamedListogramSpec {
+    table: &'static str,
+    alias: &'static str,
+    join_column: &'static str,
+    filter_key: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -942,7 +1008,7 @@ async fn sync_batch<S>(
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let principal = mobile_principal_from_headers(&state, &headers).await?;
     let device_hash = device_hash_from_headers(&headers)?;
     let sync_id = normalize_non_empty(body.sync_id, "sync_id")?;
     if body.operations.is_empty() {
@@ -1483,7 +1549,7 @@ async fn register_device<S>(
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let principal = mobile_principal_from_headers(&state, &headers).await?;
     let device_hash = device_hash_from_headers(&headers)?;
     let app_version = normalize_non_empty(body.app_version, "app_version")?;
     let now = time::OffsetDateTime::now_utc();
@@ -1552,7 +1618,7 @@ async fn presign_evidence<S>(
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let principal = mobile_principal_from_headers(&state, &headers).await?;
     let work_order = state
         .store
         .work_order(body.work_order_id)
@@ -1605,7 +1671,7 @@ async fn confirm_evidence<S>(
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let principal = mobile_principal_from_headers(&state, &headers).await?;
     let media_id = EvidenceId::from_uuid(evidence_id);
     let service = state.evidence_service.as_ref().ok_or_else(|| {
         RestError::unavailable("evidence storage is not configured for mobile API")
@@ -1668,7 +1734,7 @@ async fn presign_evidence_staging<S>(
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let principal = mobile_principal_from_headers(&state, &headers).await?;
     let work_order = state
         .store
         .work_order(body.work_order_id)
@@ -1745,7 +1811,7 @@ async fn evidence_status<S>(
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let principal = mobile_principal_from_headers(&state, &headers).await?;
     let media_id = EvidenceId::from_uuid(evidence_id);
     let service = state.evidence_service.as_ref().ok_or_else(|| {
         RestError::unavailable("evidence storage is not configured for mobile API")
@@ -1949,7 +2015,7 @@ async fn list_work_orders(
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<WorkOrderListPage>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_read_access(&principal)?;
     let query = parse_work_order_list_query(raw_query.as_deref(), principal.user_id)?;
     let pool = state.store.pool();
@@ -2028,12 +2094,14 @@ async fn list_work_orders(
         .iter()
         .map(|row| work_order_list_item_from_row(row, &assignments))
         .collect::<Result<Vec<_>, _>>()?;
+    let lens = fetch_work_order_object_set_lens(pool, org, &list_scope, &query).await?;
 
     Ok(Json(WorkOrderListPage {
         items,
         limit: query.limit,
         offset: query.offset,
         total,
+        lens,
     }))
 }
 
@@ -2042,7 +2110,7 @@ async fn list_approval_items(
     headers: HeaderMap,
     Query(query): Query<ApprovalItemsQuery>,
 ) -> Result<Json<ApprovalItemsPage>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let visibility = approval_source_visibility(&principal)?;
     let query = NormalizedApprovalItemsQuery {
         limit: normalize_limit(query.limit, 100, 200)?,
@@ -2081,12 +2149,248 @@ async fn list_approval_items(
     }))
 }
 
+async fn fetch_work_order_object_set_lens(
+    pool: &PgPool,
+    org: OrgId,
+    branch_scope: &BranchScope,
+    query: &NormalizedWorkOrderListQuery,
+) -> Result<WorkOrderObjectSetLens, RestError> {
+    let aggregates = fetch_work_order_lens_aggregates(pool, org, branch_scope, query).await?;
+    let status =
+        fetch_work_order_string_facet(pool, org, branch_scope, query, "w.status", "status").await?;
+    let priority =
+        fetch_work_order_string_facet(pool, org, branch_scope, query, "w.priority", "priority")
+            .await?;
+    let target_due_date = fetch_work_order_due_histogram(pool, org, branch_scope, query).await?;
+    let customers = fetch_work_order_named_listogram(
+        pool,
+        org,
+        branch_scope,
+        query,
+        WorkOrderNamedListogramSpec {
+            table: "registry_customers",
+            alias: "c",
+            join_column: "w.customer_id",
+            filter_key: "customer_id",
+        },
+    )
+    .await?;
+    let sites = fetch_work_order_named_listogram(
+        pool,
+        org,
+        branch_scope,
+        query,
+        WorkOrderNamedListogramSpec {
+            table: "registry_sites",
+            alias: "s",
+            join_column: "w.site_id",
+            filter_key: "site_id",
+        },
+    )
+    .await?;
+
+    Ok(WorkOrderObjectSetLens {
+        object_type: "work_order",
+        aggregates,
+        facets: WorkOrderLensFacets { status, priority },
+        histograms: WorkOrderLensHistograms { target_due_date },
+        listograms: WorkOrderLensListograms { customers, sites },
+    })
+}
+
+async fn fetch_work_order_lens_aggregates(
+    pool: &PgPool,
+    org: OrgId,
+    branch_scope: &BranchScope,
+    query: &NormalizedWorkOrderListQuery,
+) -> Result<WorkOrderLensAggregates, RestError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            COUNT(*) AS total_count,
+            COUNT(*) FILTER (WHERE w.priority = 'P1') AS p1_count,
+            COUNT(*) FILTER (
+                WHERE w.target_due_at < now()
+                  AND w.status NOT IN ('FINAL_COMPLETED', 'REJECTED', 'ARCHIVED', 'CANCELLED')
+            ) AS overdue_open_count,
+            COUNT(*) FILTER (
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM work_order_assignments a
+                    WHERE a.work_order_id = w.id
+                )
+            ) AS unassigned_count
+        FROM work_orders w
+        WHERE
+        "#,
+    );
+    push_work_order_filters(&mut builder, branch_scope, query)?;
+    let row = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_one(tx.as_mut()).await?) })
+    })
+    .await?;
+
+    Ok(WorkOrderLensAggregates {
+        total_count: row.try_get("total_count")?,
+        p1_count: row.try_get("p1_count")?,
+        overdue_open_count: row.try_get("overdue_open_count")?,
+        unassigned_count: row.try_get("unassigned_count")?,
+    })
+}
+
+async fn fetch_work_order_string_facet(
+    pool: &PgPool,
+    org: OrgId,
+    branch_scope: &BranchScope,
+    query: &NormalizedWorkOrderListQuery,
+    column: &'static str,
+    filter_key: &'static str,
+) -> Result<Vec<WorkOrderFacetBucket>, RestError> {
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+    builder.push(column);
+    builder.push(
+        r#" AS value, COUNT(*) AS count
+        FROM work_orders w
+        WHERE
+        "#,
+    );
+    push_work_order_filters(&mut builder, branch_scope, query)?;
+    builder.push(" GROUP BY ");
+    builder.push(column);
+    builder.push(" ORDER BY count DESC, value ASC LIMIT 16");
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            let value: String = row.try_get("value")?;
+            let count: i64 = row.try_get("count")?;
+            Ok(WorkOrderFacetBucket {
+                filters: lens_filter(filter_key, value.clone()),
+                value,
+                count,
+            })
+        })
+        .collect()
+}
+
+async fn fetch_work_order_due_histogram(
+    pool: &PgPool,
+    org: OrgId,
+    branch_scope: &BranchScope,
+    query: &NormalizedWorkOrderListQuery,
+) -> Result<Vec<WorkOrderHistogramBucket>, RestError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            to_char((w.target_due_at AT TIME ZONE 'Asia/Seoul')::date, 'YYYY-MM-DD') AS bucket,
+            COUNT(*) AS count
+        FROM work_orders w
+        WHERE
+        "#,
+    );
+    push_work_order_filters(&mut builder, branch_scope, query)?;
+    builder.push(
+        r#"
+          AND w.target_due_at IS NOT NULL
+        GROUP BY bucket
+        ORDER BY bucket ASC
+        LIMIT 14
+        "#,
+    );
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            let bucket: String = row.try_get("bucket")?;
+            let count: i64 = row.try_get("count")?;
+            Ok(WorkOrderHistogramBucket {
+                filters: due_day_filter(&bucket),
+                bucket,
+                count,
+            })
+        })
+        .collect()
+}
+
+async fn fetch_work_order_named_listogram(
+    pool: &PgPool,
+    org: OrgId,
+    branch_scope: &BranchScope,
+    query: &NormalizedWorkOrderListQuery,
+    spec: WorkOrderNamedListogramSpec,
+) -> Result<Vec<WorkOrderNamedBucket>, RestError> {
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+    builder.push(spec.alias);
+    builder.push(".id AS id, ");
+    builder.push(spec.alias);
+    builder.push(
+        r#".name AS name, COUNT(*) AS count
+        FROM work_orders w
+        JOIN "#,
+    );
+    builder.push(spec.table);
+    builder.push(" ");
+    builder.push(spec.alias);
+    builder.push(" ON ");
+    builder.push(spec.alias);
+    builder.push(".id = ");
+    builder.push(spec.join_column);
+    builder.push(" WHERE ");
+    push_work_order_filters(&mut builder, branch_scope, query)?;
+    builder.push(" GROUP BY ");
+    builder.push(spec.alias);
+    builder.push(".id, ");
+    builder.push(spec.alias);
+    builder.push(".name ORDER BY count DESC, name ASC LIMIT 10");
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            let id: uuid::Uuid = row.try_get("id")?;
+            let name: String = row.try_get("name")?;
+            let count: i64 = row.try_get("count")?;
+            Ok(WorkOrderNamedBucket {
+                filters: lens_filter(spec.filter_key, id.to_string()),
+                id,
+                name,
+                count,
+            })
+        })
+        .collect()
+}
+
+fn lens_filter(key: &str, value: String) -> BTreeMap<String, String> {
+    BTreeMap::from([(key.to_owned(), value)])
+}
+
+fn due_day_filter(bucket: &str) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        (
+            "target_due_from".to_owned(),
+            format!("{bucket}T00:00:00+09:00"),
+        ),
+        (
+            "target_due_to".to_owned(),
+            format!("{bucket}T23:59:59+09:00"),
+        ),
+    ])
+}
+
 async fn get_work_order_detail(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
     Path(work_order_id): Path<uuid::Uuid>,
 ) -> Result<Json<WorkOrderDetail>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_read_access(&principal)?;
     let pool = state.store.pool();
     let org = current_org()
@@ -2207,7 +2511,7 @@ async fn lookup_equipment(
     headers: HeaderMap,
     Query(query): Query<EquipmentLookupQuery>,
 ) -> Result<Json<EquipmentLookupResponse>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_read_access(&principal)?;
     let management_no = normalize_management_no(&query.management_no)?;
     let org = current_org()
@@ -2262,7 +2566,7 @@ async fn autocomplete_equipment(
     headers: HeaderMap,
     Query(query): Query<EquipmentAutocompleteQuery>,
 ) -> Result<Json<EquipmentAutocompletePage>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_read_access(&principal)?;
     let raw_query = normalize_management_no(&query.q)?;
     let limit = normalize_limit(query.limit, 10, 20)?;
@@ -2345,7 +2649,7 @@ async fn create_work_order(
     headers: HeaderMap,
     Json(body): Json<CreateWorkOrderRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(
         &principal,
         Action::limited(Feature::WorkOrderCreate),
@@ -2376,7 +2680,7 @@ async fn get_work_order(
     Path(work_order_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
     let work_order_id = WorkOrderId::from_uuid(work_order_id);
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let summary = state
         .store
         .work_order(work_order_id)
@@ -2574,7 +2878,7 @@ async fn review_target_change(
     Path(request_id): Path<uuid::Uuid>,
     Json(body): Json<ReviewTargetChangeRequestBody>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let target = state
         .store
         .target_change_request(request_id)
@@ -2606,7 +2910,7 @@ async fn list_daily_plans(
     headers: HeaderMap,
     Query(query): Query<ListDailyPlansQuery>,
 ) -> Result<Json<DailyPlanListResponse>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize_daily_plan_list(&principal)?;
     let plan_date = query
         .plan_date
@@ -2640,7 +2944,7 @@ async fn create_daily_plan(
     headers: HeaderMap,
     Json(body): Json<CreateDailyPlanRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(
         &principal,
         Action::new(Feature::DailyPlanRequest),
@@ -2692,7 +2996,7 @@ async fn get_daily_plan(
     Path(plan_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
     let plan_id = DailyPlanId::from_uuid(plan_id);
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let plan = state
         .store
         .daily_plan(plan_id)
@@ -2717,7 +3021,7 @@ async fn review_daily_plan(
     Json(body): Json<ReviewDailyPlanRequestBody>,
 ) -> Result<impl IntoResponse, RestError> {
     let plan_id = DailyPlanId::from_uuid(plan_id);
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let plan = state
         .store
         .daily_plan(plan_id)
@@ -2801,7 +3105,7 @@ async fn transition_daily_plan_endpoint(
     action: Action,
     endpoint_action: DailyPlanEndpointAction,
 ) -> Result<Response, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let plan = state
         .store
         .daily_plan(plan_id)
@@ -3159,6 +3463,10 @@ fn parse_work_order_list_query(
                 "assigned_to" => query.assigned_to = non_empty_query_value(value),
                 "customer_id" => query.customer_id = parse_uuid_query_value("customer_id", value)?,
                 "site_id" => query.site_id = parse_uuid_query_value("site_id", value)?,
+                "around_work_order_id" | "search_around_work_order_id" => {
+                    query.around_work_order_id =
+                        parse_uuid_query_value("around_work_order_id", value)?;
+                }
                 "target_due_from" => {
                     query.target_due_from = parse_datetime_query_value("target_due_from", value)?;
                 }
@@ -3177,6 +3485,7 @@ fn parse_work_order_list_query(
         assigned_to: normalize_assigned_to(query.assigned_to, actor)?,
         customer_id: query.customer_id,
         site_id: query.site_id,
+        around_work_order_id: query.around_work_order_id,
         target_due_from: query.target_due_from,
         target_due_to: query.target_due_to,
         limit: normalize_limit(query.limit, 50, 100)?,
@@ -3404,6 +3713,35 @@ fn push_work_order_filters(
     if let Some(site_id) = query.site_id {
         builder.push(" AND w.site_id = ");
         builder.push_bind(site_id);
+    }
+    if let Some(around_work_order_id) = query.around_work_order_id {
+        builder.push(
+            r#"
+            AND EXISTS (
+                SELECT 1
+                FROM work_orders seed
+                WHERE seed.id =
+            "#,
+        );
+        builder.push_bind(around_work_order_id);
+        builder.push(" AND ");
+        push_branch_scope_filter(
+            builder,
+            branch_scope,
+            BranchColumn::new("seed.branch_id").map_err(RestError::from_kernel)?,
+        );
+        builder.push(
+            r#"
+                  AND seed.org_id = w.org_id
+                  AND (
+                    seed.id = w.id
+                    OR seed.customer_id = w.customer_id
+                    OR seed.site_id = w.site_id
+                    OR seed.equipment_id = w.equipment_id
+                  )
+            )
+            "#,
+        );
     }
     if let Some(from) = query.target_due_from {
         builder.push(" AND w.target_due_at >= ");
@@ -3927,7 +4265,7 @@ async fn authorize_for_work_order(
     work_order_id: WorkOrderId,
     action: Action,
 ) -> Result<Principal, RestError> {
-    let principal = principal_from_headers(state, headers)?;
+    let principal = principal_from_headers(state, headers).await?;
     let summary = state
         .store
         .work_order(work_order_id)
@@ -3937,81 +4275,62 @@ async fn authorize_for_work_order(
     Ok(principal)
 }
 
-fn mobile_principal_from_headers<S>(
+async fn mobile_principal_from_headers<S>(
     state: &MobileRestState<S>,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for mobile API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    mnt_platform_request_context::resolve_principal(verifier, &state.pool, headers)
+        .await
+        .map_err(rest_error_from_request_context)
 }
 
-fn principal_from_headers(
+async fn principal_from_headers(
     state: &WorkOrderRestState,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for work-order API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    mnt_platform_request_context::resolve_principal(verifier, state.store.pool(), headers)
+        .await
+        .map_err(rest_error_from_request_context)
 }
 
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?;
-    header_value
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
-}
-
-fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles_vec: Vec<Role> = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<_, _>>()?;
-    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
-    let branch_scope = if roles_vec
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch)
-                    .map_err(|_| RestError::unauthorized("token contains an invalid branch id"))
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        BranchScope::Branches(branches)
-    };
-
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for this API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::from_kernel(KernelError::forbidden(
+                "token tier is not valid for this route",
+            ))
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::internal(message)
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => {
+            RestError::internal("no tenant context is bound to the current request")
+        }
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 fn device_hash_from_headers(headers: &HeaderMap) -> Result<String, RestError> {

@@ -69,6 +69,16 @@ function GroupRolesProbe() {
   );
 }
 
+function FeatureGrantsProbe() {
+  const { session, restoring } = useAuth();
+  if (restoring) return <div data-testid="feature-grants">restoring</div>;
+  return (
+    <div data-testid="feature-grants">
+      {(session?.feature_grants ?? []).join(",") || "-"}
+    </div>
+  );
+}
+
 function renderProvider() {
   return render(
     <AuthProvider>
@@ -169,6 +179,40 @@ describe("AuthProvider boot silent refresh", () => {
     await waitFor(() => {
       expect(screen.getByTestId("identity")).toHaveTextContent(
         "김관리|admin@example.com",
+      );
+    });
+  });
+
+  it("decodes runtime-effective feature grants into the session for custom-role UI gating", async () => {
+    const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+    const payload = btoa(
+      JSON.stringify({
+        sub: "00000000-0000-4000-8000-000000000001",
+        roles: ["MEMBER"],
+        feature_grants: ["mail_use", "role_manage"],
+      }),
+    );
+    const access = `${header}.${payload}.sig`;
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({
+          access_token: access,
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-19T00:00:00Z",
+        }),
+      ),
+    );
+
+    render(
+      <AuthProvider>
+        <FeatureGrantsProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("feature-grants")).toHaveTextContent(
+        "mail_use,role_manage",
       );
     });
   });

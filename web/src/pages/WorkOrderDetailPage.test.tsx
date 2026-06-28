@@ -83,6 +83,32 @@ const workOrderDetail: components["schemas"]["WorkOrderDetail"] = {
   ],
 };
 
+const workOrderWithApprovalLine: components["schemas"]["WorkOrderDetail"] = {
+  ...workOrderDetail,
+  approval_line: [
+    {
+      id: "ap111111-1111-4111-8111-111111111111",
+      step_order: 1,
+      role: "MECHANIC",
+      approver_id: primaryMechanicId,
+      status: "APPROVED",
+      requested_at: "2026-06-12T14:00:00Z",
+      approved_at: "2026-06-12T14:05:00Z",
+      approved_by_id: primaryMechanicId,
+    },
+    {
+      id: "ap222222-2222-4222-8222-222222222222",
+      step_order: 2,
+      role: "ADMIN",
+      approver_id: null,
+      status: "PENDING",
+      requested_at: "2026-06-12T14:10:00Z",
+      approved_at: null,
+      approved_by_id: null,
+    },
+  ],
+};
+
 function makeAuthContext(session: AuthSession): AuthContextValue {
   const api = createConsoleApiClient(session.access_token);
   return {
@@ -172,6 +198,30 @@ describe("WorkOrderDetailPage", () => {
     // Evidence list with the fetched thumbnail.
     const thumb = await screen.findByAltText("증거 미리보기");
     expect(thumb).toHaveAttribute("src", "https://example.test/thumb.jpg");
+  });
+
+
+  it("renders the approval line without leaking raw approver ids", async () => {
+    server.use(
+      http.get("*/api/v1/work-orders/:id", () =>
+        HttpResponse.json(workOrderWithApprovalLine),
+      ),
+      evidenceStatusHandler(),
+    );
+
+    renderApp(
+      `/work-orders/${WORK_ORDER_ID}`,
+      makeAuthContext(receptionistSession),
+    );
+
+    expect(await screen.findByText("승인 라인")).toBeVisible();
+    expect(screen.getByText("1. 정비사")).toBeVisible();
+    expect(screen.getByText("2. 관리자")).toBeVisible();
+    expect(screen.getByText("승인")).toBeVisible();
+    expect(screen.getByText("대기")).toBeVisible();
+    expect(screen.queryByText("MECHANIC")).not.toBeInTheDocument();
+    expect(screen.queryByText("APPROVED")).not.toBeInTheDocument();
+    expect(screen.queryByText(primaryMechanicId)).not.toBeInTheDocument();
   });
 
   it("is read-only for a non-mechanic reader (no start/report controls)", async () => {

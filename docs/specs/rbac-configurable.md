@@ -1,13 +1,17 @@
 # RBAC — Configurable Roles & Policy (design sub-spec)
 
-> **Status:** DESIGN — adversarial security-review DONE (verdict **NOT-YET — HIGH**: 3 CRITICAL +
-> 4 HIGH + 3 MEDIUM); revisions §0.1 below fold every must-fix into the design. **Re-review the
-> revised spec before P1 code** (P0 = code-only hygiene, see §9). The G002 pattern: kill the HIGHs
-> pre-code.
+> **Status:** DESIGN / TARGET STATE — adversarial security-review DONE (verdict **NOT-YET — HIGH**:
+> 3 CRITICAL + 4 HIGH + 3 MEDIUM); revisions §0.1 below fold every must-fix into the design.
+> **Current shipped increment is §9 plus early P1 guardrails:** tenant role definitions/catalog,
+> ABAC/PBAC condition metadata, assignment impact preview, passkey-gated role lifecycle changes,
+> delegated branch-scope guardrails, a visible tenant `policy_version` lineage badge, and runtime-effective
+> additive custom-role grants for supported ordinary tenant features. Unsupported/elevated/scope-widening
+> policy remains inert until re-reviewed before P1/P2 cutover. The G002 pattern: kill the HIGHs pre-code.
 > **Parent:** `SPEC.md`, `docs/specs/knl-business-os.md`, `docs/specs/org-hierarchy.md`.
 > **Trigger:** user directive 2026-06-24 — *"should allow new / custom roles with
 > configurable permissions / policy"*, generalizing the *"add an org-admin grant"*
 > decision into a data-driven RBAC. **Quality bar:** Palantir-grade, enterprise-production.
+> Benchmark/gate: [`docs/benchmarks/palantir-foundry-ops-benchmark.md`](../benchmarks/palantir-foundry-ops-benchmark.md) — object/action model, policy preview, lineage, audit, telemetry, and runbook evidence.
 
 ## 0.1 Security-review revisions (must-fix, folded into the design)
 
@@ -79,24 +83,27 @@ role/scope), default-deny composition, `repository_filter` empty-scope = `FALSE`
 
 ## 0. Today's model (what we are changing)
 
-RBAC is **100% compile-time** today:
+RBAC is no longer 100% compile-time for ordinary tenant features:
 
-- `Role` is a fixed 6-variant enum: `SUPER_ADMIN, ADMIN, MECHANIC, RECEPTIONIST, EXECUTIVE, MEMBER`
+- `Role` remains a fixed 6-variant **system-role** enum: `SUPER_ADMIN, ADMIN, MECHANIC, RECEPTIONIST, EXECUTIVE, MEMBER`
   (`crates/platform/authz/src/lib.rs`).
-- Permissions are a `const fn matrix_row()` — a `[PermissionLevel; 6]` per `Feature` (~40 features),
+- Permissions still have a `const fn matrix_row()` — a `[PermissionLevel; 6]` per `Feature` (~40 features),
   columns `[MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE, SUPER_ADMIN]`. `permission_for(role,
-  feature)` indexes it; `authorize()` checks role-permission **and** branch membership.
-- A user's roles ride in the **verified JWT** (`AccessClaims.roles` → `Role::from_str`); branch scope
+  feature)` indexes the immutable system-role floor.
+- A user's system roles ride in the **verified JWT** (`AccessClaims.roles` → `Role::from_str`); branch scope
   is resolved per-request from `user_branches` (`resolve_branch_scope_in_org`: only `SUPER_ADMIN` /
   `EXECUTIVE` → `BranchScope::All`).
-- **There is no `roles` table, no `role_permissions` table, no DB role model.** Policy is code.
+- Tenant-owned custom role rows now resolve into additive `EffectiveFeatureGrant`s on the request principal
+  for supported ordinary features. Backend authorization ignores JWT feature hints and re-resolves the live
+  custom policy from the DB on every request.
 
-This is correct, auditable, and fast — but **not configurable**. A conglomerate of legal entities in
-different industries (물류 / 제조·OEM / 파견·용역 / …) needs per-tenant roles ("현장소장", "배차데스크",
-"노무담당", "구매과장") with tenant-specific policy. This sub-spec introduces a **data-driven role +
-policy layer** while preserving every isolation and escalation guarantee the compile-time model gives.
+The system-role floor is correct, auditable, and fast, but it is no longer sufficient alone. A conglomerate
+of legal entities in different industries (물류 / 제조·OEM / 파견·용역 / …) needs per-tenant roles
+("현장소장", "배차데스크", "노무담당", "구매과장") with tenant-specific policy. This sub-spec introduces
+a **data-driven role + policy layer** while preserving every isolation and escalation guarantee the
+compile-time model gives.
 
-## 1. Objective & non-goals
+## 1. End-state objective & non-goals
 
 **Objective.** A per-tenant administrator (with the new `RoleManage` capability) can, **through the
 audited console** (never SQL): create/edit/retire **custom job-function roles**, set each role's
@@ -145,7 +152,7 @@ state, account credential state, and policy assignment state:
 No employment transition may be modeled as destructive row deletion when labor, wage, retirement,
 audit, or privacy-retention obligations require historical preservation.
 
-**Non-goals (this slice).**
+**Non-goals (end-state design).**
 - **No user-defined capabilities.** Custom roles **compose the existing `Feature` catalog** (the ~40
   capabilities already in code). Inventing *new* capability primitives belongs to the later
   **ontology-actions** layer (action/write-back engine, G010), not here. The capability set is the
@@ -156,11 +163,13 @@ audit, or privacy-retention obligations require historical preservation.
   after `docs/specs/operations-intelligence.md` prerequisites are met; authorization remains a
   deterministic, auditable policy decision.
 
-## 2. Data model (per-tenant, RLS-armed)
+## 2. Target data model (per-tenant, RLS-armed)
 
-New migration (next free number; **renumber at implementation time** to avoid collision — last seen
-0058). All tables are tenant-scoped, `FORCE ROW LEVEL SECURITY`, `org_id` column, owner-applied,
-`GRANT`ed to `mnt_rt`, RLS policy `org_id = current_setting('app.current_org')::uuid`.
+Target model for the effective-policy resolver. G016-P0 implements the production substrate called out
+in §9 (`feature_catalog`, `policy_roles`, `policy_role_permissions`, reserved
+`user_role_assignments`, `policy_versions`) but **does not use it for live authorization yet**. All
+tenant tables are tenant-scoped, `FORCE ROW LEVEL SECURITY`, `org_id` column, owner-applied, `GRANT`ed
+to `mnt_rt`, RLS policy `org_id = current_setting('app.current_org')::uuid`.
 
 ```
 roles
@@ -213,17 +222,19 @@ fails.
 
 ## 3. Authz engine change
 
-- `permission_for(role, feature)` and `authorize()` keep their **signatures**, but effective levels come
-  from the **resolved tenant policy** (DB), not `matrix_row()`. `matrix_row()` survives as the **seed +
-  the system-role floor** (single source for the migration + a compile-time default if policy is absent).
+- Shipped P1a behavior: `authorize()` keeps its signature and unions the immutable system-role matrix with
+  per-request `EffectiveFeatureGrant`s resolved from active assigned custom roles. `permission_for(role, feature)`
+  remains the **system-role floor** and migration seed.
+- Future P1/P2 target: move additional ABAC/PBAC attributes and no-lockout/escalation closure into the same
+  resolver without changing call-site authorization semantics.
 - Resolution is **per-request, RLS-armed, and cached** with the cache keyed by **`(org_id,
   policy_version)`** (**R4** — *not* TTL/`org_id`-only): every `RoleManage` write bumps the per-org
   `policy_version` (an RLS-armed row) **synchronously before the write returns**; resolution reads the
   version (one cheap armed read; deny on read failure) and treats a version mismatch as a cache miss, so
   a revoke is globally effective on the next request across all replicas with no inter-node messaging.
-  The hot path stays O(1) and never does an unarmed read. The Principal carries resolved built-in roles;
-  we additionally resolve the **effective capability set** (union over built-in + assigned custom roles,
-  most-permissive per feature).
+  The hot path stays O(1) and never does an unarmed read. The Principal carries resolved built-in roles plus
+  additive custom-role feature grants; the effective capability set is the union over built-in + assigned custom
+  roles, most-permissive per feature.
 - **Fail-closed:** unknown feature string, missing policy row, unarmed read, or cache miss under load →
   **deny**, never allow. Default for any (role,feature) not present = `Deny`.
 
@@ -269,13 +280,19 @@ Two new `Feature` variants (matrix cells default to **least-privilege**, then be
 > If they are a plain branch `ADMIN`, elevate them (EXECUTIVE) or grant the forthcoming org-admin role
 > in the same change — do **not** silently shrink their live queue. Surface, don't drop.
 
-## 6. Console UX (Blueprint, AA, visual-verdict ≥90)
+## 6. Target console UX (Blueprint, AA, visual-verdict ≥90)
 
-- **Roles page** (gated on `RoleManage`): list system + custom roles; create/edit a custom role via a
+- **G016 Policy Studio (current safe increment)**: list system + custom role definitions, inspect the
+  feature catalog, create draft custom role definitions with ABAC/PBAC conditions, preview custom-role
+  assignments, and show the tenant `policy_version` that keys effective-policy invalidation. Passkey
+  step-up is required for lifecycle and assignment changes. ACTIVE assigned custom roles are resolved
+  into live authorization through the central request principal; DRAFT/RETIRED roles and unsupported
+  ABAC/PBAC conditions fail closed.
+- **Future Roles page** (gated on `RoleManage`): list system + custom roles; create/edit a custom role via a
   capability matrix editor (feature × level, grouped by domain) with a **diff-from-baseline** view and
   a **"grant ≤ self" preview** that greys out capabilities the actor lacks. Retire (not hard-delete)
   custom roles that still have assignments only after reassignment.
-- **User detail**: assign/unassign roles (multi-role), each assignment audited; show effective
+- **Future User detail**: assign/unassign roles (multi-role), each assignment audited; show effective
   capabilities (read-only rollup) so an admin sees the *net* of multiple roles.
 - **Policy lifecycle UI**: draft, diff, simulate, approve, activate, rollback, and retire policy
   versions. Show affected users, employment states, departments/teams, responsibilities, and example
@@ -311,7 +328,39 @@ Two new `Feature` variants (matrix cells default to **least-privilege**, then be
 - Catalog injection: can a crafted `feature` string enable an unintended capability or bypass the
   `Feature` CHECK? (Parse-or-deny.)
 
-## 9. Phased delivery (new ultragoal goal — slots after G002 org-hierarchy)
+## 9. G016 production slice status (current implementation)
+
+This slice exists because tenants need to create many named roles (for example department managers, group operators, payroll clerks, site-only supervisors) without adding more hard-coded enum roles. It deliberately starts with a safe, auditable role catalog and policy preview instead of weakening the authorization boundary.
+
+**In scope now**
+
+- Add the tenant feature `RoleManage` to the canonical feature catalog. Only `SUPER_ADMIN` holds it initially (`[D,D,D,D,D,A]`).
+- Add tenant-scoped custom role tables with RLS, immutable `org_id`, mnt_rt grants, feature FK validation, and per-org `policy_version` bumps.
+- Add `/api/v1/policy/features` and `/api/v1/policy/roles` so a RoleManage holder can see the capability catalog and create custom role definitions with explicit permission cells.
+- Surface the per-tenant `policy_version` in the role catalog response and Policy Studio UI. Version 0
+  means no policy write has happened; every role/custom-assignment write bumps the monotonic version
+  under RLS for the future `(org_id, policy_version)` resolver cache.
+- Custom role definitions may grant ordinary operational features only. Admin escalation features (`RoleManage`, `ElevatedRoleGrant`) and the scope-widening `OrgWideQueueTriage` stay system-role-only until no-lockout/self-bounded grant proofs and richer scope publication land together.
+- Add a console Policy Studio page under account/authority management that creates role definitions from data and shows the scope/status honestly.
+
+**Out of scope for this slice**
+
+- Custom role assignments do **not** replace `users.roles`; built-in roles remain system-role-only token claims.
+- Custom role definitions do **not** widen `BranchScope::All`, group scope, or platform scope. Those scopes remain resolved by the existing membership/token systems.
+- Runtime authorization overlays are intentionally additive and fail closed: ACTIVE custom roles grant ordinary features inside the caller's live branch scope, while DRAFT/RETIRED roles, unsupported conditions, and elevated/scope-widening features stay inert.
+
+**Stop condition**
+
+- A super admin can open Policy Studio, inspect the feature catalog, create a custom role such as `maintenance_manager`, and reload it from the tenant-scoped API.
+- Attempts to define elevated policy features are rejected by the REST boundary.
+- ACTIVE assigned custom roles are resolved into ordinary feature grants on the next request principal, without widening branch/group/platform scope. Runtime-effective conditions are intentionally limited to data-backed branch narrowing and team matching (`equals`/`in`); other metadata-only ABAC/PBAC condition rows remain visible for preview/audit and fail closed until their source-of-truth attributes exist.
+- Generated clients, web tests, lint/typecheck/build, and Rust fmt/metadata stay green.
+
+**Why this is not a stub**
+
+The persisted role catalog, feature FK, audit row, RLS policy, policy-version bump, OpenAPI contract, and central effective-policy resolver are production substrate. The remaining withheld behavior is the dangerous part: elevated self-granting, org-wide scope widening, group/platform policy fan-out, and richer ABAC/PBAC evaluation (department, position, employment status, assignment, location, purpose/action/resource) before the required source-of-truth attributes, preview/no-lockout/self-bounded checks, and review evidence exist.
+
+## 10. Phased delivery (new ultragoal goal — slots after G002 org-hierarchy)
 
 0. **P0 — capability hygiene + HIGH-1 bridge (ships in G001/now, code-only, no new tables):** add
    `OrgWideQueueTriage`, route the workorder queue/daily-plan `BranchScope::All` widen through it (the
@@ -324,7 +373,8 @@ Two new `Feature` variants (matrix cells default to **least-privilege**, then be
    the ~13 `BranchScope::All`-from-role producers into one capability-driven decision fn; add the CI gate
    forbidding role-string authz. Then: migration (3 tables + `feature_catalog` (R7) + per-org
    `policy_version` (R4), RLS, GRANTs, seed-from-`matrix_row()`), resolver + `(org_id,policy_version)`
-   cache, fail-closed parse-or-deny. `mnt_rt` RLS tests incl. the **armed cache-warm** proof (R8) and the
+   cache, fail-closed parse-or-deny (central additive resolver landed in G016-P1m; branch+team runtime
+   condition parity landed in G016-P1r; cache and richer data-backed ABAC/PBAC remain follow-up). `mnt_rt` RLS tests incl. the **armed cache-warm** proof (R8) and the
    golden full-grid parity test (R5). Add the new tables to `mnt-gate-rls-arming`.
 2. **P2 — RoleManage API + escalation closure (R2) + no-lockout (R5):** create/edit/retire/assign
    endpoints (openapi-first, regen clients); grant-≤-self over the post-union effective set at assignment
@@ -340,7 +390,7 @@ Two new `Feature` variants (matrix cells default to **least-privilege**, then be
 table; golden parity test that seeded system policy == `matrix_row()`; adversarial escalation/lockout
 tests; gates + fmt + clippy + `check:openapi-app` green; security-review as a separate pass.
 
-## 10. Open decisions (recommended defaults in **bold** — confirm or override)
+## 11. Open decisions (recommended defaults in **bold** — confirm or override)
 
 1. **Capability granularity:** **compose existing `Feature` catalog only** (new capabilities deferred to
    ontology-actions / G010). _Alt: allow defining new capability primitives now (much larger; couples to

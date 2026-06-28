@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 import { EquipmentBrowsePage } from "./EquipmentBrowsePage";
 import { EquipmentManagePage } from "./EquipmentManagePage";
@@ -59,10 +60,18 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
   };
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="current path">{location.pathname}</output>;
+}
+
 function renderPage(session: AuthSession) {
   return render(
     <AuthContext.Provider value={makeAuthContext(session)}>
-      <EquipmentBrowsePage />
+      <MemoryRouter>
+        <EquipmentBrowsePage />
+        <LocationProbe />
+      </MemoryRouter>
     </AuthContext.Provider>,
   );
 }
@@ -70,7 +79,9 @@ function renderPage(session: AuthSession) {
 function renderManagePage(session: AuthSession) {
   return render(
     <AuthContext.Provider value={makeAuthContext(session)}>
-      <EquipmentManagePage />
+      <MemoryRouter>
+        <EquipmentManagePage />
+      </MemoryRouter>
     </AuthContext.Provider>,
   );
 }
@@ -94,6 +105,49 @@ function listHandler(rows: EquipmentListItem[] = [item]) {
     HttpResponse.json({ items: rows, total: rows.length, limit: 50, offset: 0 }),
   );
 }
+
+describe("EquipmentBrowsePage table", () => {
+  it("renders an accessible equipment table and keeps the detail link navigable", async () => {
+    const user = userEvent.setup();
+    server.use(listHandler());
+
+    renderPage(mechanicSession);
+
+    const table = await screen.findByRole("table");
+    expect(
+      within(table).getByRole("columnheader", { name: "호기 번호" }),
+    ).toBeVisible();
+    expect(
+      within(table).getByRole("button", { name: "장비 상세 보기: D-25-290" }),
+    ).toBeVisible();
+
+    await user.click(
+      within(table).getByRole("link", { name: "보기: D-25-290" }),
+    );
+
+    expect(screen.getByLabelText("current path")).toHaveTextContent(
+      `/equipment/${equipmentId}`,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("lets keyboard users activate the detail link without triggering row quick-view", async () => {
+    const user = userEvent.setup();
+    server.use(listHandler());
+
+    renderPage(mechanicSession);
+
+    const table = await screen.findByRole("table");
+    const link = within(table).getByRole("link", { name: "보기: D-25-290" });
+    link.focus();
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByLabelText("current path")).toHaveTextContent(
+      `/equipment/${equipmentId}`,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
 
 describe("EquipmentBrowsePage detail dialog", () => {
   it("makes the management route list-first before admin tools", async () => {
@@ -178,8 +232,12 @@ describe("EquipmentBrowsePage detail dialog", () => {
 
     renderPage(adminSession);
 
+    expect(
+      await screen.findByRole("link", { name: "수정: D-25-290" }),
+    ).toHaveAttribute("href", `/equipment/${equipmentId}`);
+
     await user.click(
-      await screen.findByRole("button", { name: "수정: D-25-290" }),
+      screen.getByRole("button", { name: "장비 상세 보기: D-25-290" }),
     );
 
     const dialog = await screen.findByRole("dialog");

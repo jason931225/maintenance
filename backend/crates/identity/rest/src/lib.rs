@@ -22,30 +22,34 @@ use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use mnt_identity_adapter_postgres::{PgOrgError, PgOrgStore};
 use mnt_identity_application::{
-    CreateBranchCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
-    DeactivateRegionCommand, DeactivateUserCommand, UpdateBranchCommand, UpdateRegionCommand,
-    UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery,
+    CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand, CreatePolicyRoleCommand,
+    CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand, DeactivateRegionCommand,
+    DeactivateUserCommand, PolicyAuditEventSummary, PolicyRoleAssignmentSummary,
+    PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
+    ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand, UpdatePolicyRoleCommand,
+    UpdatePolicyRoleStatusCommand, UpdateRegionCommand, UpdateSelfProfileCommand,
+    UpdateUserCommand, UserListQuery, UserSummary,
 };
 use mnt_identity_domain::Team;
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId,
-    TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, RegionId, TraceContext,
+    UserId,
 };
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
+use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
 use mnt_platform_authz::{
-    Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
+    Action, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
 };
 use mnt_platform_db::{DbError, with_audits, with_org_conn};
 use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -62,6 +66,60 @@ pub const BRANCHES_PATH: &str = "/api/v1/branches";
 pub const BRANCH_PATH_TEMPLATE: &str = "/api/v1/branches/{id}";
 pub const PASSKEYS_PATH: &str = "/api/v1/passkeys";
 pub const PASSKEY_PATH_TEMPLATE: &str = "/api/v1/passkeys/{id}";
+pub const POLICY_FEATURES_PATH: &str = "/api/v1/policy/features";
+pub const POLICY_ROLES_PATH: &str = "/api/v1/policy/roles";
+pub const POLICY_ROLE_PATH_TEMPLATE: &str = "/api/v1/policy/roles/{id}";
+pub const POLICY_ROLE_STATUS_PATH_TEMPLATE: &str = "/api/v1/policy/roles/{id}/status";
+pub const POLICY_ROLE_STATUS_PREVIEW_PATH_TEMPLATE: &str =
+    "/api/v1/policy/roles/{id}/status-preview";
+pub const POLICY_ROLE_TEMPLATES_PATH: &str = "/api/v1/policy/role-templates";
+pub const POLICY_ASSIGNMENTS_PATH: &str = "/api/v1/policy/assignments";
+pub const POLICY_USER_ASSIGNMENTS_PATH_TEMPLATE: &str = "/api/v1/policy/users/{id}/assignments";
+pub const POLICY_USER_ASSIGNMENT_PREVIEW_PATH_TEMPLATE: &str =
+    "/api/v1/policy/users/{id}/assignment-preview";
+pub const POLICY_AUDIT_EVENTS_PATH: &str = "/api/v1/policy/audit-events";
+const POLICY_STUDIO_OPERATION_TOTAL: &str = "policy_studio_operation_total";
+const POLICY_ASSIGNMENT_PREVIEW_RECEIPT_TTL: Duration = Duration::minutes(10);
+
+fn record_policy_studio_operation(operation: &'static str, outcome: &'static str) {
+    metrics::counter!(
+        POLICY_STUDIO_OPERATION_TOTAL,
+        "operation" => operation,
+        "outcome" => outcome,
+    )
+    .increment(1);
+}
+
+fn policy_branch_scope_label(scope: &BranchScope) -> &'static str {
+    match scope {
+        BranchScope::All => "all",
+        BranchScope::Branches(branches) if branches.is_empty() => "none",
+        BranchScope::Branches(_) => "branches",
+    }
+}
+
+fn record_policy_studio_rejection(
+    operation: &'static str,
+    principal: &Principal,
+    error: &RestError,
+) {
+    let outcome = if error.status == StatusCode::FORBIDDEN {
+        "denied"
+    } else {
+        "invalid"
+    };
+    record_policy_studio_operation(operation, outcome);
+    tracing::warn!(
+        event = "policy_studio_operation_rejected",
+        operation,
+        outcome,
+        error_code = error.code,
+        actor_user_id = %principal.user_id,
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio operation rejected"
+    );
+}
+
 pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     USERS_PATH,
     USERS_ME_PATH,
@@ -73,12 +131,23 @@ pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     BRANCH_PATH_TEMPLATE,
     PASSKEYS_PATH,
     PASSKEY_PATH_TEMPLATE,
+    POLICY_FEATURES_PATH,
+    POLICY_ROLES_PATH,
+    POLICY_ROLE_PATH_TEMPLATE,
+    POLICY_ROLE_STATUS_PATH_TEMPLATE,
+    POLICY_ROLE_STATUS_PREVIEW_PATH_TEMPLATE,
+    POLICY_ROLE_TEMPLATES_PATH,
+    POLICY_ASSIGNMENTS_PATH,
+    POLICY_USER_ASSIGNMENTS_PATH_TEMPLATE,
+    POLICY_USER_ASSIGNMENT_PREVIEW_PATH_TEMPLATE,
+    POLICY_AUDIT_EVENTS_PATH,
 ];
 
 #[derive(Clone)]
 pub struct IdentityRestState {
     store: PgOrgStore,
     jwt_verifier: Option<JwtVerifier>,
+    passkey_step_up: Option<PasskeyService>,
 }
 
 impl IdentityRestState {
@@ -87,7 +156,14 @@ impl IdentityRestState {
         Self {
             store,
             jwt_verifier,
+            passkey_step_up: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_passkey_step_up(mut self, passkey_step_up: Option<PasskeyService>) -> Self {
+        self.passkey_step_up = passkey_step_up;
+        self
     }
 
     fn pool(&self) -> &PgPool {
@@ -117,6 +193,31 @@ pub fn router(state: IdentityRestState) -> Router {
         )
         .route(PASSKEYS_PATH, get(list_passkeys))
         .route(PASSKEY_PATH_TEMPLATE, delete(delete_passkey))
+        .route(POLICY_FEATURES_PATH, get(list_policy_features))
+        .route(
+            POLICY_ROLES_PATH,
+            get(list_policy_roles).post(create_policy_role),
+        )
+        .route(POLICY_ROLE_PATH_TEMPLATE, patch(update_policy_role))
+        .route(
+            POLICY_ROLE_STATUS_PATH_TEMPLATE,
+            patch(update_policy_role_status),
+        )
+        .route(
+            POLICY_ROLE_STATUS_PREVIEW_PATH_TEMPLATE,
+            post(preview_policy_role_status),
+        )
+        .route(POLICY_ROLE_TEMPLATES_PATH, get(list_policy_role_templates))
+        .route(POLICY_AUDIT_EVENTS_PATH, get(list_policy_audit_events))
+        .route(POLICY_ASSIGNMENTS_PATH, get(list_policy_assignments))
+        .route(
+            POLICY_USER_ASSIGNMENTS_PATH_TEMPLATE,
+            put(replace_policy_assignments),
+        )
+        .route(
+            POLICY_USER_ASSIGNMENT_PREVIEW_PATH_TEMPLATE,
+            post(preview_policy_assignments),
+        )
         .with_state(state);
     // Per-request tenant context: resolves the Principal and arms `CURRENT_ORG`
     // for every authenticated route on this router, so adapter reads/writes run
@@ -204,12 +305,239 @@ struct UpdateBranchRequest {
 /// public key, or the raw `credential_id`. Only the opaque row id (for the delete
 /// route) and the registration / last-use timestamps are exposed.
 #[derive(Debug, Serialize)]
+
 struct PasskeySummary {
     id: Uuid,
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
     last_used_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyFeatureResponse {
+    feature_key: String,
+    elevated: bool,
+    default_permissions: Vec<PolicyDefaultPermissionResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyDefaultPermissionResponse {
+    role_key: String,
+    permission_level: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyRoleCatalogResponse {
+    policy_version: PolicyVersionResponse,
+    system_roles: Vec<SystemPolicyRoleResponse>,
+    custom_roles: Vec<PolicyRoleResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyVersionResponse {
+    version: i64,
+    #[serde(with = "time::serde::rfc3339::option")]
+    updated_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PolicyAuditEventsQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyAuditEventResponse {
+    id: Uuid,
+    actor: Option<Uuid>,
+    action: String,
+    target_type: String,
+    target_id: String,
+    before_snapshot: Option<serde_json::Value>,
+    after_snapshot: Option<serde_json::Value>,
+    trace_id: String,
+    span_id: String,
+    #[serde(with = "time::serde::rfc3339")]
+    occurred_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct SystemPolicyRoleResponse {
+    role_key: String,
+    display_name: String,
+    status: String,
+    is_system: bool,
+    permissions: Vec<PolicyPermissionResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyRoleResponse {
+    id: Uuid,
+    role_key: String,
+    display_name: String,
+    description: Option<String>,
+    status: String,
+    is_system: bool,
+    permissions: Vec<PolicyPermissionResponse>,
+    conditions: Vec<PolicyConditionResponse>,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyRoleStatusPreviewResponse {
+    role_id: Uuid,
+    role_key: String,
+    display_name: String,
+    current_status: String,
+    requested_status: String,
+    permission_count: i64,
+    condition_count: i64,
+    planned_assignment_count: i64,
+    requires_passkey_step_up: bool,
+    effective_runtime_change: bool,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PolicyPermissionResponse {
+    feature_key: String,
+    permission_level: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PolicyConditionResponse {
+    condition_key: String,
+    attribute: String,
+    operator: String,
+    values: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreatePolicyRoleRequest {
+    role_key: String,
+    display_name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    permissions: Vec<PolicyPermissionResponse>,
+    #[serde(default)]
+    conditions: Vec<PolicyConditionResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdatePolicyRoleRequest {
+    display_name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    permissions: Vec<PolicyPermissionResponse>,
+    #[serde(default)]
+    conditions: Vec<PolicyConditionResponse>,
+    #[serde(default)]
+    step_up: Option<PolicyStepUpAssertionRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PolicyStepUpAssertionRequest {
+    ceremony_id: Uuid,
+    credential: PasskeyAuthenticationCredential,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdatePolicyRoleStatusRequest {
+    status: String,
+    #[serde(default)]
+    step_up: Option<PolicyStepUpAssertionRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PolicyRoleStatusPreviewRequest {
+    status: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyRoleTemplateResponse {
+    template_key: String,
+    role_key: String,
+    display_name: String,
+    category: String,
+    description: String,
+    permissions: Vec<PolicyPermissionResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListPolicyAssignmentsRequest {
+    user_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyRoleAssignmentResponse {
+    user_id: Uuid,
+    role_id: Uuid,
+    role_key: String,
+    display_name: String,
+    status: String,
+    assigned_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplacePolicyRoleAssignmentsRequest {
+    #[serde(default)]
+    role_ids: Vec<Uuid>,
+    #[serde(default)]
+    preview_acknowledged: bool,
+    #[serde(default)]
+    preview_receipt_id: Option<Uuid>,
+    #[serde(default)]
+    step_up: Option<PolicyStepUpAssertionRequest>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyRoleAssignmentDeltaResponse {
+    added_role_ids: Vec<Uuid>,
+    removed_role_ids: Vec<Uuid>,
+    unchanged_role_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyRoleImpactResponse {
+    role_id: Uuid,
+    role_key: String,
+    display_name: String,
+    status: String,
+    runtime_effective: bool,
+    runtime_warnings: Vec<String>,
+    conditions: Vec<PolicyConditionResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyFeatureGrantPreviewResponse {
+    feature_key: String,
+    permission_level: String,
+    source_type: String,
+    source_key: String,
+    source_label: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PolicyAssignmentPreviewResponse {
+    user_id: Uuid,
+    preview_receipt_id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    preview_receipt_expires_at: OffsetDateTime,
+    effective: bool,
+    system_roles: Vec<String>,
+    current_role_ids: Vec<Uuid>,
+    requested_role_ids: Vec<Uuid>,
+    delta: PolicyRoleAssignmentDeltaResponse,
+    custom_roles: Vec<PolicyRoleImpactResponse>,
+    feature_grants: Vec<PolicyFeatureGrantPreviewResponse>,
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -232,6 +560,1818 @@ where
     T: Deserialize<'de>,
 {
     Ok(Some(Option::<T>::deserialize(deserializer)?))
+}
+
+// ---------------------------------------------------------------------------
+// Policy Studio handlers (G016-P0)
+// ---------------------------------------------------------------------------
+
+async fn list_policy_features(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let catalog = policy_feature_catalog();
+    record_policy_studio_operation("list_features", "success");
+    tracing::info!(
+        event = "policy_studio_features_listed",
+        operation = "list_features",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        feature_count = catalog.len(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio features listed"
+    );
+    Ok(Json(catalog))
+}
+
+async fn list_policy_roles(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let custom_roles = state
+        .store
+        .list_policy_roles()
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .filter(|role| policy_role_is_inside_delegated_authority(&principal, role))
+        .map(PolicyRoleResponse::from)
+        .collect::<Vec<_>>();
+    let policy_version = state
+        .store
+        .get_policy_version()
+        .await
+        .map_err(RestError::from_store)?;
+    let system_roles = system_policy_roles();
+    record_policy_studio_operation("list_roles", "success");
+    tracing::info!(
+        event = "policy_studio_roles_listed",
+        operation = "list_roles",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        custom_role_count = custom_roles.len(),
+        system_role_count = system_roles.len(),
+        policy_version = policy_version.version,
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio roles listed"
+    );
+    Ok(Json(PolicyRoleCatalogResponse {
+        policy_version: policy_version.into(),
+        system_roles,
+        custom_roles,
+    }))
+}
+
+async fn list_policy_role_templates(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let templates = policy_role_templates();
+    record_policy_studio_operation("list_templates", "success");
+    tracing::info!(
+        event = "policy_studio_templates_listed",
+        operation = "list_templates",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        template_count = templates.len(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio role templates listed"
+    );
+    Ok(Json(templates))
+}
+
+async fn list_policy_audit_events(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Query(query): Query<PolicyAuditEventsQuery>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let limit = normalize_policy_audit_limit(query.limit)?;
+    let events = state
+        .store
+        .list_policy_audit_events(limit)
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .map(PolicyAuditEventResponse::from)
+        .collect::<Vec<_>>();
+    record_policy_studio_operation("list_audit_events", "success");
+    tracing::info!(
+        event = "policy_studio_audit_events_listed",
+        operation = "list_audit_events",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        event_count = events.len(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio audit events listed"
+    );
+    Ok(Json(events))
+}
+
+async fn create_policy_role(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreatePolicyRoleRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let role_key = normalize_policy_role_key(&body.role_key)?;
+    let display_name = normalize_policy_display_name(&body.display_name)?;
+    let description = normalize_policy_description(body.description.as_deref())?;
+    let permissions = validate_policy_permissions(&body.permissions)?;
+    let conditions = validate_policy_conditions(&body.conditions)?;
+    ensure_policy_conditions_inside_delegated_authority_for_operation(
+        "create_role",
+        &principal,
+        &conditions,
+    )?;
+
+    let trace = TraceContext::generate();
+    let role = state
+        .store
+        .create_policy_role(CreatePolicyRoleCommand {
+            actor: principal.user_id,
+            role_key,
+            display_name,
+            description,
+            permissions,
+            conditions,
+            trace: trace.clone(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    record_policy_studio_operation("create_role", "success");
+    tracing::info!(
+        event = "policy_studio_role_created",
+        operation = "create_role",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        role_id = %role.id,
+        permission_count = role.permissions.len(),
+        condition_count = role.conditions.len(),
+        audit_trace_id = trace.trace_id(),
+        audit_span_id = trace.span_id(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio role created"
+    );
+    Ok((StatusCode::CREATED, Json(PolicyRoleResponse::from(role))))
+}
+
+async fn update_policy_role(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdatePolicyRoleRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let display_name = normalize_policy_display_name(&body.display_name)?;
+    let description = normalize_policy_description(body.description.as_deref())?;
+    let permissions = validate_policy_permissions(&body.permissions)?;
+    let conditions = validate_policy_conditions(&body.conditions)?;
+    let role = state
+        .store
+        .list_policy_roles()
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .find(|role| role.id == id)
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("policy role not found")))?;
+    if role.is_system {
+        return Err(RestError::validation(
+            "system policy roles cannot be changed",
+        ));
+    }
+    let requested_role = PolicyRoleSummary {
+        id: role.id,
+        role_key: role.role_key.clone(),
+        display_name: display_name.clone(),
+        description: description.clone(),
+        status: role.status.clone(),
+        is_system: role.is_system,
+        permissions: permissions.clone(),
+        conditions: conditions.clone(),
+        created_at: role.created_at,
+        updated_at: role.updated_at,
+    };
+    ensure_policy_roles_inside_delegated_authority_for_operation(
+        "update_role",
+        &principal,
+        &[role.clone(), requested_role],
+    )?;
+    verify_policy_step_up(&state, &principal, body.step_up).await?;
+
+    let trace = TraceContext::generate();
+    let role = state
+        .store
+        .update_policy_role(UpdatePolicyRoleCommand {
+            actor: principal.user_id,
+            role_id: id,
+            display_name,
+            description,
+            permissions,
+            conditions,
+            trace: trace.clone(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    record_policy_studio_operation("update_role", "success");
+    tracing::info!(
+        event = "policy_studio_role_updated",
+        operation = "update_role",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        role_id = %role.id,
+        permission_count = role.permissions.len(),
+        condition_count = role.conditions.len(),
+        audit_trace_id = trace.trace_id(),
+        audit_span_id = trace.span_id(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio role updated"
+    );
+    Ok(Json(PolicyRoleResponse::from(role)))
+}
+
+async fn preview_policy_role_status(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<PolicyRoleStatusPreviewRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let requested_status = normalize_policy_role_status(&body.status)?;
+    let role = state
+        .store
+        .list_policy_roles()
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .find(|role| role.id == id)
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("policy role not found")))?;
+    ensure_policy_roles_inside_delegated_authority_for_operation(
+        "preview_role_status",
+        &principal,
+        std::slice::from_ref(&role),
+    )?;
+    validate_policy_role_status_transition(&role.status, &requested_status)?;
+    let planned_assignment_count = state
+        .store
+        .count_policy_role_assignments(id)
+        .await
+        .map_err(RestError::from_store)?;
+    record_policy_studio_operation("preview_role_status", "success");
+    tracing::info!(
+        event = "policy_studio_role_status_previewed",
+        operation = "preview_role_status",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        role_id = %role.id,
+        current_status = %role.status,
+        requested_status = %requested_status,
+        planned_assignment_count,
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio role status previewed"
+    );
+    Ok(Json(build_policy_role_status_preview(
+        &role,
+        requested_status,
+        planned_assignment_count,
+    )))
+}
+
+async fn update_policy_role_status(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdatePolicyRoleStatusRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let status = normalize_policy_role_status(&body.status)?;
+    let role = state
+        .store
+        .list_policy_roles()
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .find(|role| role.id == id)
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("policy role not found")))?;
+    ensure_policy_roles_inside_delegated_authority_for_operation(
+        "update_role_status",
+        &principal,
+        std::slice::from_ref(&role),
+    )?;
+    validate_policy_role_status_transition(&role.status, &status)?;
+    verify_policy_step_up(&state, &principal, body.step_up).await?;
+
+    let trace = TraceContext::generate();
+    let role = state
+        .store
+        .update_policy_role_status(UpdatePolicyRoleStatusCommand {
+            actor: principal.user_id,
+            role_id: id,
+            status,
+            trace: trace.clone(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    record_policy_studio_operation("update_role_status", "success");
+    tracing::info!(
+        event = "policy_studio_role_status_updated",
+        operation = "update_role_status",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        role_id = %role.id,
+        status = %role.status,
+        audit_trace_id = trace.trace_id(),
+        audit_span_id = trace.span_id(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio role status updated"
+    );
+    Ok(Json(PolicyRoleResponse::from(role)))
+}
+
+async fn list_policy_assignments(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ListPolicyAssignmentsRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let Some(user_id) = query.user_id.map(UserId::from_uuid) else {
+        return Err(RestError::validation("user_id query parameter is required"));
+    };
+    // Custom-role assignments are user governance data and ACTIVE roles are
+    // runtime-effective, so branch-scoped RoleManage holders may only inspect
+    // targets visible in their live branch scope.
+    state
+        .store
+        .get_user(user_id, &principal.branch_scope)
+        .await
+        .map_err(RestError::from_store)?;
+    let assignments = state
+        .store
+        .list_policy_role_assignments(user_id)
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .map(PolicyRoleAssignmentResponse::from)
+        .collect::<Vec<_>>();
+    record_policy_studio_operation("list_assignments", "success");
+    tracing::info!(
+        event = "policy_studio_assignments_listed",
+        operation = "list_assignments",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        target_user_id = %user_id,
+        assignment_count = assignments.len(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio assignments listed"
+    );
+    Ok(Json(assignments))
+}
+
+async fn replace_policy_assignments(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ReplacePolicyRoleAssignmentsRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let user_id = UserId::from_uuid(id);
+    state
+        .store
+        .get_user(user_id, &principal.branch_scope)
+        .await
+        .map_err(RestError::from_store)?;
+    let current_assignments = state
+        .store
+        .list_policy_role_assignments(user_id)
+        .await
+        .map_err(RestError::from_store)?;
+    let custom_roles = state
+        .store
+        .list_policy_roles()
+        .await
+        .map_err(RestError::from_store)?;
+    let requested_roles = validate_requested_policy_roles(&custom_roles, &body.role_ids)?;
+    let authorized_roles = policy_roles_touched_by_assignment_replace(
+        &custom_roles,
+        &requested_roles,
+        &current_assignments,
+    )?;
+    ensure_policy_roles_inside_delegated_authority_for_operation(
+        "replace_assignments",
+        &principal,
+        &authorized_roles,
+    )?;
+    ensure_policy_roles_inside_actor_permission_ceiling_for_operation(
+        "replace_assignments",
+        &principal,
+        &authorized_roles,
+    )?;
+    ensure_assignment_preview_acknowledged(&principal, body.preview_acknowledged)?;
+    let preview_receipt_id =
+        require_assignment_preview_receipt(&principal, body.preview_receipt_id)?;
+    verify_policy_step_up(&state, &principal, body.step_up).await?;
+    let trace = TraceContext::generate();
+    let assignments = state
+        .store
+        .replace_policy_role_assignments(ReplacePolicyRoleAssignmentsCommand {
+            actor: principal.user_id,
+            user_id,
+            role_ids: body.role_ids,
+            preview_receipt_id,
+            trace: trace.clone(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .map(PolicyRoleAssignmentResponse::from)
+        .collect::<Vec<_>>();
+    record_policy_studio_operation("replace_assignments", "success");
+    tracing::info!(
+        event = "policy_studio_assignments_replaced",
+        operation = "replace_assignments",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        target_user_id = %user_id,
+        assignment_count = assignments.len(),
+        audit_trace_id = trace.trace_id(),
+        audit_span_id = trace.span_id(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio assignments replaced"
+    );
+    Ok(Json(assignments))
+}
+
+async fn preview_policy_assignments(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ReplacePolicyRoleAssignmentsRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let user_id = UserId::from_uuid(id);
+    let user = state
+        .store
+        .get_user(user_id, &principal.branch_scope)
+        .await
+        .map_err(RestError::from_store)?;
+    let current_assignments = state
+        .store
+        .list_policy_role_assignments(user_id)
+        .await
+        .map_err(RestError::from_store)?;
+    let policy_version = state
+        .store
+        .get_policy_version()
+        .await
+        .map_err(RestError::from_store)?;
+    let custom_roles = state
+        .store
+        .list_policy_roles()
+        .await
+        .map_err(RestError::from_store)?;
+    let requested_roles = validate_requested_policy_roles(&custom_roles, &body.role_ids)?;
+    let current_ids = current_assignments
+        .iter()
+        .map(|assignment| assignment.role_id)
+        .collect::<BTreeSet<_>>();
+    let requested_ids = requested_roles
+        .iter()
+        .map(|role| role.id)
+        .collect::<BTreeSet<_>>();
+    let authorized_roles = policy_roles_touched_by_assignment_replace(
+        &custom_roles,
+        &requested_roles,
+        &current_assignments,
+    )?;
+    ensure_policy_roles_inside_delegated_authority_for_operation(
+        "preview_assignments",
+        &principal,
+        &authorized_roles,
+    )?;
+    ensure_policy_roles_inside_actor_permission_ceiling_for_operation(
+        "preview_assignments",
+        &principal,
+        &authorized_roles,
+    )?;
+
+    let requested_role_ids = requested_ids.iter().copied().collect::<Vec<_>>();
+    let delta = PolicyRoleAssignmentDeltaResponse {
+        added_role_ids: requested_ids.difference(&current_ids).copied().collect(),
+        removed_role_ids: current_ids.difference(&requested_ids).copied().collect(),
+        unchanged_role_ids: requested_ids.intersection(&current_ids).copied().collect(),
+    };
+
+    let mut feature_grants = Vec::new();
+    for role_code in &user.roles {
+        let role = Role::from_str(role_code)
+            .map_err(|_| RestError::validation("user has an unknown system role"))?;
+        for feature in Feature::ALL {
+            let permission = permission_for(role, feature);
+            if matches!(permission, PermissionLevel::Deny) {
+                continue;
+            }
+            feature_grants.push(PolicyFeatureGrantPreviewResponse {
+                feature_key: feature.as_str().to_owned(),
+                permission_level: permission.as_str().to_owned(),
+                source_type: "system_role".to_owned(),
+                source_key: role.as_str().to_owned(),
+                source_label: role.as_str().to_owned(),
+            });
+        }
+    }
+    let mut runtime_warning_codes = BTreeSet::new();
+    let mut custom_role_impacts = Vec::with_capacity(requested_roles.len());
+    for role in &requested_roles {
+        let runtime_decision = policy_role_runtime_decision_for_user(role, &user);
+        for warning in &runtime_decision.warnings {
+            runtime_warning_codes.insert(warning.clone());
+        }
+        if runtime_decision.effective {
+            for permission in runtime_allowed_policy_permissions(role) {
+                feature_grants.push(PolicyFeatureGrantPreviewResponse {
+                    feature_key: permission.feature_key.clone(),
+                    permission_level: permission.permission_level.clone(),
+                    source_type: "custom_role".to_owned(),
+                    source_key: role.role_key.clone(),
+                    source_label: role.display_name.clone(),
+                });
+            }
+        }
+        custom_role_impacts.push(PolicyRoleImpactResponse {
+            role_id: role.id,
+            role_key: role.role_key.clone(),
+            display_name: role.display_name.clone(),
+            status: role.status.clone(),
+            runtime_effective: runtime_decision.effective,
+            runtime_warnings: runtime_decision.warnings,
+            conditions: role
+                .conditions
+                .iter()
+                .cloned()
+                .map(policy_condition_response)
+                .collect(),
+        });
+    }
+    feature_grants.sort_by(|left, right| {
+        (
+            &left.feature_key,
+            &left.source_type,
+            &left.source_key,
+            &left.permission_level,
+        )
+            .cmp(&(
+                &right.feature_key,
+                &right.source_type,
+                &right.source_key,
+                &right.permission_level,
+            ))
+    });
+
+    let assignment_runtime_effective = custom_role_impacts
+        .iter()
+        .any(|role| role.runtime_effective);
+    let mut warnings = vec!["preview_only_pending_save".to_owned()];
+    if assignment_runtime_effective {
+        warnings.push("active_assignments_become_runtime_effective_after_save".to_owned());
+    }
+    warnings.extend(runtime_warning_codes);
+
+    let requested_role_count = requested_roles.len();
+    let custom_roles = custom_role_impacts;
+    let current_branch_ids = user
+        .branch_ids
+        .iter()
+        .map(|branch_id| *branch_id.as_uuid())
+        .collect::<Vec<_>>();
+    let current_role_ids = current_ids.iter().copied().collect::<Vec<_>>();
+    let preview_receipt = state
+        .store
+        .create_policy_assignment_preview_receipt(CreatePolicyAssignmentPreviewReceiptCommand {
+            actor: principal.user_id,
+            user_id,
+            current_branch_ids,
+            current_role_ids: current_role_ids.clone(),
+            role_ids: requested_role_ids.clone(),
+            policy_version: policy_version.version,
+            expires_at: OffsetDateTime::now_utc() + POLICY_ASSIGNMENT_PREVIEW_RECEIPT_TTL,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+
+    record_policy_studio_operation("preview_assignments", "success");
+    tracing::info!(
+        event = "policy_studio_assignment_previewed",
+        operation = "preview_assignments",
+        outcome = "success",
+        actor_user_id = %principal.user_id,
+        target_user_id = %user_id,
+        requested_role_count,
+        feature_grant_count = feature_grants.len(),
+        branch_scope = policy_branch_scope_label(&principal.branch_scope),
+        "policy studio assignment previewed"
+    );
+
+    Ok(Json(PolicyAssignmentPreviewResponse {
+        user_id: *user_id.as_uuid(),
+        preview_receipt_id: preview_receipt.id,
+        preview_receipt_expires_at: preview_receipt.expires_at,
+        effective: assignment_runtime_effective,
+        system_roles: user.roles,
+        current_role_ids,
+        requested_role_ids,
+        delta,
+        custom_roles,
+        feature_grants,
+        warnings,
+    }))
+}
+
+fn policy_feature_catalog() -> Vec<PolicyFeatureResponse> {
+    Feature::ALL
+        .into_iter()
+        .map(|feature| PolicyFeatureResponse {
+            feature_key: feature.as_str().to_owned(),
+            elevated: is_elevated_policy_feature(feature),
+            default_permissions: Role::ALL
+                .into_iter()
+                .map(|role| PolicyDefaultPermissionResponse {
+                    role_key: role.as_str().to_owned(),
+                    permission_level: permission_for(role, feature).as_str().to_owned(),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+fn system_policy_roles() -> Vec<SystemPolicyRoleResponse> {
+    Role::ALL
+        .into_iter()
+        .map(|role| SystemPolicyRoleResponse {
+            role_key: role.as_str().to_owned(),
+            display_name: role.as_str().to_owned(),
+            status: "ACTIVE".to_owned(),
+            is_system: true,
+            permissions: Feature::ALL
+                .into_iter()
+                .map(|feature| PolicyPermissionResponse {
+                    feature_key: feature.as_str().to_owned(),
+                    permission_level: permission_for(role, feature).as_str().to_owned(),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+fn policy_role_templates() -> Vec<PolicyRoleTemplateResponse> {
+    use Feature::{
+        AssigneeManage, CompletionReview, DailyPlanReview, EmployeeDirectoryManage,
+        EmployeeDirectoryRead, EquipmentCostLedgerRead, EquipmentManage, ExcelDownload, KpiRead,
+        MailUse, OpsDashboardRead, PurchaseRequestApprove, PurchaseRequestCreate,
+        PurchaseRequestRead, RentalQuoteManage, SalesManage, TargetManage, WorkOrderCreate,
+        WorkOrderEditIntake, WorkOrderReadAll,
+    };
+    use PermissionLevel::{Allow, Limited, RequestOnly};
+
+    vec![
+        role_template(
+            "branch_operations_manager",
+            "branch_operations_manager",
+            "지점 운영 관리자",
+            "operations",
+            "지점 단위 작업 흐름, 일일 계획 검토, 배정 조율을 담당합니다.",
+            &[
+                (WorkOrderReadAll, Allow),
+                (DailyPlanReview, Allow),
+                (CompletionReview, Allow),
+                (AssigneeManage, Limited),
+                (TargetManage, RequestOnly),
+                (OpsDashboardRead, Limited),
+            ],
+        ),
+        role_template(
+            "dispatch_reception",
+            "dispatch_reception",
+            "접수·배차 코디네이터",
+            "operations",
+            "접수, 작업 생성, 고객/현장 연락, 기본 배차 보조를 담당합니다.",
+            &[
+                (WorkOrderCreate, Allow),
+                (WorkOrderEditIntake, Allow),
+                (WorkOrderReadAll, Allow),
+                (TargetManage, RequestOnly),
+                (MailUse, Allow),
+            ],
+        ),
+        role_template(
+            "asset_cost_analyst",
+            "asset_cost_analyst",
+            "자산 비용 분석가",
+            "finance",
+            "장비 원가, KPI, 구매 조회를 분석하되 승인 권한은 별도로 요청합니다.",
+            &[
+                (EquipmentCostLedgerRead, Allow),
+                (KpiRead, Allow),
+                (PurchaseRequestRead, Allow),
+                (ExcelDownload, Limited),
+            ],
+        ),
+        role_template(
+            "purchasing_requester",
+            "purchasing_requester",
+            "구매 요청 담당자",
+            "finance",
+            "구매 요청을 작성하고 진행 상태를 추적합니다.",
+            &[(PurchaseRequestCreate, Allow), (PurchaseRequestRead, Allow)],
+        ),
+        role_template(
+            "purchase_reviewer",
+            "purchase_reviewer",
+            "구매 검토자",
+            "finance",
+            "구매 요청을 조회하고 제한된 승인 검토를 수행합니다.",
+            &[
+                (PurchaseRequestRead, Allow),
+                (PurchaseRequestApprove, Limited),
+            ],
+        ),
+        role_template(
+            "people_ops_manager",
+            "people_ops_manager",
+            "HR 운영 관리자",
+            "people",
+            "직원 디렉터리와 조직 기본 정보를 관리합니다. 로그인 사용자 권한 관리는 포함하지 않습니다.",
+            &[
+                (EmployeeDirectoryRead, Allow),
+                (EmployeeDirectoryManage, Allow),
+                (ExcelDownload, Limited),
+            ],
+        ),
+        role_template(
+            "inspection_coordinator",
+            "inspection_coordinator",
+            "검사 일정 코디네이터",
+            "assets",
+            "검사 일정과 라운드 완료를 조율하고 장비 정보 변경은 제한적으로 요청합니다.",
+            &[
+                (EquipmentManage, Limited),
+                (Feature::InspectionScheduleManage, Allow),
+                (Feature::InspectionRoundComplete, Limited),
+                (WorkOrderReadAll, Allow),
+            ],
+        ),
+        role_template(
+            "sales_service_coordinator",
+            "sales_service_coordinator",
+            "영업·서비스 코디네이터",
+            "customer",
+            "렌탈 견적, 판매 문의, 회사 메일 기반 고객 응대를 담당합니다.",
+            &[
+                (RentalQuoteManage, Limited),
+                (SalesManage, Limited),
+                (MailUse, Allow),
+                (WorkOrderReadAll, Limited),
+            ],
+        ),
+    ]
+}
+
+fn role_template(
+    template_key: &str,
+    role_key: &str,
+    display_name: &str,
+    category: &str,
+    description: &str,
+    permissions: &[(Feature, PermissionLevel)],
+) -> PolicyRoleTemplateResponse {
+    PolicyRoleTemplateResponse {
+        template_key: template_key.to_owned(),
+        role_key: role_key.to_owned(),
+        display_name: display_name.to_owned(),
+        category: category.to_owned(),
+        description: description.to_owned(),
+        permissions: permissions
+            .iter()
+            .map(|(feature, level)| PolicyPermissionResponse {
+                feature_key: feature.as_str().to_owned(),
+                permission_level: level.as_str().to_owned(),
+            })
+            .collect(),
+    }
+}
+
+impl From<PolicyVersionSummary> for PolicyVersionResponse {
+    fn from(value: PolicyVersionSummary) -> Self {
+        Self {
+            version: value.version,
+            updated_at: value.updated_at,
+        }
+    }
+}
+
+impl From<PolicyAuditEventSummary> for PolicyAuditEventResponse {
+    fn from(value: PolicyAuditEventSummary) -> Self {
+        Self {
+            id: value.id,
+            actor: value.actor.map(|user_id| *user_id.as_uuid()),
+            action: value.action,
+            target_type: value.target_type,
+            target_id: value.target_id,
+            before_snapshot: value.before_snapshot,
+            after_snapshot: value.after_snapshot,
+            trace_id: value.trace_id,
+            span_id: value.span_id,
+            occurred_at: value.occurred_at,
+        }
+    }
+}
+
+fn build_policy_role_status_preview(
+    role: &PolicyRoleSummary,
+    requested_status: String,
+    planned_assignment_count: i64,
+) -> PolicyRoleStatusPreviewResponse {
+    let effective_runtime_change = planned_assignment_count > 0
+        && role.status != requested_status
+        && (role.status == "ACTIVE" || requested_status == "ACTIVE");
+    let mut warnings = vec!["passkey_step_up_required".to_owned()];
+    if role.status == requested_status {
+        warnings.push("no_status_change".to_owned());
+    }
+    if planned_assignment_count > 0 {
+        warnings.push("assigned_users_may_gain_or_lose_runtime_permissions".to_owned());
+    }
+    if requested_status == "DRAFT" && role.status == "ACTIVE" && planned_assignment_count > 0 {
+        warnings.push("rollback_disables_assigned_custom_role_runtime_grants".to_owned());
+    }
+    if requested_status == "RETIRED" && role.status == "ACTIVE" && planned_assignment_count > 0 {
+        warnings.push("retire_disables_assigned_custom_role_runtime_grants".to_owned());
+    }
+    if requested_status == "ACTIVE" && role.status != requested_status {
+        warnings.push("publish_enables_assigned_custom_role_runtime_grants".to_owned());
+    }
+
+    PolicyRoleStatusPreviewResponse {
+        role_id: role.id,
+        role_key: role.role_key.clone(),
+        display_name: role.display_name.clone(),
+        current_status: role.status.clone(),
+        requested_status,
+        permission_count: role.permissions.len() as i64,
+        condition_count: role.conditions.len() as i64,
+        planned_assignment_count,
+        requires_passkey_step_up: true,
+        effective_runtime_change,
+        warnings,
+    }
+}
+
+impl From<PolicyRoleSummary> for PolicyRoleResponse {
+    fn from(value: PolicyRoleSummary) -> Self {
+        Self {
+            id: value.id,
+            role_key: value.role_key,
+            display_name: value.display_name,
+            description: value.description,
+            status: value.status,
+            is_system: value.is_system,
+            permissions: value
+                .permissions
+                .into_iter()
+                .map(|permission| PolicyPermissionResponse {
+                    feature_key: permission.feature_key,
+                    permission_level: permission.permission_level,
+                })
+                .collect(),
+            conditions: value
+                .conditions
+                .into_iter()
+                .map(policy_condition_response)
+                .collect(),
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        }
+    }
+}
+
+fn policy_condition_response(condition: PolicyRoleCondition) -> PolicyConditionResponse {
+    PolicyConditionResponse {
+        condition_key: condition.condition_key,
+        attribute: condition.attribute,
+        operator: condition.operator,
+        values: condition.values,
+    }
+}
+
+impl From<PolicyRoleAssignmentSummary> for PolicyRoleAssignmentResponse {
+    fn from(value: PolicyRoleAssignmentSummary) -> Self {
+        Self {
+            user_id: *value.user_id.as_uuid(),
+            role_id: value.role_id,
+            role_key: value.role_key,
+            display_name: value.display_name,
+            status: value.status,
+            assigned_by: value.assigned_by.map(|user_id| *user_id.as_uuid()),
+            created_at: value.created_at,
+        }
+    }
+}
+
+fn normalize_policy_role_key(raw: &str) -> Result<String, RestError> {
+    let value = raw.trim();
+    if value.len() < 2 || value.len() > 64 {
+        return Err(RestError::validation(
+            "role key must be between 2 and 64 characters",
+        ));
+    }
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err(RestError::validation("role key is required"));
+    };
+    if !first.is_ascii_lowercase() {
+        return Err(RestError::validation(
+            "role key must start with a lowercase ascii letter",
+        ));
+    }
+    if !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        return Err(RestError::validation(
+            "role key may contain lowercase ascii letters, digits, and underscores only",
+        ));
+    }
+    if Role::ALL
+        .into_iter()
+        .any(|role| value.eq_ignore_ascii_case(role.as_str()))
+    {
+        return Err(RestError::validation(
+            "custom role key must not shadow a built-in role",
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+fn normalize_policy_display_name(raw: &str) -> Result<String, RestError> {
+    let value = raw.trim();
+    if value.is_empty() || value.chars().count() > 80 {
+        return Err(RestError::validation(
+            "display name must be between 1 and 80 characters",
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+fn normalize_policy_description(raw: Option<&str>) -> Result<Option<String>, RestError> {
+    let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if value.chars().count() > 512 {
+        return Err(RestError::validation(
+            "description must be 512 characters or fewer",
+        ));
+    }
+    Ok(Some(value.to_owned()))
+}
+
+fn validate_policy_permissions(
+    raw: &[PolicyPermissionResponse],
+) -> Result<Vec<PolicyRolePermission>, RestError> {
+    let mut seen = BTreeSet::new();
+    let mut permissions = Vec::new();
+    for permission in raw {
+        let feature = Feature::from_str(&permission.feature_key)
+            .map_err(|_| RestError::validation("unknown feature key"))?;
+        if is_elevated_policy_feature(feature) {
+            return Err(RestError::forbidden(
+                "custom roles cannot grant elevated or scope-widening policy features yet",
+            ));
+        }
+        let level = PermissionLevel::from_str(&permission.permission_level)
+            .map_err(|_| RestError::validation("unknown permission level"))?;
+        if !seen.insert(feature) {
+            return Err(RestError::validation("duplicate feature permission"));
+        }
+        if matches!(level, PermissionLevel::Deny) {
+            continue;
+        }
+        permissions.push(PolicyRolePermission {
+            feature_key: feature.as_str().to_owned(),
+            permission_level: level.as_str().to_owned(),
+        });
+    }
+    if permissions.is_empty() {
+        return Err(RestError::validation(
+            "custom role must grant at least one non-deny feature",
+        ));
+    }
+    Ok(permissions)
+}
+
+fn validate_policy_conditions(
+    raw: &[PolicyConditionResponse],
+) -> Result<Vec<PolicyRoleCondition>, RestError> {
+    if raw.len() > 20 {
+        return Err(RestError::validation(
+            "custom role may define at most 20 policy conditions",
+        ));
+    }
+
+    let mut seen_keys = BTreeSet::new();
+    let mut conditions = Vec::with_capacity(raw.len());
+    for condition in raw {
+        let condition_key = normalize_policy_condition_key(&condition.condition_key)?;
+        if !seen_keys.insert(condition_key.clone()) {
+            return Err(RestError::validation("duplicate policy condition key"));
+        }
+        let attribute = normalize_policy_condition_attribute(&condition.attribute)?;
+        let operator = normalize_policy_condition_operator(&condition.operator)?;
+        let values = normalize_policy_condition_values(&condition.values)?;
+        conditions.push(PolicyRoleCondition {
+            condition_key,
+            attribute,
+            operator,
+            values,
+        });
+    }
+    Ok(conditions)
+}
+
+fn normalize_policy_condition_key(raw: &str) -> Result<String, RestError> {
+    let value = raw.trim();
+    if value.len() < 2 || value.len() > 64 {
+        return Err(RestError::validation(
+            "condition key must be between 2 and 64 characters",
+        ));
+    }
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err(RestError::validation("condition key is required"));
+    };
+    if !first.is_ascii_lowercase()
+        || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return Err(RestError::validation(
+            "condition key may contain lowercase ascii letters, digits, and underscores only",
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+fn normalize_policy_condition_attribute(raw: &str) -> Result<String, RestError> {
+    let value = raw.trim().to_ascii_lowercase();
+    match value.as_str() {
+        "group" | "tenant" | "organization" | "org" | "department" | "team" | "position"
+        | "employment_status" | "assignment" | "location" | "site" | "branch"
+        | "device_posture" | "purpose" | "action" | "resource" | "sensitive_action" => Ok(value),
+        _ => Err(RestError::validation("unknown policy condition attribute")),
+    }
+}
+
+fn normalize_policy_condition_operator(raw: &str) -> Result<String, RestError> {
+    let value = raw.trim().to_ascii_lowercase();
+    match value.as_str() {
+        "equals" | "not_equals" | "in" => Ok(value),
+        _ => Err(RestError::validation("unknown policy condition operator")),
+    }
+}
+
+fn normalize_policy_condition_values(raw: &[String]) -> Result<Vec<String>, RestError> {
+    if raw.is_empty() || raw.len() > 20 {
+        return Err(RestError::validation(
+            "policy condition values must contain 1 to 20 entries",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    let mut values = Vec::with_capacity(raw.len());
+    for value in raw {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || trimmed.chars().count() > 120 {
+            return Err(RestError::validation(
+                "policy condition values must be non-empty and 120 characters or fewer",
+            ));
+        }
+        if trimmed.chars().any(char::is_control) {
+            return Err(RestError::validation(
+                "policy condition values must not contain control characters",
+            ));
+        }
+        if !seen.insert(trimmed.to_owned()) {
+            return Err(RestError::validation("duplicate policy condition value"));
+        }
+        values.push(trimmed.to_owned());
+    }
+    Ok(values)
+}
+
+fn validate_requested_policy_roles(
+    custom_roles: &[PolicyRoleSummary],
+    raw_role_ids: &[Uuid],
+) -> Result<Vec<PolicyRoleSummary>, RestError> {
+    let requested_ids = raw_role_ids.iter().copied().collect::<BTreeSet<_>>();
+    let mut roles = Vec::with_capacity(requested_ids.len());
+    for requested_id in requested_ids {
+        let Some(role) = custom_roles
+            .iter()
+            .find(|role| role.id == requested_id && !role.is_system && role.status != "RETIRED")
+        else {
+            return Err(RestError::validation(
+                "preview references an unknown or retired custom role",
+            ));
+        };
+        roles.push(role.clone());
+    }
+    Ok(roles)
+}
+
+fn policy_roles_touched_by_assignment_replace(
+    custom_roles: &[PolicyRoleSummary],
+    requested_roles: &[PolicyRoleSummary],
+    current_assignments: &[PolicyRoleAssignmentSummary],
+) -> Result<Vec<PolicyRoleSummary>, RestError> {
+    let requested_ids = requested_roles
+        .iter()
+        .map(|role| role.id)
+        .collect::<BTreeSet<_>>();
+    let mut roles = requested_roles.to_vec();
+    for removed_id in current_assignments
+        .iter()
+        .map(|assignment| assignment.role_id)
+        .collect::<BTreeSet<_>>()
+        .difference(&requested_ids)
+        .copied()
+    {
+        let Some(role) = custom_roles
+            .iter()
+            .find(|role| role.id == removed_id && !role.is_system)
+        else {
+            return Err(RestError::validation(
+                "assignment references an unknown custom role",
+            ));
+        };
+        roles.push(role.clone());
+    }
+    Ok(roles)
+}
+
+fn ensure_policy_roles_inside_delegated_authority_for_operation(
+    operation: &'static str,
+    principal: &Principal,
+    roles: &[PolicyRoleSummary],
+) -> Result<(), RestError> {
+    for role in roles {
+        if let Err(error) =
+            ensure_policy_conditions_inside_delegated_authority(principal, &role.conditions)
+        {
+            record_policy_studio_rejection(operation, principal, &error);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+fn ensure_policy_roles_inside_actor_permission_ceiling_for_operation(
+    operation: &'static str,
+    principal: &Principal,
+    roles: &[PolicyRoleSummary],
+) -> Result<(), RestError> {
+    if let Err(error) = ensure_policy_roles_inside_actor_permission_ceiling(principal, roles) {
+        record_policy_studio_rejection(operation, principal, &error);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn ensure_policy_roles_inside_actor_permission_ceiling(
+    principal: &Principal,
+    roles: &[PolicyRoleSummary],
+) -> Result<(), RestError> {
+    for role in roles {
+        let role_scope = policy_role_assignment_branch_scope(principal, role)?;
+        for permission in &role.permissions {
+            let feature = Feature::from_str(&permission.feature_key)
+                .map_err(|_| RestError::validation("unknown feature key"))?;
+            let requested = PermissionLevel::from_str(&permission.permission_level)
+                .map_err(|_| RestError::validation("unknown permission level"))?;
+            if matches!(requested, PermissionLevel::Deny) {
+                continue;
+            }
+            if is_elevated_policy_feature(feature) {
+                return Err(RestError::forbidden(
+                    "custom roles cannot grant elevated or scope-widening policy features yet",
+                ));
+            }
+            if policy_feature_assignment_requires_elevated_grant(feature)
+                && !principal_holds_policy_permission(
+                    principal,
+                    Feature::ElevatedRoleGrant,
+                    PermissionLevel::Allow,
+                    &role_scope,
+                )
+            {
+                return Err(RestError::forbidden(
+                    "elevated policy role assignments require elevated role grant",
+                ));
+            }
+            if !principal_holds_policy_permission(principal, feature, requested, &role_scope) {
+                return Err(RestError::forbidden(
+                    "policy role permission exceeds delegated authority",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn policy_role_assignment_branch_scope(
+    principal: &Principal,
+    role: &PolicyRoleSummary,
+) -> Result<BranchScope, RestError> {
+    let mut scope = principal.branch_scope.clone();
+    for condition in role
+        .conditions
+        .iter()
+        .filter(|condition| condition.attribute == "branch")
+    {
+        if !matches!(condition.operator.as_str(), "equals" | "in") {
+            // Unsupported branch operators are not a safe narrowing proof. Keep
+            // the current scope rather than assuming the role is branch-limited.
+            continue;
+        }
+        let mut branches = BTreeSet::new();
+        for value in &condition.values {
+            let branch_uuid = Uuid::parse_str(value).map_err(|_| {
+                RestError::validation(
+                    "branch condition values must be branch UUIDs for delegated policy management",
+                )
+            })?;
+            branches.insert(BranchId::from_uuid(branch_uuid));
+        }
+        scope = scope.intersect(&BranchScope::Branches(branches));
+    }
+    Ok(scope)
+}
+
+fn principal_holds_policy_permission(
+    principal: &Principal,
+    feature: Feature,
+    requested: PermissionLevel,
+    scope: &BranchScope,
+) -> bool {
+    principal.roles.iter().any(|role| {
+        policy_permission_satisfies(permission_for(*role, feature), requested)
+            && branch_scope_contains(&principal.branch_scope, scope)
+    }) || principal.effective_feature_grants.iter().any(|grant| {
+        grant.feature == feature
+            && policy_permission_satisfies(grant.permission, requested)
+            && branch_scope_contains(&grant.branch_scope, scope)
+    })
+}
+
+fn policy_permission_satisfies(held: PermissionLevel, requested: PermissionLevel) -> bool {
+    match requested {
+        PermissionLevel::Deny => true,
+        PermissionLevel::Allow => matches!(held, PermissionLevel::Allow),
+        PermissionLevel::Limited => {
+            matches!(held, PermissionLevel::Allow | PermissionLevel::Limited)
+        }
+        PermissionLevel::RequestOnly => {
+            matches!(held, PermissionLevel::Allow | PermissionLevel::RequestOnly)
+        }
+    }
+}
+
+fn branch_scope_contains(container: &BranchScope, contained: &BranchScope) -> bool {
+    match (container, contained) {
+        (BranchScope::All, _) => true,
+        (BranchScope::Branches(_), BranchScope::All) => false,
+        (BranchScope::Branches(container), BranchScope::Branches(contained)) => {
+            contained.is_subset(container)
+        }
+    }
+}
+
+fn policy_feature_assignment_requires_elevated_grant(feature: Feature) -> bool {
+    if matches!(feature, Feature::UserManage) {
+        return true;
+    }
+    let super_admin_allows = permission_for(Role::SuperAdmin, feature) == PermissionLevel::Allow;
+    let non_super_admin_allows = Role::ALL
+        .into_iter()
+        .filter(|role| *role != Role::SuperAdmin)
+        .any(|role| permission_for(role, feature) == PermissionLevel::Allow);
+    super_admin_allows && !non_super_admin_allows
+}
+
+fn ensure_policy_conditions_inside_delegated_authority_for_operation(
+    operation: &'static str,
+    principal: &Principal,
+    conditions: &[PolicyRoleCondition],
+) -> Result<(), RestError> {
+    if let Err(error) = ensure_policy_conditions_inside_delegated_authority(principal, conditions) {
+        record_policy_studio_rejection(operation, principal, &error);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn policy_role_is_inside_delegated_authority(
+    principal: &Principal,
+    role: &PolicyRoleSummary,
+) -> bool {
+    ensure_policy_conditions_inside_delegated_authority(principal, &role.conditions).is_ok()
+}
+
+fn ensure_policy_conditions_inside_delegated_authority(
+    principal: &Principal,
+    conditions: &[PolicyRoleCondition],
+) -> Result<(), RestError> {
+    let BranchScope::Branches(allowed_branches) = &principal.branch_scope else {
+        return Ok(());
+    };
+    if allowed_branches.is_empty() {
+        return Err(RestError::forbidden(
+            "delegated policy managers must have at least one branch in scope",
+        ));
+    }
+
+    let branch_conditions = conditions
+        .iter()
+        .filter(|condition| condition.attribute == "branch")
+        .collect::<Vec<_>>();
+    if branch_conditions.is_empty() {
+        return Err(RestError::forbidden(
+            "branch-scoped policy managers must include a branch condition",
+        ));
+    }
+
+    for condition in branch_conditions {
+        if condition.operator == "not_equals" {
+            return Err(RestError::forbidden(
+                "branch-scoped policy managers cannot use negative branch conditions",
+            ));
+        }
+        for value in &condition.values {
+            let branch_uuid = Uuid::parse_str(value).map_err(|_| {
+                RestError::validation(
+                    "branch condition values must be branch UUIDs for delegated policy management",
+                )
+            })?;
+            let branch_id = BranchId::from_uuid(branch_uuid);
+            if !allowed_branches.contains(&branch_id) {
+                return Err(RestError::forbidden(
+                    "policy role branch condition is outside delegated scope",
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_assignment_preview_acknowledged(
+    principal: &Principal,
+    preview_acknowledged: bool,
+) -> Result<(), RestError> {
+    if preview_acknowledged {
+        return Ok(());
+    }
+    let error = RestError::validation("assignment preview must be acknowledged before saving");
+    record_policy_studio_rejection("replace_assignments", principal, &error);
+    Err(error)
+}
+
+fn require_assignment_preview_receipt(
+    principal: &Principal,
+    preview_receipt_id: Option<Uuid>,
+) -> Result<Uuid, RestError> {
+    let Some(preview_receipt_id) = preview_receipt_id else {
+        let error = RestError::validation("assignment preview receipt is required before saving");
+        record_policy_studio_rejection("replace_assignments", principal, &error);
+        return Err(error);
+    };
+    Ok(preview_receipt_id)
+}
+
+async fn verify_policy_step_up(
+    state: &IdentityRestState,
+    principal: &Principal,
+    step_up: Option<PolicyStepUpAssertionRequest>,
+) -> Result<(), RestError> {
+    let step_up = step_up.ok_or_else(|| {
+        RestError::new(
+            StatusCode::PRECONDITION_REQUIRED,
+            "passkey_step_up_required",
+            "policy changes require a fresh passkey step-up",
+        )
+    })?;
+    let verifier = state.passkey_step_up.as_ref().ok_or_else(|| {
+        RestError::unavailable("passkey step-up is not configured for identity API")
+    })?;
+    verifier
+        .verify_step_up_for_user(
+            state.pool(),
+            step_up.ceremony_id,
+            step_up.credential,
+            *principal.user_id.as_uuid(),
+        )
+        .await
+        .map_err(|_| RestError::unauthorized("passkey step-up failed"))?;
+    Ok(())
+}
+
+fn normalize_policy_role_status(raw: &str) -> Result<String, RestError> {
+    let status = raw.trim().to_ascii_uppercase();
+    match status.as_str() {
+        "DRAFT" | "ACTIVE" | "RETIRED" => Ok(status),
+        _ => Err(RestError::validation(
+            "policy role status must be DRAFT, ACTIVE, or RETIRED",
+        )),
+    }
+}
+
+fn validate_policy_role_status_transition(
+    current_status: &str,
+    requested_status: &str,
+) -> Result<(), RestError> {
+    if current_status == requested_status {
+        return Ok(());
+    }
+    match (current_status, requested_status) {
+        ("DRAFT", "ACTIVE") | ("ACTIVE", "DRAFT") | ("ACTIVE", "RETIRED") => Ok(()),
+        _ => Err(RestError::validation(
+            "policy role status transition is not allowed",
+        )),
+    }
+}
+
+fn normalize_policy_audit_limit(raw: Option<i64>) -> Result<i64, RestError> {
+    let limit = raw.unwrap_or(20);
+    if !(1..=100).contains(&limit) {
+        return Err(RestError::validation(
+            "policy audit limit must be between 1 and 100",
+        ));
+    }
+    Ok(limit)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PolicyRoleRuntimeDecision {
+    effective: bool,
+    warnings: Vec<String>,
+}
+
+fn policy_role_runtime_decision_for_user(
+    role: &PolicyRoleSummary,
+    user: &UserSummary,
+) -> PolicyRoleRuntimeDecision {
+    let mut warnings = Vec::new();
+
+    if role.status != "ACTIVE" {
+        warnings.push("custom_role_status_not_active".to_owned());
+    }
+
+    let live_scope = policy_preview_branch_scope_for_user(user);
+    match effective_scope_for_policy_preview_conditions(user, &live_scope, &role.conditions) {
+        Ok(role_scope) if role_scope.is_empty() => {
+            warnings.push("custom_role_condition_outside_target_branch_scope".to_owned());
+        }
+        Ok(_) => {}
+        Err(reason) => warnings.push(reason.to_owned()),
+    }
+
+    if runtime_allowed_policy_permissions(role).is_empty() {
+        warnings.push("custom_role_no_runtime_allowed_permissions".to_owned());
+    }
+
+    PolicyRoleRuntimeDecision {
+        effective: warnings.is_empty(),
+        warnings,
+    }
+}
+
+fn runtime_allowed_policy_permissions(role: &PolicyRoleSummary) -> Vec<&PolicyRolePermission> {
+    role.permissions
+        .iter()
+        .filter(|permission| {
+            let Ok(feature) = Feature::from_str(&permission.feature_key) else {
+                return false;
+            };
+            let Ok(level) = PermissionLevel::from_str(&permission.permission_level) else {
+                return false;
+            };
+            level != PermissionLevel::Deny && custom_role_runtime_feature_allowed(feature)
+        })
+        .collect()
+}
+
+fn policy_preview_branch_scope_for_user(user: &UserSummary) -> BranchScope {
+    let has_org_wide_system_role = user
+        .roles
+        .iter()
+        .filter_map(|role| Role::from_str(role).ok())
+        .any(|role| matches!(role, Role::Executive | Role::SuperAdmin));
+    if has_org_wide_system_role {
+        return BranchScope::All;
+    }
+
+    BranchScope::Branches(user.branch_ids.iter().copied().collect())
+}
+
+fn effective_scope_for_policy_preview_conditions(
+    user: &UserSummary,
+    live_scope: &BranchScope,
+    conditions: &[PolicyRoleCondition],
+) -> Result<BranchScope, &'static str> {
+    let mut scope = live_scope.clone();
+    for condition in conditions {
+        if !matches!(condition.operator.as_str(), "equals" | "in") {
+            return Err("custom_role_condition_unsupported_by_runtime_evaluator");
+        }
+
+        match condition.attribute.as_str() {
+            "branch" => {
+                let mut branches = BTreeSet::new();
+                for value in &condition.values {
+                    let branch = BranchId::from_str(value)
+                        .map_err(|_| "custom_role_condition_invalid_branch_value")?;
+                    branches.insert(branch);
+                }
+                scope = scope.intersect(&BranchScope::Branches(branches));
+            }
+            "team" => {
+                if !team_condition_matches(user.team, &condition.values) {
+                    return Err("custom_role_condition_outside_target_attributes");
+                }
+            }
+            _ => return Err("custom_role_condition_unsupported_by_runtime_evaluator"),
+        }
+    }
+    Ok(scope)
+}
+
+fn team_condition_matches(team: Option<Team>, values: &[String]) -> bool {
+    let Some(team) = team else {
+        return false;
+    };
+    let accepted = team_policy_values(team);
+    values.iter().any(|value| {
+        let value = value.trim();
+        accepted
+            .iter()
+            .any(|accepted| value == *accepted || value.eq_ignore_ascii_case(accepted))
+    })
+}
+
+fn team_policy_values(team: Team) -> [&'static str; 2] {
+    match team {
+        Team::Maintenance => ["MAINTENANCE", Team::Maintenance.as_db_str()],
+        Team::Prevention => ["PREVENTION", Team::Prevention.as_db_str()],
+        Team::Management => ["MANAGEMENT", Team::Management.as_db_str()],
+        Team::Reception => ["RECEPTION", Team::Reception.as_db_str()],
+    }
+}
+
+fn custom_role_runtime_feature_allowed(feature: Feature) -> bool {
+    !matches!(
+        feature,
+        Feature::RoleManage | Feature::ElevatedRoleGrant | Feature::OrgWideQueueTriage
+    )
+}
+
+fn is_elevated_policy_feature(feature: Feature) -> bool {
+    !custom_role_runtime_feature_allowed(feature)
+}
+
+#[cfg(test)]
+mod policy_role_template_tests {
+    use super::*;
+
+    fn policy_role_for_test(
+        role_key: &str,
+        permissions: &[(&str, &str)],
+        conditions: Vec<PolicyRoleCondition>,
+    ) -> PolicyRoleSummary {
+        PolicyRoleSummary {
+            id: Uuid::new_v4(),
+            role_key: role_key.to_owned(),
+            display_name: role_key.to_owned(),
+            description: None,
+            status: "ACTIVE".to_owned(),
+            is_system: false,
+            permissions: permissions
+                .iter()
+                .map(|(feature_key, permission_level)| PolicyRolePermission {
+                    feature_key: (*feature_key).to_owned(),
+                    permission_level: (*permission_level).to_owned(),
+                })
+                .collect(),
+            conditions,
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
+        }
+    }
+
+    fn branch_condition(branch: BranchId) -> PolicyRoleCondition {
+        PolicyRoleCondition {
+            condition_key: "branch_scope".to_owned(),
+            attribute: "branch".to_owned(),
+            operator: "equals".to_owned(),
+            values: vec![branch.to_string()],
+        }
+    }
+
+    #[test]
+    fn assignment_ceiling_rejects_capability_actor_does_not_hold() {
+        let branch = BranchId::new();
+        let principal = Principal::new(
+            UserId::new(),
+            mnt_kernel_core::OrgId::knl(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(branch),
+        );
+        let final_approval_role = policy_role_for_test(
+            "final_approval_delegate",
+            &[("purchase_final_approve", "allow")],
+            vec![branch_condition(branch)],
+        );
+
+        let error =
+            ensure_policy_roles_inside_actor_permission_ceiling(&principal, &[final_approval_role])
+                .unwrap_err();
+
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "forbidden");
+        assert_eq!(
+            error.message,
+            "policy role permission exceeds delegated authority"
+        );
+    }
+
+    #[test]
+    fn assignment_ceiling_requires_custom_grant_scope_to_cover_role_scope() {
+        let allowed_branch = BranchId::new();
+        let blocked_branch = BranchId::new();
+        let principal = Principal::new(
+            UserId::new(),
+            mnt_kernel_core::OrgId::knl(),
+            BTreeSet::from([Role::Member]),
+            BranchScope::Branches(BTreeSet::from([allowed_branch, blocked_branch])),
+        )
+        .with_effective_feature_grants(vec![
+            mnt_platform_authz::EffectiveFeatureGrant::new(
+                Feature::WorkOrderCreate,
+                PermissionLevel::Allow,
+                BranchScope::single(allowed_branch),
+            ),
+        ]);
+        let allowed_role = policy_role_for_test(
+            "allowed_branch_creator",
+            &[("work_order_create", "allow")],
+            vec![branch_condition(allowed_branch)],
+        );
+        let blocked_role = policy_role_for_test(
+            "blocked_branch_creator",
+            &[("work_order_create", "allow")],
+            vec![branch_condition(blocked_branch)],
+        );
+
+        ensure_policy_roles_inside_actor_permission_ceiling(&principal, &[allowed_role]).unwrap();
+        let error =
+            ensure_policy_roles_inside_actor_permission_ceiling(&principal, &[blocked_role])
+                .unwrap_err();
+
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            error.message,
+            "policy role permission exceeds delegated authority"
+        );
+    }
+
+    #[test]
+    fn assignment_ceiling_requires_elevated_grant_for_user_management_roles() {
+        let branch = BranchId::new();
+        let admin = Principal::new(
+            UserId::new(),
+            mnt_kernel_core::OrgId::knl(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(branch),
+        );
+        let super_admin = Principal::new(
+            UserId::new(),
+            mnt_kernel_core::OrgId::knl(),
+            BTreeSet::from([Role::SuperAdmin]),
+            BranchScope::single(branch),
+        );
+        let user_manager = policy_role_for_test(
+            "user_manager_delegate",
+            &[("user_manage", "allow")],
+            vec![branch_condition(branch)],
+        );
+
+        let error = ensure_policy_roles_inside_actor_permission_ceiling(
+            &admin,
+            std::slice::from_ref(&user_manager),
+        )
+        .unwrap_err();
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            error.message,
+            "elevated policy role assignments require elevated role grant"
+        );
+        ensure_policy_roles_inside_actor_permission_ceiling(&super_admin, &[user_manager]).unwrap();
+    }
+
+    #[test]
+    fn role_templates_are_unique_non_empty_and_never_grant_elevated_policy_features() {
+        let templates = policy_role_templates();
+        assert!(templates.len() >= 6, "expected enterprise starter coverage");
+
+        let mut template_keys = BTreeSet::new();
+        let mut role_keys = BTreeSet::new();
+        for template in templates {
+            assert!(template_keys.insert(template.template_key.clone()));
+            assert!(role_keys.insert(template.role_key.clone()));
+            assert!(!template.display_name.trim().is_empty());
+            assert!(!template.category.trim().is_empty());
+            assert!(!template.permissions.is_empty());
+            for permission in template.permissions {
+                let feature = Feature::from_str(&permission.feature_key).unwrap();
+                assert!(
+                    !is_elevated_policy_feature(feature),
+                    "template {} grants elevated feature {}",
+                    template.template_key,
+                    permission.feature_key
+                );
+                let level = PermissionLevel::from_str(&permission.permission_level).unwrap();
+                assert!(!matches!(level, PermissionLevel::Deny));
+            }
+        }
+    }
+
+    #[test]
+    fn policy_condition_validation_accepts_scoped_abac_pbac_metadata_only() {
+        let conditions = validate_policy_conditions(&[
+            PolicyConditionResponse {
+                condition_key: "dept_scope".to_owned(),
+                attribute: "department".to_owned(),
+                operator: "in".to_owned(),
+                values: vec!["정비팀".to_owned(), "야간조".to_owned()],
+            },
+            PolicyConditionResponse {
+                condition_key: "purpose_scope".to_owned(),
+                attribute: "purpose".to_owned(),
+                operator: "equals".to_owned(),
+                values: vec!["work_order_approval".to_owned()],
+            },
+        ])
+        .unwrap();
+        assert_eq!(conditions.len(), 2);
+        assert_eq!(conditions[0].attribute, "department");
+        assert_eq!(conditions[0].values, vec!["정비팀", "야간조"]);
+
+        assert!(
+            validate_policy_conditions(&[PolicyConditionResponse {
+                condition_key: "dept_scope".to_owned(),
+                attribute: "machinery".to_owned(),
+                operator: "equals".to_owned(),
+                values: vec!["굴삭기".to_owned()],
+            },])
+            .is_err()
+        );
+
+        assert!(
+            validate_policy_conditions(&[
+                PolicyConditionResponse {
+                    condition_key: "dept_scope".to_owned(),
+                    attribute: "department".to_owned(),
+                    operator: "equals".to_owned(),
+                    values: vec!["정비팀".to_owned()],
+                },
+                PolicyConditionResponse {
+                    condition_key: "dept_scope".to_owned(),
+                    attribute: "team".to_owned(),
+                    operator: "equals".to_owned(),
+                    values: vec!["A".to_owned()],
+                },
+            ])
+            .is_err()
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -849,54 +2989,43 @@ async fn principal_from_headers(
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for identity API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(state.pool(), claims).await
-}
-
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?;
-    header_value
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
-}
-
-async fn principal_from_claims(
-    pool: &PgPool,
-    claims: AccessClaims,
-) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    let role_vec = roles.iter().copied().collect::<Vec<_>>();
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    // Re-resolve the live branch scope from the database rather than trusting the
-    // token's `branches` claim, so a membership revocation takes effect at once.
-    // Arm the verified-token org explicitly: this path resolves the principal and
-    // may run before the per-request tenant middleware has set CURRENT_ORG.
-    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
+    mnt_platform_request_context::resolve_principal(verifier, state.pool(), headers)
         .await
-        .map_err(|err| RestError::internal(err.to_string()))?;
+        .map_err(rest_error_from_request_context)
+}
 
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for identity API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::from_kernel(KernelError::forbidden(
+                "token tier is not valid for this route",
+            ))
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::from_kernel(KernelError::internal(message))
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => RestError::from_kernel(
+            KernelError::internal("no tenant context is bound to the current request"),
+        ),
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

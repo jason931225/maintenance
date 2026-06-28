@@ -16,20 +16,23 @@ export DATABASE_URL="postgres://${PG_SUPERUSER}@${PG_HOST}:${PG_PORT}/${DB_NAME}
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
-MNT_APP_BIN="${MNT_APP_BIN:-${BACKEND_DIR}/target/debug/mnt-app}"
+MNT_APP_BIN="${MNT_APP_BIN:-}"
 
 echo "db: dropping + recreating ${DB_NAME}" >&2
 psql "${ADMIN_URL}" -v ON_ERROR_STOP=1 -q -c "DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE);"
 psql "${ADMIN_URL}" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE ${DB_NAME};"
 
 echo "db: applying migrations (MNT_APP_ROLE=migrate)" >&2
-if [[ -x "${MNT_APP_BIN}" ]]; then
+if [[ -n "${MNT_APP_BIN}" && -x "${MNT_APP_BIN}" ]]; then
   MNT_APP_ROLE=migrate DATABASE_URL="${DATABASE_URL}" "${MNT_APP_BIN}"
 else
   # Build/run from source: force sqlx offline so the apalis-postgres dep (and
   # our own queries) compile against the committed `.sqlx` cache, not the empty
   # mnt_e2e DB (which lacks `apalis.jobs` until migrations run).
-  ( cd "${BACKEND_DIR}" && SQLX_OFFLINE=true MNT_APP_ROLE=migrate DATABASE_URL="${DATABASE_URL}" cargo run -q -p mnt-app )
+  ( cd "${BACKEND_DIR}" && \
+    CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}" \
+    CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/.tmp/cargo-target-e2e}" \
+    SQLX_OFFLINE=true MNT_APP_ROLE=migrate DATABASE_URL="${DATABASE_URL}" cargo run -q -p mnt-app )
 fi
 
 echo "db: seeding tenant fixtures" >&2

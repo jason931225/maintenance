@@ -26,9 +26,12 @@ use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
-use mnt_kernel_core::{KernelError, OrgId, UserId};
+use mnt_kernel_core::{ErrorKind, KernelError, OrgId, UserId};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{PlatformPrincipal, Principal, Role, resolve_branch_scope_in_org};
+use mnt_platform_authz::{
+    PlatformPrincipal, Principal, Role, effective_branch_scope_for_tenant,
+    resolve_branch_scope_in_org, resolve_effective_feature_grants_in_org,
+};
 use sqlx::PgPool;
 use std::collections::BTreeSet;
 
@@ -67,6 +70,14 @@ pub enum RequestContextError {
     #[error("failed to resolve branch scope: {0}")]
     BranchScope(String),
 
+    /// Resolving runtime-effective custom policy grants from the database failed.
+    #[error("failed to resolve effective policy: {0}")]
+    EffectivePolicy(String),
+
+    /// The verified JWT's hierarchy scope is not valid for this tenant route.
+    #[error("access scope is not valid for this route: {0}")]
+    AccessScope(KernelError),
+
     /// A PLATFORM token was presented to a tenant (`/api/*`) route, or a TENANT
     /// token was presented to a `/platform/*` route. The two tiers are strictly
     /// separated; crossing them is rejected before any handler runs.
@@ -81,7 +92,10 @@ impl From<RequestContextError> for KernelError {
     /// query reached the DB without a bound org), so it maps to an internal
     /// error — the request never produces tenant data on this path.
     fn from(err: RequestContextError) -> Self {
-        KernelError::internal(err.to_string())
+        match err {
+            RequestContextError::AccessScope(error) => error,
+            err => KernelError::internal(err.to_string()),
+        }
     }
 }
 
@@ -125,6 +139,20 @@ pub async fn resolve_principal(
     headers: &HeaderMap,
 ) -> Result<Principal, RequestContextError> {
     let token = bearer_token(headers)?;
+    resolve_principal_from_bearer_token(verifier, pool, token).await
+}
+
+/// Resolve a tenant [`Principal`] from an already-extracted bearer token.
+///
+/// Realtime WebSocket handshakes may carry the token in `Sec-WebSocket-Protocol`
+/// rather than `Authorization`, but the security path after extraction must be
+/// identical: verify, reject platform tier, parse roles/org/access scope,
+/// re-resolve live branch memberships, and narrow by [`AccessScope`].
+pub async fn resolve_principal_from_bearer_token(
+    verifier: &JwtVerifier,
+    pool: &PgPool,
+    token: &str,
+) -> Result<Principal, RequestContextError> {
     let claims = verifier
         .verify_access_token(token)
         .map_err(|_| RequestContextError::InvalidToken)?;
@@ -152,11 +180,19 @@ pub async fn resolve_principal(
         .collect::<Result<BTreeSet<_>, _>>()?;
 
     let role_vec = roles.iter().copied().collect::<Vec<_>>();
-    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
+    let live_branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
         .await
         .map_err(|err| RequestContextError::BranchScope(err.to_string()))?;
+    let branch_scope = effective_branch_scope_for_tenant(live_branch_scope, access_scope, org_id)
+        .map_err(RequestContextError::AccessScope)?;
+    let effective_feature_grants =
+        resolve_effective_feature_grants_in_org(pool, org_id, user_id, &branch_scope)
+            .await
+            .map_err(|err| RequestContextError::EffectivePolicy(err.to_string()))?;
 
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+    Ok(Principal::new(user_id, org_id, roles, branch_scope)
+        .with_access_scope(access_scope)
+        .with_effective_feature_grants(effective_feature_grants))
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +251,13 @@ fn error_response(status: StatusCode, message: &str) -> Response {
 fn error_response_for(err: &RequestContextError) -> Response {
     let status = match err {
         RequestContextError::VerifierUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-        RequestContextError::BranchScope(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        RequestContextError::BranchScope(_) | RequestContextError::EffectivePolicy(_) => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+        RequestContextError::AccessScope(error) if error.kind == ErrorKind::Forbidden => {
+            StatusCode::FORBIDDEN
+        }
+        RequestContextError::AccessScope(_) => StatusCode::INTERNAL_SERVER_ERROR,
         // A valid token presented to the wrong tier is an authorization failure,
         // not an authentication one: the caller IS authenticated, just not for
         // this route. 403 keeps it distinct from "no/!invalid token" (401).
