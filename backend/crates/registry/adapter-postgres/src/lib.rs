@@ -1382,7 +1382,6 @@ fn push_equipment_branch_scope_filter(
         BranchScope::All => {}
         BranchScope::Branches(branches) if branches.is_empty() => {
             builder.push(" AND FALSE");
-            return;
         }
         BranchScope::Branches(branches) => {
             let branch_ids = branches.iter().map(|id| *id.as_uuid()).collect::<Vec<_>>();
