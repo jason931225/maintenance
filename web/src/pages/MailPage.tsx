@@ -38,7 +38,7 @@ import { cn } from "../lib/utils";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-type LoadState = "loading" | "ready" | "empty" | "error" | "unavailable";
+type LoadState = "loading" | "ready" | "empty" | "error" | "unavailable" | "not_configured";
 type InquiryLoadState = "idle" | "loading" | "ready" | "error";
 
 interface ComposeForm {
@@ -226,14 +226,30 @@ export function MailPage() {
     if (query.trim()) queryParams.q = query.trim();
 
     try {
-      const [folderRes, threadRes] = await Promise.all([
+      const accountRequest = canUseAdminSettings
+        ? api.GET("/api/v1/mail/account").catch(() => undefined)
+        : Promise.resolve(undefined);
+      const [accountRes, folderRes, threadRes] = await Promise.all([
+        accountRequest,
         api.GET("/api/v1/mail/folders"),
         api.GET("/api/v1/mail/threads", {
           params: { query: queryParams },
         }),
       ]);
-      if (folderRes.response.status === 503 || threadRes.response.status === 503) {
+      if (
+        accountRes?.response.status === 503 ||
+        folderRes.response.status === 503 ||
+        threadRes.response.status === 503
+      ) {
         setLoadState("unavailable");
+        setFolders([]);
+        setThreads([]);
+        setSelectedThreadId(undefined);
+        setDetail(undefined);
+        return;
+      }
+      if (accountRes?.response.status === 204) {
+        setLoadState("not_configured");
         setFolders([]);
         setThreads([]);
         setSelectedThreadId(undefined);
@@ -255,7 +271,7 @@ export function MailPage() {
     } catch {
       setLoadState("error");
     }
-  }, [api, folderId, query, unreadOnly]);
+  }, [api, canUseAdminSettings, folderId, query, unreadOnly]);
 
   const loadInquiries = useCallback(async () => {
     if (!canManageInquiries) {
@@ -469,6 +485,26 @@ export function MailPage() {
         <SkeletonCards count={3} lines={3} />
       ) : loadState === "error" ? (
         <PageError message={c.loadFailed} onRetry={() => { void loadMailbox(); }} />
+      ) : loadState === "not_configured" ? (
+        <Card className="max-w-3xl">
+          <div className="flex items-start gap-3">
+            <span className="rounded-full bg-muted-panel p-2 text-steel">
+              <Inbox size={20} aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold text-ink">{c.notConfiguredTitle}</h2>
+              <p className="mt-1 text-sm text-steel">{c.notConfiguredBody}</p>
+              <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-steel">
+                {c.notConfiguredSteps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+              <Button asChild type="button" variant="secondary" className="mt-4">
+                <Link to="/settings/email">{c.configureServer}</Link>
+              </Button>
+            </div>
+          </div>
+        </Card>
       ) : loadState === "unavailable" ? (
         <Card className="max-w-3xl">
           <div className="flex items-start gap-3">

@@ -1428,6 +1428,14 @@ export const ko = {
     unavailableTitle: "메일 기능이 아직 구성되지 않았습니다.",
     unavailableBody:
       "서버 메일 계정 또는 암호화 키가 준비되지 않아 메일함을 열 수 없습니다.",
+    notConfiguredTitle: "메일 계정 설정 필요",
+    notConfiguredBody:
+      "서버는 준비되었지만 이 조직의 업무 메일 계정이 아직 연결되지 않아 받은 편지함과 발신 기능을 사용할 수 없습니다.",
+    notConfiguredSteps: [
+      "관리자가 SMTP/IMAP 서버와 발신 이름을 저장합니다.",
+      "연결 테스트를 통과한 뒤 업무 메일을 발신합니다.",
+      "설정 전에는 감사 가능한 메일 발신 화면을 열지 않습니다.",
+    ],
     configureServer: "메일 서버 설정",
     inquiryQueue: "신규 고객 문의",
     inquiryQueueDescription:

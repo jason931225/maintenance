@@ -75,6 +75,24 @@ const detail = {
 
 const adminSession: AuthSession = { access_token: "a", roles: ["ADMIN"] };
 
+const mailAccount = {
+  id: "44444444-4444-4444-8444-444444444444",
+  display_name: "정비팀",
+  email_address: "service@example.com",
+  from_name: "정비팀",
+  imap_host: "imap.example.com",
+  imap_port: 993,
+  imap_security: "SSL_TLS",
+  imap_username: "service@example.com",
+  smtp_host: "smtp.example.com",
+  smtp_port: 465,
+  smtp_security: "SSL_TLS",
+  smtp_username: "service@example.com",
+  has_smtp_password: true,
+  has_imap_password: true,
+  status: "ACTIVE",
+};
+
 function makeAuthContext(session: AuthSession): AuthContextValue {
   const api = createConsoleApiClient(session.access_token);
   return {
@@ -104,6 +122,7 @@ function renderPage(ctx = makeAuthContext(adminSession)) {
 
 function mockMailbox() {
   server.use(
+    http.get("*/api/v1/mail/account", () => HttpResponse.json(mailAccount)),
     http.get("*/api/v1/mail/folders", () => HttpResponse.json(folders)),
     http.get("*/api/v1/mail/threads", () => HttpResponse.json(threads)),
     http.get("*/api/v1/mail/threads/:id", () => HttpResponse.json(detail)),
@@ -259,6 +278,9 @@ describe("MailPage", () => {
 
   it("shows setup guidance instead of a broken mailbox when mail is unavailable", async () => {
     server.use(
+      http.get("*/api/v1/mail/account", () =>
+        HttpResponse.json({ error: { code: "email_not_configured" } }, { status: 503 }),
+      ),
       http.get("*/api/v1/mail/folders", () =>
         HttpResponse.json({ error: { code: "email_not_configured" } }, { status: 503 }),
       ),
@@ -277,6 +299,30 @@ describe("MailPage", () => {
       "href",
       "/settings/email",
     );
+  });
+
+  it("shows admin readiness instead of compose when no mailbox account is configured", async () => {
+    server.use(
+      http.get(
+        "*/api/v1/mail/account",
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+      http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
+      http.get("*/api/v1/mail/threads", () => HttpResponse.json([])),
+      http.get("*/api/v1/sales/inquiries", () =>
+        HttpResponse.json({ items: [], limit: 5, offset: 0, total: 0 }),
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "메일 계정 설정 필요" })).toBeVisible();
+    expect(screen.getByText("관리자가 SMTP/IMAP 서버와 발신 이름을 저장합니다.")).toBeVisible();
+    expect(screen.getByRole("link", { name: "메일 서버 설정" })).toHaveAttribute(
+      "href",
+      "/settings/email",
+    );
+    expect(screen.queryByRole("heading", { name: "새 메일" })).not.toBeInTheDocument();
   });
 
   it("surfaces new website inquiries beside the mailbox workflow", async () => {
