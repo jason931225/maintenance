@@ -171,15 +171,23 @@ function approvalStatusLabel(item: ApprovalItem): string {
   return labelFromMap(ko.approvals.targetChange.statuses, item.status);
 }
 
+function approvalFallbackHref(source: ApprovalItem["source"]): string {
+  return source === "DAILY_PLAN" ? "/daily-plan" : "/approvals";
+}
+
 function approvalHref(item: ApprovalItem): string {
   const href = item.href.trim();
   if (href.startsWith("#")) {
     return `/approvals${href}`;
   }
-  if (href.startsWith("/")) {
+  if (!href.startsWith("/") || href.startsWith("//")) {
+    return approvalFallbackHref(item.source);
+  }
+  const path = href.split(/[?#]/, 1)[0];
+  if (path === "/approvals" || path === "/daily-plan") {
     return href;
   }
-  return "/approvals";
+  return approvalFallbackHref(item.source);
 }
 
 function approvalActionLabel(item: ApprovalItem): string {

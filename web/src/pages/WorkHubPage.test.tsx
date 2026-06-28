@@ -374,6 +374,41 @@ describe("WorkHubPage", () => {
     expect(screen.queryByText("이미 닫힌 요청")).not.toBeInTheDocument();
   });
 
+  it("does not render protocol-relative approval links from server payloads", async () => {
+    installHappyHandlers();
+    server.use(
+      http.get("*/api/approval-items", ({ request }) => {
+        approvalItemRequests.push(new URL(request.url));
+        const payload = federatedApprovalPayload();
+        const unsafeDailyPlan = {
+          ...payload.items[1],
+          title: "외부 링크 시도",
+          href: "//evil.example/phish",
+        };
+        return HttpResponse.json({
+          ...payload,
+          items: [unsafeDailyPlan],
+          total: 1,
+        });
+      }),
+    );
+
+    renderPage({
+      access_token: "admin-token",
+      roles: ["ADMIN"],
+      branches: [branchId],
+    });
+
+    const unsafeCard = (await screen.findByText("외부 링크 시도")).closest("section");
+    expect(unsafeCard).not.toBeNull();
+    expect(
+      unsafeCard?.querySelector<HTMLAnchorElement>('a[href="//evil.example/phish"]'),
+    ).toBeNull();
+    expect(
+      unsafeCard?.querySelector<HTMLAnchorElement>('a[href="/daily-plan"]'),
+    ).not.toBeNull();
+  });
+
   it("keeps a mechanic dashboard scoped to assigned work and hides admin-only modules", async () => {
     installHappyHandlers();
 
