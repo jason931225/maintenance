@@ -947,8 +947,28 @@ describe("PolicyStudioPage", () => {
     });
     const previewPanel = await screen.findByLabelText("권한 영향 미리보기");
     expect(previewPanel).toBeVisible();
+    const decisionPath = within(previewPanel).getByLabelText(
+      "권한 변경 결정 경로",
+    );
+    expect(decisionPath).toBeVisible();
+    expect(within(decisionPath).getByText("대상 사용자")).toBeVisible();
+    expect(within(decisionPath).getByText("고민서")).toBeVisible();
+    expect(within(decisionPath).getByText("현재 배정")).toBeVisible();
+    expect(
+      within(decisionPath).getByText("현재 사용자 지정 역할 없음"),
+    ).toBeVisible();
+    expect(within(decisionPath).getByText("변경 후")).toBeVisible();
+    expect(within(decisionPath).getByText("정비 관리자")).toBeVisible();
+    expect(within(decisionPath).getByText("다음 단계")).toBeVisible();
+    expect(
+      within(decisionPath).getByText(
+        "런타임 차단 사유를 해소한 뒤 다시 미리보기하세요.",
+      ),
+    ).toBeVisible();
     expect(within(previewPanel).getByText("추가 예정")).toBeVisible();
-    expect(within(previewPanel).getByText("런타임 차단 있음")).toBeVisible();
+    expect(
+      within(previewPanel).getAllByText("런타임 차단 있음").length,
+    ).toBeGreaterThanOrEqual(1);
     const rollup = within(previewPanel).getByLabelText("영향 판정 요약");
     expect(rollup).toBeVisible();
     expect(within(rollup).getByText("차단")).toBeVisible();
@@ -960,7 +980,9 @@ describe("PolicyStudioPage", () => {
     ).toBeVisible();
     expect(within(previewPanel).getByText("조건 범위")).toBeVisible();
     expect(within(previewPanel).getByText(/정비팀, 야간조/u)).toBeVisible();
-    expect(within(previewPanel).getByText("런타임 판정")).toBeVisible();
+    expect(
+      within(previewPanel).getAllByText("런타임 판정").length,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       within(previewPanel).getByText(/정비 관리자 · 계획\/감사용/u),
     ).toBeVisible();

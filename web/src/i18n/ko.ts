@@ -777,6 +777,20 @@ export const ko = {
       previewAcknowledged: "현재 선택에 대한 영향 미리보기를 확인했습니다.",
       previewTitle: "권한 영향 미리보기",
       previewOnly: "미리보기 전용",
+      decisionPath: {
+        title: "권한 변경 결정 경로",
+        targetUser: "대상 사용자",
+        currentRoles: "현재 배정",
+        proposedRoles: "변경 후",
+        runtimeDecision: "런타임 판정",
+        nextStep: "다음 단계",
+        noCurrentRoles: "현재 사용자 지정 역할 없음",
+        noProposedRoles: "변경 후 사용자 지정 역할 없음",
+        nextStepReady: "미리보기를 확인하고 패스키로 저장하세요.",
+        nextStepReview: "경고를 검토한 뒤 저장 여부를 결정하세요.",
+        nextStepBlocked:
+          "런타임 차단 사유를 해소한 뒤 다시 미리보기하세요.",
+      },
       rollup: {
         title: "영향 판정 요약",
         description:
