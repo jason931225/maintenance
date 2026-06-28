@@ -418,7 +418,9 @@ export function WorkHubPage() {
                 <p className="text-sm text-steel">{ko.workHub.permissionScoped}</p>
               ) : (
                 <Button asChild variant="secondary" size="sm" className="self-start">
-                  <Link to={href}>{ko.workHub.actions.openModule}</Link>
+                  <Link to={href} aria-label={`${label} ${ko.workHub.actions.openModule}`}>
+                    {ko.workHub.actions.openModule}
+                  </Link>
                 </Button>
               )}
             </Card>

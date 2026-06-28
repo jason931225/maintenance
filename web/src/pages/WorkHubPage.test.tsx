@@ -147,6 +147,10 @@ describe("WorkHubPage", () => {
       "href",
       "/approvals",
     );
+    expect(screen.getByRole("link", { name: "작업·배차 모듈 열기" })).toHaveAttribute(
+      "href",
+      "/dispatch",
+    );
 
     await user.click(screen.getByRole("button", { name: "승인" }));
 

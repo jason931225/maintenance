@@ -21,7 +21,7 @@ test("ADMIN-21 admin opens the Work Hub action inbox", async ({
   ).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("업무 객체 중심 실행 흐름")).toBeVisible();
   await expect(page.getByRole("button", { name: "승인" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "모듈 열기" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "작업·배차 모듈 열기" })).toBeVisible();
   await expect(page.getByText("이 화면을 표시하지 못했습니다.")).not.toBeVisible();
 
   await auditPage(page, { context: "/work-hub", consoleGuard });

@@ -224,8 +224,9 @@ test("ADMIN-19 admin completes a scheduled inspection round", async ({
     // The seeded schedule's complete-round button carries a per-row aria-label;
     // wait for it before opening the inline form.
     const completeBtn = page
-      .getByRole("button", { name: /점검 완료/ })
-      .first();
+      .getByRole("listitem")
+      .filter({ hasText: "E2E SuperAdmin" })
+      .getByRole("button", { name: `${MANAGEMENT_NO} 점검 완료` });
     await expect(completeBtn).toBeVisible({ timeout: 10_000 });
     await completeBtn.click();
     await page
