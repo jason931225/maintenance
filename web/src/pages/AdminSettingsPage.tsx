@@ -62,10 +62,51 @@ export function AdminSettingsPage() {
     [users],
   );
 
-  const branchOptions = useMemo<ComboboxOption[]>(
-    () => branches.map((branch) => ({ id: branch.id, label: branch.name })),
-    [branches],
+  const selectedUser = useMemo(
+    () => users.find((user) => user.id === userId),
+    [userId, users],
   );
+
+  const eligibleBranches = useMemo(() => {
+    if (!selectedUser) return branches;
+    const allowedBranchIds = new Set(selectedUser.branch_ids);
+    return branches.filter((branch) => allowedBranchIds.has(branch.id));
+  }, [branches, selectedUser]);
+
+  const branchOptions = useMemo<ComboboxOption[]>(
+    () =>
+      eligibleBranches.map((branch) => ({ id: branch.id, label: branch.name })),
+    [eligibleBranches],
+  );
+  const branchHelperText = !selectedUser
+    ? ko.admin.selectUserFirst
+    : eligibleBranches.length === 0
+      ? ko.admin.noBranchesForUser
+      : ko.admin.branchScopeHelp;
+
+  function handleUserChange(nextUserId: string) {
+    const nextUser = users.find((user) => user.id === nextUserId);
+    if (!nextUser) {
+      setBranchId(activeBranchId || "");
+    } else if (!nextUser.branch_ids.includes(branchId)) {
+      setBranchId(
+        activeBranchId && nextUser.branch_ids.includes(activeBranchId)
+          ? activeBranchId
+          : (nextUser.branch_ids[0] ?? ""),
+      );
+    }
+    setUserId(nextUserId);
+    setError(undefined);
+    setIssued(undefined);
+    setCopied(false);
+  }
+
+  function handleBranchChange(nextBranchId: string) {
+    setBranchId(nextBranchId);
+    setError(undefined);
+    setIssued(undefined);
+    setCopied(false);
+  }
 
   async function handleIssue() {
     setError(undefined);
@@ -75,8 +116,16 @@ export function AdminSettingsPage() {
       setError(ko.admin.requiredUserId);
       return;
     }
+    if (selectedUser && selectedUser.branch_ids.length === 0) {
+      setError(ko.admin.noBranchesForUser);
+      return;
+    }
     if (!branchId.trim()) {
       setError(ko.admin.requiredBranchId);
+      return;
+    }
+    if (selectedUser && !selectedUser.branch_ids.includes(branchId.trim())) {
+      setError(ko.admin.branchNotAllowed);
       return;
     }
     setPending(true);
@@ -128,7 +177,7 @@ export function AdminSettingsPage() {
               options={userOptions}
               value={userId}
               placeholder={ko.admin.userPlaceholder}
-              onChange={setUserId}
+              onChange={handleUserChange}
             />
           </div>
 
@@ -142,10 +191,14 @@ export function AdminSettingsPage() {
             <Combobox
               id="admin-otp-branch-id"
               options={branchOptions}
-              value={branchId}
+              value={selectedUser ? branchId : ""}
               placeholder={ko.admin.branchPlaceholder}
-              onChange={setBranchId}
+              onChange={handleBranchChange}
+              disabled={!selectedUser || eligibleBranches.length === 0}
             />
+            <p className="text-xs text-steel">
+              {branchHelperText}
+            </p>
           </div>
 
           <Button

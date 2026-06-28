@@ -1,5 +1,5 @@
 import { QRCodeCanvas } from "qrcode.react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { useAuth } from "../../context/auth";
@@ -13,6 +13,14 @@ interface EnrollHandoffQrProps {
    * mid-onboarding first enrollment, where there is no existing passkey to assert.
    */
   requireStepUp: boolean;
+  /**
+   * Number of credentials that already existed before this QR was shown. The
+   * desktop considers the phone flow complete only when the authenticated
+   * user's credential count grows beyond this value.
+   */
+  initialPasskeyCount?: number;
+  /** Called once the desktop observes the phone-created passkey. */
+  onCompleted?: () => void;
 }
 
 type HandoffState =
@@ -30,12 +38,22 @@ type HandoffState =
  * The minted code is a bearer secret, so it is only rendered as a QR + a fallback
  * link to open on the phone; it is never persisted or logged client-side.
  */
-export function EnrollHandoffQr({ requireStepUp }: EnrollHandoffQrProps) {
+const COMPLETION_POLL_MS = 2_500;
+
+export function EnrollHandoffQr({
+  requireStepUp,
+  initialPasskeyCount = 0,
+  onCompleted,
+}: EnrollHandoffQrProps) {
   const { api } = useAuth();
   const [state, setState] = useState<HandoffState>({ status: "loading" });
+  const [completed, setCompleted] = useState(false);
+  const completedRef = useRef(false);
 
   const mint = useCallback(async () => {
     setState({ status: "loading" });
+    setCompleted(false);
+    completedRef.current = false;
     try {
       const handoff = await issueEnrollHandoff(api, requireStepUp);
       setState({
@@ -55,6 +73,31 @@ export function EnrollHandoffQr({ requireStepUp }: EnrollHandoffQrProps) {
     // codebase's mount-fetch convention; see SecurityPanel.load).
     void Promise.resolve().then(mint);
   }, [mint]);
+
+  useEffect(() => {
+    if (state.status !== "ready" || completed) return;
+    let cancelled = false;
+
+    async function pollCompletion() {
+      const response = await api.GET("/api/v1/auth/passkeys").catch(() => undefined);
+      if (cancelled || !response?.data) return;
+      if (response.data.length <= initialPasskeyCount) return;
+      if (completedRef.current) return;
+
+      completedRef.current = true;
+      setCompleted(true);
+      onCompleted?.();
+    }
+
+    void pollCompletion();
+    const timer = window.setInterval(() => {
+      void pollCompletion();
+    }, COMPLETION_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [api, completed, initialPasskeyCount, onCompleted, state.status]);
 
   if (state.status === "loading") {
     return (
@@ -119,6 +162,17 @@ export function EnrollHandoffQr({ requireStepUp }: EnrollHandoffQrProps) {
       <p className="text-xs text-steel">
         {ko.enrollHandoff.expiresHint}{" "}
         {formatTimestamp(state.expiresAt)}
+      </p>
+      <p
+        role="status"
+        aria-live="polite"
+        className={
+          completed
+            ? "text-sm font-medium text-brand-teal"
+            : "text-sm text-steel"
+        }
+      >
+        {completed ? ko.enrollHandoff.completed : ko.enrollHandoff.waiting}
       </p>
     </div>
   );

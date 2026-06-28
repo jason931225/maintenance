@@ -388,6 +388,8 @@ export const ko = {
     expiresHint: "이 QR 코드는 5분 후 만료됩니다.",
     regenerate: "QR 코드 다시 생성",
     qrAlt: "휴대폰 패스키 등록용 QR 코드",
+    waiting: "휴대폰에서 등록을 완료하면 이 화면이 자동으로 이동합니다.",
+    completed: "휴대폰 패스키 등록이 확인되었습니다.",
   },
   admin: {
     title: "관리자 설정",
@@ -407,6 +409,10 @@ export const ko = {
     issueFailed: "코드 발급에 실패했습니다.",
     requiredUserId: "사용자를 선택하세요.",
     requiredBranchId: "지점을 선택하세요.",
+    selectUserFirst: "사용자를 먼저 선택하면 해당 소속 지점을 확인할 수 있습니다.",
+    branchScopeHelp: "선택한 사용자의 소속 지점만 사용할 수 있습니다.",
+    branchNotAllowed: "선택한 사용자에게 속한 지점을 선택하세요.",
+    noBranchesForUser: "사용자에게 소속 지점이 없어 코드를 발급할 수 없습니다.",
     forbidden: "이 작업을 수행할 권한이 없습니다.",
   },
   employees: {
