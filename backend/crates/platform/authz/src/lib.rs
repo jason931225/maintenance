@@ -651,12 +651,6 @@ pub fn permission_for(role: Role, feature: Feature) -> PermissionLevel {
     feature.matrix_row()[role.matrix_index()]
 }
 
-/// Authorize a principal for a feature against a concrete resource branch.
-///
-/// This intentionally checks both role permission and branch membership for
-/// every call. Listing APIs should also use [`repository_filter`] so the data
-/// access path is constrained before rows are materialized.
-
 /// Authorize a principal for an org-wide feature read/action with no concrete
 /// resource branch in the request. This is the single source of truth for
 /// branch-omitted org-wide routes: callers must already have `BranchScope::All`,
@@ -685,6 +679,11 @@ pub fn authorize_org_wide(principal: &Principal, action: Action) -> Result<(), K
     Ok(())
 }
 
+/// Authorize a principal for a feature against a concrete resource branch.
+///
+/// This intentionally checks both role permission and branch membership for
+/// every call. Listing APIs should also use [`repository_filter`] so the data
+/// access path is constrained before rows are materialized.
 pub fn authorize(
     principal: &Principal,
     action: Action,
