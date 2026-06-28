@@ -185,6 +185,93 @@ describe("MailPage", () => {
     expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
   });
 
+  it("sends selected compose attachments through the mail API", async () => {
+    const user = userEvent.setup();
+    const sent = vi.fn();
+    mockMailbox();
+    server.use(
+      http.post("*/api/v1/mail/send", async ({ request }) => {
+        sent(await request.json());
+        return HttpResponse.json({
+          message_id: "44444444-4444-4444-8444-444444444444",
+          rfc_message_id: "<sent@example.com>",
+        }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+
+    const compose = await screen.findByRole("heading", { name: "새 메일" });
+    const form = compose.closest("section");
+    expect(form).not.toBeNull();
+    if (!form) throw new Error("compose form missing");
+
+    await user.upload(
+      within(form).getByLabelText("파일 첨부"),
+      new File(["invoice"], "invoice.txt", { type: "text/plain" }),
+    );
+    expect(await within(form).findByText("invoice.txt · 0.0 KB")).toBeVisible();
+    expect(within(form).getByRole("button", { name: "invoice.txt 제거" })).toBeVisible();
+
+    await user.type(within(form).getByLabelText("받는 사람"), "payroll@example.com");
+    await user.type(within(form).getByLabelText("제목"), "첨부 확인");
+    await user.type(within(form).getByLabelText("본문"), "첨부 확인 부탁드립니다.");
+    await user.click(within(form).getByRole("button", { name: "메일 보내기" }));
+
+    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
+    expect(sent.mock.calls[0][0]).toEqual({
+      to: [{ address: "payroll@example.com" }],
+      subject: "첨부 확인",
+      body_text: "첨부 확인 부탁드립니다.",
+      attachments: [
+        {
+          filename: "invoice.txt",
+          content_type: "text/plain",
+          content_base64: "aW52b2ljZQ==",
+        },
+      ],
+    });
+    expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
+  });
+
+  it("rejects compose attachments over the outbound size limit", async () => {
+    const user = userEvent.setup();
+    const sent = vi.fn();
+    mockMailbox();
+    server.use(
+      http.post("*/api/v1/mail/send", async ({ request }) => {
+        sent(await request.json());
+        return HttpResponse.json({
+          message_id: "44444444-4444-4444-8444-444444444444",
+          rfc_message_id: "<sent@example.com>",
+        }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+
+    const compose = await screen.findByRole("heading", { name: "새 메일" });
+    const form = compose.closest("section");
+    expect(form).not.toBeNull();
+    if (!form) throw new Error("compose form missing");
+
+    await user.upload(
+      within(form).getByLabelText("파일 첨부"),
+      new File([new Uint8Array(25 * 1024 * 1024 + 1)], "too-large.bin", {
+        type: "application/octet-stream",
+      }),
+    );
+    await user.type(within(form).getByLabelText("받는 사람"), "payroll@example.com");
+    await user.type(within(form).getByLabelText("제목"), "첨부 확인");
+    await user.type(within(form).getByLabelText("본문"), "첨부 확인 부탁드립니다.");
+    await user.click(within(form).getByRole("button", { name: "메일 보내기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "첨부파일은 합계 25MB 이하로 선택하세요.",
+    );
+    expect(sent).not.toHaveBeenCalled();
+  });
+
   it("replies to a selected thread through the threaded reply API", async () => {
     const user = userEvent.setup();
     const sent = vi.fn();

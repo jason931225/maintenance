@@ -37,6 +37,7 @@ import { sanitizeMailHtml } from "../lib/mailHtml";
 import { cn } from "../lib/utils";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_OUTBOUND_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 type LoadState = "loading" | "ready" | "empty" | "error" | "unavailable" | "not_configured";
 type InquiryLoadState = "idle" | "loading" | "ready" | "error";
@@ -130,11 +131,38 @@ function textBody(message: MailMessageView): string {
   return message.body_text || message.snippet || ko.mailbox.emptyBody;
 }
 
+function fileAttachmentLabel(file: File): string {
+  return `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+}
+
 function attachmentLabel(attachment: MailAttachmentView): string {
   const size = attachment.size_bytes > 0
     ? ` · ${(attachment.size_bytes / 1024).toFixed(1)} KB`
     : "";
   return `${attachment.filename}${size}`;
+}
+
+function totalAttachmentBytes(files: File[]): number {
+  return files.reduce((sum, file) => sum + file.size, 0);
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function fileToMailAttachment(
+  file: File,
+): Promise<NonNullable<SendMailRequest["attachments"]>[number]> {
+  return {
+    filename: file.name,
+    content_type: file.type || "application/octet-stream",
+    content_base64: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
+  };
 }
 
 function safeAttachmentDownloadUrl(raw: string): string | undefined {
@@ -191,6 +219,7 @@ export function MailPage() {
   const [detail, setDetail] = useState<MailThreadDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [compose, setCompose] = useState<ComposeForm>(EMPTY_COMPOSE);
+  const [composeAttachments, setComposeAttachments] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
@@ -338,6 +367,11 @@ export function MailPage() {
     [],
   );
 
+  const resetCompose = useCallback(() => {
+    setCompose(EMPTY_COMPOSE);
+    setComposeAttachments([]);
+  }, []);
+
   const startThreadedCompose = useCallback(
     (mode: "reply" | "forward", message: MailMessageView) => {
       const parentMessageId = message.message_id?.trim();
@@ -357,6 +391,7 @@ export function MailPage() {
         inReplyTo: parentMessageId,
         references: buildThreadReferences(message),
       });
+      setComposeAttachments([]);
     },
     [c, selectedThread?.subject],
   );
@@ -382,13 +417,23 @@ export function MailPage() {
       setError(c.threadingUnavailable);
       return;
     }
+    if (totalAttachmentBytes(composeAttachments) > MAX_OUTBOUND_ATTACHMENT_BYTES) {
+      setError(c.validation.attachments);
+      return;
+    }
     setSending(true);
     try {
+      const attachments = composeAttachments.length > 0
+        ? await Promise.all(composeAttachments.map(fileToMailAttachment))
+        : undefined;
       const requestBody: SendMailRequest = {
         to: recipients,
         subject: compose.subject.trim(),
         body_text: compose.body.trim(),
       };
+      if (attachments) {
+        requestBody.attachments = attachments;
+      }
       if (mode !== "new") {
         requestBody.in_reply_to = compose.inReplyTo;
         requestBody.references = compose.references;
@@ -406,7 +451,7 @@ export function MailPage() {
         setError(mode === "reply" ? c.replyFailed : mode === "forward" ? c.forwardFailed : c.sendFailed);
         return;
       }
-      setCompose(EMPTY_COMPOSE);
+      resetCompose();
       setNotice(mode === "reply" ? c.replySent : mode === "forward" ? c.forwardSent : c.sent);
       await loadMailbox();
     } catch {
@@ -414,7 +459,7 @@ export function MailPage() {
     } finally {
       setSending(false);
     }
-  }, [api, c, compose, loadMailbox]);
+  }, [api, c, compose, composeAttachments, loadMailbox, resetCompose]);
 
   const submitSearch = useCallback(() => {
     setQuery(queryDraft);
@@ -795,7 +840,7 @@ export function MailPage() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => { setCompose(EMPTY_COMPOSE); }}
+                    onClick={() => { resetCompose(); }}
                   >
                     {c.cancelThreadedCompose}
                   </Button>
@@ -830,6 +875,46 @@ export function MailPage() {
                     onChange={(event) => { updateCompose("body", event.target.value); }}
                   />
                 </label>
+                <div className="grid gap-2">
+                  <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-medium text-steel transition hover:border-brand-teal">
+                    <Paperclip size={16} aria-hidden="true" />
+                    {c.attachFiles}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      multiple
+                      onChange={(event) => {
+                        const selectedFiles = Array.from(event.currentTarget.files ?? []);
+                        setComposeAttachments((prev) => [...prev, ...selectedFiles]);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                  <p className="text-xs text-steel">{c.attachmentLimit}</p>
+                  {composeAttachments.length > 0 ? (
+                    <ul className="grid gap-1" aria-label={c.selectedAttachments}>
+                      {composeAttachments.map((file, index) => (
+                        <li
+                          key={`${file.name}-${String(file.size)}-${String(file.lastModified)}-${String(index)}`}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm text-steel"
+                        >
+                          <span>{fileAttachmentLabel(file)}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`${file.name} ${c.removeAttachment}`}
+                            onClick={() => {
+                              setComposeAttachments((prev) => prev.filter((item) => item !== file));
+                            }}
+                          >
+                            {c.removeAttachment}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
                 <Button type="button" onClick={() => { void sendMail(); }} disabled={sending}>
                   <Send size={16} aria-hidden="true" />
                   {sending

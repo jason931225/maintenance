@@ -1465,6 +1465,10 @@ export const ko = {
     subjectPlaceholder: "업무 제목",
     body: "본문",
     bodyPlaceholder: "전달할 내용을 입력하세요.",
+    attachFiles: "파일 첨부",
+    attachmentLimit: "첨부파일 합계 25MB 이하",
+    selectedAttachments: "선택된 첨부파일",
+    removeAttachment: "제거",
     send: "메일 보내기",
     replySend: "답장 보내기",
     forwardSend: "전달 보내기",
@@ -1481,6 +1485,7 @@ export const ko = {
       to: "받는 사람 이메일을 올바르게 입력하세요.",
       subject: "제목을 입력하세요.",
       body: "본문을 입력하세요.",
+      attachments: "첨부파일은 합계 25MB 이하로 선택하세요.",
     },
     folderRoles: {
       inbox: "받은 편지함",
