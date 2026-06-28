@@ -22,7 +22,16 @@ test("ADMIN-21 admin opens the Work Hub action inbox", async ({
   await expect(page.getByText("업무 객체 중심 실행 흐름")).toBeVisible();
   await expect(page.getByRole("button", { name: "승인" })).toBeVisible();
   await expect(page.getByRole("link", { name: "작업·배차 모듈 열기" })).toBeVisible();
+  const approvalLink = page.getByRole("link", { name: "승인센터에서 검토" }).first();
+  await expect(approvalLink).toHaveAttribute(
+    "href",
+    /\/approvals\?source=work-order&focus=/,
+  );
+  await approvalLink.click();
+  await expect(page).toHaveURL(/\/approvals\?source=work-order&focus=/);
+  await expect(page.getByText("업무 허브에서 연결된 승인 건을 강조했습니다.")).toBeVisible();
+  await expect(page.locator('[aria-current="true"]')).toBeVisible();
   await expect(page.getByText("이 화면을 표시하지 못했습니다.")).not.toBeVisible();
 
-  await auditPage(page, { context: "/work-hub", consoleGuard });
+  await auditPage(page, { context: "/work-hub-to-approvals", consoleGuard });
 });

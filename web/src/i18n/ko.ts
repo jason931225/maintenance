@@ -1314,6 +1314,10 @@ export const ko = {
     actionFailed: "처리하지 못했습니다. 다시 시도하세요.",
     requiredRejectMemo: "반려 메모를 입력하세요.",
     empty: "승인 대기 건이 없습니다.",
+    focusedDeepLink: "업무 허브에서 연결된 승인 건을 강조했습니다.",
+    focusedMissing:
+      "연결된 승인 건이 현재 승인 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+    focusedItemLabel: "연결된 승인 건",
     // Per-row report reveal. The approver must read the diagnosis / action /
     // result / evidence before deciding, so each queue item lazily fetches its
     // full work-order detail (GET /api/v1/work-orders/{id}) on demand.

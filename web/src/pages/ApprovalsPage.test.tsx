@@ -54,10 +54,10 @@ function makeAuthContext(): AuthContextValue {
   };
 }
 
-function renderPage() {
+function renderPage(initialEntries = ["/approvals"]) {
   return render(
     <AuthContext.Provider value={makeAuthContext()}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <ApprovalsPage />
       </MemoryRouter>
     </AuthContext.Provider>,
@@ -150,5 +150,36 @@ describe("ApprovalsPage", () => {
     expect(await screen.findByText("일부 승인 원천을 불러오지 못했습니다: 계획업무")).toBeVisible();
     expect(await screen.findByText("20260612-002")).toBeVisible();
     expect(screen.queryByText("이 화면을 표시하지 못했습니다.")).not.toBeInTheDocument();
+  });
+
+  it("focuses the work-order approval linked from the work hub", async () => {
+    installHappyHandlers();
+
+    renderPage([
+      "/approvals?source=work-order&focus=77777777-7777-4777-8777-777777777777",
+    ]);
+
+    expect(await screen.findByText("업무 허브에서 연결된 승인 건을 강조했습니다.")).toBeVisible();
+    const focusedApproval = screen.getByLabelText(/20260612-002 연결된 승인 건/);
+    expect(focusedApproval).toHaveAttribute(
+      "id",
+      "approval-work-order-77777777-7777-4777-8777-777777777777",
+    );
+    expect(focusedApproval).toHaveAttribute("aria-current", "true");
+  });
+
+  it("explains stale work-order approval deep links instead of focusing the wrong row", async () => {
+    installHappyHandlers();
+
+    renderPage([
+      "/approvals?source=work-order&focus=00000000-0000-4000-8000-000000000000",
+    ]);
+
+    expect(
+      await screen.findByText(
+        "연결된 승인 건이 현재 승인 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByLabelText(/20260612-002 연결된 승인 건/)).not.toBeInTheDocument();
   });
 });
