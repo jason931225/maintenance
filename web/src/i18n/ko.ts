@@ -1558,9 +1558,9 @@ export const ko = {
   workHub: {
     title: "업무 허브",
     descriptionMine:
-      "내 작업, 계획업무, 대화, 티켓을 하루·주간 실행 흐름으로 묶어 보여줍니다.",
+      "내 업무, 계획, 대화, 티켓을 하루·주간 실행 흐름으로 묶어 보여줍니다.",
     descriptionTeam:
-      "팀 작업, 승인, 계획업무, 대화, 티켓을 하나의 실행·워크플로우 큐로 묶어 보여줍니다.",
+      "팀·그룹 범위의 업무, 승인, 계획, 대화, 티켓을 하나의 실행 큐로 묶어 보여줍니다.",
     permissionScoped: "현재 권한에서 표시되지 않는 영역입니다.",
     partialFailure: "일부 원천을 불러오지 못했습니다: {sources}",
     emptyInbox: "현재 처리할 업무·승인·대화가 없습니다.",
@@ -1573,47 +1573,57 @@ export const ko = {
       support: "고객지원",
     },
     sections: {
-      capabilities: "업무 허브 기능 요약",
+      capabilities: "업무 원천 요약",
       inbox: "액션 인박스",
       inboxHint:
-        "작업·승인·대화·티켓을 업무 객체 기준으로 정렬해 다음 행동으로 연결합니다.",
+        "마감·지연·승인·대화를 우선순위 순서로 표시합니다.",
     },
     stats: {
-      work: "작업·배차",
+      work: "업무·운영",
       approvals: "승인·검토",
       daily: "일일·주간 계획",
       conversations: "대화·스레드",
       support: "지원·이슈",
       mail: "메일·영수증",
     },
-    workflowRail: {
-      eyebrow: "Workflow + Approval",
-      title: "업무 객체 중심 실행 흐름",
-      description:
-        "허브는 메신저·메일·티켓을 별도 데모로 분리하지 않고 작업지시, 계획업무, 승인, 증빙, 감사 로그로 이어지는 실제 운영 경로에 연결합니다.",
-      auditBadge: "권한·감사 기반",
-      steps: [
-        {
-          title: "업무 확인",
-          description:
-            "오늘·이번 주 작업과 대화, 티켓을 권한 범위 안에서 확인합니다.",
+    scope: {
+      mine: "내 업무 범위",
+      team: "팀·그룹 범위",
+    },
+    priorityRail: {
+      eyebrow: "Action Inbox",
+      title: "우선순위 액션 큐",
+      policyBadge: "권한 기준",
+      countSuffix: "건",
+      actionLabel: "{label} {count}건 보기",
+      cards: {
+        urgent: {
+          label: "지연·긴급",
+          hint: "먼저 처리",
         },
-        {
-          title: "증빙·대화 연결",
-          description:
-            "작업 대화, 지원 댓글, 파일 증빙을 원천 업무 객체에 연결합니다.",
+        approval: {
+          label: "승인·검토",
+          hint: "결정 필요",
         },
-        {
-          title: "승인·반려",
-          description:
-            "관리자는 승인센터에서 보고·일정 변경·계획 검토를 감사 가능한 결정으로 처리합니다.",
+        daily: {
+          label: "계획",
+          hint: "일정 확인",
         },
-      ],
+        conversation: {
+          label: "대화",
+          hint: "맥락 확인",
+        },
+        support: {
+          label: "지원",
+          hint: "요청 처리",
+        },
+      },
     },
     filters: {
       label: "업무 허브 필터",
       options: [
         { key: "all", label: "전체" },
+        { key: "urgent", label: "긴급" },
         { key: "work", label: "작업" },
         { key: "approval", label: "승인" },
         { key: "daily", label: "계획" },

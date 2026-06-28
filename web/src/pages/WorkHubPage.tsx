@@ -40,7 +40,7 @@ const TEAM_QUEUE_ROLES = [
   ROLES.RECEPTIONIST,
 ] as const;
 
-type FilterKey = "all" | "work" | "approval" | "daily" | "conversation" | "support" | "mail";
+type FilterKey = "all" | "urgent" | "work" | "approval" | "daily" | "conversation" | "support" | "mail";
 type SourceKey = "workOrders" | "approvals" | "dailyPlans" | "messenger" | "support";
 
 type ReadState = "loading" | "idle" | "error";
@@ -66,7 +66,7 @@ interface CapturedSource<T = unknown> {
 
 interface HubItem {
   id: string;
-  filter: Exclude<FilterKey, "all" | "mail">;
+  filter: Exclude<FilterKey, "all" | "urgent" | "mail">;
   title: string;
   eyebrow: string;
   detail: string;
@@ -385,7 +385,15 @@ export function WorkHubPage() {
   }, [loadData]);
 
   const inboxItems = useMemo(() => buildInboxItems(data), [data]);
-  const visibleItems = filter === "all" ? inboxItems : inboxItems.filter((item) => item.filter === filter);
+  const visibleItems = filter === "all"
+    ? inboxItems
+    : filter === "urgent"
+      ? inboxItems.filter((item) => item.tone === "urgent")
+      : inboxItems.filter((item) => item.filter === filter);
+  const urgentCount = useMemo(
+    () => inboxItems.filter((item) => item.tone === "urgent").length,
+    [inboxItems],
+  );
   const stats = useMemo(
     () => [
       {
@@ -436,6 +444,61 @@ export function WorkHubPage() {
     ],
     [canApprove, canManageMail, canUseDailyPlan, data],
   );
+  const priorityCards = useMemo(
+    () => [
+      {
+        key: "urgent" as const,
+        filter: "urgent" as const,
+        label: ko.workHub.priorityRail.cards.urgent.label,
+        hint: ko.workHub.priorityRail.cards.urgent.hint,
+        count: urgentCount,
+        className: "border-red-200 bg-red-50 text-red-900",
+      },
+      {
+        key: "approval" as const,
+        filter: "approval" as const,
+        label: ko.workHub.priorityRail.cards.approval.label,
+        hint: ko.workHub.priorityRail.cards.approval.hint,
+        count: canApprove ? data.approvalItems.length : 0,
+        disabled: !canApprove,
+        className: "border-amber-200 bg-amber-50 text-amber-950",
+      },
+      {
+        key: "daily" as const,
+        filter: "daily" as const,
+        label: ko.workHub.priorityRail.cards.daily.label,
+        hint: ko.workHub.priorityRail.cards.daily.hint,
+        count: canUseDailyPlan ? data.dailyPlans.length : 0,
+        disabled: !canUseDailyPlan,
+        className: "border-violet-200 bg-violet-50 text-violet-950",
+      },
+      {
+        key: "conversation" as const,
+        filter: "conversation" as const,
+        label: ko.workHub.priorityRail.cards.conversation.label,
+        hint: ko.workHub.priorityRail.cards.conversation.hint,
+        count: data.threads.length,
+        className: "border-brand-teal/30 bg-brand-teal/10 text-brand-teal",
+      },
+      {
+        key: "support" as const,
+        filter: "support" as const,
+        label: ko.workHub.priorityRail.cards.support.label,
+        hint: ko.workHub.priorityRail.cards.support.hint,
+        count: data.tickets.length,
+        className: "border-sky-200 bg-sky-50 text-sky-950",
+      },
+    ],
+    [
+      canApprove,
+      canUseDailyPlan,
+      data.approvalItems.length,
+      data.dailyPlans.length,
+      data.threads.length,
+      data.tickets.length,
+      urgentCount,
+    ],
+  );
 
   return (
     <>
@@ -477,26 +540,49 @@ export function WorkHubPage() {
         </section>
 
         <Card
-          aria-labelledby="work-hub-workflow-title"
-          className="grid gap-4 border-brand-teal/20 bg-brand-teal/5"
+          aria-labelledby="work-hub-priority-title"
+          className="grid gap-4 border-brand-teal/20 bg-white"
           role="region"
         >
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-brand-teal">{ko.workHub.workflowRail.eyebrow}</p>
-              <h2 id="work-hub-workflow-title" className="mt-1 text-xl font-semibold text-ink">
-                {ko.workHub.workflowRail.title}
+              <p className="text-sm font-semibold text-brand-teal">{ko.workHub.priorityRail.eyebrow}</p>
+              <h2 id="work-hub-priority-title" className="mt-1 text-xl font-semibold text-ink">
+                {ko.workHub.priorityRail.title}
               </h2>
-              <p className="mt-2 max-w-3xl text-sm text-steel">{ko.workHub.workflowRail.description}</p>
             </div>
-            <Badge className="border-brand-teal/20 bg-white text-brand-teal">{ko.workHub.workflowRail.auditBadge}</Badge>
+            <div className="flex flex-wrap gap-2">
+              <Badge className="border-brand-teal/20 bg-brand-teal/10 text-brand-teal">
+                {canSeeTeamQueue ? ko.workHub.scope.team : ko.workHub.scope.mine}
+              </Badge>
+              <Badge className="border-line bg-muted-panel text-steel">{ko.workHub.priorityRail.policyBadge}</Badge>
+            </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            {ko.workHub.workflowRail.steps.map((step) => (
-              <div key={step.title} className="rounded-lg border border-line bg-white p-3">
-                <p className="font-semibold text-ink">{step.title}</p>
-                <p className="mt-1 text-sm text-steel">{step.description}</p>
-              </div>
+          <div className="grid gap-3 md:grid-cols-5">
+            {priorityCards.map((card) => (
+              <button
+                key={card.key}
+                type="button"
+                disabled={card.disabled}
+                aria-pressed={filter === card.filter}
+                aria-label={ko.workHub.priorityRail.actionLabel
+                  .replace("{label}", card.label)
+                  .replace("{count}", String(card.count))}
+                className={cn(
+                  "rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal",
+                  card.className,
+                  filter === card.filter && "ring-2 ring-brand-teal ring-offset-2",
+                  card.disabled && "cursor-not-allowed opacity-50",
+                )}
+                onClick={() => { setFilter(card.filter); }}
+              >
+                <span className="block text-xs font-semibold uppercase tracking-wide">{card.label}</span>
+                <span className="mt-1 block text-3xl font-semibold">
+                  {card.count}
+                  {ko.workHub.priorityRail.countSuffix}
+                </span>
+                <span className="mt-1 block text-sm">{card.hint}</span>
+              </button>
             ))}
           </div>
         </Card>

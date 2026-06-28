@@ -254,7 +254,7 @@ function installHappyHandlers() {
 }
 
 describe("WorkHubPage", () => {
-  it("renders a workflow-first action inbox with approval, plan, message, and support links", async () => {
+  it("renders an actionable group-wide priority inbox without explanatory text walls", async () => {
     const user = userEvent.setup();
     installHappyHandlers();
 
@@ -267,18 +267,24 @@ describe("WorkHubPage", () => {
     expect(
       await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
     ).toBeVisible();
-    expect(screen.getByText("업무 객체 중심 실행 흐름")).toBeVisible();
     expect(await screen.findByText("20260612-002 작업 보고 승인")).toBeVisible();
     expect(screen.getByText("2026-06-29 계획업무 검토")).toBeVisible();
     expect(screen.getByText("일정 변경 요청")).toBeVisible();
     expect(screen.getByText("P1 현장 대화")).toBeVisible();
     expect(screen.getByText("부품 입고 확인")).toBeVisible();
-    const workflowRail = screen.getByRole("region", {
-      name: "업무 객체 중심 실행 흐름",
+    expect(screen.queryByText("업무 객체 중심 실행 흐름")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/허브는 메신저·메일·티켓을 별도 데모로 분리하지 않고/),
+    ).not.toBeInTheDocument();
+    const priorityQueue = screen.getByRole("region", {
+      name: "우선순위 액션 큐",
     });
-    expect(workflowRail).toHaveClass("bg-brand-teal/5");
-    expect(workflowRail).not.toHaveClass("bg-ink");
-    expect(workflowRail).not.toHaveClass("text-white");
+    expect(priorityQueue).not.toHaveClass("bg-ink");
+    expect(priorityQueue).not.toHaveClass("text-white");
+    expect(screen.getByText("팀·그룹 범위")).toBeVisible();
+    expect(screen.getByRole("button", { name: "지연·긴급 3건 보기" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "승인·검토 3건 보기" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "대화 1건 보기" })).toBeVisible();
     const approvalLinks = screen.getAllByRole("link", { name: "승인센터에서 검토" });
     const approvalHrefs = approvalLinks.map((link) => link.getAttribute("href"));
     expect(approvalHrefs).toContain(
@@ -294,10 +300,17 @@ describe("WorkHubPage", () => {
           (link) => link.getAttribute("href") === `/daily-plan?planId=${requestedPlanId}`,
         ),
     ).toBe(true);
-    expect(screen.getByRole("link", { name: "작업·배차 모듈 열기" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "업무·운영 모듈 열기" })).toHaveAttribute(
       "href",
       "/dispatch",
     );
+
+    await user.click(screen.getByRole("button", { name: "지연·긴급 3건 보기" }));
+
+    expect(screen.getByText(/20260612-002 · Acme Corporation/)).toBeVisible();
+    expect(screen.getByText("부품 입고 확인")).toBeVisible();
+    expect(screen.queryByText("P1 현장 대화")).not.toBeInTheDocument();
+    expect(screen.queryByText("20260612-002 작업 보고 승인")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "승인" }));
 
@@ -437,7 +450,8 @@ describe("WorkHubPage", () => {
       branches: [branchId],
     });
 
-    expect(await screen.findByText("내 작업, 계획업무, 대화, 티켓을 하루·주간 실행 흐름으로 묶어 보여줍니다.")).toBeVisible();
+    expect(await screen.findByText("내 업무, 계획, 대화, 티켓을 하루·주간 실행 흐름으로 묶어 보여줍니다.")).toBeVisible();
+    expect(screen.getByText("내 업무 범위")).toBeVisible();
 
     await waitFor(() => {
       expect(
