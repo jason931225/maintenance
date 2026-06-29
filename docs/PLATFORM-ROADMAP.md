@@ -37,7 +37,14 @@ filler, online-centric** (phone is a last resort). Korean-first, multi-tenant (R
 3. **Payroll** — internal payroll (net-new).
 4. **Bookkeeping / accounting** — double-entry internal accounting (net-new).
 5. **Employee / HR cycle** — hiring/onboarding → records → (feeds payroll).
-6. **Customer accounts / portal** — decide whether clients/guests get accounts to track their
+6. **Manufacturing execution / MES** — future scope after group/org, people, assets/inventory,
+   ontology, workflow, policy, and ERP foundations. Target capabilities include production orders,
+   dispatch lists, work-center/line execution, operator work instructions, quality/NC handling,
+   material consumption, genealogy/traceability, OEE/downtime, labor capture, and ERP/asset/quality
+   integration. See [`docs/specs/mes.md`](./specs/mes.md); this must be benchmarked against
+   SAP Digital Manufacturing, Siemens Opcenter Execution, Rockwell Plex MES, Tulip, and Dynamics
+   production-floor patterns before implementation.
+7. **Customer accounts / portal** — decide whether clients/guests get accounts to track their
    own tickets/orders (today: guests file tickets w/o account; clients = SaaS tenants + staff
    sign in via the console). **Open decision.**
 
