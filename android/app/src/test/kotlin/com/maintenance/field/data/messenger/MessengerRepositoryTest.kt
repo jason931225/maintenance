@@ -97,6 +97,7 @@ class MessengerRepositoryTest {
         lastMessageId = null,
         lastMessageAt = null,
         memberCount = 3,
+        unreadCount = 0,
         createdAt = OffsetDateTime.parse("2026-06-12T09:00:00Z"),
         updatedAt = OffsetDateTime.parse("2026-06-12T09:00:00Z"),
     )

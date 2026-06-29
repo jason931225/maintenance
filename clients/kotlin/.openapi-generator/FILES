@@ -180,6 +180,7 @@ src/main/kotlin/com/maintenance/api/client/model/MailMessageView.kt
 src/main/kotlin/com/maintenance/api/client/model/MailSecurity.kt
 src/main/kotlin/com/maintenance/api/client/model/MailTestConnectionResult.kt
 src/main/kotlin/com/maintenance/api/client/model/MailThreadDetail.kt
+src/main/kotlin/com/maintenance/api/client/model/MailThreadReadStateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MailThreadView.kt
 src/main/kotlin/com/maintenance/api/client/model/MarkMessengerThreadReadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MediaKind.kt

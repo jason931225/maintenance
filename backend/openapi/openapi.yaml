@@ -5360,6 +5360,43 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/MailUnavailable"
+  /api/v1/mail/threads/{id}/read-state:
+    patch:
+      operationId: setMailThreadReadState
+      summary: Mark a mail thread read or unread
+      description: >-
+        Sets every inbound message in the visible thread to read or unread and
+        recomputes thread/folder unread aggregates. The action is RLS-armed to
+        the caller's org and audited without duplicating message content.
+        Requires the MailUse feature.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MailThreadReadStateRequest"
+      responses:
+        "204":
+          description: Thread read-state updated.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/MailUnavailable"
   /api/v1/mail/messages/{id}:
     get:
       operationId: getMailMessage
@@ -9022,6 +9059,7 @@ components:
         - last_message_id
         - last_message_at
         - member_count
+        - unread_count
         - created_at
         - updated_at
       properties:
@@ -9053,6 +9091,10 @@ components:
         member_count:
           type: integer
           format: int64
+        unread_count:
+          type: integer
+          format: int64
+          description: Messages newer than the caller's read receipt, excluding messages sent by the caller.
         created_at:
           $ref: "#/components/schemas/Timestamp"
         updated_at:
@@ -12300,6 +12342,14 @@ components:
           type: boolean
         is_flagged:
           type: boolean
+    MailThreadReadStateRequest:
+      type: object
+      required:
+        - seen
+      properties:
+        seen:
+          type: boolean
+          description: True marks inbound messages in the thread read; false marks them unread.
     MailThreadDetail:
       type: object
       required:

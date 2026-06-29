@@ -118,6 +118,7 @@ import com.maintenance.api.client.model.MailFolderView
 import com.maintenance.api.client.model.MailMessageView
 import com.maintenance.api.client.model.MailTestConnectionResult
 import com.maintenance.api.client.model.MailThreadDetail
+import com.maintenance.api.client.model.MailThreadReadStateRequest
 import com.maintenance.api.client.model.MailThreadView
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMemberListResponse
@@ -11554,6 +11555,81 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/messenger/threads/{threadId}/messages".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/mail/threads/{id}/read-state
+     * Mark a mail thread read or unread
+     * Sets every inbound message in the visible thread to read or unread and recomputes thread/folder unread aggregates. The action is RLS-armed to the caller&#39;s org and audited without duplicating message content. Requires the MailUse feature.
+     * @param id
+     * @param mailThreadReadStateRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun setMailThreadReadState(id: java.util.UUID, mailThreadReadStateRequest: MailThreadReadStateRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = setMailThreadReadStateWithHttpInfo(id = id, mailThreadReadStateRequest = mailThreadReadStateRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/mail/threads/{id}/read-state
+     * Mark a mail thread read or unread
+     * Sets every inbound message in the visible thread to read or unread and recomputes thread/folder unread aggregates. The action is RLS-armed to the caller&#39;s org and audited without duplicating message content. Requires the MailUse feature.
+     * @param id
+     * @param mailThreadReadStateRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun setMailThreadReadStateWithHttpInfo(id: java.util.UUID, mailThreadReadStateRequest: MailThreadReadStateRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = setMailThreadReadStateRequestConfig(id = id, mailThreadReadStateRequest = mailThreadReadStateRequest)
+
+        return@withContext request<MailThreadReadStateRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation setMailThreadReadState
+     *
+     * @param id
+     * @param mailThreadReadStateRequest
+     * @return RequestConfig
+     */
+    fun setMailThreadReadStateRequestConfig(id: java.util.UUID, mailThreadReadStateRequest: MailThreadReadStateRequest) : RequestConfig<MailThreadReadStateRequest> {
+        val localVariableBody = mailThreadReadStateRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/mail/threads/{id}/read-state".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

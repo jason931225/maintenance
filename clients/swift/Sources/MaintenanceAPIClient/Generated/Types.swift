@@ -1050,6 +1050,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/mail/threads/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)`.
     func getMailThread(_ input: Operations.GetMailThread.Input) async throws -> Operations.GetMailThread.Output
+    /// Mark a mail thread read or unread
+    ///
+    /// Sets every inbound message in the visible thread to read or unread and recomputes thread/folder unread aggregates. The action is RLS-armed to the caller's org and audited without duplicating message content. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/mail/threads/{id}/read-state`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)`.
+    func setMailThreadReadState(_ input: Operations.SetMailThreadReadState.Input) async throws -> Operations.SetMailThreadReadState.Output
     /// Get one message with its attachments
     ///
     /// Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller's org. Requires the MailUse feature.
@@ -3431,6 +3438,23 @@ extension APIProtocol {
         try await getMailThread(Operations.GetMailThread.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// Mark a mail thread read or unread
+    ///
+    /// Sets every inbound message in the visible thread to read or unread and recomputes thread/folder unread aggregates. The action is RLS-armed to the caller's org and audited without duplicating message content. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/mail/threads/{id}/read-state`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)`.
+    public func setMailThreadReadState(
+        path: Operations.SetMailThreadReadState.Input.Path,
+        headers: Operations.SetMailThreadReadState.Input.Headers = .init(),
+        body: Operations.SetMailThreadReadState.Input.Body
+    ) async throws -> Operations.SetMailThreadReadState.Output {
+        try await setMailThreadReadState(Operations.SetMailThreadReadState.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// Get one message with its attachments
@@ -9853,6 +9877,10 @@ public enum Components {
             public var lastMessageAt: Foundation.Date?
             /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/member_count`.
             public var memberCount: Swift.Int64
+            /// Messages newer than the caller's read receipt, excluding messages sent by the caller.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/unread_count`.
+            public var unreadCount: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/created_at`.
             public var createdAt: Components.Schemas.Timestamp
             /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/updated_at`.
@@ -9868,6 +9896,7 @@ public enum Components {
             ///   - lastMessageId:
             ///   - lastMessageAt:
             ///   - memberCount:
+            ///   - unreadCount: Messages newer than the caller's read receipt, excluding messages sent by the caller.
             ///   - createdAt:
             ///   - updatedAt:
             public init(
@@ -9879,6 +9908,7 @@ public enum Components {
                 lastMessageId: Swift.String? = nil,
                 lastMessageAt: Foundation.Date? = nil,
                 memberCount: Swift.Int64,
+                unreadCount: Swift.Int64,
                 createdAt: Components.Schemas.Timestamp,
                 updatedAt: Components.Schemas.Timestamp
             ) {
@@ -9890,6 +9920,7 @@ public enum Components {
                 self.lastMessageId = lastMessageId
                 self.lastMessageAt = lastMessageAt
                 self.memberCount = memberCount
+                self.unreadCount = unreadCount
                 self.createdAt = createdAt
                 self.updatedAt = updatedAt
             }
@@ -9902,6 +9933,7 @@ public enum Components {
                 case lastMessageId = "last_message_id"
                 case lastMessageAt = "last_message_at"
                 case memberCount = "member_count"
+                case unreadCount = "unread_count"
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
             }
@@ -15219,6 +15251,23 @@ public enum Components {
                 case unreadCount = "unread_count"
                 case hasAttachments = "has_attachments"
                 case isFlagged = "is_flagged"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MailThreadReadStateRequest`.
+        public struct MailThreadReadStateRequest: Codable, Hashable, Sendable {
+            /// True marks inbound messages in the thread read; false marks them unread.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MailThreadReadStateRequest/seen`.
+            public var seen: Swift.Bool
+            /// Creates a new `MailThreadReadStateRequest`.
+            ///
+            /// - Parameters:
+            ///   - seen: True marks inbound messages in the thread read; false marks them unread.
+            public init(seen: Swift.Bool) {
+                self.seen = seen
+            }
+            public enum CodingKeys: String, CodingKey {
+                case seen
             }
         }
         /// - Remark: Generated from `#/components/schemas/MailThreadDetail`.
@@ -52281,6 +52330,244 @@ public enum Operations {
             /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
             ///
             /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Components.Responses.MailUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Components.Responses.MailUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mark a mail thread read or unread
+    ///
+    /// Sets every inbound message in the visible thread to read or unread and recomputes thread/folder unread aggregates. The action is RLS-armed to the caller's org and audited without duplicating message content. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/mail/threads/{id}/read-state`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)`.
+    public enum SetMailThreadReadState {
+        public static let id: Swift.String = "setMailThreadReadState"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/read-state/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/read-state/PATCH/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.String) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.SetMailThreadReadState.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/read-state/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetMailThreadReadState.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetMailThreadReadState.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SetMailThreadReadState.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/read-state/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/read-state/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.MailThreadReadStateRequest)
+            }
+            public var body: Operations.SetMailThreadReadState.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.SetMailThreadReadState.Input.Path,
+                headers: Operations.SetMailThreadReadState.Input.Headers = .init(),
+                body: Operations.SetMailThreadReadState.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// Thread read-state updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.SetMailThreadReadState.Output.NoContent)
+            /// Thread read-state updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.SetMailThreadReadState.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/read-state/patch(setMailThreadReadState)/responses/503`.
             ///
             /// HTTP response code: `503 serviceUnavailable`.
             case serviceUnavailable(Components.Responses.MailUnavailable)

@@ -746,6 +746,34 @@ pub fn send_audit_event(
     ))
 }
 
+/// Build the read/unread audit event for a thread-level mailbox action. The
+/// snapshots record only counters/state — never subject, body, or addresses.
+pub fn thread_read_state_audit_event(
+    actor: UserId,
+    thread_id: uuid::Uuid,
+    before_unread_count: i64,
+    after_unread_count: i64,
+    seen: bool,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("email.thread_read_state")?,
+        "email_thread",
+        thread_id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_snapshots(
+        Some(serde_json::json!({ "unread_count": before_unread_count })),
+        Some(serde_json::json!({
+            "seen": seen,
+            "unread_count": after_unread_count,
+        })),
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Services
 // ---------------------------------------------------------------------------
@@ -1589,6 +1617,17 @@ pub trait MailReadStore: Send + Sync {
         org: OrgId,
         attachment_id: uuid::Uuid,
     ) -> MailFuture<'a, Result<Option<AttachmentRef>, MailServiceError>>;
+
+    /// Set every inbound message in a visible thread to read/unread and
+    /// recompute thread/folder unread aggregates. Returns `false` when the
+    /// thread is not visible under the armed org.
+    fn set_thread_seen<'a>(
+        &'a self,
+        org: OrgId,
+        thread_id: uuid::Uuid,
+        seen: bool,
+        audit: AuditEvent,
+    ) -> MailFuture<'a, Result<bool, MailServiceError>>;
 }
 
 /// Forward the read store through a shared reference, so a `&R` satisfies a
@@ -1678,6 +1717,16 @@ impl<R: MailReadStore + ?Sized> MailReadStore for &R {
         attachment_id: uuid::Uuid,
     ) -> MailFuture<'a, Result<Option<AttachmentRef>, MailServiceError>> {
         (**self).get_attachment_key(org, attachment_id)
+    }
+
+    fn set_thread_seen<'a>(
+        &'a self,
+        org: OrgId,
+        thread_id: uuid::Uuid,
+        seen: bool,
+        audit: AuditEvent,
+    ) -> MailFuture<'a, Result<bool, MailServiceError>> {
+        (**self).set_thread_seen(org, thread_id, seen, audit)
     }
 }
 
@@ -2472,6 +2521,16 @@ mod tests {
             _attachment_id: uuid::Uuid,
         ) -> MailFuture<'a, Result<Option<AttachmentRef>, MailServiceError>> {
             Box::pin(async { Ok(None) })
+        }
+
+        fn set_thread_seen<'a>(
+            &'a self,
+            _org: OrgId,
+            _thread_id: uuid::Uuid,
+            _seen: bool,
+            _audit: AuditEvent,
+        ) -> MailFuture<'a, Result<bool, MailServiceError>> {
+            Box::pin(async { Ok(false) })
         }
     }
 

@@ -8,6 +8,7 @@ import {
   Search,
   Send,
 } from "lucide-react";
+import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -461,6 +462,61 @@ export function MailPage() {
     }
   }, [api, c, compose, composeAttachments, loadMailbox, resetCompose]);
 
+  const setThreadSeen = useCallback(
+    async (threadId: string, seen: boolean) => {
+      setNotice(undefined);
+      setError(undefined);
+      const { error: apiError } = await api
+        .PATCH("/api/v1/mail/threads/{id}/read-state", {
+          params: { path: { id: threadId } },
+          body: { seen },
+        })
+        .catch(() => ({ error: true }) as const);
+      if (apiError) {
+        setError(c.readStateFailed);
+        return;
+      }
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === threadId
+            ? { ...thread, unread_count: seen ? 0 : Math.max(1, thread.unread_count) }
+            : thread,
+        ),
+      );
+      setDetail((prev) =>
+        prev?.id === threadId
+          ? {
+              ...prev,
+              messages: prev.messages.map((message) =>
+                message.direction === "IN" ? { ...message, seen } : message,
+              ),
+            }
+          : prev,
+      );
+      setNotice(seen ? c.markedRead : c.markedUnread);
+      await loadMailbox();
+    },
+    [api, c.markedRead, c.markedUnread, c.readStateFailed, loadMailbox],
+  );
+
+  const handleComposeBodyKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (
+        sending ||
+        event.nativeEvent.isComposing ||
+        event.key !== "Enter" ||
+        event.shiftKey ||
+        event.altKey ||
+        (!event.metaKey && !event.ctrlKey)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void sendMail();
+    },
+    [sendMail, sending],
+  );
+
   const submitSearch = useCallback(() => {
     setQuery(queryDraft);
   }, [queryDraft]);
@@ -683,6 +739,19 @@ export function MailPage() {
                     {c.messageCount(selectedThread.message_count)}
                   </p>
                 ) : null}
+                {selectedThread ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => {
+                      void setThreadSeen(selectedThread.id, selectedThread.unread_count > 0);
+                    }}
+                  >
+                    {selectedThread.unread_count > 0 ? c.markRead : c.markUnread}
+                  </Button>
+                ) : null}
               </div>
               {!selectedThreadId ? (
                 <div role="status" className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-steel">
@@ -869,11 +938,14 @@ export function MailPage() {
                 <label className="grid gap-1 text-sm font-medium text-steel">
                   {c.body}
                   <Textarea
+                    aria-label={c.body}
                     rows={5}
                     placeholder={c.bodyPlaceholder}
                     value={compose.body}
                     onChange={(event) => { updateCompose("body", event.target.value); }}
+                    onKeyDown={handleComposeBodyKeyDown}
                   />
+                  <span className="text-xs font-normal text-steel">{c.sendShortcutHint}</span>
                 </label>
                 <div className="grid gap-2">
                   <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-medium text-steel transition hover:border-brand-teal">

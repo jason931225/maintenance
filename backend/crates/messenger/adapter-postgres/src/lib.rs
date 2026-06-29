@@ -371,7 +371,8 @@ impl PgMessengerStore {
                    t.created_at, t.updated_at,
                    lm.id AS last_message_id,
                    lm.sent_at AS last_message_at,
-                   COUNT(tm_all.user_id)::BIGINT AS member_count
+                   COUNT(DISTINCT tm_all.user_id)::BIGINT AS member_count,
+                   COALESCE(unread.unread_count, 0)::BIGINT AS unread_count
             FROM messenger_threads t
             JOIN messenger_thread_members tm_actor
               ON tm_actor.thread_id = t.id
@@ -381,6 +382,15 @@ impl PgMessengerStore {
         builder.push_bind(*query.actor.as_uuid());
         builder.push(
             r#"
+            LEFT JOIN messenger_read_receipts rr
+              ON rr.thread_id = t.id
+             AND rr.user_id =
+            "#,
+        );
+        builder.push_bind(*query.actor.as_uuid());
+        builder.push(
+            r#"
+            LEFT JOIN messenger_messages rr_msg ON rr_msg.id = rr.last_read_message_id
             LEFT JOIN LATERAL (
                 SELECT id, sent_at
                 FROM messenger_messages
@@ -388,6 +398,22 @@ impl PgMessengerStore {
                 ORDER BY sent_at DESC, id DESC
                 LIMIT 1
             ) lm ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::BIGINT AS unread_count
+                FROM messenger_messages unread_message
+                WHERE unread_message.thread_id = t.id
+                  AND unread_message.sender_id <>
+            "#,
+        );
+        builder.push_bind(*query.actor.as_uuid());
+        builder.push(
+            r#"
+                  AND (
+                    rr.last_read_message_id IS NULL
+                    OR rr_msg.id IS NULL
+                    OR (unread_message.sent_at, unread_message.id) > (rr_msg.sent_at, rr_msg.id)
+                  )
+            ) unread ON true
             LEFT JOIN messenger_thread_members tm_all ON tm_all.thread_id = t.id
             WHERE true
             "#,
@@ -395,7 +421,7 @@ impl PgMessengerStore {
         push_scope_filter(&mut builder, "t.branch_id", &query.branch_scope)?;
         builder.push(
             r#"
-            GROUP BY t.id, lm.id, lm.sent_at
+            GROUP BY t.id, lm.id, lm.sent_at, unread.unread_count
             ORDER BY COALESCE(lm.sent_at, t.updated_at) DESC, t.id DESC
             LIMIT
             "#,
@@ -857,7 +883,8 @@ fn thread_summary_builder() -> QueryBuilder<Postgres> {
                t.created_at, t.updated_at,
                lm.id AS last_message_id,
                lm.sent_at AS last_message_at,
-               COUNT(tm_all.user_id)::BIGINT AS member_count
+               COUNT(tm_all.user_id)::BIGINT AS member_count,
+               0::BIGINT AS unread_count
         FROM messenger_threads t
         LEFT JOIN LATERAL (
             SELECT id, sent_at
@@ -886,6 +913,7 @@ fn thread_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<ThreadSummary,
             .map(MessageId::from_uuid),
         last_message_at: row.try_get("last_message_at")?,
         member_count: row.try_get("member_count")?,
+        unread_count: row.try_get("unread_count")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
