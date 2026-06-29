@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/jason931225/maintenance/compare/v0.1.21...v0.1.22) (2026-06-29)
+
+
+### Bug Fixes
+
+* **release:** trigger release please ([65a5d17](https://github.com/jason931225/maintenance/commit/65a5d17d05ce57a868c2a0f0a85e0122e5d75a69))
+
 ## [0.1.21](https://github.com/jason931225/maintenance/compare/v0.1.20...v0.1.21) (2026-06-28)
 
 
