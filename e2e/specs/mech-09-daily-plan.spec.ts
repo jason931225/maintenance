@@ -67,6 +67,24 @@ test("MECH-09 daily plan: create → request review → admin confirm", async ({
   // Set plan date.
   await page.locator("#plan-date").fill(date);
 
+  // Link the plan item to an existing received/assigned work order. This is
+  // the actual operating path: planned work starts from a concrete intake item,
+  // not free-text alone.
+  const sourceWorkOrderSelect = page.getByLabel("접수내용 1");
+  await expect(sourceWorkOrderSelect).toBeVisible({ timeout: 5_000 });
+  await expect
+    .poll(async () => await sourceWorkOrderSelect.locator("option").count(), {
+      timeout: 8_000,
+      intervals: [250, 500, 1_000],
+    })
+    .toBeGreaterThan(1);
+  const firstSourceValue = await sourceWorkOrderSelect
+    .locator("option")
+    .nth(1)
+    .getAttribute("value");
+  expect(firstSourceValue).toBeTruthy();
+  await sourceWorkOrderSelect.selectOption(firstSourceValue!);
+
   // Fill the first item.
   await page
     .locator('input[placeholder="작업 내용을 입력하세요."]')

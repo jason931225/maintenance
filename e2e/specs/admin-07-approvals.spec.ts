@@ -15,6 +15,8 @@ const ORG_ID = TENANT_ORG_ID;
 const WO_APPROVE = "00000000-0000-0000-0000-000000f00007";
 const WO_REJECT = "00000000-0000-0000-0000-000000f00008";
 const MECH_ID = "00000000-0000-0000-0000-0000000d0002";
+const ADMIN_ID = "00000000-0000-0000-0000-0000000d0003";
+const SADMIN_ID = "00000000-0000-0000-0000-0000000d0005";
 
 function resetApprovalWos() {
   sql(
@@ -30,17 +32,28 @@ function resetApprovalWos() {
            diagnosis = '추가 점검 필요', action_taken = '임시 조치만 수행',
            report_submitted_by = '${MECH_ID}', report_submitted_at = now()
      WHERE id = '${WO_REJECT}';
-     -- Restore the approval line for the approve-target WO so the admin step is
-     -- PENDING again (an earlier approve in a prior run would have approved it).
-     UPDATE work_order_approval_steps
-       SET status = 'APPROVED', approved_at = now(), approved_by_id = '${MECH_ID}'
-     WHERE work_order_id = '${WO_APPROVE}' AND role = 'MECHANIC';
-     UPDATE work_order_approval_steps
-       SET status = 'PENDING', approved_at = NULL, approved_by_id = NULL
-     WHERE work_order_id = '${WO_APPROVE}' AND role = 'ADMIN';
-     UPDATE work_order_approval_steps
-       SET status = 'NOT_STARTED', approved_at = NULL, approved_by_id = NULL
-     WHERE work_order_id = '${WO_APPROVE}' AND role = 'EXECUTIVE';
+     -- Restore approval lines for both target WOs. The production approval
+     -- queue intentionally requires the pending step to be assigned to the
+     -- logged-in approver; otherwise a user could approve a row that has no
+     -- accountable approval line. Keep the E2E seed aligned with that contract.
+     INSERT INTO work_order_approval_steps (
+       work_order_id, step_order, role, approver_id, status,
+       requested_at, approved_at, approved_by_id, org_id
+     ) VALUES
+       ('${WO_APPROVE}', 1, 'MECHANIC', '${MECH_ID}',  'APPROVED', now(), now(), '${MECH_ID}', '${ORG_ID}'),
+       ('${WO_APPROVE}', 2, 'ADMIN',    '${ADMIN_ID}', 'PENDING',  now(), NULL, NULL,       '${ORG_ID}'),
+       ('${WO_APPROVE}', 3, 'EXECUTIVE','${SADMIN_ID}','NOT_STARTED', NULL, NULL, NULL,     '${ORG_ID}'),
+       ('${WO_REJECT}',  1, 'MECHANIC', '${MECH_ID}',  'APPROVED', now(), now(), '${MECH_ID}', '${ORG_ID}'),
+       ('${WO_REJECT}',  2, 'ADMIN',    '${ADMIN_ID}', 'PENDING',  now(), NULL, NULL,       '${ORG_ID}'),
+       ('${WO_REJECT}',  3, 'EXECUTIVE','${SADMIN_ID}','NOT_STARTED', NULL, NULL, NULL,     '${ORG_ID}')
+     ON CONFLICT (work_order_id, step_order) DO UPDATE
+       SET role = EXCLUDED.role,
+           approver_id = EXCLUDED.approver_id,
+           status = EXCLUDED.status,
+           requested_at = EXCLUDED.requested_at,
+           approved_at = EXCLUDED.approved_at,
+           approved_by_id = EXCLUDED.approved_by_id,
+           org_id = EXCLUDED.org_id;
      COMMIT;`,
   );
 }
@@ -70,6 +83,13 @@ test("ADMIN-07 admin approves a submitted completion", async ({
   const approveBtn = page.getByRole("button", { name: /-071 승인/ });
   await expect(approveBtn).toBeVisible({ timeout: 8_000 });
   await approveBtn.click();
+
+  const dialog = page.getByRole("dialog", { name: "작업지시 승인" });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await dialog
+    .getByLabel("승인 의견")
+    .fill("E2E 승인 의견: 증빙과 조치 내용을 확인했습니다.");
+  await dialog.getByRole("button", { name: "승인", exact: true }).click();
 
   // Success status message confirms the approve transition committed.
   await expect(page.getByText(/승인을 처리했습니다\./)).toBeVisible({

@@ -86,9 +86,7 @@ test("MECH-02 mechanic self-assigns a RECEIVED work order", async ({
 
   // Wait for the RECEIVED work order's self-assign button to appear.
   // The button text is "{requestNo} 배정" (request_no followed by 배정).
-  const assignBtn = page
-    .getByRole("button", { name: /배정/ })
-    .filter({ hasText: /-011/ });
+  const assignBtn = page.getByRole("button", { name: /-011 배정/ });
   await expect(assignBtn).toBeVisible({ timeout: 8_000 });
 
   await assignBtn.click();
