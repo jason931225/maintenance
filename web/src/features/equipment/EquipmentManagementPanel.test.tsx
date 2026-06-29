@@ -108,6 +108,24 @@ const adminSession: AuthSession = {
   branches: [branchId],
 };
 
+const groupAdminSourceSession: AuthSession = {
+  access_token: "group-source-token",
+  user_id: "group-admin-1",
+  roles: ["MEMBER"],
+  group_roles: ["GROUP_ADMIN"],
+  org_id: "org-coss",
+  branches: [branchId],
+};
+
+const delegatedCossSession: AuthSession = {
+  access_token: "coss-context-token",
+  user_id: "group-admin-1",
+  roles: ["ADMIN"],
+  group_roles: ["GROUP_ADMIN"],
+  org_id: "org-coss",
+  branches: [branchId],
+};
+
 const mechanicSession: AuthSession = {
   access_token: "m",
   user_id: "mech-1",
@@ -247,6 +265,114 @@ describe("EquipmentManagementPanel", () => {
     });
   });
 
+  it("wires the live manage page to group-admin legal-owner selection", async () => {
+    const user = userEvent.setup();
+    const groupsRequested = vi.fn();
+    const contextStarted = vi.fn();
+    const created = vi.fn();
+    const contextExited = vi.fn();
+
+    server.use(
+      ...searchHandlers(),
+      http.get("*/api/v1/equipment/list", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("*/api/v1/group-admin/groups", ({ request }) => {
+        groupsRequested(request.headers.get("authorization"));
+        return HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [
+                { id: "org-coss", slug: "coss", name: "코스", status: "ACTIVE" },
+                { id: "org-knl", slug: "knl", name: "케이앤엘", status: "ACTIVE" },
+              ],
+            },
+          ],
+        });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
+        contextStarted({
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return HttpResponse.json({
+          access_token: "knl-context-token",
+          token_type: "Bearer",
+          acting_org_id: "org-knl",
+          acting_org_name: "케이앤엘",
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2026-06-29T00:00:00Z",
+        });
+      }),
+      http.post("*/api/v1/equipment", async ({ request }) => {
+        created({
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return HttpResponse.json({ id: newEquipmentId }, { status: 201 });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context/exit", async ({ request }) => {
+        contextExited({
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp({
+      ...makeAuthContext(delegatedCossSession),
+      viewAs: {
+        token: "coss-context-token",
+        mode: "MANAGE",
+        source: "GROUP_ADMIN",
+        actingOrgId: "org-coss",
+        actingOrgName: "코스",
+        actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
+        platformSession: groupAdminSourceSession,
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "장비 등록" }));
+    await waitFor(() => {
+      expect(groupsRequested).toHaveBeenCalledWith("Bearer group-source-token");
+    });
+    await user.selectOptions(await screen.findByLabelText("소유 법인"), "org-knl");
+    await user.click(
+      screen.getByLabelText(/소유 법인, 등록 권한, 회계·계약상 근거/),
+    );
+    await user.type(screen.getByLabelText("호기 번호"), "D-25-300");
+    await user.type(screen.getByLabelText("고객명"), "신규고객");
+    await user.type(screen.getByLabelText("현장명"), "신규현장");
+    await user.type(screen.getByLabelText("규격"), "입식");
+    await user.type(screen.getByLabelText("톤수"), "3.0T");
+
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => {
+      expect(contextStarted).toHaveBeenCalledWith({
+        authorization: "Bearer group-source-token",
+        body: { org_id: "org-knl" },
+      });
+      expect(created).toHaveBeenCalledWith({
+        authorization: "Bearer knl-context-token",
+        body: expect.objectContaining({
+          equipment_no: "D-25-300",
+          customer_name: "신규고객",
+          site_name: "신규현장",
+        }),
+      });
+      expect(contextExited).toHaveBeenCalledWith({
+        authorization: "Bearer group-source-token",
+        body: { org_id: "org-knl" },
+      });
+    });
+  });
+
   it("edits an existing equipment row", async () => {
     const user = userEvent.setup();
     const patched = vi.fn();
@@ -276,6 +402,66 @@ describe("EquipmentManagementPanel", () => {
         }),
       );
     });
+  });
+
+  it("requests legal ownership transfer through the ordered approval workflow", async () => {
+    const user = userEvent.setup();
+    const transferRequested = vi.fn();
+    server.use(
+      http.post(
+        "*/api/v1/equipment/:id/ownership-transfer-requests",
+        async ({ request, params }) => {
+          transferRequested({
+            id: params.id,
+            body: await request.json(),
+          });
+          return HttpResponse.json(
+            {
+              id: "77777777-7777-4777-8777-777777777777",
+              equipment_id: equipmentId,
+              branch_id: branchId,
+              from_owner: "코스",
+              to_owner: "케이앤엘",
+              reason: "KNL 운영 자산",
+              status: "PENDING",
+              current_step: "sending_org_admin",
+              approval_line: [
+                { step_key: "sending_org_admin", label: "이전 법인 승인", status: "PENDING" },
+                { step_key: "receiving_org_admin", label: "인수 법인 승인", status: "WAITING" },
+                { step_key: "legal_signoff", label: "법무 소유권 검토", status: "WAITING" },
+                { step_key: "accounting_signoff", label: "회계 자산대장 반영", status: "WAITING" },
+              ],
+              requested_by: "group-admin-1",
+              requested_at: "2026-06-29T00:00:00Z",
+              decided_at: null,
+              completed_at: null,
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    renderGroupAdminEquipmentPanel();
+
+    await user.click(await screen.findByRole("button", { name: "D-25-290 수정" }));
+    await user.selectOptions(screen.getByLabelText("새 법적 소유자"), "케이앤엘");
+    await user.type(screen.getByLabelText("이전 사유"), "KNL 운영 자산");
+    await user.click(
+      screen.getByLabelText(/양 법인, 법무, 회계 승인 전에는/),
+    );
+    await user.click(screen.getByRole("button", { name: "소유권 이전 결재 요청" }));
+
+    await waitFor(() => {
+      expect(transferRequested).toHaveBeenCalledWith({
+        id: equipmentId,
+        body: {
+          to_owner: "케이앤엘",
+          reason: "KNL 운영 자산",
+        },
+      });
+    });
+    expect(await screen.findByText("소유권 이전 결재를 요청했습니다.")).toBeVisible();
   });
 
   it("uses reference dropdowns and derives known fields from the selected model", async () => {

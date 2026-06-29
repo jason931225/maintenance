@@ -45,6 +45,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "mail",
     "support",
     "kpi",
+    "intelligence",
     "ops",
     "reporting",
     "integrity",
@@ -58,6 +59,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "employees",
     "users",
     "policy",
+    "workflows",
     "email",
     "security",
     "profile",
@@ -75,6 +77,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "mail",
     "support",
     "kpi",
+    "intelligence",
     "ops",
     "reporting",
     "equipment",
@@ -102,6 +105,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "mail",
     "support",
     "kpi",
+    "intelligence",
     "reporting",
     "integrity",
     "equipment",
@@ -167,6 +171,7 @@ describe("nav role gating", () => {
       expect(isNavItemVisible("sites", [role])).toBe(false);
       expect(isNavItemVisible("email", [role])).toBe(false);
       expect(isNavItemVisible("policy", [role])).toBe(false);
+      expect(isNavItemVisible("workflows", [role])).toBe(false);
     }
   });
 
@@ -182,18 +187,20 @@ describe("nav role gating", () => {
     ).toBe(true);
   });
 
-  it("shows policy studio to SUPER_ADMIN or an effective RoleManage custom grant", () => {
-    expect(isNavItemVisible("policy", [ROLES.SUPER_ADMIN])).toBe(true);
-    expect(isNavItemVisible("policy", [ROLES.ADMIN])).toBe(false);
-    expect(isNavItemVisible("policy", [ROLES.EXECUTIVE])).toBe(false);
-    expect(isNavItemVisible("policy", [ROLES.MECHANIC])).toBe(false);
-    expect(isNavItemVisible("policy", [ROLES.RECEPTIONIST])).toBe(false);
-    expect(isNavItemVisible("policy", [ROLES.MEMBER])).toBe(false);
-    expect(
-      isNavItemVisible("policy", [ROLES.MEMBER], undefined, [
-        FEATURES.ROLE_MANAGE,
-      ]),
-    ).toBe(true);
+  it("shows policy and workflow studios to SUPER_ADMIN or an effective RoleManage custom grant", () => {
+    for (const key of ["policy", "workflows"]) {
+      expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.MECHANIC])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.RECEPTIONIST])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.MEMBER])).toBe(false);
+      expect(
+        isNavItemVisible(key, [ROLES.MEMBER], undefined, [
+          FEATURES.ROLE_MANAGE,
+        ]),
+      ).toBe(true);
+    }
   });
 
   it("shows the mail-account config (MailAccountManage) only to ADMIN and SUPER_ADMIN", () => {
@@ -237,12 +244,14 @@ describe("nav role gating", () => {
     ]);
   });
 
-  it("shows KPI only to ADMIN, EXECUTIVE, and SUPER_ADMIN", () => {
-    expect(isNavItemVisible("kpi", [ROLES.ADMIN])).toBe(true);
-    expect(isNavItemVisible("kpi", [ROLES.EXECUTIVE])).toBe(true);
-    expect(isNavItemVisible("kpi", [ROLES.SUPER_ADMIN])).toBe(true);
-    expect(isNavItemVisible("kpi", [ROLES.MECHANIC])).toBe(false);
-    expect(isNavItemVisible("kpi", [ROLES.RECEPTIONIST])).toBe(false);
+  it("shows KPI and operations intelligence only to ADMIN, EXECUTIVE, and SUPER_ADMIN", () => {
+    for (const key of ["kpi", "intelligence"]) {
+      expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.MECHANIC])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.RECEPTIONIST])).toBe(false);
+    }
   });
 
   it("shows inspection (InspectionScheduleManage) only to ADMIN and SUPER_ADMIN", () => {
@@ -318,6 +327,7 @@ describe("nav role gating", () => {
         "group",
         "approvals",
         "kpi",
+        "intelligence",
         "users",
         "security",
       ]) {

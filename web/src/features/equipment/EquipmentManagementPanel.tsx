@@ -51,6 +51,7 @@ interface EquipmentManagementPanelProps {
 
 type Mode = "idle" | "create" | "edit";
 type WriteState = "idle" | "saving" | "error";
+type TransferState = "idle" | "saving" | "error";
 
 const STATUS_OPTIONS: EquipmentStatus[] = [
   "rented",
@@ -169,6 +170,11 @@ export function EquipmentManagementPanel({
   const [deleteTarget, setDeleteTarget] = useState<EquipmentLookupResponse>();
   const [deleting, setDeleting] = useState(false);
   const [ownershipConfirmed, setOwnershipConfirmed] = useState(false);
+  const [transferTargetOwner, setTransferTargetOwner] = useState("");
+  const [transferReason, setTransferReason] = useState("");
+  const [transferConfirmed, setTransferConfirmed] = useState(false);
+  const [transferState, setTransferState] = useState<TransferState>("idle");
+  const [transferNotice, setTransferNotice] = useState<string>();
   const referenceOptions = useMemo(() => {
     const customerMatches = form.customer_name.trim()
       ? results.filter((row) => row.customer.name === form.customer_name.trim())
@@ -210,6 +216,7 @@ export function EquipmentManagementPanel({
     setWriteState("idle");
     setNotice(undefined);
     setOwnershipConfirmed(false);
+    resetTransferForm();
   }
 
   function startEdit(summary: EquipmentLookupResponse) {
@@ -219,6 +226,7 @@ export function EquipmentManagementPanel({
     setWriteState("idle");
     setNotice(undefined);
     setOwnershipConfirmed(false);
+    resetTransferForm();
   }
 
   function closeForm() {
@@ -226,6 +234,15 @@ export function EquipmentManagementPanel({
     setEditingId(undefined);
     setWriteState("idle");
     setOwnershipConfirmed(false);
+    resetTransferForm();
+  }
+
+  function resetTransferForm() {
+    setTransferTargetOwner("");
+    setTransferReason("");
+    setTransferConfirmed(false);
+    setTransferState("idle");
+    setTransferNotice(undefined);
   }
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -373,6 +390,37 @@ export function EquipmentManagementPanel({
     }
   }
 
+  async function handleOwnershipTransferRequest() {
+    if (!editingId) return;
+    setTransferState("saving");
+    setTransferNotice(undefined);
+    try {
+      const toOwner = transferTargetOwner.trim();
+      const reason = transferReason.trim();
+      if (!toOwner || !reason || !transferConfirmed) {
+        throw new Error("ownership transfer request is incomplete");
+      }
+      const response = await api.POST(
+        "/api/v1/equipment/{id}/ownership-transfer-requests",
+        {
+          params: { path: { id: editingId } },
+          body: { to_owner: toOwner, reason },
+        },
+      );
+      if (!response.data) {
+        throw new Error("ownership transfer request failed");
+      }
+      setTransferNotice(ko.equipment.transfer.requestSuccess);
+      setTransferTargetOwner("");
+      setTransferReason("");
+      setTransferConfirmed(false);
+      setTransferState("idle");
+      onMutated();
+    } catch {
+      setTransferState("error");
+    }
+  }
+
   const submitDisabled =
     writeState === "saving" ||
     (mode === "create" &&
@@ -385,6 +433,11 @@ export function EquipmentManagementPanel({
           (!selectedOwnerOrgId ||
             ownerOrgOptions.length === 0 ||
             !ownershipConfirmed))));
+  const transferDisabled =
+    transferState === "saving" ||
+    !transferTargetOwner.trim() ||
+    !transferReason.trim() ||
+    !transferConfirmed;
 
   return (
     <Card className="grid gap-4">
@@ -603,6 +656,110 @@ export function EquipmentManagementPanel({
                 ? ko.equipment.createFailed
                 : ko.equipment.updateFailed}
             </p>
+          ) : null}
+          {mode === "edit" ? (
+            <section
+              aria-label={ko.equipment.transfer.title}
+              className="grid gap-3 rounded-md border border-line bg-muted-panel/50 p-3"
+            >
+              <div>
+                <h4 className="text-sm font-semibold text-ink">
+                  {ko.equipment.transfer.title}
+                </h4>
+                <p className="text-xs leading-5 text-steel">
+                  {ko.equipment.transfer.description}
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <label
+                    className="text-sm font-medium text-steel"
+                    htmlFor="eq-transfer-owner"
+                  >
+                    {ko.equipment.transfer.targetOwner}
+                  </label>
+                  {ownerOrgOptions.length > 0 ? (
+                    <Select
+                      id="eq-transfer-owner"
+                      value={transferTargetOwner}
+                      onChange={(event) => {
+                        setTransferTargetOwner(event.currentTarget.value);
+                      }}
+                    >
+                      <option value="">
+                        {ko.equipment.transfer.targetOwnerPlaceholder}
+                      </option>
+                      {ownerOrgOptions.map((option) => (
+                        <option key={option.id} value={option.name}>
+                          {ownerOrgLabel(option)}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Input
+                      id="eq-transfer-owner"
+                      value={transferTargetOwner}
+                      placeholder={ko.equipment.transfer.targetOwnerPlaceholder}
+                      onChange={(event) => {
+                        setTransferTargetOwner(event.currentTarget.value);
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="grid gap-2">
+                  <label
+                    className="text-sm font-medium text-steel"
+                    htmlFor="eq-transfer-reason"
+                  >
+                    {ko.equipment.transfer.reason}
+                  </label>
+                  <Textarea
+                    id="eq-transfer-reason"
+                    rows={2}
+                    className="min-h-9"
+                    value={transferReason}
+                    onChange={(event) => {
+                      setTransferReason(event.currentTarget.value);
+                    }}
+                  />
+                </div>
+              </div>
+              <label className="flex items-start gap-2 text-sm font-medium text-steel">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-line"
+                  checked={transferConfirmed}
+                  onChange={(event) => {
+                    setTransferConfirmed(event.currentTarget.checked);
+                  }}
+                />
+                <span>{ko.equipment.transfer.signoffAcknowledgement}</span>
+              </label>
+              {transferNotice ? (
+                <p role="status" className="text-sm font-medium text-brand-teal">
+                  {transferNotice}
+                </p>
+              ) : null}
+              {transferState === "error" ? (
+                <p role="alert" className="text-sm font-semibold text-red-700">
+                  {ko.equipment.transfer.requestFailed}
+                </p>
+              ) : null}
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={transferDisabled}
+                  onClick={() => {
+                    void handleOwnershipTransferRequest();
+                  }}
+                >
+                  {transferState === "saving"
+                    ? ko.equipment.saving
+                    : ko.equipment.transfer.requestAction}
+                </Button>
+              </div>
+            </section>
           ) : null}
           <div className="flex items-center justify-end gap-2">
             <Button

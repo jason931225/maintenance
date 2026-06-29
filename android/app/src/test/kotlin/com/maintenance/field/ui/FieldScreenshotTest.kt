@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.maintenance.field.data.collaboration.MobileOperationsSnapshotOrigin
 import com.maintenance.field.ui.theme.FieldTheme
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -102,6 +103,36 @@ class FieldScreenshotTest {
     @Test
     fun login_screen_matrix() = captureMatrix("login") {
         LoginScreen(busy = false, onLogin = {})
+    }
+
+    @Test
+    fun work_hub_screen_matrix() = captureMatrix("work_hub") {
+        WorkHubScreen(
+            summary = WorkHubSummary.build(
+                today = FieldFixtures.todayOrders,
+                messengerState = FieldFixtures.populatedMessengerState(),
+                gpsMayCollect = true,
+            ),
+            busy = false,
+            onRefresh = {},
+        )
+    }
+
+
+
+    @Test
+    fun operations_screen_matrix() = captureMatrix("operations") {
+        OperationsScreen(
+            dashboard = FieldFixtures.operationsDashboard(),
+            origin = MobileOperationsSnapshotOrigin.LIVE,
+            busy = false,
+            approvalComment = "",
+            onApprovalCommentChange = {},
+            onRefresh = {},
+            onQueueApproval = {},
+            onMarkThreadRead = {},
+            onVotePoll = {},
+        )
     }
 
     @Test

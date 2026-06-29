@@ -61,6 +61,14 @@ function saveBlob(blob: Blob, fileName: string): void {
 
 type DownloadState = "idle" | "loading" | "error";
 
+interface ExportHistoryItem {
+  id: string;
+  reportLabel: string;
+  date: string;
+  fileName: string;
+  createdAt: string;
+}
+
 /**
  * Reporting export panel: pick a report (work-diary / daily-status) and a date, then
  * download the generated Excel workbook. The backend serves a binary xlsx
@@ -73,6 +81,7 @@ export function ReportingExport() {
   const [date, setDate] = useState(todayIso);
   const [state, setState] = useState<DownloadState>("idle");
   const [doneLabel, setDoneLabel] = useState<string | undefined>(undefined);
+  const [history, setHistory] = useState<ExportHistoryItem[]>([]);
   const clearDone = useCallback(() => {
     setDoneLabel(undefined);
   }, []);
@@ -97,7 +106,20 @@ export function ReportingExport() {
         fallback,
       );
       saveBlob(blob, fileName);
-      setDoneLabel(REPORT_LABELS[report]);
+      const reportLabel = REPORT_LABELS[report];
+      setHistory((current) =>
+        [
+          {
+            id: `${report}-${date}-${String(Date.now())}`,
+            reportLabel,
+            date,
+            fileName,
+            createdAt: new Date().toISOString(),
+          },
+          ...current,
+        ].slice(0, 5),
+      );
+      setDoneLabel(reportLabel);
       setState("idle");
     } catch {
       setState("error");
@@ -158,7 +180,47 @@ export function ReportingExport() {
           {ko.reporting.downloadDone.replace("{report}", doneLabel)}
         </p>
       ) : null}
-      <p className="text-xs text-steel">{ko.reporting.historyNote}</p>
+      <ExportHistoryList items={history} />
     </Card>
+  );
+}
+
+function ExportHistoryList({ items }: { items: ExportHistoryItem[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section
+      aria-labelledby="reporting-export-history"
+      className="grid gap-2 border-t border-line pt-4"
+    >
+      <h3
+        id="reporting-export-history"
+        className="text-sm font-semibold text-steel"
+      >
+        {ko.reporting.history.title}
+      </h3>
+      <ul className="grid gap-2">
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="grid gap-1 rounded-md border border-line bg-muted-panel p-3 text-sm"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-ink">{item.reportLabel}</span>
+              <span className="text-xs text-steel">{item.date}</span>
+            </div>
+            <span className="break-all text-steel">{item.fileName}</span>
+            <a
+              className="text-xs font-semibold text-brand-teal hover:underline"
+              href={`/reporting?date=${item.date}`}
+            >
+              {ko.reporting.history.reopen}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

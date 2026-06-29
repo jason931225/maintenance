@@ -80,19 +80,27 @@ export function WallBoard({
               {ko.common.secondUnit}
             </Badge>
             {isLoading ? (
-              <Badge role="status" className="min-h-10 border-white/15 bg-white/5 px-3 text-white">
+              <Badge
+                role="status"
+                className="min-h-10 border-white/15 bg-white/5 px-3 text-white"
+              >
                 {ko.common.loading}
               </Badge>
             ) : null}
           </div>
         </header>
 
+        <WallboardActionStrip />
+
         <section
           aria-labelledby="wallboard-exceptions"
           aria-live="polite"
           className="grid gap-4"
         >
-          <h2 id="wallboard-exceptions" className="text-xl font-semibold text-white/80">
+          <h2
+            id="wallboard-exceptions"
+            className="text-xl font-semibold text-white/80"
+          >
             {ko.wallboard.exceptionStrip}
           </h2>
           <div className="grid gap-4 md:grid-cols-3">
@@ -117,19 +125,55 @@ export function WallBoard({
         <section className="grid gap-4 md:grid-cols-3">
           <MetricTile
             label={ko.wallboard.completedToday}
-            value={rollup ? formatCount(rollup.completed_count) : ko.common.notSet}
+            value={
+              rollup ? formatCount(rollup.completed_count) : ko.common.notSet
+            }
           />
           <MetricTile
             label={ko.wallboard.responseSpeed}
-            value={rollup ? formatSeconds(rollup.average_response_seconds) : ko.common.notSet}
+            value={
+              rollup
+                ? formatSeconds(rollup.average_response_seconds)
+                : ko.common.notSet
+            }
           />
           <MetricTile
             label={ko.kpi.dueCompliance}
-            value={rollup ? formatBps(rollup.target_due_compliance_bps) : ko.common.notSet}
+            value={
+              rollup
+                ? formatBps(rollup.target_due_compliance_bps)
+                : ko.common.notSet
+            }
           />
         </section>
       </section>
     </main>
+  );
+}
+
+function WallboardActionStrip() {
+  const links = [
+    { label: ko.wallboard.actions.ops, href: "/ops" },
+    { label: ko.wallboard.actions.kpi, href: "/kpi" },
+    { label: ko.wallboard.actions.reporting, href: "/reporting" },
+    { label: ko.wallboard.actions.support, href: "/support" },
+  ];
+
+  return (
+    <nav
+      aria-label={ko.wallboard.actions.title}
+      className="flex flex-wrap gap-2 rounded-lg border border-white/10 bg-white/5 p-3"
+    >
+      {links.map((link) => (
+        <a
+          key={link.href}
+          className="rounded-md border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/20"
+          href={link.href}
+        >
+          {link.label}
+        </a>
+      ))}
+    </nav>
   );
 }
 
@@ -164,7 +208,8 @@ function countExceptions(workOrders: WorkOrderListItem[], now: Date) {
     urgentUnassigned: workOrders.filter(
       (workOrder) =>
         workOrder.priority === "P1" &&
-        (workOrder.status === "RECEIVED" || workOrder.status === "UNASSIGNED") &&
+        (workOrder.status === "RECEIVED" ||
+          workOrder.status === "UNASSIGNED") &&
         workOrder.assignments.length === 0,
     ).length,
     awaitingApproval: workOrders.filter((workOrder) =>

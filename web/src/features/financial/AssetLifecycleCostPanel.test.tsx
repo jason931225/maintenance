@@ -180,6 +180,12 @@ describe("asset lifecycle cost panel", () => {
     expect(screen.getByLabelText("3,750 원")).toBeVisible();
     // Outsource cost is surfaced read-only.
     expect(screen.getByLabelText("4,000,000 원")).toBeVisible();
+    expect(screen.getByText("보유·매각 검토 신호")).toBeVisible();
+    expect(screen.getByText("검토 필요")).toBeVisible();
+    expect(screen.getByText("• 매각 손익이 음수입니다.")).toBeVisible();
+    expect(
+      screen.getByText("• 정비비가 잔존가 대비 높습니다."),
+    ).toBeVisible();
   });
 
   it("handles a NONE/fallback acquisition and NULL per-hour/per-month", async () => {
@@ -204,6 +210,7 @@ describe("asset lifecycle cost panel", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
     // No gross-margin row for an unsold asset.
     expect(screen.queryByText("매각손익")).not.toBeInTheDocument();
+    expect(screen.getByText("• 취득원가가 대체값 또는 미등록 상태입니다.")).toBeVisible();
   });
 
   it("denies the panel to a role without EquipmentCostLedgerRead", async () => {

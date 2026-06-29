@@ -17,19 +17,24 @@ use mnt_kernel_core::{
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
-    CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
+    CreateCustomerCommand, CreateEquipmentCommand, CreateEquipmentOwnershipTransferCommand,
+    CreateSiteCommand, CreatedCustomer, CreatedSite, DecideEquipmentOwnershipTransferCommand,
     DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentCostLedgerSummary,
     EquipmentGraphEdge, EquipmentGraphNode, EquipmentLifecycleEvent, EquipmentListItem,
-    EquipmentListPage, EquipmentListQuery, EquipmentReadQuery, EquipmentRelationshipGraph,
-    EquipmentSortBy, EquipmentTimelineBase, EquipmentTimelineEquipment, EquipmentTimelineGraph,
-    EquipmentTimelineGraphQuery, EquipmentTimelineSubstitution, EquipmentTimelineWorkOrder,
-    ImportSheet, MasterListEquipment, ParsedMasterList, RegistryImportReport, RegistryRowError,
-    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
-    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateSiteCommand,
-    UpdateSiteFields, customer_create_audit_event, equipment_create_audit_event,
-    equipment_delete_audit_event, equipment_update_audit_event, registry_import_audit_event,
-    site_create_audit_event, site_update_audit_event, substitute_assign_audit_event,
-    substitute_return_audit_event,
+    EquipmentListPage, EquipmentListQuery, EquipmentOwnershipTransferDecision,
+    EquipmentOwnershipTransferRequest, EquipmentOwnershipTransferStatus,
+    EquipmentOwnershipTransferStep, EquipmentOwnershipTransferStepKey, EquipmentReadQuery,
+    EquipmentRelationshipGraph, EquipmentSortBy, EquipmentTimelineBase, EquipmentTimelineEquipment,
+    EquipmentTimelineGraph, EquipmentTimelineGraphQuery, EquipmentTimelineSubstitution,
+    EquipmentTimelineWorkOrder, ImportSheet, MasterListEquipment, ParsedMasterList,
+    RegistryImportReport, RegistryRowError, SiteLocationGroup, SubstituteAssignment,
+    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
+    UpdateEquipmentCommand, UpdateSiteCommand, UpdateSiteFields, customer_create_audit_event,
+    equipment_create_audit_event, equipment_delete_audit_event,
+    equipment_ownership_transfer_decision_audit_event,
+    equipment_ownership_transfer_request_audit_event, equipment_update_audit_event,
+    registry_import_audit_event, site_create_audit_event, site_update_audit_event,
+    substitute_assign_audit_event, substitute_return_audit_event,
 };
 use mnt_registry_domain::{
     EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
@@ -117,16 +122,18 @@ impl PgRegistryStore {
         result
     }
 
-    /// Create a single equipment master row on the default HQ branch, audited.
+    /// Create a single equipment master row, audited. Branch-scoped admins land
+    /// the row on their own branch so direct creates are immediately visible in
+    /// the same branch-scoped browse/detail reads; org-wide principals land on
+    /// the tenant default HQ branch, matching the importer fallback.
     // mnt-gate: state-changing-handler
     pub async fn create_equipment(
         &self,
         command: CreateEquipmentCommand,
     ) -> Result<EquipmentId, PgRegistryError> {
-        let branch_id = self.ensure_default_hq_branch().await?;
         let row = master_list_row_from_create(&command);
-        let branch_uuid = *branch_id.as_uuid();
         let actor = command.actor;
+        let requested_branch = command.branch_id;
         let trace = command.trace;
         let occurred_at = command.occurred_at;
 
@@ -135,6 +142,8 @@ impl PgRegistryStore {
 
         with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, org, move |tx| {
             Box::pin(async move {
+                let branch_uuid = resolve_create_branch(tx, requested_branch, org_uuid).await?;
+                let branch_id = BranchId::from_uuid(branch_uuid);
                 let customer_id =
                     upsert_customer(tx, branch_uuid, &row.customer_name, org_uuid).await?;
                 let site_id =
@@ -173,11 +182,11 @@ impl PgRegistryStore {
         .await
     }
 
-    /// Create one customer (고객) directly on the default HQ branch, audited.
+    /// Create one customer (고객) directly on the requested branch, audited.
     ///
     /// Unlike the importer's `upsert_customer` (idempotent ON CONFLICT DO UPDATE so
     /// a re-import never duplicates), an explicit admin create is a distinct intent:
-    /// a same-name customer already on the HQ branch is a `conflict` (→ 409), not a
+    /// a same-name customer already on that branch is a `conflict` (→ 409), not a
     /// silent merge into the existing row. The duplicate is detected inside the
     /// armed transaction (mirroring `create_equipment`'s equipment-no check) so the
     /// conflict surfaces as a domain error; the `registry_customers (branch_id, name)`
@@ -605,6 +614,7 @@ impl PgRegistryStore {
                         e.ton_text      AS ton_text,
                         c.name          AS customer_name,
                         s.name          AS site_name,
+                        e.asset_owner   AS asset_owner,
                         e.vin           AS vin,
                         e.updated_at    AS updated_at
                     FROM registry_equipment e
@@ -690,6 +700,7 @@ impl PgRegistryStore {
                         e.ton_text      AS ton_text,
                         c.name          AS customer_name,
                         s.name          AS site_name,
+                        e.asset_owner   AS asset_owner,
                         e.vin           AS vin,
                         e.updated_at    AS updated_at
                     FROM registry_equipment e
@@ -1121,6 +1132,186 @@ impl PgRegistryStore {
         .await
     }
 
+    pub async fn list_equipment_ownership_transfers(
+        &self,
+        equipment_id: EquipmentId,
+    ) -> Result<Vec<EquipmentOwnershipTransferRequest>, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT id, equipment_id, branch_id, from_owner, to_owner, reason,
+                           status, current_step, approval_line, requested_by,
+                           requested_at, decided_at, completed_at
+                    FROM equipment_ownership_transfer_requests
+                    WHERE equipment_id = $1
+                    ORDER BY requested_at DESC, id DESC
+                    "#,
+                )
+                .bind(*equipment_id.as_uuid())
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.iter().map(ownership_transfer_from_row).collect()
+            })
+        })
+        .await
+    }
+
+    pub async fn create_equipment_ownership_transfer(
+        &self,
+        command: CreateEquipmentOwnershipTransferCommand,
+    ) -> Result<EquipmentOwnershipTransferRequest, PgRegistryError> {
+        let to_owner = normalize_required_text(&command.to_owner, "to_owner")?;
+        let reason = normalize_required_text(&command.reason, "reason")?;
+        if reason.chars().count() > 1000 {
+            return Err(KernelError::validation("reason must be at most 1000 characters").into());
+        }
+        let equipment = fetch_equipment_transfer_anchor(self.pool(), command.equipment_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+        if equipment.current_owner == to_owner {
+            return Err(KernelError::conflict("target owner already owns this equipment").into());
+        }
+        if fetch_pending_ownership_transfer(self.pool(), command.equipment_id)
+            .await?
+            .is_some()
+        {
+            return Err(KernelError::conflict(
+                "equipment already has a pending ownership transfer request",
+            )
+            .into());
+        }
+
+        let request = EquipmentOwnershipTransferRequest {
+            id: uuid::Uuid::new_v4(),
+            equipment_id: command.equipment_id,
+            branch_id: equipment.branch_id,
+            from_owner: equipment.current_owner,
+            to_owner,
+            reason,
+            status: EquipmentOwnershipTransferStatus::Pending,
+            current_step: Some(EquipmentOwnershipTransferStepKey::SendingOrgAdmin),
+            approval_line: initial_ownership_transfer_line(),
+            requested_by: Some(command.actor),
+            requested_at: command.occurred_at,
+            decided_at: None,
+            completed_at: None,
+        };
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let event = equipment_ownership_transfer_request_audit_event(
+            &command,
+            request.branch_id,
+            &request,
+        )?
+        .with_org(org);
+
+        with_audit::<_, EquipmentOwnershipTransferRequest, PgRegistryError>(
+            &self.pool,
+            event,
+            move |tx| {
+                Box::pin(async move {
+                    insert_ownership_transfer_request(tx, org_uuid, &request).await?;
+                    insert_ownership_transfer_event(
+                        tx,
+                        org_uuid,
+                        &request,
+                        Some(command.actor),
+                        "equipment.ownership_transfer.requested",
+                        None,
+                        Some("소유권 이전 요청 생성"),
+                    )
+                    .await?;
+                    Ok(request)
+                })
+            },
+        )
+        .await
+    }
+
+    pub async fn decide_equipment_ownership_transfer(
+        &self,
+        command: DecideEquipmentOwnershipTransferCommand,
+    ) -> Result<EquipmentOwnershipTransferRequest, PgRegistryError> {
+        let comment = normalize_required_text(&command.comment, "comment")?;
+        if comment.chars().count() > 1000 {
+            return Err(KernelError::validation("comment must be at most 1000 characters").into());
+        }
+        let before = fetch_ownership_transfer(self.pool(), command.request_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("ownership transfer request was not found"))?;
+        if before.status != EquipmentOwnershipTransferStatus::Pending {
+            return Err(
+                KernelError::conflict("ownership transfer request is already terminal").into(),
+            );
+        }
+        let current_step = before.current_step.ok_or_else(|| {
+            KernelError::conflict("ownership transfer request has no current step")
+        })?;
+        let after = apply_ownership_transfer_decision(
+            before.clone(),
+            current_step,
+            command.decision,
+            command.actor,
+            command.occurred_at,
+            comment.clone(),
+        )?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let event = equipment_ownership_transfer_decision_audit_event(&command, &before, &after)?
+            .with_org(org);
+
+        with_audit::<_, EquipmentOwnershipTransferRequest, PgRegistryError>(
+            &self.pool,
+            event,
+            move |tx| {
+                Box::pin(async move {
+                    let rows_affected = update_ownership_transfer_request(tx, &after).await?;
+                    if rows_affected == 0 {
+                        return Err(KernelError::conflict(
+                            "ownership transfer request changed while deciding",
+                        )
+                        .into());
+                    }
+                    if after.status == EquipmentOwnershipTransferStatus::Approved {
+                        sqlx::query(
+                            r#"
+                            UPDATE registry_equipment
+                            SET asset_owner = $2, updated_at = now()
+                            WHERE id = $1
+                            "#,
+                        )
+                        .bind(*after.equipment_id.as_uuid())
+                        .bind(after.to_owner.as_str())
+                        .execute(tx.as_mut())
+                        .await?;
+                    }
+                    let action = match command.decision {
+                        EquipmentOwnershipTransferDecision::Approve => {
+                            "equipment.ownership_transfer.approved"
+                        }
+                        EquipmentOwnershipTransferDecision::Reject => {
+                            "equipment.ownership_transfer.rejected"
+                        }
+                    };
+                    insert_ownership_transfer_event(
+                        tx,
+                        org_uuid,
+                        &after,
+                        Some(command.actor),
+                        action,
+                        Some(current_step),
+                        Some(comment.as_str()),
+                    )
+                    .await?;
+                    Ok(after)
+                })
+            },
+        )
+        .await
+    }
+
     /// Resolve (creating on first use) the calling tenant's default `HQ`
     /// region/branch, the single branch every master-list row is assigned to.
     ///
@@ -1408,6 +1599,7 @@ fn equipment_list_item_from_row(
         ton_text: row.try_get("ton_text")?,
         customer_name: row.try_get("customer_name")?,
         site_name: row.try_get("site_name")?,
+        asset_owner: row.try_get("asset_owner")?,
         vin: row.try_get("vin")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -2140,6 +2332,304 @@ fn substitution_from_row(
         returned_at: row.try_get("returned_at")?,
         return_note: row.try_get("return_note")?,
     })
+}
+
+#[derive(Debug, Clone)]
+struct EquipmentTransferAnchor {
+    branch_id: BranchId,
+    current_owner: String,
+}
+
+async fn fetch_equipment_transfer_anchor(
+    pool: &PgPool,
+    equipment_id: EquipmentId,
+) -> Result<Option<EquipmentTransferAnchor>, PgRegistryError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
+                SELECT e.branch_id,
+                       COALESCE(NULLIF(btrim(e.asset_owner), ''), o.name) AS current_owner
+                FROM registry_equipment e
+                JOIN organizations o ON o.id = e.org_id
+                WHERE e.id = $1
+                "#,
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?;
+    row.map(|row| {
+        Ok(EquipmentTransferAnchor {
+            branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+            current_owner: row.try_get("current_owner")?,
+        })
+    })
+    .transpose()
+}
+
+async fn fetch_pending_ownership_transfer(
+    pool: &PgPool,
+    equipment_id: EquipmentId,
+) -> Result<Option<uuid::Uuid>, PgRegistryError> {
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query_scalar(
+                r#"
+                SELECT id
+                FROM equipment_ownership_transfer_requests
+                WHERE equipment_id = $1
+                  AND status = 'PENDING'
+                LIMIT 1
+                "#,
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await
+}
+
+async fn fetch_ownership_transfer(
+    pool: &PgPool,
+    request_id: uuid::Uuid,
+) -> Result<Option<EquipmentOwnershipTransferRequest>, PgRegistryError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
+                SELECT id, equipment_id, branch_id, from_owner, to_owner, reason,
+                       status, current_step, approval_line, requested_by,
+                       requested_at, decided_at, completed_at
+                FROM equipment_ownership_transfer_requests
+                WHERE id = $1
+                "#,
+            )
+            .bind(request_id)
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?;
+    row.map(|row| ownership_transfer_from_row(&row)).transpose()
+}
+
+fn ownership_transfer_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EquipmentOwnershipTransferRequest, PgRegistryError> {
+    let status_raw: String = row.try_get("status")?;
+    let current_step_raw: Option<String> = row.try_get("current_step")?;
+    let approval_line_value: serde_json::Value = row.try_get("approval_line")?;
+    let approval_line =
+        serde_json::from_value::<Vec<EquipmentOwnershipTransferStep>>(approval_line_value)
+            .map_err(|err| KernelError::internal(format!("invalid approval line JSON: {err}")))?;
+    Ok(EquipmentOwnershipTransferRequest {
+        id: row.try_get("id")?,
+        equipment_id: EquipmentId::from_uuid(row.try_get("equipment_id")?),
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        from_owner: row.try_get("from_owner")?,
+        to_owner: row.try_get("to_owner")?,
+        reason: row.try_get("reason")?,
+        status: EquipmentOwnershipTransferStatus::try_from(status_raw.as_str())?,
+        current_step: current_step_raw
+            .as_deref()
+            .map(EquipmentOwnershipTransferStepKey::try_from)
+            .transpose()?,
+        approval_line,
+        requested_by: row
+            .try_get::<Option<uuid::Uuid>, _>("requested_by")?
+            .map(UserId::from_uuid),
+        requested_at: row.try_get("requested_at")?,
+        decided_at: row.try_get("decided_at")?,
+        completed_at: row.try_get("completed_at")?,
+    })
+}
+
+fn initial_ownership_transfer_line() -> Vec<EquipmentOwnershipTransferStep> {
+    EquipmentOwnershipTransferStepKey::ORDER
+        .into_iter()
+        .enumerate()
+        .map(|(index, step)| EquipmentOwnershipTransferStep {
+            step_key: step.as_str().to_owned(),
+            label: step.label().to_owned(),
+            status: if index == 0 { "PENDING" } else { "WAITING" }.to_owned(),
+            decided_by: None,
+            decided_at: None,
+            comment: None,
+        })
+        .collect()
+}
+
+fn apply_ownership_transfer_decision(
+    mut request: EquipmentOwnershipTransferRequest,
+    current_step: EquipmentOwnershipTransferStepKey,
+    decision: EquipmentOwnershipTransferDecision,
+    actor: UserId,
+    decided_at: OffsetDateTime,
+    comment: String,
+) -> Result<EquipmentOwnershipTransferRequest, PgRegistryError> {
+    let current_index = EquipmentOwnershipTransferStepKey::ORDER
+        .iter()
+        .position(|step| *step == current_step)
+        .ok_or_else(|| KernelError::validation("unknown ownership transfer step"))?;
+    let line_step = request
+        .approval_line
+        .iter_mut()
+        .find(|step| step.step_key == current_step.as_str())
+        .ok_or_else(|| KernelError::conflict("approval line is missing the current step"))?;
+    line_step.status = match decision {
+        EquipmentOwnershipTransferDecision::Approve => "APPROVED".to_owned(),
+        EquipmentOwnershipTransferDecision::Reject => "REJECTED".to_owned(),
+    };
+    line_step.decided_by = Some(actor);
+    line_step.decided_at = Some(decided_at);
+    line_step.comment = Some(comment);
+    request.decided_at = Some(decided_at);
+
+    match decision {
+        EquipmentOwnershipTransferDecision::Reject => {
+            request.status = EquipmentOwnershipTransferStatus::Rejected;
+            request.current_step = None;
+        }
+        EquipmentOwnershipTransferDecision::Approve => {
+            let next_step =
+                EquipmentOwnershipTransferStepKey::ORDER.get(current_index.saturating_add(1));
+            if let Some(next_step) = next_step {
+                let next_line_step = request
+                    .approval_line
+                    .iter_mut()
+                    .find(|step| step.step_key == next_step.as_str())
+                    .ok_or_else(|| {
+                        KernelError::conflict("approval line is missing the next step")
+                    })?;
+                next_line_step.status = "PENDING".to_owned();
+                request.current_step = Some(*next_step);
+            } else {
+                request.status = EquipmentOwnershipTransferStatus::Approved;
+                request.current_step = None;
+                request.completed_at = Some(decided_at);
+            }
+        }
+    }
+    Ok(request)
+}
+
+async fn insert_ownership_transfer_request(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    request: &EquipmentOwnershipTransferRequest,
+) -> Result<(), PgRegistryError> {
+    let approval_line = serde_json::to_value(&request.approval_line)
+        .map_err(|err| KernelError::internal(format!("invalid approval line: {err}")))?;
+    sqlx::query(
+        r#"
+        INSERT INTO equipment_ownership_transfer_requests (
+            id, org_id, equipment_id, branch_id, from_owner, to_owner, reason,
+            status, current_step, approval_line, requested_by, requested_at,
+            decided_at, completed_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
+        "#,
+    )
+    .bind(request.id)
+    .bind(org_uuid)
+    .bind(*request.equipment_id.as_uuid())
+    .bind(*request.branch_id.as_uuid())
+    .bind(request.from_owner.as_str())
+    .bind(request.to_owner.as_str())
+    .bind(request.reason.as_str())
+    .bind(request.status.as_str())
+    .bind(
+        request
+            .current_step
+            .map(EquipmentOwnershipTransferStepKey::as_str),
+    )
+    .bind(approval_line)
+    .bind(request.requested_by.map(|user_id| *user_id.as_uuid()))
+    .bind(request.requested_at)
+    .bind(request.decided_at)
+    .bind(request.completed_at)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn update_ownership_transfer_request(
+    tx: &mut Transaction<'_, Postgres>,
+    request: &EquipmentOwnershipTransferRequest,
+) -> Result<u64, PgRegistryError> {
+    let approval_line = serde_json::to_value(&request.approval_line)
+        .map_err(|err| KernelError::internal(format!("invalid approval line: {err}")))?;
+    let result = sqlx::query(
+        r#"
+        UPDATE equipment_ownership_transfer_requests
+        SET status = $2,
+            current_step = $3,
+            approval_line = $4,
+            decided_at = $5,
+            completed_at = $6,
+            updated_at = now()
+        WHERE id = $1
+          AND status = 'PENDING'
+        "#,
+    )
+    .bind(request.id)
+    .bind(request.status.as_str())
+    .bind(
+        request
+            .current_step
+            .map(EquipmentOwnershipTransferStepKey::as_str),
+    )
+    .bind(approval_line)
+    .bind(request.decided_at)
+    .bind(request.completed_at)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(result.rows_affected())
+}
+
+async fn insert_ownership_transfer_event(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    request: &EquipmentOwnershipTransferRequest,
+    actor: Option<UserId>,
+    action: &str,
+    step_key: Option<EquipmentOwnershipTransferStepKey>,
+    comment: Option<&str>,
+) -> Result<(), PgRegistryError> {
+    let snapshot = json!({
+        "request_id": request.id,
+        "equipment_id": request.equipment_id,
+        "from_owner": request.from_owner,
+        "to_owner": request.to_owner,
+        "status": request.status,
+        "current_step": request.current_step.map(EquipmentOwnershipTransferStepKey::as_str),
+        "approval_line": request.approval_line,
+    });
+    sqlx::query(
+        r#"
+        INSERT INTO equipment_ownership_transfer_events (
+            org_id, request_id, action, actor_id, step_key, comment, snapshot
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(request.id)
+    .bind(action)
+    .bind(actor.map(|user_id| *user_id.as_uuid()))
+    .bind(step_key.map(EquipmentOwnershipTransferStepKey::as_str))
+    .bind(comment)
+    .bind(snapshot)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
 }
 
 fn normalize_required_text(value: &str, field: &str) -> Result<String, KernelError> {

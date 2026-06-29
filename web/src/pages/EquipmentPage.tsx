@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { EquipmentLookupResponse, EquipmentLookupState } from "../api/types";
 import {
   listGroupAdminGroups,
-  type GroupAdminGroup,
 } from "../api/groupAdmin";
 import { useAuth } from "../context/auth";
 import { hasAnyRole, hasGroupAdminRole, ROLES } from "../components/shell/nav";
@@ -14,6 +13,7 @@ import {
   EquipmentManagementPanel,
   type EquipmentOwnerOrgOption,
 } from "../features/equipment/EquipmentManagementPanel";
+import { flattenEquipmentOwnerOrgOptions } from "../features/equipment/ownerOrgOptions";
 import { ManagementNoCombobox } from "../features/equipment/ManagementNoCombobox";
 import { SiteGeographyPanel } from "../features/equipment/SiteGeographyPanel";
 import { SubstitutionPanel } from "../features/equipment/SubstitutionPanel";
@@ -31,26 +31,6 @@ const EQUIPMENT_MANAGE_ROLES = [
 
 /** MasterListImport holders (backend matrix: ADMIN/SUPER_ADMIN). */
 const MASTER_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
-
-function flattenOwnerOrgOptions(
-  groups: readonly GroupAdminGroup[],
-): EquipmentOwnerOrgOption[] {
-  return groups
-    .flatMap((group) =>
-      group.members.map((member) => ({
-        id: member.id,
-        name: member.name,
-        slug: member.slug,
-        groupName: group.name,
-      })),
-    )
-    .sort(
-      (a, b) =>
-        a.groupName.localeCompare(b.groupName, "ko") ||
-        a.name.localeCompare(b.name, "ko") ||
-        a.slug.localeCompare(b.slug),
-    );
-}
 
 export function EquipmentPage() {
   const { api, session, viewAs } = useAuth();
@@ -156,7 +136,7 @@ export function EquipmentPage() {
       try {
         const groups = await listGroupAdminGroups(groupAdminSourceToken);
         if (cancelled) return;
-        setOwnerOrgOptions(flattenOwnerOrgOptions(groups));
+        setOwnerOrgOptions(flattenEquipmentOwnerOrgOptions(groups));
       } catch {
         if (!cancelled) setOwnerOrgOptions([]);
       }

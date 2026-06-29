@@ -83,7 +83,9 @@ export function KpiDashboard({
   }, [report]);
   const effectiveScopeKey =
     selectedScopeKey &&
-    report?.rollups.some((rollup) => scopeKey(rollup.scope) === selectedScopeKey)
+    report?.rollups.some(
+      (rollup) => scopeKey(rollup.scope) === selectedScopeKey,
+    )
       ? selectedScopeKey
       : defaultScopeKey;
   const selectedRollup = useMemo(
@@ -116,6 +118,12 @@ export function KpiDashboard({
         ) : null}
       </div>
 
+      <ExecutiveInsightRail
+        period={period}
+        report={report}
+        selectedRollup={selectedRollup}
+      />
+
       <div className="grid gap-3 lg:grid-cols-[minmax(16rem,20rem)_1fr]">
         <label className="grid gap-2 text-sm font-medium text-steel">
           {ko.kpi.period}
@@ -132,7 +140,10 @@ export function KpiDashboard({
             }}
           />
           {periodValid ? (
-            <span id="kpi-period-hint" className="text-xs font-normal text-steel">
+            <span
+              id="kpi-period-hint"
+              className="text-xs font-normal text-steel"
+            >
               {ko.kpi.periodHint}
             </span>
           ) : (
@@ -194,9 +205,7 @@ export function KpiDashboard({
                 <h3 className="text-sm font-semibold text-steel">
                   {ko.kpi.metrics[card.metric]}
                 </h3>
-                <p className="mt-3 text-2xl font-bold text-ink">
-                  {card.value}
-                </p>
+                <p className="mt-3 text-2xl font-bold text-ink">{card.value}</p>
               </div>
               <p className="text-sm leading-5 text-steel">{card.detail}</p>
             </article>
@@ -205,6 +214,88 @@ export function KpiDashboard({
       )}
     </section>
   );
+}
+
+function ExecutiveInsightRail({
+  period,
+  report,
+  selectedRollup,
+}: {
+  period: string;
+  report?: KpiReport;
+  selectedRollup?: KpiRollup;
+}) {
+  const scopeLabel = selectedRollup
+    ? formatScopeLabel(selectedRollup)
+    : ko.kpi.noReport;
+  const scopeMode =
+    selectedRollup?.scope.kind === "company"
+      ? ko.kpi.command.scopeModes.consolidated
+      : ko.kpi.command.scopeModes.scoped;
+
+  const links = [
+    { label: ko.kpi.command.links.ops, href: `/ops?period=${period}` },
+    {
+      label: ko.kpi.command.links.reporting,
+      href: `/reporting?period=${period}`,
+    },
+    { label: ko.kpi.command.links.wallboard, href: "/wallboard" },
+    { label: ko.kpi.command.links.support, href: "/support?source=kpi" },
+  ];
+
+  return (
+    <div
+      aria-label={ko.kpi.command.title}
+      className="grid gap-3 rounded-md border border-line bg-muted-panel p-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-steel">
+            {ko.kpi.command.eyebrow}
+          </p>
+          <p className="text-base font-semibold text-ink">
+            {ko.kpi.command.title}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {links.map((link) => (
+            <a
+              key={link.href}
+              className="rounded-md border border-line bg-white px-3 py-1.5 text-sm font-medium text-ink hover:border-ink"
+              href={link.href}
+            >
+              {link.label}
+            </a>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <InsightPill label={ko.kpi.command.scope} value={scopeLabel} />
+        <InsightPill label={ko.kpi.command.viewMode} value={scopeMode} />
+        <InsightPill
+          label={ko.kpi.command.sourceCount}
+          value={`${formatCount(report?.rollups.length ?? 0)} ${ko.kpi.command.rollupUnit}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function InsightPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-line bg-white p-3">
+      <p className="text-xs font-semibold text-steel">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function formatScopeLabel(rollup: KpiRollup) {
+  const label = ko.kpi.scopes[rollup.scope.kind];
+  if (rollup.scope.kind === "company") {
+    return label;
+  }
+  return `${label} · ${safeLabel(rollup.scope_display_name)}`;
 }
 
 function buildMetricCards(

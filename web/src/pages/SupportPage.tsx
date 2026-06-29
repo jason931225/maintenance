@@ -1,5 +1,5 @@
-import { FilePlus2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { FilePlus2, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   CreateInternalTicketRequest,
@@ -12,6 +12,7 @@ import type {
 } from "../api/types";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { PageHeader } from "../components/shell/PageHeader";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
@@ -26,6 +27,7 @@ import {
   categoryLabel,
   originLabel,
   priorityLabel,
+  slaState,
   statusLabel,
   SUPPORT_CATEGORIES,
   SUPPORT_ORIGINS,
@@ -42,6 +44,7 @@ interface Filters {
   priority: SupportTicketPriority | "";
   category: SupportTicketCategory | "";
   origin: SupportTicketOrigin | "";
+  search: string;
   includeUntriaged: boolean;
 }
 
@@ -50,6 +53,7 @@ const emptyFilters: Filters = {
   priority: "",
   category: "",
   origin: "",
+  search: "",
   includeUntriaged: true,
 };
 
@@ -62,7 +66,10 @@ export function SupportPage() {
   // Ticket triage (assign/claim + status transitions) maps to the backend
   // AssigneeManage feature, which is ADMIN/SUPER_ADMIN only. Mechanics can read
   // and comment but never claim, so the triage controls are hidden from them.
-  const canAssign = hasAnyRole(session?.roles, [ROLES.ADMIN, ROLES.SUPER_ADMIN]);
+  const canAssign = hasAnyRole(session?.roles, [
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+  ]);
   // Posting a comment maps to the backend WorkOrderStart feature (Allow):
   // MECHANIC / ADMIN / SUPER_ADMIN. A receptionist (Limited) can read the thread
   // but the composer is hidden so it never 403s on submit.
@@ -99,7 +106,13 @@ export function SupportPage() {
       include_untriaged: filters.includeUntriaged,
       limit: PAGE_SIZE,
     }),
-    [filters],
+    [
+      filters.status,
+      filters.priority,
+      filters.category,
+      filters.origin,
+      filters.includeUntriaged,
+    ],
   );
 
   const loadTickets = useCallback(async () => {
@@ -190,10 +203,10 @@ export function SupportPage() {
 
   async function transitionTicket(to: SupportTicketStatus): Promise<void> {
     if (!selectedId) return;
-    const response = await api.POST(
-      "/api/v1/support/tickets/{id}/transition",
-      { params: { path: { id: selectedId } }, body: { to_status: to } },
-    );
+    const response = await api.POST("/api/v1/support/tickets/{id}/transition", {
+      params: { path: { id: selectedId } },
+      body: { to_status: to },
+    });
     if (!response.data) {
       throw new Error("transition failed");
     }
@@ -205,18 +218,25 @@ export function SupportPage() {
     isInternalNote: boolean,
   ): Promise<void> {
     if (!selectedId) return;
-    const response = await api.POST(
-      "/api/v1/support/tickets/{id}/comments",
-      {
-        params: { path: { id: selectedId } },
-        body: { body, is_internal_note: isInternalNote },
-      },
-    );
+    const response = await api.POST("/api/v1/support/tickets/{id}/comments", {
+      params: { path: { id: selectedId } },
+      body: { body, is_internal_note: isInternalNote },
+    });
     if (!response.data) {
       throw new Error("addComment failed");
     }
     await loadDetail(selectedId);
   }
+
+  const searchTerm = filters.search.trim();
+  const visibleTickets = useMemo(
+    () => filterTickets(tickets, searchTerm),
+    [tickets, searchTerm],
+  );
+  const supportStats = useMemo(
+    () => buildSupportStats(tickets, nowMs),
+    [nowMs, tickets],
+  );
 
   async function assignSelf(): Promise<void> {
     if (!selectedId || !currentUserId || !branchId) return;
@@ -257,21 +277,27 @@ export function SupportPage() {
         }
       />
 
+      <SupportCommandCenter stats={supportStats} />
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <div className="grid gap-4">
           <FilterBar filters={filters} onChange={setFilters} />
           {listState === "error" ? (
-            <PageError onRetry={() => { void loadTickets(); }} />
+            <PageError
+              onRetry={() => {
+                void loadTickets();
+              }}
+            />
           ) : null}
           <SupportTicketList
-            tickets={tickets}
+            tickets={visibleTickets}
             selectedId={selectedId}
             isLoading={listState === "loading"}
             nowMs={nowMs}
             onSelect={setSelectedId}
-            hasMore={nextCursor !== null}
+            hasMore={searchTerm.length === 0 && nextCursor !== null}
             isLoadingMore={loadingMore}
-            total={total}
+            total={searchTerm.length > 0 ? visibleTickets.length : total}
             onLoadMore={() => {
               void loadMore();
             }}
@@ -331,13 +357,41 @@ function FilterBar({
   return (
     <Card className="grid gap-3">
       <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-1 sm:col-span-2">
+          <label
+            className="text-xs font-semibold text-steel"
+            htmlFor="support-filter-search"
+          >
+            {ko.support.filters.search}
+          </label>
+          <div className="relative">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-steel"
+              size={16}
+            />
+            <Input
+              id="support-filter-search"
+              className="pl-9"
+              aria-label={ko.support.searchAria}
+              placeholder={ko.support.searchPlaceholder}
+              value={filters.search}
+              onChange={(event) => {
+                onChange({ ...filters, search: event.currentTarget.value });
+              }}
+            />
+          </div>
+        </div>
         <FilterSelect
           label={ko.support.filters.status}
           value={filters.status}
           onChange={(value) => {
             onChange({ ...filters, status: value as Filters["status"] });
           }}
-          options={SUPPORT_STATUSES.map((v) => ({ value: v, label: statusLabel(v) }))}
+          options={SUPPORT_STATUSES.map((v) => ({
+            value: v,
+            label: statusLabel(v),
+          }))}
         />
         <FilterSelect
           label={ko.support.filters.priority}
@@ -367,7 +421,10 @@ function FilterBar({
           onChange={(value) => {
             onChange({ ...filters, origin: value as Filters["origin"] });
           }}
-          options={SUPPORT_ORIGINS.map((v) => ({ value: v, label: originLabel(v) }))}
+          options={SUPPORT_ORIGINS.map((v) => ({
+            value: v,
+            label: originLabel(v),
+          }))}
         />
       </div>
       <label className="flex items-center gap-2 text-sm text-steel">
@@ -376,7 +433,10 @@ function FilterBar({
           className="size-4 rounded border-line"
           checked={filters.includeUntriaged}
           onChange={(event) => {
-            onChange({ ...filters, includeUntriaged: event.currentTarget.checked });
+            onChange({
+              ...filters,
+              includeUntriaged: event.currentTarget.checked,
+            });
           }}
         />
         {ko.support.filters.includeUntriaged}
@@ -417,5 +477,132 @@ function FilterSelect({
         ))}
       </Select>
     </div>
+  );
+}
+
+interface SupportStats {
+  open: number;
+  urgentOrOverdue: number;
+  unassigned: number;
+  resolvedHistory: number;
+}
+
+function filterTickets(tickets: SupportTicketSummary[], searchTerm: string) {
+  if (searchTerm.length === 0) {
+    return tickets;
+  }
+  const needle = searchTerm.toLocaleLowerCase("ko-KR");
+  return tickets.filter((ticket) => {
+    const haystack = [
+      ticket.title,
+      ticket.requester_name,
+      ticket.assignee_name,
+      categoryLabel(ticket.category),
+      originLabel(ticket.origin),
+      priorityLabel(ticket.priority),
+      statusLabel(ticket.status),
+      ticket.due_at,
+      ticket.created_at,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase("ko-KR");
+    return haystack.includes(needle);
+  });
+}
+
+function buildSupportStats(
+  tickets: SupportTicketSummary[],
+  nowMs: number,
+): SupportStats {
+  return tickets.reduce<SupportStats>(
+    (stats, ticket) => {
+      if (ticket.status !== "RESOLVED" && ticket.status !== "CLOSED") {
+        stats.open += 1;
+      } else {
+        stats.resolvedHistory += 1;
+      }
+      if (
+        ticket.priority === "URGENT" ||
+        slaState(ticket.due_at, ticket.status, nowMs) === "overdue"
+      ) {
+        stats.urgentOrOverdue += 1;
+      }
+      if (!ticket.assignee_user_id) {
+        stats.unassigned += 1;
+      }
+      return stats;
+    },
+    { open: 0, urgentOrOverdue: 0, unassigned: 0, resolvedHistory: 0 },
+  );
+}
+
+function SupportCommandCenter({ stats }: { stats: SupportStats }) {
+  const cards = [
+    {
+      label: ko.support.command.open,
+      value: stats.open,
+      href: "/support?status=OPEN",
+    },
+    {
+      label: ko.support.command.urgentOrOverdue,
+      value: stats.urgentOrOverdue,
+      href: "/support?priority=URGENT",
+    },
+    {
+      label: ko.support.command.unassigned,
+      value: stats.unassigned,
+      href: "/support?assignee=unassigned",
+    },
+    {
+      label: ko.support.command.resolvedHistory,
+      value: stats.resolvedHistory,
+      href: "/reporting?source=support",
+    },
+  ];
+
+  return (
+    <Card className="mb-5 grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-steel">
+            {ko.support.command.eyebrow}
+          </p>
+          <h2 className="text-lg font-semibold text-ink">
+            {ko.support.command.title}
+          </h2>
+        </div>
+        <div className="flex flex-wrap gap-2 text-sm">
+          <a
+            className="rounded-md border border-line px-3 py-2 font-medium text-ink hover:bg-muted-panel"
+            href="/kpi?source=support"
+          >
+            {ko.support.command.links.kpi}
+          </a>
+          <a
+            className="rounded-md border border-line px-3 py-2 font-medium text-ink hover:bg-muted-panel"
+            href="/reporting?source=support"
+          >
+            {ko.support.command.links.reporting}
+          </a>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <a
+            key={card.label}
+            href={card.href}
+            className="rounded-md border border-line bg-muted-panel p-3 transition-colors hover:border-ink"
+          >
+            <span className="text-xs font-semibold text-steel">
+              {card.label}
+            </span>
+            <span className="mt-2 block text-2xl font-bold text-ink">
+              {card.value}
+            </span>
+          </a>
+        ))}
+      </div>
+    </Card>
   );
 }

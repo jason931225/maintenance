@@ -5,6 +5,7 @@ import com.maintenance.api.client.api.DefaultApi
 import com.maintenance.field.auth.CredentialManagerPasskeyClient
 import com.maintenance.field.auth.PasskeyAuthRepository
 import com.maintenance.field.data.api.GeneratedMaintenanceApiGateway
+import com.maintenance.field.data.collaboration.MobileOperationsRepository
 import com.maintenance.field.data.evidence.EvidenceRepository
 import com.maintenance.field.data.location.LocationConsentRepository
 import com.maintenance.field.data.local.FieldDatabase
@@ -49,6 +50,7 @@ class AppContainer(context: Context) {
         outbox = RoomMessengerOutboxStore(database.messengerOutbox()),
     )
     val locationConsent = LocationConsentRepository(apiGateway)
+    val mobileOperations = MobileOperationsRepository(apiGateway)
     val auth = PasskeyAuthRepository(
         api = apiGateway,
         credentialClient = CredentialManagerPasskeyClient(),

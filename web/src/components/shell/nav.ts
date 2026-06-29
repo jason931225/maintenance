@@ -226,11 +226,16 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["daily-plan", DAILY_PLAN_ROLES],
   ["collaboration", OPERATIONAL_ROLES],
   ["kpi", KPI_ROLES],
+  // intelligence (Operations Intelligence): same executive read gate as KPI.
+  // It converts recommendations to governed workflows; mechanics/receptionists
+  // keep their daily execution surfaces instead of executive scenario planning.
+  ["intelligence", KPI_ROLES],
   // ops (OpsDashboardRead): SUPER_ADMIN/ADMIN only, matching the
   // `RequireAdminRoute` guard on `/ops` and the backend permission matrix.
   ["ops", ADMIN_ROLES],
   ["users", ADMIN_ROLES],
   ["policy", ROLE_MANAGE_ROLES],
+  ["workflows", ROLE_MANAGE_ROLES],
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
@@ -266,9 +271,11 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
     ],
   ],
   ["kpi", [FEATURES.KPI_READ]],
+  ["intelligence", [FEATURES.KPI_READ]],
   ["mail", [FEATURES.MAIL_USE]],
   ["employees", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["policy", [FEATURES.ROLE_MANAGE]],
+  ["workflows", [FEATURES.ROLE_MANAGE]],
   ["equipment-manage", [FEATURES.EQUIPMENT_MANAGE]],
   [
     "integrity",
@@ -380,6 +387,12 @@ export const NAV_GROUPS = [
     label: "nav.groups.executive",
     items: [
       { key: "kpi", href: "/kpi", labelKey: "nav.kpi", Icon: BarChart2 },
+      {
+        key: "intelligence",
+        href: "/intelligence",
+        labelKey: "nav.intelligence",
+        Icon: Gauge,
+      },
       { key: "ops", href: "/ops", labelKey: "nav.ops", Icon: Gauge },
       // reporting (ExcelDownload): [A,A,A,A,A] for the five granted roles in the
       // backend matrix — they may download the work-diary / daily-status
@@ -499,6 +512,12 @@ export const NAV_GROUPS = [
         href: "/settings/policy",
         labelKey: "nav.policy",
         Icon: ShieldAlert,
+      },
+      {
+        key: "workflows",
+        href: "/settings/workflows",
+        labelKey: "nav.workflows",
+        Icon: ShieldCheck,
       },
       // email (MailAccountManage): tenant corporate mail-account config. ADMIN/
       // SUPER_ADMIN only — gated by ITEM_ROLE_GATES("email") and the

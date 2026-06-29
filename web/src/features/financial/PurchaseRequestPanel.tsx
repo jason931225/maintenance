@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
@@ -678,6 +679,10 @@ function PurchaseDetail({
         ) : null}
       </dl>
 
+      <SourceObjectRail request={request} />
+      <PurchaseApprovalLine request={request} />
+      <FinanceControlBadges />
+
       <div className="flex flex-wrap items-center gap-2">
         {actions.submit ? (
           <Button type="button" disabled={busy} onClick={onSubmit}>
@@ -758,6 +763,171 @@ function PurchaseDetail({
         </p>
       ) : null}
     </div>
+  );
+}
+
+function SourceObjectRail({ request }: { request: PurchaseRequestSummary }) {
+  const t = ko.financial.purchase.sourceRail;
+  return (
+    <div className="grid gap-2 rounded-md border border-line bg-white p-3">
+      <h4 className="text-sm font-semibold text-ink">{t.title}</h4>
+      <dl className="grid gap-2 text-sm md:grid-cols-3">
+        <div>
+          <dt className="font-semibold text-steel">{t.equipment}</dt>
+          <dd>
+            <Link
+              className="font-medium text-ink underline-offset-4 hover:underline"
+              to={`/equipment/${request.equipment_id}`}
+            >
+              {request.equipment_id}
+            </Link>
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.workOrder}</dt>
+          <dd>
+            {request.work_order_id ? (
+              <Link
+                className="font-medium text-ink underline-offset-4 hover:underline"
+                to={`/work-orders/${request.work_order_id}`}
+              >
+                {request.work_order_id}
+              </Link>
+            ) : (
+              <span className="text-steel">{t.noWorkOrder}</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.evidence}</dt>
+          <dd className="break-all font-mono text-xs text-ink">
+            {request.statement_evidence_id}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function PurchaseApprovalLine({ request }: { request: PurchaseRequestSummary }) {
+  const t = ko.financial.purchase.approvalLine;
+  const requiresExecutive =
+    request.status === "EXECUTIVE_PENDING" ||
+    request.amount_won >=
+      DEFAULT_FINANCIAL_CONFIG.executive_approval_threshold_won;
+  const steps: {
+    key: string;
+    label: string;
+    status: PurchaseStatus;
+    optional?: boolean;
+  }[] = [
+    {
+      key: "statement",
+      label: t.steps.statement,
+      status: "STATEMENT_ATTACHED",
+    },
+    { key: "submit", label: t.steps.submit, status: "REQUEST_SUBMITTED" },
+    { key: "admin", label: t.steps.admin, status: "ADMIN_APPROVED" },
+    ...(requiresExecutive
+      ? [
+          {
+            key: "executive",
+            label: t.steps.executive,
+            status: "EXECUTIVE_PENDING" as PurchaseStatus,
+          },
+        ]
+      : [
+          {
+            key: "executive",
+            label: t.steps.executive,
+            status: "EXECUTIVE_PENDING" as PurchaseStatus,
+            optional: true,
+          },
+        ]),
+    {
+      key: "expenditure",
+      label: t.steps.expenditure,
+      status: "READY_TO_EXECUTE",
+    },
+    { key: "execute", label: t.steps.execute, status: "EXECUTED" },
+  ];
+
+  return (
+    <div className="grid gap-2 rounded-md border border-line bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-ink">{t.title}</h4>
+        <Badge>
+          {request.status === "REJECTED"
+            ? ko.financial.statuses.REJECTED
+            : t.policy}
+        </Badge>
+      </div>
+      <ol className="grid gap-2 md:grid-cols-6">
+        {steps.map((step) => {
+          const state = approvalStepState(request.status, step.status, {
+            optional: step.optional,
+          });
+          return (
+            <li
+              key={step.key}
+              className={`rounded-md border p-2 ${
+                state === "current"
+                  ? "border-ink bg-muted-panel"
+                  : state === "done"
+                    ? "border-brand-teal bg-white"
+                    : "border-line bg-white"
+              }`}
+            >
+              <span className="block text-xs font-semibold text-ink">
+                {step.label}
+              </span>
+              <span className="mt-1 block text-xs text-steel">
+                {t.state[state]}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function approvalStepState(
+  current: PurchaseStatus,
+  step: PurchaseStatus,
+  options: { optional?: boolean } = {},
+): "done" | "current" | "pending" | "skipped" | "rejected" {
+  if (current === "REJECTED") return "rejected";
+  if (options.optional) return "skipped";
+  const rank: PurchaseStatus[] = [
+    "STATEMENT_ATTACHED",
+    "REQUEST_SUBMITTED",
+    "ADMIN_APPROVED",
+    "EXECUTIVE_PENDING",
+    "READY_TO_EXECUTE",
+    "EXECUTED",
+  ];
+  const currentIndex = rank.indexOf(current);
+  const stepIndex = rank.indexOf(step);
+  if (currentIndex === stepIndex) return "current";
+  if (currentIndex > stepIndex) return "done";
+  return "pending";
+}
+
+function FinanceControlBadges() {
+  const t = ko.financial.purchase.controls;
+  return (
+    <ul className="grid gap-2 text-sm md:grid-cols-3">
+      {t.map((item) => (
+        <li
+          key={item.label}
+          className="rounded-md border border-line bg-white p-3"
+        >
+          <span className="font-semibold text-ink">{item.label}</span>
+          <span className="mt-1 block text-steel">{item.value}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

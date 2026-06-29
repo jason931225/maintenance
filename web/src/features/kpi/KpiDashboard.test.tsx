@@ -45,6 +45,30 @@ describe("KpiDashboard", () => {
     expect(screen.queryByText("18건")).not.toBeInTheDocument();
   });
 
+  it("connects executive scope analytics to operational drilldowns", () => {
+    render(
+      <KpiDashboard
+        isLoading={false}
+        period="2026-06-01..2026-07-01"
+        report={kpiReport}
+        onPeriodChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByLabelText("전체·세부 범위 성과를 실행 화면과 연결합니다."),
+    ).toBeVisible();
+    expect(screen.getByText("전체 집계")).toBeVisible();
+    expect(screen.getByRole("link", { name: "운영 드릴다운" })).toHaveAttribute(
+      "href",
+      "/ops?period=2026-06-01..2026-07-01",
+    );
+    expect(screen.getByRole("link", { name: "지원 이슈" })).toHaveAttribute(
+      "href",
+      "/support?source=kpi",
+    );
+  });
+
   it("renders computed P1 acceptance and inspection-plan rates when available", () => {
     const onPeriodChange = vi.fn();
     const report = {

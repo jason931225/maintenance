@@ -38,7 +38,7 @@ export function FeedbackBanner({
         "flex items-start justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium",
         isError
           ? "border border-red-200 bg-red-50 text-red-700"
-          : "border border-brand-teal/20 bg-brand-teal/10 text-brand-teal",
+          : "border border-tone-success-border bg-tone-success-bg text-tone-success-text",
         className,
       )}
     >

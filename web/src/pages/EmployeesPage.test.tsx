@@ -109,6 +109,28 @@ const attendanceSummary = {
   offset: 0,
 };
 
+const lifecycleEvents = {
+  items: [
+    {
+      id: "ev-1",
+      employee_id: "e1",
+      event_type: "ONBOARD",
+      from_status: null,
+      to_status: "ACTIVE",
+      effective_date: "2024-01-02",
+      comment: "입사 원장 확인",
+      signoffs: {
+        privacy_notice_ack: true,
+        korean_labor_law_ack: true,
+        payroll_cutoff_ack: false,
+        retirement_settlement_ack: false,
+      },
+      created_by: "admin-user",
+      created_at: "2026-06-27T12:00:00Z",
+    },
+  ],
+};
+
 const server = setupServer(
   http.get("*/api/v1/employees", () =>
     HttpResponse.json({ items: employees, total: employees.length }),
@@ -119,6 +141,9 @@ const server = setupServer(
   ),
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json(attendanceSummary),
+  ),
+  http.get("*/api/v1/employees/:id/lifecycle-events", () =>
+    HttpResponse.json(lifecycleEvents),
   ),
 );
 
@@ -168,6 +193,20 @@ describe("EmployeesPage", () => {
     expect(
       await screen.findByRole("heading", { name: "인사 설정 대시보드" }),
     ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "피플 운영 관제" })).toBeVisible();
+    expect(screen.getByText("그룹 전체")).toBeVisible();
+    expect(screen.getByRole("link", { name: "사용자 관리" })).toHaveAttribute(
+      "href",
+      "/settings/users",
+    );
+    expect(screen.getByRole("link", { name: "정책 관리" })).toHaveAttribute(
+      "href",
+      "/settings/policy",
+    );
+    expect(screen.getByRole("link", { name: "워크플로" })).toHaveAttribute(
+      "href",
+      "/settings/workflows",
+    );
     expect(screen.getByRole("heading", { name: "조직도" })).toBeVisible();
     expect(screen.getAllByText("물류팀").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "연차 잔액" })).toBeVisible();
@@ -195,19 +234,92 @@ describe("EmployeesPage", () => {
     expect(screen.getByText("이퇴사")).toBeVisible();
   });
 
-  it("shows import controls only to admins and posts a multipart file", async () => {
-    let sawPost = false;
+  it("shows governed import controls only to admins and requires preview, dry-run, then apply", async () => {
+    let sawPreview = false;
+    let sawDryRun = false;
+    let sawApply = false;
     server.use(
-      http.post("*/api/v1/employees/import", () => {
+      http.post("*/api/v1/employees/import/preview", () => {
         // MSW/undici cannot reliably parse jsdom File/FormData across realms;
         // the browser E2E verifies the real multipart upload path.
-        sawPost = true;
+        sawPreview = true;
         return HttpResponse.json({
+          run_id: "11111111-1111-4111-8111-111111111111",
+          entity_type: "employee_hr",
+          source_filename: "employees.xlsx",
+          source_sha256: "a".repeat(64),
           input_rows: 2,
+          candidate_rows: 1,
+          preserved_rows: 1,
+          columns: [
+            {
+              source_header: "성명",
+              normalized_header: "성명",
+              target: "name",
+              classification: "canonical",
+              preview_allowed: true,
+            },
+            {
+              source_header: "계좌번호",
+              normalized_header: "계좌번호",
+              target: null,
+              classification: "restricted",
+              preview_allowed: false,
+            },
+            {
+              source_header: "기본시급",
+              normalized_header: "기본시급",
+              target: null,
+              classification: "restricted",
+              preview_allowed: false,
+            },
+            {
+              source_header: "퇴직금 중간정산",
+              normalized_header: "퇴직금중간정산",
+              target: null,
+              classification: "restricted",
+              preview_allowed: false,
+            },
+          ],
+          sample_rows: [
+            {
+              source_sheet: "코스",
+              source_row: 2,
+              row_status: "CANDIDATE",
+              values: {
+                성명: "홍길동",
+                계좌번호: "••••",
+                기본시급: "••••",
+                퇴직금중간정산: "••••",
+              },
+            },
+          ],
+          mapping_profile: { entity_type: "employee_hr" },
+        });
+      }),
+      http.post("*/api/v1/employees/import/:runId/dry-run", () => {
+        sawDryRun = true;
+        return HttpResponse.json({
+          run_id: "11111111-1111-4111-8111-111111111111",
+          input_rows: 2,
+          candidate_rows: 1,
+          preserved_rows: 1,
+          insert_candidates: 1,
+          update_candidates: 0,
+          companies: [
+            { company: "코스", input_rows: 1, inserted: 1, updated: 0 },
+          ],
+        });
+      }),
+      http.post("*/api/v1/employees/import/:runId/apply", () => {
+        sawApply = true;
+        return HttpResponse.json({
+          input_rows: 1,
           inserted: 1,
-          updated: 1,
-          skipped: 0,
-          errors: [],
+          updated: 0,
+          companies: [
+            { company: "코스", input_rows: 1, inserted: 1, updated: 0 },
+          ],
         });
       }),
     );
@@ -221,13 +333,176 @@ describe("EmployeesPage", () => {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "가져오기" }));
+    await userEvent.click(screen.getByRole("button", { name: "미리보기 생성" }));
 
     await waitFor(() => {
-      expect(sawPost).toBe(true);
+      expect(sawPreview).toBe(true);
+    });
+    expect(screen.getByRole("heading", { name: "가져오기 검토" })).toBeVisible();
+    expect(screen.getAllByText("계좌번호").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("기본시급").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("퇴직금 중간정산").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("••••").length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByText("12345")).not.toBeInTheDocument();
+    expect(screen.queryByText("2025-12-31")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "드라이런" }));
+    await waitFor(() => {
+      expect(sawDryRun).toBe(true);
+    });
+    expect(screen.getByText("추가 예정")).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "검토 후 적용" }));
+    await waitFor(() => {
+      expect(sawApply).toBe(true);
     });
     expect(screen.getByText("입력 행")).toBeVisible();
-    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
+  });
+
+  it("records audited Korean HR lifecycle signoffs before termination", async () => {
+    let lifecycleBody: unknown;
+    server.use(
+      http.post(
+        "*/api/v1/employees/:id/lifecycle-events",
+        async ({ request }) => {
+          lifecycleBody = await request.json();
+          return HttpResponse.json({
+            id: "ev-2",
+            employee_id: "e1",
+            event_type: "TERMINATE",
+            from_status: "ACTIVE",
+            to_status: "EXITED",
+            effective_date: "2026-06-30",
+            comment: "권고사직 협의 완료",
+            signoffs: {
+              privacy_notice_ack: true,
+              korean_labor_law_ack: true,
+              payroll_cutoff_ack: true,
+              retirement_settlement_ack: true,
+            },
+            created_by: "admin-user",
+            created_at: "2026-06-29T12:00:00Z",
+          });
+        },
+      ),
+    );
+
+    renderApp("/settings/employees", ["ADMIN"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "김현장 생애주기 관리" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "근로 생애주기" }),
+    ).toBeVisible();
+    expect(screen.getByText("입사 원장 확인")).toBeVisible();
+
+    await userEvent.selectOptions(screen.getByLabelText("전환 유형"), "TERMINATE");
+    await userEvent.type(screen.getByLabelText("효력일"), "2026-06-30");
+    await userEvent.type(
+      screen.getByLabelText("사유 및 근거"),
+      "권고사직 협의 완료",
+    );
+    await userEvent.click(screen.getByLabelText("개인정보 처리 고지 확인"));
+    await userEvent.click(screen.getByLabelText("근로기준법·취업규칙 확인"));
+    await userEvent.click(screen.getByLabelText("급여 마감 영향 확인"));
+    await userEvent.click(screen.getByLabelText("퇴직금 정산 필요성 확인"));
+    await userEvent.click(screen.getByRole("button", { name: "생애주기 기록" }));
+
+    await waitFor(() => {
+      expect(lifecycleBody).toMatchObject({
+        event_type: "TERMINATE",
+        to_status: "EXITED",
+        effective_date: "2026-06-30",
+        comment: "권고사직 협의 완료",
+        signoffs: {
+          privacy_notice_ack: true,
+          korean_labor_law_ack: true,
+          payroll_cutoff_ack: true,
+          retirement_settlement_ack: true,
+        },
+      });
+    });
+    expect(await screen.findByText("권고사직 협의 완료")).toBeVisible();
+    expect(screen.getByText("기록자: admin-user · 기록 시각: 2026-06-29T12:00:00Z")).toBeVisible();
+    expect(screen.getAllByText("확인").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("captures transfer targets and shows signoff history for intra-group moves", async () => {
+    let lifecycleBody: unknown;
+    server.use(
+      http.post(
+        "*/api/v1/employees/:id/lifecycle-events",
+        async ({ request }) => {
+          lifecycleBody = await request.json();
+          return HttpResponse.json({
+            id: "ev-transfer",
+            employee_id: "e1",
+            event_type: "TRANSFER",
+            from_status: "ACTIVE",
+            to_status: "ACTIVE",
+            from_company: "대한물류",
+            to_company: "한울로지스",
+            to_org_unit: "운영기획팀",
+            to_position: "차장",
+            effective_date: "2026-07-01",
+            comment: "그룹 내 전보 및 인수인계 완료",
+            signoffs: {
+              privacy_notice_ack: true,
+              korean_labor_law_ack: true,
+              payroll_cutoff_ack: true,
+              retirement_settlement_ack: true,
+            },
+            created_by: "hr-admin",
+            created_at: "2026-06-29T12:30:00Z",
+          });
+        },
+      ),
+    );
+
+    renderApp("/settings/employees", ["ADMIN"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "김현장 생애주기 관리" }),
+    );
+
+    await userEvent.type(screen.getByLabelText("효력일"), "2026-07-01");
+    await userEvent.type(
+      screen.getByLabelText("사유 및 근거"),
+      "그룹 내 전보 및 인수인계 완료",
+    );
+    await userEvent.type(screen.getByLabelText("이동 회사"), "한울로지스");
+    await userEvent.type(screen.getByLabelText("이동 부서/팀"), "운영기획팀");
+    await userEvent.type(screen.getByLabelText("이동 직책"), "차장");
+    await userEvent.click(screen.getByLabelText("개인정보 처리 고지 확인"));
+    await userEvent.click(screen.getByLabelText("근로기준법·취업규칙 확인"));
+    await userEvent.click(screen.getByLabelText("급여 마감 영향 확인"));
+    await userEvent.click(screen.getByLabelText("퇴직금 정산 필요성 확인"));
+    await userEvent.click(screen.getByRole("button", { name: "생애주기 기록" }));
+
+    await waitFor(() => {
+      expect(lifecycleBody).toMatchObject({
+        event_type: "TRANSFER",
+        to_status: "ACTIVE",
+        to_company: "한울로지스",
+        to_org_unit: "운영기획팀",
+        to_position: "차장",
+        effective_date: "2026-07-01",
+        comment: "그룹 내 전보 및 인수인계 완료",
+        signoffs: {
+          privacy_notice_ack: true,
+          korean_labor_law_ack: true,
+          payroll_cutoff_ack: true,
+          retirement_settlement_ack: true,
+        },
+      });
+    });
+    expect(
+      await screen.findByText("전보 대상: 한울로지스 · 운영기획팀 · 차장"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("기록자: hr-admin · 기록 시각: 2026-06-29T12:30:00Z"),
+    ).toBeVisible();
   });
 
   it("redirects unsupported roles away from the HR directory", async () => {

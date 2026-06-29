@@ -41,8 +41,9 @@ const FILTERS: ReadonlyArray<{ key: string; label: string; kind: ListingKind | n
   { key: "reach", label: ko.storefront.used.filters.reach, kind: "REACH" },
 ];
 
-// Online intake deep-link with the topic preselected (the dominant CTA target).
-const INTAKE_USED = "/support/new?topic=USED_SALES";
+// Used/new equipment sales leads belong in the storefront inquiry inbox so the
+// sales queue keeps the listing_id, topic, and lead lifecycle.
+const INQUIRY_USED = "/contact?topic=USED_SALES";
 
 // Single neutral fallback shown ONLY when a listing genuinely has no photo of
 // its own. Real listing photos are served per-media from the object store via
@@ -151,7 +152,7 @@ export default function UsedSalesPage() {
               <ArrowRight aria-hidden="true" size={18} />
             </a>
             <Link
-              to={INTAKE_USED}
+              to={INQUIRY_USED}
               className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded border border-white/40 bg-white/10 px-6 font-black text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               {ko.storefront.used.hero.secondary}
@@ -291,7 +292,7 @@ export default function UsedSalesPage() {
               <p className="max-w-md text-[15px] leading-[1.7] text-steel">
                 {ko.storefront.used.empty.copy}
               </p>
-              <Link to={INTAKE_USED} className={cn(AMBER_BTN, "mt-2")}>
+              <Link to={INQUIRY_USED} className={cn(AMBER_BTN, "mt-2")}>
                 {ko.storefront.used.empty.cta}
                 <ArrowRight aria-hidden="true" size={16} />
               </Link>
@@ -376,7 +377,7 @@ export default function UsedSalesPage() {
             </a>
           </div>
           <Link
-            to={INTAKE_USED}
+            to={INQUIRY_USED}
             className="inline-flex min-h-[52px] items-center justify-center gap-2.5 rounded bg-signal px-6 font-black text-ink transition-transform hover:bg-signal-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
           >
             {ko.storefront.used.contactBand.cta}
@@ -469,7 +470,7 @@ function EquipmentCard({ listing }: { listing: SalesListingView }) {
             {formatPrice(listing.price_won)}
           </span>
           <Link
-            to={`/support/new?listing=${listing.id}&topic=USED_SALES`}
+            to={`/contact?listing=${listing.id}&topic=USED_SALES`}
             className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded bg-ink px-4 text-sm font-black text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
           >
             {cardCopy.cta}

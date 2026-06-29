@@ -19,6 +19,7 @@ export const ko = {
     mail: "메일함",
     support: "고객지원",
     kpi: "KPI 대시보드",
+    intelligence: "운영 인텔리전스",
     ops: "운영 대시보드",
     reporting: "보고서 출력",
     equipment: "장비 조회",
@@ -31,6 +32,7 @@ export const ko = {
     security: "보안 설정",
     users: "사용자 관리",
     policy: "권한 정책",
+    workflows: "워크플로 스튜디오",
     employees: "직원 명부",
     group: "그룹 관리",
     org: "지역·지점 관리",
@@ -46,6 +48,314 @@ export const ko = {
       settings: "설정",
     },
   },
+  intelligence: {
+    title: "운영 인텔리전스",
+    description:
+      "가격·마진·SLO·장비 수명·재고·인력 계획을 원천 객체, 정책, 승인 흐름과 함께 검토합니다.",
+    command: {
+      badge: "G012",
+      scope: "그룹 통합 · 조직별 전환 가능",
+      title: "운영 의사결정 워크벤치",
+      actions: [
+        { label: "KPI 확인", href: "/kpi?source=intelligence" },
+        { label: "재무 근거", href: "/financial?source=intelligence" },
+        { label: "품질 검토", href: "/integrity?source=intelligence" },
+        { label: "보고서 출력", href: "/reporting?source=intelligence" },
+      ],
+      metrics: [
+        {
+          label: "결정 영역",
+          value: "8개",
+          hint: "가격·자산·재고·인력·구매·정비·품질·MES",
+        },
+        {
+          label: "작성 방식",
+          value: "검토 초안",
+          hint: "실행은 승인·정책·패스키 흐름으로 전환",
+        },
+        {
+          label: "원천 연결",
+          value: "객체 기반",
+          hint: "장비·작업·구매·직원·현장·보고서로 드릴다운",
+        },
+        {
+          label: "AI 단계",
+          value: "최종 보조",
+          hint: "데이터·워크플로·관측성 검증 이후만 허용",
+        },
+      ],
+    },
+    readiness: {
+      eyebrow: "시나리오 준비도",
+      title: "실행 전 검증해야 하는 기반",
+      badge: "자동 변경 없음",
+      items: [
+        {
+          label: "검증된 원천 데이터",
+          status: "장비·재무·업무·직원 원천으로 연결",
+          next: "누락·오래된 데이터는 품질 검토로 보냅니다.",
+          tone: "governed" as const,
+        },
+        {
+          label: "정책·승인 경로",
+          status: "결정은 워크플로 초안으로만 전환",
+          next: "가치·위험·권한에 맞는 승인라인을 요구합니다.",
+          tone: "governed" as const,
+        },
+        {
+          label: "확률·가정 표시",
+          status: "P50/P90/P95와 가정이 필요",
+          next: "모델 품질이 부족하면 보류 사유를 기록합니다.",
+          tone: "needsLineage" as const,
+        },
+        {
+          label: "민감정보 경계",
+          status: "HR·급여·위치 정보는 목적 제한",
+          next: "권한 없는 사용자는 집계·마스킹된 신호만 봅니다.",
+          tone: "governed" as const,
+        },
+        {
+          label: "MES 연결",
+          status: "제조 실행은 후속 범위",
+          next: "조직·자산·재고·ERP·품질 기반 이후 활성화합니다.",
+          tone: "future" as const,
+        },
+        {
+          label: "AI/ML/RL/LLM",
+          status: "추천·초안 보조만 허용",
+          next: "기계적 지표와 사후 성과 관측성이 먼저입니다.",
+          tone: "future" as const,
+        },
+      ],
+    },
+    domains: {
+      eyebrow: "결정 영역",
+      title: "운영 객체와 연결된 시나리오",
+      restricted: "이 실행 경로는 권한 있는 관리자에게 요청하세요.",
+      items: [
+        {
+          key: "rentalPricing" as const,
+          title: "렌탈 가격·입찰 마진",
+          object: "PricingScenario",
+          outcome: "가격 하한, 목표가, 위험 프리미엄, SLA 영향을 함께 검토합니다.",
+          signals: [
+            { label: "원천", value: "견적·원가·가동률" },
+            { label: "제약", value: "마진·SLA·수금 위험" },
+            { label: "전환", value: "가격 예외 승인" },
+          ],
+          links: {
+            primary: "견적 워크벤치",
+            evidence: "보고 근거",
+            workflow: "승인 초안",
+          },
+        },
+        {
+          key: "assetLifecycle" as const,
+          title: "장비 매각·보유·교체",
+          object: "AssetLifecycleDecision",
+          outcome: "정비비, 다운타임, 시장가, 대체 리드타임을 비교합니다.",
+          signals: [
+            { label: "원천", value: "장비·작업·원가" },
+            { label: "제약", value: "소유권·회계 검토" },
+            { label: "전환", value: "매각/교체 기안" },
+          ],
+          links: {
+            primary: "수명주기 원가",
+            evidence: "장비 근거",
+            workflow: "워크플로",
+          },
+        },
+        {
+          key: "reservePlanning" as const,
+          title: "예비 장비·부품 정책",
+          object: "InventoryPolicy",
+          outcome: "안전재고, 대체 장비, 리드타임, 보유비용의 균형을 봅니다.",
+          signals: [
+            { label: "원천", value: "가용성·재고·소모" },
+            { label: "제약", value: "SLO·보관비·납기" },
+            { label: "전환", value: "구매/재배치 요청" },
+          ],
+          links: {
+            primary: "운영 현황",
+            evidence: "가용 장비",
+            workflow: "품목 정책",
+          },
+        },
+        {
+          key: "workforceSlo" as const,
+          title: "인력·기술·SLO 계획",
+          object: "CapacityPlan",
+          outcome: "업무량, 기술, 교대, 휴가, 초과근로 경계를 함께 검토합니다.",
+          signals: [
+            { label: "원천", value: "KPI·직원·캘린더" },
+            { label: "제약", value: "노동법·목적 제한" },
+            { label: "전환", value: "배치/승인 계획" },
+          ],
+          links: {
+            primary: "KPI 범위",
+            evidence: "직원 명부",
+            workflow: "계획 흐름",
+          },
+        },
+        {
+          key: "procurement" as const,
+          title: "구매·입찰·공급사 평가",
+          object: "ProcurementScenario",
+          outcome: "단가뿐 아니라 납기, 품질, 보증, 현금흐름, 위험을 평가합니다.",
+          signals: [
+            { label: "원천", value: "구매·견적·입고" },
+            { label: "제약", value: "예산·분리승인" },
+            { label: "전환", value: "구매 결재" },
+          ],
+          links: {
+            primary: "구매 요청",
+            evidence: "보고 근거",
+            workflow: "결재 라인",
+          },
+        },
+        {
+          key: "maintenanceCycles" as const,
+          title: "정비 주기·윈도우",
+          object: "MaintenanceForecast",
+          outcome: "고장 위험, 예방정비 주기, 작업 가능 시간, 부품 준비도를 맞춥니다.",
+          signals: [
+            { label: "원천", value: "검사·계획·배차" },
+            { label: "제약", value: "안전·제조사 기준" },
+            { label: "전환", value: "계획업무/작업지시" },
+          ],
+          links: {
+            primary: "정기 예방정비",
+            evidence: "계획업무",
+            workflow: "배차 제어",
+          },
+        },
+        {
+          key: "dataQuality" as const,
+          title: "데이터 품질·거버넌스",
+          object: "Recommendation",
+          outcome: "누락, 중복, 오래된 원천, 권한 문제를 결정 전에 차단합니다.",
+          signals: [
+            { label: "원천", value: "이상 징후·보고서" },
+            { label: "제약", value: "RLS·정책·감사" },
+            { label: "전환", value: "정책 보정" },
+          ],
+          links: {
+            primary: "품질 검토",
+            evidence: "보고서",
+            workflow: "권한 정책",
+          },
+        },
+        {
+          key: "mesReadiness" as const,
+          title: "MES 준비도",
+          object: "ExperimentRun",
+          outcome: "제조 실행은 공장·라인·자재·품질·노무 기반이 완성된 뒤 연결합니다.",
+          signals: [
+            { label: "원천", value: "조직·품목·흐름" },
+            { label: "제약", value: "도메인 활성화" },
+            { label: "전환", value: "후속 범위 검증" },
+          ],
+          links: {
+            primary: "조직 구조",
+            evidence: "품목 체계",
+            workflow: "MES 흐름",
+          },
+        },
+      ],
+    },
+    governance: {
+      eyebrow: "거버넌스",
+      title: "권고가 업무로 바뀌는 안전장치",
+      items: [
+        {
+          title: "정책 우선",
+          body: "권한, 목적, 민감도, 승인라인을 통과해야 실행 요청이 됩니다.",
+        },
+        {
+          title: "패스키 단계 상승",
+          body: "서명·소유권·고가·민감 결정은 실제 행위자 인증을 요구합니다.",
+        },
+        {
+          title: "원천·가정 보존",
+          body: "입력 스냅샷, 모델/규칙 버전, 비교 사례, 사후 차이를 남깁니다.",
+        },
+        {
+          title: "AI는 보조",
+          body: "LLM/ML/RL은 초안·설명·시뮬레이션 보조이며 직접 변경하지 않습니다.",
+        },
+      ],
+    },
+  },
+  workflowStudio: {
+    title: "워크플로 스튜디오",
+    description:
+      "승인·결제라인·알림·감사 흐름을 운영 객체에 연결하고 게시 전 안전성을 검증합니다.",
+    refresh: "새로고침",
+    loadFailed: "워크플로 스튜디오를 불러오지 못했습니다.",
+    empty: "아직 등록된 워크플로가 없습니다.",
+    definitions: "워크플로 정의",
+    connectors: "허용된 커넥터",
+    history: "변경 이력",
+    templates: "템플릿",
+    noHistory: "선택한 워크플로의 변경 이력이 없습니다.",
+    unknownActor: "시스템",
+    version: (version: number | null | undefined) =>
+      version ? `v${String(version)}` : "버전 없음",
+    latestVersion: (version: number) => `최신 v${String(version)}`,
+    activeVersion: (version: number | null | undefined) =>
+      version ? `운영 v${String(version)}` : "운영 버전 없음",
+    lineSummary: (approval: number, payment: number) =>
+      `승인 ${String(approval)} · 결제 ${String(payment)}`,
+    requiredApproval: "승인라인 필요",
+    requiredPayment: "결제라인 필요",
+    publish: "게시",
+    simulate: "검증",
+    pause: "정지",
+    rollback: "롤백",
+    clone: "복제",
+    publishBlocked: "승인라인과 결제라인을 먼저 지정해야 합니다.",
+    publishSuccess: "워크플로를 게시했습니다.",
+    createSuccess: "워크플로 초안을 생성했습니다.",
+    createFailed:
+      "초안 생성에 실패했습니다. JSON 형식과 허용 커넥터를 확인하세요.",
+    simulationReady: "게시 가능한 워크플로입니다.",
+    actionFailed: "워크플로 작업에 실패했습니다.",
+    success: {
+      publish: "워크플로를 게시했습니다.",
+      pause: "워크플로를 정지했습니다.",
+      rollback: "워크플로를 롤백했습니다.",
+      clone: "워크플로를 복제했습니다.",
+    },
+    defaultDraftName: "작업 완료 승인",
+    cloneSuffix: "복제본",
+    authoring: {
+      title: "초안 작성",
+      help: "템플릿, 운영 객체, 라인, 허용 커넥터를 지정해 게시 가능한 워크플로 초안을 만듭니다.",
+      create: "초안 생성",
+      workflowKey: "워크플로 키",
+      displayName: "이름",
+      objectType: "업무 객체",
+      definition: "정의 JSON",
+      approvalLine: "승인라인 JSON",
+      paymentLine: "결제라인 JSON",
+      notificationRules: "알림 규칙 JSON",
+      actionAllowlist: "허용 액션 JSON",
+    },
+    status: {
+      DRAFT: "초안",
+      ACTIVE: "운영",
+      PAUSED: "정지",
+      RETIRED: "폐기",
+    },
+    columns: {
+      name: "이름",
+      object: "객체",
+      status: "상태",
+      version: "버전",
+      lines: "라인",
+      actions: "작업",
+    },
+  },
   collaboration: {
     title: "협업 허브",
     description:
@@ -53,6 +363,24 @@ export const ko = {
     loadFailed: "협업 허브를 불러오지 못했습니다.",
     metricsLabel: "협업 지표",
     unassigned: "미배정",
+    scope: "범위",
+    objectType: "업무 객체 유형",
+    objectTypePlaceholder: "예: work_order",
+    objectId: "업무 객체 ID",
+    objectIdPlaceholder: "선택 사항",
+    scopes: {
+      TENANT: "테넌트",
+      ORG: "조직",
+      DEPARTMENT: "부서",
+      TEAM: "팀",
+      PERSONAL: "개인",
+    },
+    policy: {
+      org_members: "조직 구성원",
+      creator_only: "작성자 전용",
+      department_target: "부서 대상",
+      team_target: "팀 대상",
+    },
     openMessenger: "메신저 열기",
     openMail: "메일함 열기",
     metrics: {
@@ -73,6 +401,12 @@ export const ko = {
       scopes: ["개인", "팀", "부서", "조직", "그룹"],
       listLabel: "이번 주 협업 일정",
       empty: "이번 주 표시할 협업 일정이 없습니다.",
+      eventTitle: "일정 제목",
+      startsAt: "시작",
+      endsAt: "종료",
+      create: "일정 추가",
+      created: "일정을 추가했습니다.",
+      createFailed: "일정을 추가하지 못했습니다.",
       planTitle: (status: string) => `계획업무 ${status}`,
       planMeta: (count: number) =>
         count > 0 ? "담당자 배정됨" : "담당자 확인 필요",
@@ -82,6 +416,7 @@ export const ko = {
         work: "작업",
         approval: "승인",
         support: "지원",
+        event: "일정",
       },
     },
     messenger: {
@@ -100,28 +435,24 @@ export const ko = {
     polls: {
       title: "폴·서베이 거버넌스",
       description:
-        "운영 의견수렴은 대상·익명성·마감·감사 경계를 먼저 검토한 뒤 발행합니다.",
-      backendGate: "발행은 백엔드 폴 엔진 준비 후 허용",
-      controls: [
-        {
-          icon: "audience",
-          title: "대상 범위",
-          description:
-            "그룹, 조직, 부서, 팀, 역할, 직책, 현장 배정 조건으로 수신 대상을 제한합니다.",
-        },
-        {
-          icon: "support",
-          title: "운영 연결",
-          description:
-            "SLA 위험, 고객지원, 승인 대기, 구매/정산 이슈에서 의견수렴 후보를 만듭니다.",
-        },
-        {
-          icon: "policy",
-          title: "감사·익명성",
-          description:
-            "익명 여부, 마감, 재투표, 결과 공개 범위와 감사 로그 보존 정책을 명시합니다.",
-        },
-      ],
+        "운영 의견수렴은 대상·익명성·마감·감사 경계를 서버 정책과 감사 이력으로 보존합니다.",
+      backendReady: "서버 정책·감사 기반",
+      pollTitle: "폴 제목",
+      question: "질문",
+      anonymity: "익명성",
+      named: "기명",
+      anonymous: "익명",
+      options: "선택지 (한 줄에 하나)",
+      defaultOptions: "찬성\n반대",
+      create: "폴 발행",
+      created: "폴을 발행했습니다.",
+      createFailed: "폴을 발행하지 못했습니다.",
+      voteFailed: "투표를 저장하지 못했습니다.",
+      voted: "투표를 저장했습니다.",
+      empty: "열린 폴이 없습니다.",
+      votes: (count: number) => `${String(count)}표`,
+      policy: (policy: string, count: number) =>
+        `${policy} · 총 ${String(count)}명 참여 · 서버 감사`,
     },
     workflow: {
       title: "워크플로 연결 원칙",
@@ -434,7 +765,8 @@ export const ko = {
     issueFailed: "코드 발급에 실패했습니다.",
     requiredUserId: "사용자를 선택하세요.",
     requiredBranchId: "지점을 선택하세요.",
-    selectUserFirst: "사용자를 먼저 선택하면 해당 소속 지점을 확인할 수 있습니다.",
+    selectUserFirst:
+      "사용자를 먼저 선택하면 해당 소속 지점을 확인할 수 있습니다.",
     branchScopeHelp: "선택한 사용자의 소속 지점만 사용할 수 있습니다.",
     branchNotAllowed: "선택한 사용자에게 속한 지점을 선택하세요.",
     noBranchesForUser: "사용자에게 소속 지점이 없어 코드를 발급할 수 없습니다.",
@@ -458,6 +790,41 @@ export const ko = {
       activeEmployees: "재직",
       leaveRemaining: "잔여 연차",
       attendanceUsers: "근태 기록 사용자",
+    },
+    operations: {
+      title: "피플 운영 관제",
+      description:
+        "그룹/회사 범위, 근로 생애주기, 계정·정책, 원장 보존 상태를 실행 경로로 연결합니다.",
+      groupScope: "그룹 전체",
+      orgScope: "회사 범위",
+      scope: {
+        title: "범위",
+        meta: "{companies}개 회사 · {visible}/{total}명 표시",
+      },
+      lifecycle: {
+        title: "근로 생애주기",
+        value: "재직 {active} · 퇴직 {exited}",
+        meta: "입사·전보·오프보딩·퇴직 이력을 감사 가능한 원장으로 남깁니다.",
+      },
+      policy: {
+        title: "계정·정책",
+        value: "사용자·정책 연결",
+        meta: "직책/역할/소속은 권한 정책과 분리해 검토합니다.",
+      },
+      importControls: {
+        title: "원장·마스킹",
+        adminValue: "가져오기·내보내기 가능",
+        readValue: "읽기 범위",
+        meta: "급여·계좌·주민번호 등 민감 열은 원천 보존 후 마스킹합니다.",
+      },
+      lifecycleCta:
+        "선택한 범위의 첫 직원을 기준으로 전보/퇴직 흐름과 확인 서명을 점검합니다.",
+      actions: {
+        users: "사용자 관리",
+        policy: "정책 관리",
+        workflows: "워크플로",
+        lifecycle: "생애주기 점검",
+      },
     },
     orgChart: {
       title: "조직도",
@@ -495,15 +862,75 @@ export const ko = {
       exitDate: "퇴사일",
       status: "상태",
       leaveRemaining: "잔여 연차",
+      actions: "작업",
+    },
+    lifecycle: {
+      title: "근로 생애주기",
+      manage: "생애주기 관리",
+      refresh: "이력 새로고침",
+      failed: "근로 생애주기 이력을 처리하지 못했습니다.",
+      empty: "기록된 생애주기 이력이 없습니다.",
+      typeLabel: "전환 유형",
+      effectiveDate: "효력일",
+      comment: "사유 및 근거",
+      transferTargetTitle: "전보 대상",
+      toCompany: "이동 회사",
+      toOrgUnit: "이동 부서/팀",
+      toPosition: "이동 직책",
+      signoffsTitle: "필수 확인",
+      privacyNotice: "개인정보 처리 고지 확인",
+      koreanLaborLaw: "근로기준법·취업규칙 확인",
+      payrollCutoff: "급여 마감 영향 확인",
+      retirementSettlement: "퇴직금 정산 필요성 확인",
+      fromTo: "상태 전환",
+      recordedBy: "기록자",
+      recordedAt: "기록 시각",
+      confirmed: "확인",
+      notConfirmed: "미확인",
+      submit: "생애주기 기록",
+      submitting: "기록 중",
+      eventTypes: {
+        ONBOARD: "입사/온보딩",
+        OFFBOARD: "오프보딩",
+        TERMINATE: "퇴직/해고",
+        TRANSFER: "전보/계열사 이동",
+      },
     },
     import: {
       title: "직원 명부 가져오기",
-      description: "엑셀(.xlsx) 파일을 업로드해 직원 명부를 갱신합니다.",
+      description:
+        "엑셀(.xlsx)을 원천 원장으로 보존한 뒤 미리보기, 드라이런, 적용 순서로 직원 명부를 갱신합니다.",
       fileLabel: "가져올 파일",
-      submit: "가져오기",
-      uploading: "가져오는 중",
+      preview: "미리보기 생성",
+      previewing: "미리보기 생성 중",
+      exportCsv: "표준 CSV 내보내기",
+      exporting: "내보내는 중",
       noFile: "파일을 선택하세요.",
       failed: "가져오기에 실패했습니다.",
+      previewPanel: {
+        title: "가져오기 검토",
+        hash: "SHA-256",
+        inputRows: "원천 행",
+        candidateRows: "직원 후보",
+        preservedRows: "보존 행",
+        sourceColumn: "원본 열",
+        targetField: "표준 필드",
+        policy: "정책",
+        rawOnly: "원천 보존",
+        previewAllowed: "미리보기 허용",
+        masked: "마스킹",
+        row: "행",
+        status: "상태",
+        dryRun: "드라이런",
+        dryRunning: "드라이런 중",
+        apply: "검토 후 적용",
+        applying: "적용 중",
+      },
+      dryRun: {
+        insertCandidates: "추가 예정",
+        updateCandidates: "수정 예정",
+        preservedRows: "원천만 보존",
+      },
       summary: {
         inputRows: "입력 행",
         inserted: "추가",
@@ -819,8 +1246,7 @@ export const ko = {
         noProposedRoles: "변경 후 사용자 지정 역할 없음",
         nextStepReady: "미리보기를 확인하고 패스키로 저장하세요.",
         nextStepReview: "경고를 검토한 뒤 저장 여부를 결정하세요.",
-        nextStepBlocked:
-          "런타임 차단 사유를 해소한 뒤 다시 미리보기하세요.",
+        nextStepBlocked: "런타임 차단 사유를 해소한 뒤 다시 미리보기하세요.",
       },
       rollup: {
         title: "영향 판정 요약",
@@ -1626,8 +2052,7 @@ export const ko = {
     sections: {
       capabilities: "업무 원천 요약",
       inbox: "액션 인박스",
-      inboxHint:
-        "마감·지연·승인·대화를 우선순위 순서로 표시합니다.",
+      inboxHint: "마감·지연·승인·대화를 우선순위 순서로 표시합니다.",
     },
     stats: {
       work: "업무·운영",
@@ -2337,6 +2762,7 @@ export const ko = {
         maker: "제조사",
         specification: "규격",
         tonText: "톤수",
+        assetOwner: "법적 소유자",
         customerName: "고객명",
         siteName: "현장명",
         vin: "차대번호",
@@ -2406,6 +2832,19 @@ export const ko = {
       disposed: "폐기",
       replacement: "대체",
       sold: "매각",
+    },
+    transfer: {
+      title: "소유권 이전 결재",
+      description:
+        "법적 소유자 변경은 직접 수정하지 않고 이전 법인·인수 법인·법무·회계 순서의 결재 라인으로 처리합니다.",
+      targetOwner: "새 법적 소유자",
+      targetOwnerPlaceholder: "소유 법인을 선택하세요",
+      reason: "이전 사유",
+      signoffAcknowledgement:
+        "이 요청은 자산 소유권 이전 결재이며 양 법인, 법무, 회계 승인 전에는 장비 마스터의 법적 소유자가 변경되지 않음을 확인합니다.",
+      requestAction: "소유권 이전 결재 요청",
+      requestSuccess: "소유권 이전 결재를 요청했습니다.",
+      requestFailed: "소유권 이전 결재 요청에 실패했습니다.",
     },
     import: {
       title: "장비 마스터 일괄 등록",
@@ -2614,6 +3053,24 @@ export const ko = {
     inspectionPlanScheduled: "정기점검 완료",
     p1Accepted: "P1 수락",
     noDelayReason: "지연 사유 없음",
+    command: {
+      eyebrow: "Executive BI",
+      title: "전체·세부 범위 성과를 실행 화면과 연결합니다.",
+      scope: "선택 범위",
+      viewMode: "보기 모드",
+      sourceCount: "집계 축",
+      rollupUnit: "개",
+      scopeModes: {
+        consolidated: "전체 집계",
+        scoped: "세부 범위",
+      },
+      links: {
+        ops: "운영 드릴다운",
+        reporting: "보고서 출력",
+        wallboard: "월보드",
+        support: "지원 이슈",
+      },
+    },
     scopes: {
       company: "회사",
       region: "권역",
@@ -2706,6 +3163,13 @@ export const ko = {
     completedToday: "완료",
     responseSpeed: "응답 속도",
     refresh: "자동 갱신",
+    actions: {
+      title: "월보드 관련 화면",
+      ops: "운영 현황",
+      kpi: "KPI",
+      reporting: "보고서",
+      support: "지원 티켓",
+    },
   },
   reporting: {
     title: "보고서 출력",
@@ -2721,8 +3185,25 @@ export const ko = {
     downloadFailed:
       "보고서를 생성하지 못했습니다. 날짜를 확인하고 다시 시도하세요.",
     downloadDone: "{report} 보고서를 내려받았습니다.",
-    historyNote:
-      "출력 이력 보기는 백엔드에서 아직 제공되지 않습니다(excel_export_logs 미노출).",
+    command: {
+      eyebrow: "BI Hub",
+      title: "보고서, KPI, 운영 현황을 같은 출처 흐름으로 확인합니다.",
+      links: {
+        kpi: "KPI 보기",
+        ops: "운영 현황",
+        wallboard: "월보드",
+        support: "지원 티켓",
+      },
+      controls: [
+        { label: "표준 출력", value: "업무일지·일일현황 XLSX" },
+        { label: "출처 연결", value: "KPI·운영·지원 객체로 재진입" },
+        { label: "범위", value: "권한 범위 안에서 집계" },
+      ],
+    },
+    history: {
+      title: "내려받은 보고서",
+      reopen: "같은 기준으로 다시 열기",
+    },
   },
   common: {
     branch: "지점",
@@ -2884,11 +3365,34 @@ export const ko = {
     createdAt: "등록",
     overdue: "기한 초과",
     dueSoon: "기한 임박",
+    searchAria: "티켓 제목, 요청자, 담당자, 분류 검색",
+    searchPlaceholder: "제목·요청자·담당자 검색",
+    command: {
+      eyebrow: "CX Operations",
+      title: "문의, SLA, 담당, 보고를 한 화면에서 처리합니다.",
+      open: "열린 티켓",
+      urgentOrOverdue: "긴급·기한초과",
+      unassigned: "미배정",
+      resolvedHistory: "해결 이력",
+      links: {
+        kpi: "지원 KPI",
+        reporting: "지원 보고",
+      },
+    },
+    objectRail: {
+      title: "연결된 업무 객체",
+      ticket: "티켓",
+      workOrder: "작업 전환",
+      messenger: "메신저",
+      mail: "메일",
+      reporting: "보고서",
+    },
     filters: {
       status: "상태",
       priority: "우선순위",
       category: "분류",
       origin: "채널",
+      search: "검색",
       all: "전체",
       includeUntriaged: "미배정 포함",
     },
@@ -3027,6 +3531,39 @@ export const ko = {
     description:
       "구매요청서·지출결의서·집행, 임대 견적과 장비 원가 원장을 관리합니다.",
     noBranch: "계정에 배정된 지점이 없습니다. 관리자에게 문의하세요.",
+    command: {
+      badge: "재무 운영",
+      scope: "그룹·조직 범위는 계정 정책과 보기 범위를 따릅니다.",
+      title: "구매, 임대료, 원가, 자산경제성을 한 흐름에서 처리합니다.",
+      links: {
+        approvals: "승인센터",
+        workflows: "워크플로",
+        assets: "장비 조회",
+      },
+      tabHints: {
+        purchase: "거래명세표 증빙 → 결재라인 → 집행 → 원가원장",
+        quote: "취득가·잔존가·정비비 기반 임대료 산출",
+        ledger: "구매/정비/수기 비용과 원천 업무 연결",
+        assetCost: "TCO·매각손익·가동비용으로 처분/보유 검토",
+      },
+      controls: [
+        {
+          label: "정책·권한",
+          value:
+            "작성, 승인, 최종승인, 집행 권한은 PBAC/RBAC 정책과 백엔드 재검증을 통과해야 합니다.",
+        },
+        {
+          label: "감사·패스키",
+          value:
+            "자산처분·전자세금계산서·서명급 집행은 패스키 step-up 없이는 확정 기능으로 확장하지 않습니다.",
+        },
+        {
+          label: "회계 릴리스",
+          value:
+            "세무사 검증과 공식 근거가 없는 세무/회계 자동처리는 차단하고 원천문서만 연결합니다.",
+        },
+      ],
+    },
     tabs: {
       purchase: "구매요청",
       quote: "임대 견적",
@@ -3060,6 +3597,49 @@ export const ko = {
       rejectionMemo: "반려 사유",
       createdAt: "작성",
       updatedAt: "변경",
+      sourceRail: {
+        title: "원천 업무 객체",
+        equipment: "장비",
+        workOrder: "작업지시",
+        noWorkOrder: "작업지시 없이 독립 구매",
+        evidence: "거래명세표 증빙",
+      },
+      approvalLine: {
+        title: "결재·지출 라인",
+        policy: "정책 기반",
+        steps: {
+          statement: "명세표",
+          submit: "상신",
+          admin: "관리자",
+          executive: "임원",
+          expenditure: "지출결의",
+          execute: "집행/원장",
+        },
+        state: {
+          done: "완료",
+          current: "현재",
+          pending: "대기",
+          skipped: "조건부 생략",
+          rejected: "반려됨",
+        },
+      },
+      controls: [
+        {
+          label: "권한 재검증",
+          value:
+            "버튼 노출과 별개로 서버가 기능·지점·조직 범위를 다시 확인합니다.",
+        },
+        {
+          label: "감사 연결",
+          value:
+            "상태 전이는 감사 로그와 거래명세표/작업지시/원가원장 원천 객체에 연결됩니다.",
+        },
+        {
+          label: "서명급 보호",
+          value:
+            "패스키 step-up이 없는 전자세금계산서·자산처분 자동 확정은 차단합니다.",
+        },
+      ],
       fields: {
         vendorName: "거래처명",
         vendorNamePlaceholder: "거래처명을 입력하세요.",
@@ -3157,6 +3737,8 @@ export const ko = {
       residualBefore: "이전 잔존가",
       residualAfter: "이후 잔존가",
       entryAt: "기록 시각",
+      purchaseSource: "구매요청",
+      workOrderSource: "작업지시",
       sources: {
         MANUAL_ADMIN: "관리자 수기",
         PURCHASE_EXECUTION: "구매 집행",
@@ -3203,6 +3785,20 @@ export const ko = {
       costPerHour: "가동시간당 정비비",
       notAvailable: "—",
       timelineTitle: "비용 원장",
+      decision: {
+        title: "보유·매각 검토 신호",
+        review: "검토 필요",
+        stable: "정상 범위",
+        reviewDescription:
+          "이 신호는 확정 판단이 아니라 자산 담당자가 가격, 정비계획, 매각 여부를 검토해야 하는 조건입니다.",
+        stableDescription:
+          "현재 비용·잔존가 지표상 즉시 검토 조건은 감지되지 않았습니다.",
+        reasons: {
+          lossOnSale: "매각 손익이 음수입니다.",
+          highMaintenanceRatio: "정비비가 잔존가 대비 높습니다.",
+          missingAcquisition: "취득원가가 대체값 또는 미등록 상태입니다.",
+        },
+      },
       sources: {
         MANUAL_ADMIN: "관리자 수기",
         PURCHASE_EXECUTION: "구매 집행",
@@ -4006,6 +4602,8 @@ export const ko = {
         locationPlaceholder: "예: 창원, 부산, 김해",
         messageLabel: "문의 내용",
         messagePlaceholder: "필요 톤수, 기간, 작업 환경을 적어주세요.",
+        listingContext:
+          "선택한 매물 ID {listingId}가 문의와 함께 영업 관리함에 연결됩니다.",
         submit: "문의 남기기",
         submitting: "전송 중…",
       },

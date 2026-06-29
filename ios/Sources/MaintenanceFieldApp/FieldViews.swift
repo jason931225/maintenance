@@ -56,6 +56,11 @@ struct FieldAuthenticatedTabs: View {
                     Label("messenger_title", systemImage: "message.fill")
                 }
                 .accessibilityIdentifier(FieldAccessibilityID.messengerTab)
+            OperationsTabView(viewModel: viewModel)
+                .tabItem {
+                    Label("operations_title", systemImage: "tray.full")
+                }
+                .accessibilityIdentifier(FieldAccessibilityID.operationsTab)
         }
         .accessibilityIdentifier(FieldAccessibilityID.authenticatedTabs)
     }
@@ -95,15 +100,14 @@ struct WorkHubTabView: View {
             }
 
             Section {
-                Text(workHubCountText("work_hub_messenger_count_format", summary.messengerThreadCount))
-                Text("work_hub_notifications_note")
-                Text("work_hub_company_mail_note")
-                Text("work_hub_shared_calendar_note")
-                Text("work_hub_polls_note")
+                ForEach(summary.collaborationActions) { action in
+                    WorkHubActionRow(action: action)
+                        .accessibilityIdentifier(FieldAccessibilityID.workHubCollaborationAction(action.kind.rawValue))
+                }
             } header: {
                 Text("work_hub_collaboration_section")
             } footer: {
-                Text("work_hub_staged_footer")
+                Text("work_hub_collaboration_footer")
             }
         }
         .accessibilityIdentifier(FieldAccessibilityID.workHubList)
@@ -129,6 +133,331 @@ struct WorkHubTabView: View {
 
 private func workHubCountText(_ key: String, _ count: Int) -> String {
     String.localizedStringWithFormat(NSLocalizedString(key, comment: ""), count)
+}
+
+struct WorkHubActionRow: View {
+    let action: MobileCollaborationAction
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(LocalizedStringKey(action.titleKey))
+                    .font(.headline)
+                Spacer()
+                FieldChip(key: action.status.fieldLabelKey)
+            }
+            Text(workHubActionValue(action))
+                .font(.subheadline)
+            Text(LocalizedStringKey(action.detailKey))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            if action.requiresPasskey {
+                Label("work_hub_action_passkey_step_up", systemImage: "person.badge.key")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private func workHubActionValue(_ action: MobileCollaborationAction) -> String {
+    if let count = action.count {
+        return localizedString(action.valueKey, count)
+    }
+    return localizedString(action.valueKey)
+}
+
+
+
+struct OperationsTabView: View {
+    @ObservedObject var viewModel: FieldViewModel
+
+    var body: some View {
+        let dashboard = viewModel.mobileOperationsDashboard
+        List {
+            if let overview = viewModel.mobileOperationsOverview, overview.origin == .cachedAfterFailure {
+                Section {
+                    Label("operations_cached_fallback", systemImage: "wifi.slash")
+                }
+            }
+
+            Section {
+                LabeledContent("operations_notification_badge", value: localizedString("operations_count_format", viewModel.mobileNotificationInbox.badgeCount))
+                LabeledContent("operations_notification_unread", value: localizedString("operations_count_format", viewModel.mobileNotificationInbox.unreadCount))
+                LabeledContent("operations_notification_urgent", value: localizedString("operations_count_format", viewModel.mobileNotificationInbox.urgentUnreadCount))
+                ForEach(viewModel.mobileNotificationInbox.notifications.prefix(3)) { notification in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(notification.title)
+                                .font(.headline)
+                            Spacer()
+                            FieldChip(key: notification.isUrgent ? "operations_notification_urgent_chip" : "operations_notification_normal_chip")
+                        }
+                        Text(notification.body)
+                            .font(.subheadline)
+                        Text(notification.receivedAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("operations_notification_mark_read") {
+                            Task { await viewModel.markNotificationRead(notification) }
+                        }
+                        .disabled(notification.isUnread == false)
+                    }
+                    .padding(.vertical, 4)
+                }
+            } header: {
+                Text("operations_notification_section")
+            }
+
+            Section {
+                LabeledContent("operations_approval_count", value: localizedString("operations_count_format", dashboard?.approvalCount ?? 0))
+                if let approvals = dashboard?.approvals, approvals.isEmpty == false {
+                    ForEach(approvals.prefix(3)) { approval in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(approval.title)
+                                .font(.headline)
+                            Text(approval.summary)
+                                .font(.subheadline)
+                            if approval.canExecuteOnMobile == false {
+                                Text("operations_approval_unsupported_mobile")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } else {
+                    Text("operations_approval_empty")
+                        .foregroundStyle(.secondary)
+                }
+                TextField(String(localized: "operations_approval_comment"), text: $viewModel.approvalComment, axis: .vertical)
+                    .lineLimit(2...4)
+                    .accessibilityIdentifier(FieldAccessibilityID.operationsApprovalCommentField)
+                Button {
+                    Task { await viewModel.queueFirstApprovalForPasskey() }
+                } label: {
+                    Label("operations_queue_approval", systemImage: "person.badge.key")
+                }
+                Button {
+                    Task { await viewModel.replayMobileSensitiveActions() }
+                } label: {
+                    Label("operations_replay_sensitive_actions", systemImage: "arrow.triangle.2.circlepath")
+                }
+            } header: {
+                Text("operations_approval_section")
+            }
+
+            Section {
+                LabeledContent("operations_sensitive_waiting_passkey", value: localizedString("operations_count_format", viewModel.mobileSensitiveActionSummary.pendingPasskeyCount))
+                LabeledContent("operations_sensitive_ready_replay", value: localizedString("operations_count_format", viewModel.mobileSensitiveActionSummary.readyForReplayCount))
+                LabeledContent("operations_sensitive_failed", value: localizedString("operations_count_format", viewModel.mobileSensitiveActionSummary.failedCount))
+            } header: {
+                Text("operations_sensitive_section")
+            }
+
+            Section {
+                LabeledContent("operations_mail_unread", value: localizedString("operations_count_format", dashboard?.unreadMailCount ?? 0))
+                if let mailThreads = dashboard?.mailThreads, mailThreads.isEmpty == false {
+                    ForEach(mailThreads) { thread in
+                        OperationsMailThreadRow(thread: thread) {
+                            Task { await viewModel.markMailThreadRead(thread) }
+                        }
+                        .accessibilityIdentifier(FieldAccessibilityID.operationsMailThread(thread.id))
+                    }
+                } else {
+                    Text("operations_mail_empty")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("operations_mail_section")
+            }
+
+            Section {
+                if let events = dashboard?.calendarEvents, events.isEmpty == false {
+                    ForEach(events) { event in
+                        OperationsCalendarEventRow(event: event)
+                            .accessibilityIdentifier(FieldAccessibilityID.operationsCalendarEvent(event.id))
+                    }
+                } else {
+                    Text("operations_calendar_empty")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("operations_calendar_section")
+            }
+
+            Section {
+                if let polls = dashboard?.polls, polls.isEmpty == false {
+                    ForEach(polls) { poll in
+                        OperationsPollRow(poll: poll) {
+                            Task { await viewModel.votePoll(poll) }
+                        }
+                        .accessibilityIdentifier(FieldAccessibilityID.operationsPoll(poll.id))
+                    }
+                } else {
+                    Text("operations_poll_empty")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("operations_poll_section")
+            }
+
+            if let messageKey = viewModel.messageKey {
+                Section {
+                    Text(LocalizedStringKey(messageKey))
+                }
+            }
+        }
+        .accessibilityIdentifier(FieldAccessibilityID.operationsList)
+        .navigationTitle(Text("operations_title"))
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Task { await viewModel.refreshMobileOperations() }
+                } label: {
+                    Label("refresh", systemImage: "arrow.clockwise")
+                }
+                .accessibilityIdentifier(FieldAccessibilityID.operationsRefreshButton)
+                Button {
+                    Task { await viewModel.logout() }
+                } label: {
+                    Label("logout", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            }
+        }
+        .overlay {
+            if viewModel.isLoading {
+                ProgressView("loading")
+            }
+        }
+        .task {
+            if viewModel.mobileOperationsOverview == nil {
+                await viewModel.refreshMobileOperations()
+            }
+        }
+    }
+}
+
+struct OperationsMailThreadRow: View {
+    let thread: MobileMailThreadRow
+    let onMarkRead: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(thread.subject)
+                    .font(.headline)
+                Spacer()
+                if thread.unreadCount > 0 {
+                    FieldChip(key: "operations_unread_chip")
+                }
+            }
+            Text(thread.lastMessageAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            HStack {
+                Text(localizedString("operations_mail_unread_format", thread.unreadCount))
+                if thread.hasAttachments { FieldChip(key: "operations_attachment_chip") }
+                if thread.isFlagged { FieldChip(key: "operations_flagged_chip") }
+            }
+            .font(.caption)
+            Button("operations_mark_read", action: onMarkRead)
+                .disabled(thread.unreadCount == 0)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct OperationsCalendarEventRow: View {
+    let event: MobileCalendarEventRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(event.title)
+                    .font(.headline)
+                Spacer()
+                FieldChip(key: operationsScopeKey(event.scopeType))
+            }
+            Text(event.description)
+                .font(.subheadline)
+            Text(localizedString("operations_calendar_time_format", event.startsAt.formatted(date: .abbreviated, time: .shortened), event.endsAt.formatted(date: .omitted, time: .shortened)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let objectType = event.objectType {
+                Text(localizedString("operations_object_link_format", objectType))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if event.isCancelled {
+                FieldChip(key: "operations_calendar_cancelled")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct OperationsPollRow: View {
+    let poll: MobilePollRow
+    let onVote: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(poll.title)
+                    .font(.headline)
+                Spacer()
+                FieldChip(key: operationsPollStatusKey(poll.status))
+            }
+            Text(poll.question)
+            HStack {
+                FieldChip(key: operationsPollAnonymityKey(poll.anonymity))
+                Text(localizedString("operations_poll_vote_count_format", poll.voteCount))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let option = poll.firstOptionLabel {
+                Button {
+                    onVote()
+                } label: {
+                    Label(localizedString("operations_poll_vote_option_format", option), systemImage: "checkmark.circle")
+                }
+                .disabled(poll.canVote == false)
+            }
+            if poll.hasSubmittedVote {
+                Text("operations_poll_submitted")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private func operationsScopeKey(_ scope: Components.Schemas.CollaborationScopeType) -> String {
+    switch scope {
+    case .tenant: "operations_scope_tenant"
+    case .org: "operations_scope_org"
+    case .department: "operations_scope_department"
+    case .team: "operations_scope_team"
+    case .personal: "operations_scope_personal"
+    }
+}
+
+private func operationsPollStatusKey(_ status: Components.Schemas.PollStatus) -> String {
+    switch status {
+    case .draft: "operations_poll_status_draft"
+    case .open: "operations_poll_status_open"
+    case .closed: "operations_poll_status_closed"
+    case .archived: "operations_poll_status_archived"
+    }
+}
+
+private func operationsPollAnonymityKey(_ anonymity: Components.Schemas.PollAnonymity) -> String {
+    switch anonymity {
+    case .named: "operations_poll_named"
+    case .anonymous: "operations_poll_anonymous"
+    }
 }
 
 struct LoginView: View {

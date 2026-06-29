@@ -88,7 +88,8 @@ function workbookResponse() {
   return new HttpResponse(new Blob([new Uint8Array([0x50, 0x4b])]), {
     headers: {
       "Content-Type": XLSX_MIME,
-      "Content-Disposition": 'attachment; filename="work-diary-2026-06-12.xlsx"',
+      "Content-Disposition":
+        'attachment; filename="work-diary-2026-06-12.xlsx"',
     },
   });
 }
@@ -117,6 +118,27 @@ describe("ReportingPage export", () => {
     expect(
       await screen.findByText("업무일지 보고서를 내려받았습니다."),
     ).toBeVisible();
+    expect(await screen.findByText("내려받은 보고서")).toBeVisible();
+    expect(screen.getByText("work-diary-2026-06-12.xlsx")).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "같은 기준으로 다시 열기" }),
+    ).toHaveAttribute("href", "/reporting?date=2026-06-12");
+  });
+
+  it("connects reporting with KPI, ops, wallboard, and support source paths", async () => {
+    renderApp(makeAuthContext(adminSession));
+
+    expect(await screen.findByText("BI Hub")).toBeVisible();
+    expect(screen.getByRole("link", { name: "KPI 보기" })).toHaveAttribute(
+      "href",
+      "/kpi",
+    );
+    expect(screen.getByRole("link", { name: "운영 현황" })).toHaveAttribute(
+      "href",
+      "/ops",
+    );
+    expect(screen.getByText("표준 출력")).toBeVisible();
+    expect(screen.getByText("출처 연결")).toBeVisible();
   });
 
   it("downloads the daily-status workbook when that report is selected", async () => {
@@ -188,5 +210,17 @@ describe("ReportingPage export", () => {
     await waitFor(() => {
       expect(exported).toHaveBeenCalled();
     });
+  });
+
+  it("does not expose backend-missing export history copy as a dead panel", async () => {
+    renderApp(makeAuthContext(adminSession));
+
+    expect(await screen.findByLabelText("보고서 종류")).toBeVisible();
+    expect(
+      screen.queryByText(/백엔드에서 아직 제공되지/u),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/excel_export_logs 미노출/u),
+    ).not.toBeInTheDocument();
   });
 });

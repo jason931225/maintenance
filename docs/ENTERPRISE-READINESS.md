@@ -29,7 +29,7 @@ tracked below.
 | **CI / supply chain** | **Strong** | fmt + clippy `-D warnings` + workspace tests; `mnt-gate-*` (layer-boundary, audit-coverage, migration-safety, pii-no-logs); tri-client drift; cosign keyless signing; SLSA provenance + SPDX SBOM; blocking Trivy HIGH/CRITICAL; cargo-audit + npm-audit; Renovate digest pinning. |
 | **Deploy / DR** | **Strong** | Argo CD GitOps (self-heal + prune); Argo Rollouts blue/green with smoke-gate auto-rollback; CNPG + Barman PITR to OCI (RPO ≤ 5m / RTO ≤ 1h) with **tested** restore + PITR drills; OpenTofu IaC. |
 | **Security posture** | **Strong** | default-deny NetworkPolicies; PSS `restricted`; hardened securityContexts (non-root, drop ALL, seccomp, readOnlyRootFS on Rust pods); cert-manager + Let's Encrypt; HSTS + strict CSP; comprehensive tested RBAC (5 roles × 32 features, dual role+branch gate). |
-| **Observability** | **Improving** | Structured JSON logs; OTLP tracing in code; health/readiness/startup probes; OpenSLO objectives; Palantir/Foundry-derived operating benchmark captured in [`docs/benchmarks/palantir-foundry-ops-benchmark.md`](benchmarks/palantir-foundry-ops-benchmark.md). **Now:** Prometheus `/metrics` backing the SLOs + opt-in ServiceMonitor/PrometheusRule. **Gap:** no monitoring stack deployed; no alert routing/test-fired runbooks. |
+| **Observability** | **Strong in-repo / ops-gated live** | Structured JSON logs; OTLP tracing in code; health/readiness/startup probes; OpenSLO objectives; Prometheus `/metrics` backing the SLOs; opt-in ServiceMonitor/PrometheusRule; Palantir/Foundry-derived operating benchmark captured in [`docs/benchmarks/palantir-foundry-ops-benchmark.md`](benchmarks/palantir-foundry-ops-benchmark.md). **Gap:** no monitoring stack deployed; no alert routing/test-fired runbooks. |
 | **High availability** | **Capped by infra** | Single node ⇒ correlated replica failure; single CNPG instance; single worker (no leader election). PDBs/blue-green are present but structurally limited to voluntary disruptions. |
 
 ## Delivered this session (in-repo, verified)
@@ -49,11 +49,22 @@ tracked below.
   ServiceMonitor + PrometheusRule (availability-burn + p99-latency alerts mapped
   to the OpenSLO objectives). Requires a Prometheus Operator; intentionally not
   wired into base/prod.
+- **Digest-only GitOps deploy** — production overlay pins `mnt-app` and
+  `mnt-web` by immutable `sha256` digest; `scripts/bump-prod-digests.sh` and the
+  render gate reject mutable tag deploys.
+- **Admission audit-mode policy** —
+  `deploy/apps/maintenance/components/admission-audit/` defines a sigstore
+  policy-controller `ClusterImagePolicy` in `warn` mode for the keyless
+  `image-release.yml` signatures. It is opt-in until ops installs the controller
+  CRDs, then can burn in safely before hard-fail enforcement.
+- **Global request envelope proved** — timeout, body limit, trace layer, and
+  metrics wrap the fully merged API router (with realtime deliberately outside
+  the 30s timeout); `router_layer_tests` guards the merge-order invariant.
 - **`cargo-deny` supply-chain gate** — `backend/deny.toml` (licenses, source
   restriction, advisories) wired into `security.yml`; verified passing, with
   documented accepted-advisory rationale (rsa ES256-only; paste build-time).
-- **CI honesty** — `image-release.yml` header corrected (arm64-only; signature
-  is not yet admission-enforced).
+- **CI honesty** — `image-release.yml` header corrected (arm64-only; hard-fail
+  admission enforcement remains an operator-controlled rollout after audit mode).
 
 ## Backlog to "enterprise" — prioritized
 
@@ -75,29 +86,16 @@ tracked below.
    to prove audit/log/metric/trace/runbook diagnosis for one success and one
    denied/failure path before claiming enterprise-operable.
 
-### B. In-repo (Eng, no new spend) — recommended next
+### B. In-repo / operator handoff (no new spend by default)
 
-5. **Deploy by digest, not mutable tag (P0 security).** Propagate the
-   Trivy-scanned, cosign-signed digest from `image-release.yml` into the prod
-   overlay (`images:` `digest:`), so a re-tag can't bypass the scan gate. The
-   #1 cross-cutting finding from the security + deployment reviews.
-6. **Admission-time signature verification (P1).** sigstore policy-controller (or
-   Kyverno `verifyImages`) enforcing the cosign signature at pod creation. Pair
-   with #5. Deploy in `warn`/audit mode first on the single node before
-   hard-fail.
-7. **Global cross-cutting layers (P1 correctness).** `RequestBodyLimitLayer`,
-   `TimeoutLayer`, and `TraceLayer` are applied to the base routes *before* the
-   domain routers are merged, so they do **not** currently wrap the domain API
-   routes — the 2 MiB body cap / 30s timeout / trace spans don't cover
-   `/api/v1/*`. The new metrics layer wraps everything (applied post-merge); the
-   other three should move there too. Body-limit globalization is safe (evidence
-   uploads are presigned straight to object storage — the app never receives the
-   bytes); the timeout move needs a check that no legitimate sync endpoint
-   (e.g. an Excel/report export) runs past 30s. Verify against the DB-backed
-   integration suite in CI.
-8. **Secrets GitOps (P2).** External Secrets Operator or Sealed Secrets so
-   secret material can live in git (currently `kubectl create secret`,
-   out-of-band — documented in `deploy/SECRETS.md`).
+5. **Hard-fail admission enforcement (P1).** The audit-mode
+   `ClusterImagePolicy` exists. Ops must install sigstore policy-controller,
+   observe a clean warning burn-in, then switch from `warn` to enforcement. Keep
+   this out of base/prod until the CRDs are present.
+6. **Secrets GitOps controller adoption (P2).** `deploy/SECRETS.md` defines the
+   OCI Vault source and the External Secrets / Sealed Secrets upgrade path.
+   Choose one operator after resource sizing; until then `kubectl create secret`
+   remains the documented out-of-band bootstrap path.
 
 ## Not blockers (accepted for pilot)
 

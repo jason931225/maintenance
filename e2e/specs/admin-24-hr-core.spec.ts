@@ -2,6 +2,7 @@ import {
   test,
   expect,
   loginAsLanding,
+  querySql,
   sql,
   TENANT_ORG_ID,
   TENANT_BRANCH_ID,
@@ -16,6 +17,12 @@ test.beforeEach(() => {
   sql(`
     BEGIN;
     SELECT set_config('app.current_org', '${TENANT_ORG_ID}', true);
+    DELETE FROM employee_lifecycle_events
+      WHERE org_id = '${TENANT_ORG_ID}'
+        AND employee_id IN (
+          SELECT id FROM employees
+          WHERE org_id = '${TENANT_ORG_ID}' AND source_filename = '${SOURCE_FILENAME}'
+        );
     DELETE FROM site_attendance_events
       WHERE id IN (
         '00000000-0000-0000-0000-000000aa2401',
@@ -76,8 +83,52 @@ test("ADMIN-24 HR core renders imported employees, org chart, leave, and attenda
   await expect(page.getByRole("heading", { name: "근태 요약" })).toBeVisible();
   await expect(page.getByText("E2E Mechanic")).toBeVisible();
 
+  await page.getByRole("button", { name: "김현장 생애주기 관리" }).click();
+  await expect(page.getByRole("heading", { name: "근로 생애주기" })).toBeVisible();
+  await page.getByLabel("전환 유형").selectOption("TERMINATE");
+  await page.getByLabel("효력일").fill("2026-06-30");
+  await page.getByLabel("사유 및 근거").fill("권고사직 협의 완료");
+  await page.getByLabel("개인정보 처리 고지 확인").check();
+  await page.getByLabel("근로기준법·취업규칙 확인").check();
+  await page.getByLabel("급여 마감 영향 확인").check();
+  await page.getByLabel("퇴직금 정산 필요성 확인").check();
+  await page.getByRole("button", { name: "생애주기 기록" }).click();
+  await expect(page.getByText("권고사직 협의 완료")).toBeVisible();
+
+  const lifecycleRows = querySql<{
+    event_type: string;
+    to_status: string;
+    comment: string;
+    payroll_cutoff_ack: boolean;
+    retirement_settlement_ack: boolean;
+    employee_status: string;
+  }>(`
+    SELECT
+      le.event_type,
+      le.to_status,
+      le.comment,
+      (le.signoffs->>'payroll_cutoff_ack')::boolean AS payroll_cutoff_ack,
+      (le.signoffs->>'retirement_settlement_ack')::boolean AS retirement_settlement_ack,
+      e.employment_status AS employee_status
+    FROM employee_lifecycle_events le
+    JOIN employees e ON e.id = le.employee_id
+    WHERE le.org_id = '${TENANT_ORG_ID}'
+      AND e.source_filename = '${SOURCE_FILENAME}'
+      AND e.name = '김현장'
+    ORDER BY le.created_at DESC
+    LIMIT 1
+  `);
+  expect(lifecycleRows[0]).toEqual({
+    event_type: "TERMINATE",
+    to_status: "EXITED",
+    comment: "권고사직 협의 완료",
+    payroll_cutoff_ack: true,
+    retirement_settlement_ack: true,
+    employee_status: "EXITED",
+  });
+
   await page.getByLabel("회사").selectOption("한울로지스");
   await expect(page.getByRole("cell", { name: "B-002" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "이퇴사" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "이퇴사", exact: true })).toBeVisible();
   await expect(page.getByRole("cell", { name: "A-001" })).toHaveCount(0);
 });

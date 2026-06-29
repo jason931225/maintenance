@@ -711,6 +711,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employees/{id}/lifecycle-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List audited employee lifecycle events
+         * @description Tenant-scoped append-only lifecycle ledger for onboarding, offboarding, termination, and intra-group/company transfer decisions.
+         */
+        get: operations["listEmployeeLifecycleEvents"];
+        put?: never;
+        /**
+         * Record an employee lifecycle transition with legal signoffs
+         * @description Mutates the canonical employee status/company/org-unit/position only through an audited event requiring Korean labor, privacy, and payroll signoff gates.
+         */
+        post: operations["createEmployeeLifecycleEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hr/org-chart": {
         parameters: {
             query?: never;
@@ -785,6 +809,83 @@ export interface paths {
          * @description Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
          */
         post: operations["importEmployees"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employees/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview an employee workbook through the governed import ledger
+         * @description Creates an immutable tenant-scoped raw import run, preserves every non-empty source row, masks restricted/PII/payroll/location values in the response, and returns a column-to-employee schema mapping preview. No employee rows are written until dry-run and apply are completed.
+         */
+        post: operations["previewEmployeeImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employees/import/{run_id}/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compute employee import insert/update counts without writing employees */
+        post: operations["dryRunEmployeeImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employees/import/{run_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a dry-run employee import run
+         * @description Applies only candidate rows from a DRY_RUN import run; preserved rows remain raw-ledger evidence and are not promoted into employee records.
+         */
+        post: operations["applyEmployeeImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employees/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export standardized employee directory CSV
+         * @description Exports canonical employee fields only. Raw import ledger values, payroll data, account numbers, resident identifiers, and import provenance are not included.
+         */
+        get: operations["exportEmployeesCsv"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2064,6 +2165,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment/{id}/ownership-transfer-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List legal ownership transfer workflow requests for one equipment asset
+         * @description Returns the durable ownership-transfer request ledger for a single asset. A transfer changes only the legal owner fact after ordered sending-org, receiving-org, legal, and accounting signoff; the equipment tenant/org discriminator stays immutable.
+         */
+        get: operations["listEquipmentOwnershipTransfers"];
+        put?: never;
+        /**
+         * Request a cross-org legal ownership transfer
+         * @description Creates a pending transfer request and approval line. This endpoint does not immediately mutate `asset_owner`; final mutation happens only after sending-org, receiving-org, legal, and accounting approval decisions.
+         */
+        post: operations["createEquipmentOwnershipTransfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment/ownership-transfer-requests/{id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject the current ownership-transfer signoff step
+         * @description Advances the ordered transfer signoff line one step at a time. The final accounting approval writes the new `asset_owner` and records an audited workflow event; rejection makes the request terminal without mutating the asset owner.
+         */
+        post: operations["decideEquipmentOwnershipTransfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/rental-quotes/compute": {
         parameters: {
             query?: never;
@@ -3312,10 +3457,331 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-studio/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Workflow Studio connector allowlist and templates
+         * @description Returns the server-owned connector/action allowlist and starter workflow templates. This is the safe no-code boundary: workflow authors can only compose allowed internal actions, and every request still requires tenant RLS plus RoleManage authorization.
+         */
+        get: operations["getWorkflowStudioCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List tenant workflow definitions
+         * @description Lists tenant-owned workflow definitions with latest version metadata, approval/payment line requirements, notification rules, and action allowlist. The backing schema keeps definitions tenant-scoped under RLS and stores versions/change events append-only.
+         */
+        get: operations["listWorkflowDefinitions"];
+        put?: never;
+        /**
+         * Create a draft workflow definition
+         * @description Creates a DRAFT workflow definition and version 1. Publishing, pausing, rollback, and clone operations are sensitive actions that require a fresh passkey step-up assertion and append immutable history.
+         */
+        post: operations["createWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List append-only workflow definition change history */
+        get: operations["listWorkflowDefinitionHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate publish readiness without writing
+         * @description Validates the workflow definition, required approval/payment lines, conditional notification rules, and connector/action allowlist without mutating state. Use this before passkey-gated publication.
+         */
+        post: operations["simulateWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a workflow definition version
+         * @description Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+         */
+        post: operations["publishWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause an active workflow definition */
+        post: operations["pauseWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Roll back by appending a new active version copied from history */
+        post: operations["rollbackWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clone a workflow definition into a new draft */
+        post: operations["cloneWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collaboration/calendar/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List tenant-scoped collaboration calendar events
+         * @description Returns server-filtered collaboration calendar events for the caller's tenant. Personal events are visible only to the creator, while org/team/department scopes carry explicit server policy metadata for future PBAC/ABAC expansion.
+         */
+        get: operations["listCollaborationCalendarEvents"];
+        put?: never;
+        /**
+         * Create an audited collaboration calendar event
+         * @description Creates a tenant-scoped calendar event with explicit audience scope and optional source object link. The server records an audit event and an append-only lifecycle event under forced RLS.
+         */
+        post: operations["createCollaborationCalendarEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collaboration/polls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List collaboration polls
+         * @description Returns open collaboration polls by default with aggregate option counts, caller vote state, target-scope policy metadata, and source-object links. Anonymous polls expose aggregate results but still keep server audit lineage.
+         */
+        get: operations["listCollaborationPolls"];
+        put?: never;
+        /**
+         * Create an audited collaboration poll
+         * @description Creates a poll with explicit target scope, anonymous/named vote mode, source-object link, option validation, audit event, and append-only lifecycle event. The UI no longer depends on placeholder/static poll text.
+         */
+        post: operations["createCollaborationPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collaboration/polls/{id}/vote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit or replace the caller's poll vote
+         * @description Upserts the caller's vote after validating poll lifecycle, option ownership, single-vs-multiple selection policy, tenant RLS, and audit/lifecycle evidence.
+         */
+        post: operations["voteCollaborationPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
+        /** @enum {string} */
+        CalendarEventStatus: "ACTIVE" | "CANCELLED";
+        /** @enum {string} */
+        PollStatus: "DRAFT" | "OPEN" | "CLOSED" | "ARCHIVED";
+        /** @enum {string} */
+        PollAnonymity: "NAMED" | "ANONYMOUS";
+        CollaborationScopePolicy: {
+            /** @enum {string} */
+            enforcement: "server";
+            scope_type: components["schemas"]["CollaborationScopeType"];
+            scope_ref?: string | null;
+            /** @enum {string} */
+            visibility: "org_members" | "creator_only" | "department_target" | "team_target";
+        };
+        CalendarEventResponse: {
+            id: components["schemas"]["Uuid"];
+            scope_type: components["schemas"]["CollaborationScopeType"];
+            scope_ref?: string | null;
+            title: string;
+            description: string;
+            starts_at: components["schemas"]["Timestamp"];
+            ends_at: components["schemas"]["Timestamp"];
+            all_day: boolean;
+            status: components["schemas"]["CalendarEventStatus"];
+            object_type?: string | null;
+            object_id?: components["schemas"]["Uuid"] | null;
+            created_by?: components["schemas"]["Uuid"] | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            policy: components["schemas"]["CollaborationScopePolicy"];
+        };
+        CalendarEventListResponse: {
+            items: components["schemas"]["CalendarEventResponse"][];
+        };
+        CreateCalendarEventRequest: {
+            scope_type: components["schemas"]["CollaborationScopeType"];
+            scope_ref?: string | null;
+            title: string;
+            description?: string;
+            starts_at: components["schemas"]["Timestamp"];
+            ends_at: components["schemas"]["Timestamp"];
+            /** @default false */
+            all_day: boolean;
+            object_type?: string | null;
+            object_id?: components["schemas"]["Uuid"] | null;
+        };
+        PollOptionResponse: {
+            id: components["schemas"]["Uuid"];
+            label: string;
+            /** Format: int32 */
+            position: number;
+            /** Format: int64 */
+            vote_count: number;
+        };
+        PollMyVote: {
+            submitted: boolean;
+            selected_option_ids?: components["schemas"]["Uuid"][] | null;
+        };
+        PollResponse: {
+            id: components["schemas"]["Uuid"];
+            target_scope_type: components["schemas"]["CollaborationScopeType"];
+            target_scope_ref?: string | null;
+            title: string;
+            question: string;
+            status: components["schemas"]["PollStatus"];
+            anonymity: components["schemas"]["PollAnonymity"];
+            allow_multiple: boolean;
+            closes_at?: components["schemas"]["Timestamp"] | null;
+            object_type?: string | null;
+            object_id?: components["schemas"]["Uuid"] | null;
+            options: components["schemas"]["PollOptionResponse"][];
+            /** Format: int64 */
+            vote_count: number;
+            my_vote: components["schemas"]["PollMyVote"];
+            created_by?: components["schemas"]["Uuid"] | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            policy: components["schemas"]["CollaborationScopePolicy"];
+        };
+        PollListResponse: {
+            items: components["schemas"]["PollResponse"][];
+        };
+        CreatePollRequest: {
+            target_scope_type: components["schemas"]["CollaborationScopeType"];
+            target_scope_ref?: string | null;
+            title: string;
+            question: string;
+            status?: components["schemas"]["PollStatus"];
+            anonymity?: components["schemas"]["PollAnonymity"];
+            /** @default false */
+            allow_multiple: boolean;
+            closes_at?: components["schemas"]["Timestamp"] | null;
+            options: string[];
+            object_type?: string | null;
+            object_id?: components["schemas"]["Uuid"] | null;
+        };
+        VotePollRequest: {
+            selected_option_ids: components["schemas"]["Uuid"][];
+        };
         /** Format: uuid */
         Uuid: string;
         /** Format: date-time */
@@ -3713,6 +4179,8 @@ export interface components {
             ton_text: string;
             customer_name: string;
             site_name: string;
+            /** @description Legal owner recorded on the asset master. Distinct from customer_name/site_name, which describe the current operator/site. */
+            asset_owner?: string | null;
             vin?: string | null;
             updated_at: components["schemas"]["Timestamp"];
         };
@@ -3773,6 +4241,136 @@ export interface components {
             to: string;
             kind: string;
             label: string;
+        };
+        WorkflowStudioCatalogResponse: {
+            connectors: components["schemas"]["WorkflowConnectorDescriptor"][];
+            templates: components["schemas"]["WorkflowTemplateDescriptor"][];
+        };
+        WorkflowConnectorDescriptor: {
+            connector_key: string;
+            display_name: string;
+            action_keys: string[];
+        };
+        WorkflowTemplateDescriptor: {
+            template_key: string;
+            display_name: string;
+            object_type: string;
+            required_approval_line: boolean;
+            required_payment_line: boolean;
+        };
+        WorkflowDefinitionListResponse: {
+            items: components["schemas"]["WorkflowDefinitionResponse"][];
+        };
+        WorkflowDefinitionResponse: {
+            id: components["schemas"]["Uuid"];
+            /** @example work_order.completion_review */
+            workflow_key: string;
+            display_name: string;
+            object_type: string;
+            /** @enum {string} */
+            status: "DRAFT" | "ACTIVE" | "PAUSED" | "RETIRED";
+            /** Format: int32 */
+            latest_version: number;
+            /** Format: int32 */
+            active_version: number | null;
+            definition: {
+                [key: string]: unknown;
+            };
+            approval_line: {
+                [key: string]: unknown;
+            }[];
+            payment_line: {
+                [key: string]: unknown;
+            }[];
+            notification_rules: {
+                [key: string]: unknown;
+            }[];
+            action_allowlist: components["schemas"]["WorkflowActionAllowlistEntry"][];
+            required_approval_line: boolean;
+            required_payment_line: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkflowActionAllowlistEntry: {
+            connector_key: string;
+            action_key: string;
+        };
+        WorkflowDefinitionHistoryResponse: {
+            items: components["schemas"]["WorkflowDefinitionEventResponse"][];
+        };
+        WorkflowDefinitionEventResponse: {
+            id: components["schemas"]["Uuid"];
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            version: number | null;
+            status: string;
+            action: string;
+            actor_display_name: string | null;
+            summary: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreateWorkflowDefinitionRequest: {
+            workflow_key: string;
+            display_name: string;
+            object_type: string;
+            definition?: {
+                [key: string]: unknown;
+            };
+            approval_line?: {
+                [key: string]: unknown;
+            }[];
+            payment_line?: {
+                [key: string]: unknown;
+            }[];
+            notification_rules?: {
+                [key: string]: unknown;
+            }[];
+            action_allowlist?: components["schemas"]["WorkflowActionAllowlistEntry"][];
+            required_approval_line?: boolean;
+            required_payment_line?: boolean;
+        };
+        /** @description Fresh passkey step-up assertion for a sensitive Workflow Studio mutation. */
+        WorkflowStepUpRequest: {
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        RollbackWorkflowDefinitionRequest: {
+            /** Format: int32 */
+            target_version: number;
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        CloneWorkflowDefinitionRequest: {
+            workflow_key?: string;
+            display_name?: string;
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        SimulateWorkflowDefinitionRequest: {
+            definition?: {
+                [key: string]: unknown;
+            };
+            approval_line?: {
+                [key: string]: unknown;
+            }[];
+            payment_line?: {
+                [key: string]: unknown;
+            }[];
+            notification_rules?: {
+                [key: string]: unknown;
+            }[];
+            action_allowlist?: components["schemas"]["WorkflowActionAllowlistEntry"][];
+        };
+        WorkflowSimulationResponse: {
+            /** @enum {string} */
+            decision: "ready" | "blocked";
+            findings: components["schemas"]["WorkflowSimulationFinding"][];
+        };
+        WorkflowSimulationFinding: {
+            /** @enum {string} */
+            severity: "info" | "warning" | "blocker";
+            code: string;
+            message: string;
         };
         ObjectActionCatalogResponse: {
             object_type: string;
@@ -3855,11 +4453,99 @@ export interface components {
             /** Format: int64 */
             offset: number;
         };
+        EmployeeLifecycleSignoffs: {
+            /** @description Confirms the employee was notified of personal-data processing for this HR action. */
+            privacy_notice_ack: boolean;
+            /** @description Confirms Korean labor-law and employment-rule review. */
+            korean_labor_law_ack: boolean;
+            /** @description Confirms payroll cutoff and final wage impact were reviewed. */
+            payroll_cutoff_ack: boolean;
+            /** @description Confirms severance/retirement settlement impact was reviewed. */
+            retirement_settlement_ack: boolean;
+        };
+        CreateEmployeeLifecycleEventRequest: {
+            /** @enum {string} */
+            event_type: "ONBOARD" | "OFFBOARD" | "TERMINATE" | "TRANSFER";
+            /** @enum {string|null} */
+            to_status?: "ACTIVE" | "EXITED" | "UNKNOWN" | null;
+            to_company?: string | null;
+            to_org_unit?: string | null;
+            to_position?: string | null;
+            effective_date: string;
+            comment: string;
+            signoffs: components["schemas"]["EmployeeLifecycleSignoffs"];
+        };
+        EmployeeLifecycleEvent: {
+            id: components["schemas"]["Uuid"];
+            employee_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            event_type: "ONBOARD" | "OFFBOARD" | "TERMINATE" | "TRANSFER";
+            from_status?: string | null;
+            /** @enum {string} */
+            to_status: "ACTIVE" | "EXITED" | "UNKNOWN";
+            from_company?: string | null;
+            to_company?: string | null;
+            from_org_unit?: string | null;
+            to_org_unit?: string | null;
+            from_position?: string | null;
+            to_position?: string | null;
+            effective_date: string;
+            comment: string;
+            signoffs: components["schemas"]["EmployeeLifecycleSignoffs"];
+            created_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        EmployeeLifecycleEventPage: {
+            items: components["schemas"]["EmployeeLifecycleEvent"][];
+        };
         EmployeeImportCompanySummary: {
             company: string;
             input_rows: number;
             inserted: number;
             updated: number;
+        };
+        EmployeeImportColumn: {
+            source_header: string;
+            normalized_header: string;
+            /** @enum {string|null} */
+            target?: "name" | "employee_number" | "org_unit" | "job" | "position" | "worksite_name" | "worksite_address" | "hire_date" | "exit_date" | "leave_accrued" | "leave_used" | "leave_remaining" | "company" | null;
+            /** @enum {string} */
+            classification: "canonical" | "retained" | "restricted" | "location";
+            preview_allowed: boolean;
+        };
+        EmployeeImportPreviewRow: {
+            source_sheet: string;
+            /** Format: int32 */
+            source_row: number;
+            /** @enum {string} */
+            row_status: "CANDIDATE" | "PRESERVED" | "ERROR";
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        EmployeeImportPreviewResponse: {
+            run_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            entity_type: "employee_hr";
+            source_filename: string;
+            source_sha256: string;
+            input_rows: number;
+            candidate_rows: number;
+            preserved_rows: number;
+            columns: components["schemas"]["EmployeeImportColumn"][];
+            sample_rows: components["schemas"]["EmployeeImportPreviewRow"][];
+            mapping_profile: {
+                [key: string]: unknown;
+            };
+        };
+        EmployeeImportDryRunSummary: {
+            run_id: components["schemas"]["Uuid"];
+            input_rows: number;
+            candidate_rows: number;
+            preserved_rows: number;
+            insert_candidates: number;
+            update_candidates: number;
+            companies: components["schemas"]["EmployeeImportCompanySummary"][];
         };
         EmployeeImportReport: {
             input_rows: number;
@@ -4865,6 +5551,56 @@ export interface components {
             /** Format: date-time */
             returned_at?: string | null;
             return_note?: string | null;
+        };
+        CreateOwnershipTransferRequest: {
+            /** @description New legal-owner label after all signoffs approve. */
+            to_owner: string;
+            /** @description Business/legal reason for the transfer. */
+            reason: string;
+        };
+        DecideOwnershipTransferRequest: {
+            /** @enum {string} */
+            decision: "approve" | "reject";
+            comment: string;
+        };
+        OwnershipTransferPage: {
+            items: components["schemas"]["OwnershipTransfer"][];
+        };
+        OwnershipTransfer: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            equipment_id: string;
+            /** Format: uuid */
+            branch_id: string;
+            from_owner: string;
+            to_owner: string;
+            reason: string;
+            /** @enum {string} */
+            status: "PENDING" | "APPROVED" | "REJECTED";
+            /** @enum {string|null} */
+            current_step: "sending_org_admin" | "receiving_org_admin" | "legal_signoff" | "accounting_signoff" | null;
+            approval_line: components["schemas"]["OwnershipTransferStep"][];
+            /** Format: uuid */
+            requested_by?: string | null;
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+        };
+        OwnershipTransferStep: {
+            /** @enum {string} */
+            step_key: "sending_org_admin" | "receiving_org_admin" | "legal_signoff" | "accounting_signoff";
+            label: string;
+            /** @enum {string} */
+            status: "WAITING" | "PENDING" | "APPROVED" | "REJECTED";
+            /** Format: uuid */
+            decided_by?: string | null;
+            /** Format: date-time */
+            decided_at?: string | null;
+            comment?: string | null;
         };
         CreateEquipmentRequest: {
             /** @description Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes. */
@@ -7278,6 +8014,62 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    listEmployeeLifecycleEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Employee lifecycle events, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeLifecycleEventPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createEmployeeLifecycleEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEmployeeLifecycleEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded lifecycle event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeLifecycleEvent"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     getHrOrgChart: {
         parameters: {
             query?: never;
@@ -7381,6 +8173,115 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    previewEmployeeImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Employee .xlsx workbook.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Import run preview with masked sample rows and mapping profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeImportPreviewResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    dryRunEmployeeImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dry-run candidate counts by company. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeImportDryRunSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    applyEmployeeImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Applied import counts by company. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeImportReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    exportEmployeesCsv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Standardized employee CSV. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getEquipment: {
@@ -8636,6 +9537,93 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listEquipmentOwnershipTransfers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Transfer requests, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipTransferPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createEquipmentOwnershipTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOwnershipTransferRequest"];
+            };
+        };
+        responses: {
+            /** @description Transfer request created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipTransfer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    decideEquipmentOwnershipTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideOwnershipTransferRequest"];
+            };
+        };
+        responses: {
+            /** @description Transfer request after the decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipTransfer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     computeRentalQuote: {
@@ -11013,6 +12001,426 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["MailUnavailable"];
+        };
+    };
+    getWorkflowStudioCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow Studio catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowStudioCatalogResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listWorkflowDefinitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow definitions for the caller's tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft workflow definition created. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listWorkflowDefinitionHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Append-only Workflow Studio change history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionHistoryResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    simulateWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulateWorkflowDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Simulation result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSimulationResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    publishWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Published workflow definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pauseWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Paused workflow definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rollbackWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackWorkflowDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Rolled back workflow definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    cloneWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneWorkflowDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Cloned workflow definition draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listCollaborationCalendarEvents: {
+        parameters: {
+            query?: {
+                from?: components["schemas"]["Timestamp"];
+                to?: components["schemas"]["Timestamp"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Calendar events visible to the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEventListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createCollaborationCalendarEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Created calendar event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEventResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listCollaborationPolls: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["PollStatus"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Polls visible to the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PollListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createCollaborationPoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePollRequest"];
+            };
+        };
+        responses: {
+            /** @description Created poll. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PollResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    voteCollaborationPoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VotePollRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated poll with aggregate counts and caller vote state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PollResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

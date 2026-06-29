@@ -27,6 +27,7 @@ import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
 import { useAuth } from "../context/auth";
+import { isActionableSupportTicket } from "../features/support/support-format";
 import { ko } from "../i18n/ko";
 import { formatKoreanDate, formatKoreanDateTime } from "../lib/datetime";
 import { cn, priorityClass, priorityLabel, safeLabel } from "../lib/utils";
@@ -304,14 +305,6 @@ function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
       sortTime: overdue ? Date.now() + 1 : timeValue(ticket.due_at || ticket.updated_at),
     };
   });
-}
-
-function isActionableSupportTicket(ticket: SupportTicketSummary): boolean {
-  return (
-    (ticket.status === "OPEN" || ticket.status === "IN_PROGRESS" || ticket.status === "ON_HOLD") &&
-    !ticket.resolved_at &&
-    !ticket.closed_at
-  );
 }
 
 function buildInboxItems(data: WorkHubData): HubItem[] {

@@ -74,6 +74,11 @@ const CollaborationPage = lazy(() =>
 const KpiPage = lazy(() =>
   import("./pages/KpiPage").then((m) => ({ default: m.KpiPage })),
 );
+const OperationsIntelligencePage = lazy(() =>
+  import("./pages/OperationsIntelligencePage").then((m) => ({
+    default: m.OperationsIntelligencePage,
+  })),
+);
 const InspectionPage = lazy(() =>
   import("./pages/InspectionPage").then((m) => ({ default: m.InspectionPage })),
 );
@@ -139,6 +144,11 @@ const UsersPage = lazy(() =>
 const PolicyStudioPage = lazy(() =>
   import("./pages/PolicyStudioPage").then((m) => ({
     default: m.PolicyStudioPage,
+  })),
+);
+const WorkflowStudioPage = lazy(() =>
+  import("./pages/WorkflowStudioPage").then((m) => ({
+    default: m.WorkflowStudioPage,
   })),
 );
 const OrgPage = lazy(() =>
@@ -293,6 +303,10 @@ export function AppRouter() {
           <Route path="/collaboration" element={<CollaborationPage />} />
           <Route element={<RequireKpiRoute />}>
             <Route path="/kpi" element={<KpiPage />} />
+            <Route
+              path="/intelligence"
+              element={<OperationsIntelligencePage />}
+            />
           </Route>
           {/* /integrity: governance findings (#12 / #34). EXECUTIVE/SUPER_ADMIN
               only — RequireIntegrityRoute mirrors the backend matrix and the
@@ -330,6 +344,7 @@ export function AppRouter() {
           </Route>
           <Route element={<RequireRoleManageRoute />}>
             <Route path="/settings/policy" element={<PolicyStudioPage />} />
+            <Route path="/settings/workflows" element={<WorkflowStudioPage />} />
           </Route>
           <Route element={<RequireAdminRoute />}>
             <Route path="/catalog" element={<CatalogAdminPage />} />

@@ -223,6 +223,25 @@ HR/payroll intelligence must be conservative and legally bounded.
    list/detail, approval/workflow action rail, effective-policy explanation, scenario workbench, and
    accessible dense tables/cards that pass tests and visual review for the primary roles.
 
+### First shipped deterministic UI foundation (G012)
+
+The first production UI slice is `/intelligence`, an executive/manager scenario workbench. It does **not**
+claim autonomous optimization. It gives leaders one governed entry point for:
+
+- rental pricing and bid-margin review;
+- asset sell/keep/repair/replace review;
+- reserve equipment, inventory, and parts policy review;
+- workforce, skill, and SLO capacity review;
+- procurement/vendor/bid scenario review;
+- maintenance-cycle and preventive-window review;
+- data-quality and governance triage;
+- MES readiness and AI/ML/RL/LLM readiness.
+
+Each domain card links to source-object evidence and to the workflow/policy surface that would turn a
+scenario into a draft approval/request. This keeps G012 honest: deterministic source-object navigation,
+policy guardrails, and workflow conversion ship now; probabilistic models, MES execution, and AI-assisted
+recommendations remain gated by the foundations below.
+
 ## Observability requirements for intelligence
 
 AI, ML, RL, and advanced analytics are only useful if the platform already measures the business

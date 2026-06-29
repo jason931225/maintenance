@@ -1,11 +1,25 @@
 package com.maintenance.field.ui
 
+import com.maintenance.api.client.model.ApprovalItemsPage
+import com.maintenance.api.client.model.CalendarEventResponse
+import com.maintenance.api.client.model.CalendarEventStatus
+import com.maintenance.api.client.model.CollaborationScopePolicy
+import com.maintenance.api.client.model.CollaborationScopeType
+import com.maintenance.api.client.model.MailFolderView
+import com.maintenance.api.client.model.MailThreadView
+import com.maintenance.api.client.model.PollAnonymity
+import com.maintenance.api.client.model.PollMyVote
+import com.maintenance.api.client.model.PollOptionResponse
+import com.maintenance.api.client.model.PollResponse
+import com.maintenance.api.client.model.PollStatus
 import com.maintenance.api.client.model.LocationConsentState
 import com.maintenance.api.client.model.LocationConsentStatus
 import com.maintenance.api.client.model.MessengerThreadKind
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.field.data.api.TechnicianWorkOrder
+import com.maintenance.field.data.collaboration.MobileOperationsDashboard
+import com.maintenance.field.data.collaboration.MobileOperationsSnapshot
 import com.maintenance.field.data.messenger.MessengerAction
 import com.maintenance.field.data.messenger.MessengerMessage
 import com.maintenance.field.data.messenger.MessengerMessagePage
@@ -122,6 +136,90 @@ internal object FieldFixtures {
             ),
         )
     }
+
+
+
+    private val mailFolderId = uuid("00600")
+    private val mailThreadId = uuid("00601")
+    private val calendarEventId = uuid("00602")
+    val pollId: UUID = uuid("00603")
+    val pollOptionId: UUID = uuid("00604")
+
+    fun operationsDashboard(): MobileOperationsDashboard = MobileOperationsDashboard(
+        MobileOperationsSnapshot(
+            approvals = ApprovalItemsPage(items = emptyList(), sources = emptyList(), limit = 50, offset = 0, total = 0),
+            mailFolders = listOf(
+                MailFolderView(
+                    id = mailFolderId,
+                    role = "INBOX",
+                    name = "받은메일함",
+                    unreadCount = 2,
+                    totalCount = 12,
+                ),
+            ),
+            mailThreads = listOf(
+                MailThreadView(
+                    id = mailThreadId,
+                    subject = "급여명세 확인 요청",
+                    lastMessageAt = EPOCH.plusHours(1),
+                    messageCount = 3,
+                    unreadCount = 2,
+                    hasAttachments = true,
+                    isFlagged = true,
+                ),
+            ),
+            calendarEvents = listOf(
+                CalendarEventResponse(
+                    id = calendarEventId,
+                    scopeType = CollaborationScopeType.TEAM,
+                    title = "정비팀 주간 회의",
+                    description = "부품 입고와 긴급 출동 우선순위 조율",
+                    startsAt = EPOCH.plusHours(3),
+                    endsAt = EPOCH.plusHours(4),
+                    allDay = false,
+                    status = CalendarEventStatus.ACTIVE,
+                    createdAt = EPOCH,
+                    updatedAt = EPOCH,
+                    policy = CollaborationScopePolicy(
+                        enforcement = CollaborationScopePolicy.Enforcement.SERVER,
+                        scopeType = CollaborationScopeType.TEAM,
+                        visibility = CollaborationScopePolicy.Visibility.TEAM_TARGET,
+                    ),
+                    objectType = "work_order",
+                ),
+            ),
+            polls = listOf(
+                PollResponse(
+                    id = pollId,
+                    targetScopeType = CollaborationScopeType.ORG,
+                    title = "오전 정비 우선순위",
+                    question = "긴급 장비를 오전에 먼저 처리할까요?",
+                    status = PollStatus.OPEN,
+                    anonymity = PollAnonymity.NAMED,
+                    allowMultiple = false,
+                    options = listOf(
+                        PollOptionResponse(
+                            id = pollOptionId,
+                            label = "찬성",
+                            position = 0,
+                            voteCount = 0,
+                        ),
+                    ),
+                    voteCount = 0,
+                    myVote = PollMyVote(submitted = false, selectedOptionIds = emptyList()),
+                    createdAt = EPOCH,
+                    updatedAt = EPOCH,
+                    policy = CollaborationScopePolicy(
+                        enforcement = CollaborationScopePolicy.Enforcement.SERVER,
+                        scopeType = CollaborationScopeType.ORG,
+                        visibility = CollaborationScopePolicy.Visibility.ORG_MEMBERS,
+                    ),
+                    objectType = "work_order",
+                ),
+            ),
+            refreshedAt = EPOCH,
+        ),
+    )
 
     /** An empty messenger state: no threads, nothing selected. */
     fun emptyMessengerState(): MessengerState = MessengerState()

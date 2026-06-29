@@ -11,20 +11,36 @@ struct WorkHubSummary: Equatable {
     let messengerThreadCount: Int
     let targetDueWorkCount: Int
     let gpsMayCollect: Bool
+    let collaborationActions: [MobileCollaborationAction]
 
     static func build(
         today: [TechnicianWorkOrder],
         messengerState: MessengerState,
         gpsMayCollect: Bool
     ) -> WorkHubSummary {
-        WorkHubSummary(
+        let urgentWorkCount = today.filter { $0.priority == .p1 }.count
+        let approvalRelatedCount = today.filter {
+            $0.status == .reportSubmitted || $0.status == .adminReview
+        }.count
+        let pendingSyncCount = today.filter { $0.syncState != .synced }.count
+        let messengerThreadCount = messengerState.threads.count
+        let targetDueWorkCount = today.filter { $0.targetDueAt != nil }.count
+        let actionCounts = MobileCollaborationActionCounts(
+            urgentWorkCount: urgentWorkCount,
+            approvalRelatedCount: approvalRelatedCount,
+            pendingSyncCount: pendingSyncCount,
+            messengerThreadCount: messengerThreadCount,
+            targetDueWorkCount: targetDueWorkCount
+        )
+        return WorkHubSummary(
             todayWorkCount: today.count,
-            urgentWorkCount: today.filter { $0.priority == .p1 }.count,
-            approvalRelatedCount: today.filter { $0.status == .reportSubmitted || $0.status == .adminReview }.count,
-            pendingSyncCount: today.filter { $0.syncState != .synced }.count,
-            messengerThreadCount: messengerState.threads.count,
-            targetDueWorkCount: today.filter { $0.targetDueAt != nil }.count,
-            gpsMayCollect: gpsMayCollect
+            urgentWorkCount: urgentWorkCount,
+            approvalRelatedCount: approvalRelatedCount,
+            pendingSyncCount: pendingSyncCount,
+            messengerThreadCount: messengerThreadCount,
+            targetDueWorkCount: targetDueWorkCount,
+            gpsMayCollect: gpsMayCollect,
+            collaborationActions: MobileCollaborationActionBuilder.build(counts: actionCounts)
         )
     }
 }
@@ -46,6 +62,10 @@ final class FieldViewModel: ObservableObject {
     @Published var messengerSearchQuery = ""
     @Published var messengerHasSearched = false
     @Published var locationConsent: Components.Schemas.LocationConsentStatus?
+    @Published var mobileOperationsOverview: MobileOperationsOverview?
+    @Published var approvalComment = ""
+    @Published var mobileNotificationInbox = MobileNotificationInbox(notifications: [])
+    @Published var mobileSensitiveActionSummary = MobileSensitiveActionQueueSummary(actions: [])
 
     var workHubSummary: WorkHubSummary {
         WorkHubSummary.build(
@@ -61,6 +81,7 @@ final class FieldViewModel: ObservableObject {
     private let messengerRepository: MessengerRepository
     private let messengerReducer = MessengerReducer()
     private let locationConsentRepository: LocationConsentRepository
+    private let mobileOperationsRepository: MobileOperationsRepository
 
     init(container: FieldAppContainer) {
         self.authRepository = container.authRepository
@@ -68,6 +89,11 @@ final class FieldViewModel: ObservableObject {
         self.evidenceRepository = container.evidenceRepository
         self.messengerRepository = container.messengerRepository
         self.locationConsentRepository = container.locationConsentRepository
+        self.mobileOperationsRepository = container.mobileOperationsRepository
+    }
+
+    var mobileOperationsDashboard: MobileOperationsDashboard? {
+        mobileOperationsOverview.map { MobileOperationsDashboard(snapshot: $0.snapshot) }
     }
 
     var isAuthenticated: Bool {
@@ -81,6 +107,10 @@ final class FieldViewModel: ObservableObject {
                 await refreshToday()
             } else {
                 locationConsent = nil
+                mobileOperationsOverview = nil
+                approvalComment = ""
+                mobileNotificationInbox = MobileNotificationInbox(notifications: [])
+                mobileSensitiveActionSummary = MobileSensitiveActionQueueSummary(actions: [])
             }
         }
     }
@@ -113,6 +143,10 @@ final class FieldViewModel: ObservableObject {
         today = []
         selectedWorkOrder = nil
         locationConsent = nil
+        mobileOperationsOverview = nil
+        approvalComment = ""
+        mobileNotificationInbox = MobileNotificationInbox(notifications: [])
+        mobileSensitiveActionSummary = MobileSensitiveActionQueueSummary(actions: [])
     }
 
     func refreshToday() async {
@@ -241,6 +275,136 @@ final class FieldViewModel: ObservableObject {
         }
     }
 
+
+
+    func refreshMobileOperations() async {
+        isLoading = true
+        do {
+            mobileOperationsOverview = try await mobileOperationsRepository.refreshOverview()
+            mobileNotificationInbox = await mobileOperationsRepository.notificationInbox()
+            mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+            messageKey = nil
+        } catch {
+            mobileOperationsOverview = await mobileOperationsRepository.cachedOverview()
+            mobileNotificationInbox = await mobileOperationsRepository.notificationInbox()
+            mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+            messageKey = mobileOperationsOverview == nil ? "error_network" : "operations_cached_fallback"
+        }
+        isLoading = false
+    }
+
+    func markMailThreadRead(_ thread: MobileMailThreadRow) async {
+        isLoading = true
+        do {
+            mobileOperationsOverview = try await mobileOperationsRepository.markMailThreadSeen(threadID: thread.id, seen: true)
+                ?? mobileOperationsOverview
+            mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+            messageKey = nil
+        } catch {
+            messageKey = "operation_failed"
+        }
+        isLoading = false
+    }
+
+    func votePoll(_ poll: MobilePollRow) async {
+        guard poll.canVote, let optionID = poll.firstOptionID else { return }
+        isLoading = true
+        do {
+            _ = mobileOperationsRepository.stepUpEnvelope(
+                actionKind: .pollVote,
+                objectID: poll.id,
+                reasonKey: "operations_passkey_poll_vote"
+            )
+            _ = try await mobileOperationsRepository.votePoll(pollID: poll.id, selectedOptionIDs: [optionID])
+            mobileOperationsOverview = await mobileOperationsRepository.cachedOverview()?.withLiveOrigin()
+            mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+            messageKey = "operations_poll_voted"
+        } catch {
+            messageKey = "operation_failed"
+        }
+        isLoading = false
+    }
+
+    func prepareApprovalStepUp() {
+        _ = mobileOperationsRepository.stepUpEnvelope(
+            actionKind: .approvalDecision,
+            objectID: nil,
+            reasonKey: "operations_passkey_approval_decision"
+        )
+        messageKey = "operations_passkey_required"
+    }
+
+    func queueFirstApprovalForPasskey() async {
+        guard let approval = mobileOperationsDashboard?.approvals.first else {
+            messageKey = "operations_approval_empty"
+            return
+        }
+        isLoading = true
+        do {
+            _ = try await mobileOperationsRepository.approveWorkOrder(
+                approval: approval,
+                comment: approvalComment,
+                stepUpAssertion: nil
+            )
+            mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+            messageKey = approval.canExecuteOnMobile ? "operations_approval_queued_for_passkey" : "operations_approval_unsupported_mobile"
+        } catch {
+            messageKey = "operation_failed"
+        }
+        isLoading = false
+    }
+
+    func replayMobileSensitiveActions() async {
+        isLoading = true
+        let summary = await mobileOperationsRepository.replaySensitiveActions(stepUpAssertion: nil)
+        mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+        messageKey = summary.submitted > 0 ? "operations_sensitive_replayed" : "operations_passkey_required"
+        isLoading = false
+    }
+
+    func registerPushToken(_ token: String, deviceID: String, appVersion: String) async {
+        isLoading = true
+        let queued = await mobileOperationsRepository.registerOrQueuePushDevice(
+            deviceID: deviceID,
+            appVersion: appVersion,
+            pushToken: token
+        )
+        mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+        messageKey = queued == nil ? "operations_push_registered" : "operations_push_queued"
+        isLoading = false
+    }
+
+    func ingestPushNotification(_ payload: MobilePushNotificationPayload) async {
+        _ = await mobileOperationsRepository.ingestPushNotification(payload)
+        mobileNotificationInbox = await mobileOperationsRepository.notificationInbox()
+        messageKey = payload.isUrgent ? "operations_urgent_notification" : nil
+    }
+
+    func markNotificationRead(_ notification: MobileRoutedNotification) async {
+        mobileNotificationInbox = await mobileOperationsRepository.markNotificationRead(id: notification.id)
+    }
+
+    func recordOnDutyPing(
+        onDuty: Bool,
+        latitude: Double,
+        longitude: Double,
+        accuracyM: Double?
+    ) async {
+        let state = GPSCollectionState(
+            consentState: locationConsent?.state ?? .noRecord,
+            onDuty: onDuty
+        )
+        let queued = await mobileOperationsRepository.recordOnDutyPing(
+            state: state,
+            latitude: latitude,
+            longitude: longitude,
+            accuracyM: accuracyM,
+            recordedAt: Date()
+        )
+        mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
+        messageKey = queued == nil ? "operations_on_duty_recorded" : "operations_on_duty_queued"
+    }
+
     func refreshMessenger() async {
         isLoading = true
         do {
@@ -342,5 +506,12 @@ final class FieldViewModel: ObservableObject {
             messageKey = "location_consent_failed"
         }
         isLoading = false
+    }
+}
+
+
+private extension MobileOperationsOverview {
+    func withLiveOrigin() -> MobileOperationsOverview {
+        MobileOperationsOverview(snapshot: snapshot, origin: .live)
     }
 }

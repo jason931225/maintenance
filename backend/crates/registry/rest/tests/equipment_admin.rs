@@ -103,6 +103,7 @@ async fn equipment_crud_create_update_soft_delete_is_audited(pool: PgPool) {
             "ton_text": "2.5T",
             "management_no": "777",
             "model": "GTS25DE",
+            "asset_owner": "코스",
             "vehicle_value": 50_000_000,
             "residual_value": 10_000_000
         });
@@ -117,6 +118,16 @@ async fn equipment_crud_create_update_soft_delete_is_audited(pool: PgPool) {
         assert_eq!(created.status, "임대");
         assert_eq!(created.model.as_deref(), Some("GTS25DE"));
         assert_eq!(created.vehicle_value, Some(50_000_000));
+        let (status, detail) = harness
+            .send("GET", &format!("/api/v1/equipment/{id}"), None)
+            .await;
+        assert_eq!(status, StatusCode::OK, "{detail:?}");
+        assert_eq!(detail["asset_owner"], json!("코스"));
+        assert_eq!(
+            detail["customer_name"],
+            json!("K&L"),
+            "operator/customer is a separate field from legal owner"
+        );
 
         // Update: flip status to 예비 and clear the model.
         let update_body = json!({ "status": "spare", "model": null, "residual_value": 7_500_000 });
@@ -219,6 +230,7 @@ async fn equipment_crud_create_update_soft_delete_is_audited(pool: PgPool) {
 struct EquipmentView {
     status: String,
     model: Option<String>,
+    asset_owner: Option<String>,
     vehicle_value: Option<i64>,
     residual_value: Option<i64>,
     acquisition_cost_won: Option<i64>,
@@ -229,7 +241,7 @@ async fn fetch_equipment_view(pool: &PgPool, id: &str) -> EquipmentView {
     // acquisition_date is formatted to an ISO string in SQL so the row tuple
     // stays simple (no nested `time::Date`).
     let row: EquipmentView = sqlx::query_as(
-        "SELECT status, model, vehicle_value, residual_value, acquisition_cost_won, \
+        "SELECT status, model, asset_owner, vehicle_value, residual_value, acquisition_cost_won, \
                 to_char(acquisition_date, 'YYYY-MM-DD') AS acquisition_date \
          FROM registry_equipment WHERE id = $1",
     )
@@ -238,6 +250,116 @@ async fn fetch_equipment_view(pool: &PgPool, id: &str) -> EquipmentView {
     .await
     .unwrap();
     row
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn ownership_transfer_requires_ordered_legal_and_accounting_signoff(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+
+        let create_body = json!({
+            "equipment_no": "CFO25-7781",
+            "customer_name": "K&L",
+            "site_name": "케이앤엘",
+            "status": "rented",
+            "specification": "좌식",
+            "ton_text": "2.5T",
+            "management_no": "781",
+            "asset_owner": "코스"
+        });
+        let (status, body) = harness
+            .send("POST", "/api/v1/equipment", Some(json_body(&create_body)))
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let equipment_id = body["id"].as_str().unwrap().to_owned();
+
+        let transfer_body = json!({
+            "to_owner": "케이앤엘",
+            "reason": "KNL에서 실제 임대 운영과 회계 관리를 수행"
+        });
+        let (status, body) = harness
+            .send(
+                "POST",
+                &format!("/api/v1/equipment/{equipment_id}/ownership-transfer-requests"),
+                Some(json_body(&transfer_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let transfer_id = body["id"].as_str().unwrap().to_owned();
+        assert_eq!(body["status"], json!("PENDING"));
+        assert_eq!(body["current_step"], json!("sending_org_admin"));
+        assert_eq!(body["approval_line"].as_array().unwrap().len(), 4);
+        assert_eq!(body["approval_line"][0]["label"], json!("이전 법인 승인"));
+        assert_eq!(body["approval_line"][1]["label"], json!("인수 법인 승인"));
+        assert_eq!(body["approval_line"][2]["label"], json!("법무 소유권 검토"));
+        assert_eq!(
+            body["approval_line"][3]["label"],
+            json!("회계 자산대장 반영")
+        );
+
+        // The request does not mutate legal ownership until every signoff step
+        // has completed.
+        assert_eq!(
+            fetch_equipment_view(&pool, &equipment_id)
+                .await
+                .asset_owner
+                .as_deref(),
+            Some("코스")
+        );
+
+        for (expected_next_step, comment) in [
+            ("receiving_org_admin", "이전 법인 승인"),
+            ("legal_signoff", "인수 법인 승인"),
+            ("accounting_signoff", "법무 검토 완료"),
+            ("", "회계 자산대장 반영 완료"),
+        ] {
+            let (status, decision) = harness
+                .send(
+                    "POST",
+                    &format!(
+                        "/api/v1/equipment/ownership-transfer-requests/{transfer_id}/decisions"
+                    ),
+                    Some(json_body(&json!({
+                        "decision": "approve",
+                        "comment": comment
+                    }))),
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK, "{decision:?}");
+            if expected_next_step.is_empty() {
+                assert_eq!(decision["status"], json!("APPROVED"));
+                assert!(decision["current_step"].is_null());
+            } else {
+                assert_eq!(decision["status"], json!("PENDING"));
+                assert_eq!(decision["current_step"], json!(expected_next_step));
+            }
+        }
+
+        assert_eq!(
+            fetch_equipment_view(&pool, &equipment_id)
+                .await
+                .asset_owner
+                .as_deref(),
+            Some("케이앤엘")
+        );
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM equipment_ownership_transfer_events WHERE request_id = $1",
+        )
+        .bind(uuid::Uuid::parse_str(&transfer_id).unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 5);
+        assert_eq!(
+            audit_count(&pool, "equipment.ownership_transfer.request").await,
+            1
+        );
+        assert_eq!(
+            audit_count(&pool, "equipment.ownership_transfer.decide").await,
+            4
+        );
+    })
+    .await;
 }
 
 async fn audit_count(pool: &PgPool, action: &str) -> i64 {

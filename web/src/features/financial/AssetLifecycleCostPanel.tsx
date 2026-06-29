@@ -160,6 +160,8 @@ function LifecycleSummary({
         <Money label={t.costPerHour} amount={summary.cost_per_hour_won} />
       </dl>
 
+      <AssetDecisionSignal summary={summary} />
+
       {summary.timeline.length > 0 ? (
         <div className="grid gap-2">
           <h3 className="text-base font-semibold text-ink">
@@ -184,6 +186,54 @@ function LifecycleSummary({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function AssetDecisionSignal({
+  summary,
+}: {
+  summary: AssetLifecycleCostSummary;
+}) {
+  const maintenanceRatio =
+    summary.residual_value_won > 0
+      ? summary.maintenance_total_won / summary.residual_value_won
+      : null;
+  const lossOnSale =
+    summary.gross_margin_won != null && summary.gross_margin_won < 0;
+  const highMaintenanceRatio =
+    maintenanceRatio != null && maintenanceRatio >= 0.35;
+  const missingAnchor = summary.acquisition_source !== "EXPLICIT";
+  const signal =
+    lossOnSale || highMaintenanceRatio || missingAnchor ? "review" : "stable";
+  const reasons = [
+    lossOnSale ? t.decision.reasons.lossOnSale : undefined,
+    highMaintenanceRatio ? t.decision.reasons.highMaintenanceRatio : undefined,
+    missingAnchor ? t.decision.reasons.missingAcquisition : undefined,
+  ].filter(Boolean);
+
+  return (
+    <section className="rounded-md border border-line bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-semibold text-ink">
+          {t.decision.title}
+        </h3>
+        <Badge>
+          {signal === "review" ? t.decision.review : t.decision.stable}
+        </Badge>
+      </div>
+      <p className="mt-2 text-sm text-steel">
+        {signal === "review"
+          ? t.decision.reviewDescription
+          : t.decision.stableDescription}
+      </p>
+      {reasons.length > 0 ? (
+        <ul className="mt-2 grid gap-1 text-sm text-steel">
+          {reasons.map((reason) => (
+            <li key={reason}>• {reason}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 

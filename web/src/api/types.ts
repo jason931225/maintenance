@@ -90,6 +90,38 @@ export type ExecuteObjectActionRequest =
   components["schemas"]["ExecuteObjectActionRequest"];
 export type ObjectActionExecutionResponse =
   components["schemas"]["ObjectActionExecutionResponse"];
+export type WorkflowStudioCatalogResponse =
+  components["schemas"]["WorkflowStudioCatalogResponse"];
+export type WorkflowConnectorDescriptor =
+  components["schemas"]["WorkflowConnectorDescriptor"];
+export type WorkflowTemplateDescriptor =
+  components["schemas"]["WorkflowTemplateDescriptor"];
+export type WorkflowDefinitionListResponse =
+  components["schemas"]["WorkflowDefinitionListResponse"];
+export type WorkflowDefinitionResponse =
+  components["schemas"]["WorkflowDefinitionResponse"];
+export type WorkflowDefinitionHistoryResponse =
+  components["schemas"]["WorkflowDefinitionHistoryResponse"];
+export type WorkflowDefinitionEventResponse =
+  components["schemas"]["WorkflowDefinitionEventResponse"];
+export type WorkflowSimulationResponse =
+  components["schemas"]["WorkflowSimulationResponse"];
+export type WorkflowStepUpRequest =
+  components["schemas"]["WorkflowStepUpRequest"];
+export type CollaborationScopeType =
+  components["schemas"]["CollaborationScopeType"];
+export type CalendarEventResponse =
+  components["schemas"]["CalendarEventResponse"];
+export type CalendarEventListResponse =
+  components["schemas"]["CalendarEventListResponse"];
+export type CreateCalendarEventRequest =
+  components["schemas"]["CreateCalendarEventRequest"];
+export type PollStatus = components["schemas"]["PollStatus"];
+export type PollAnonymity = components["schemas"]["PollAnonymity"];
+export type PollResponse = components["schemas"]["PollResponse"];
+export type PollListResponse = components["schemas"]["PollListResponse"];
+export type CreatePollRequest = components["schemas"]["CreatePollRequest"];
+export type VotePollRequest = components["schemas"]["VotePollRequest"];
 export type EquipmentSortBy = components["schemas"]["EquipmentSortBy"];
 export type UpdateSiteRequest = components["schemas"]["UpdateSiteRequest"];
 export type CreateCustomerRequest =
@@ -304,8 +336,18 @@ export type EquipmentLookupState =
 // HR employee directory (not auth users).
 export type EmployeeDirectoryItem = components["schemas"]["Employee"];
 export type EmployeeDirectoryPage = components["schemas"]["EmployeePage"];
+export type EmployeeLifecycleEvent =
+  components["schemas"]["EmployeeLifecycleEvent"];
+export type EmployeeLifecycleEventPage =
+  components["schemas"]["EmployeeLifecycleEventPage"];
+export type CreateEmployeeLifecycleEventRequest =
+  components["schemas"]["CreateEmployeeLifecycleEventRequest"];
 export type EmployeeImportSummary =
   components["schemas"]["EmployeeImportReport"];
+export type EmployeeImportPreview =
+  components["schemas"]["EmployeeImportPreviewResponse"];
+export type EmployeeImportDryRun =
+  components["schemas"]["EmployeeImportDryRunSummary"];
 export type HrOrgChartResponse = components["schemas"]["HrOrgChartResponse"];
 export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
 export type AttendanceSummaryPage =

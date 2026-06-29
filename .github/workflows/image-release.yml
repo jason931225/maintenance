@@ -5,10 +5,9 @@ name: Image Release
 # what the Oracle Ampere A1 cluster runs (extend `platforms` to add amd64). The
 # Trivy scan is a BLOCKING gate: the image is pushed by digest, but it is only
 # cosign-signed + attested after the scan passes, so a vulnerable image is never
-# signed. NOTE: signature verification is NOT yet enforced at admission — no
-# policy-controller/Kyverno webhook is installed on the cluster, so the signature
-# is currently an audit artifact, not a deploy-time gate. Enforcing it (sigstore
-# policy-controller) is a tracked follow-up.
+# signed. Hard-fail admission verification is not enabled until ops installs the
+# sigstore policy-controller CRDs/controller; an audit-mode ClusterImagePolicy
+# lives under deploy/apps/maintenance/components/admission-audit.
 
 on:
   push:
@@ -121,7 +120,7 @@ jobs:
             org.opencontainers.image.title=${{ matrix.image }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
-      - name: Build and push (by digest, multi-arch)
+      - name: Build and push (by digest, linux/arm64)
         id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:

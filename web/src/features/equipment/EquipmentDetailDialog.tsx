@@ -399,6 +399,10 @@ export function EquipmentDetailDialog({
               value={item.ton_text}
             />
             <DetailRow
+              label={ko.equipment.detail.fields.assetOwner}
+              value={item.asset_owner}
+            />
+            <DetailRow
               label={ko.equipment.detail.fields.customerName}
               value={item.customer_name}
             />

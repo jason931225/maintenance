@@ -56,11 +56,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maintenance.api.client.model.AttachmentStage
+import com.maintenance.api.client.model.CollaborationScopeType
 import com.maintenance.api.client.model.LocationConsentState
 import com.maintenance.api.client.model.LocationConsentStatus
+import com.maintenance.api.client.model.PollAnonymity
+import com.maintenance.api.client.model.PollStatus
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkResultType
@@ -69,6 +73,16 @@ import com.maintenance.field.R
 import com.maintenance.field.auth.LoginState
 import com.maintenance.field.data.api.ReportDraft
 import com.maintenance.field.data.api.TechnicianWorkOrder
+import com.maintenance.field.data.collaboration.MobileCalendarEventRow
+import com.maintenance.field.data.collaboration.MobileMailThreadRow
+import com.maintenance.field.data.collaboration.MobileNotificationInbox
+import com.maintenance.field.data.collaboration.MobileOperationsDashboard
+import com.maintenance.field.data.collaboration.MobileOperationsOverview
+import com.maintenance.field.data.collaboration.MobileOperationsSnapshotOrigin
+import com.maintenance.field.data.collaboration.MobilePollRow
+import com.maintenance.field.data.collaboration.MobileRoutedNotification
+import com.maintenance.field.data.collaboration.MobileSensitiveActionKind
+import com.maintenance.field.data.collaboration.MobileSensitiveActionQueueSummary
 import com.maintenance.field.data.messenger.MessengerAction
 import com.maintenance.field.data.messenger.MessengerMessage
 import com.maintenance.field.data.messenger.MessengerReducer
@@ -85,6 +99,115 @@ import kotlinx.coroutines.launch
 private val messengerTimestampFormatter: DateTimeFormatter =
     DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault())
 
+internal enum class MobileCollaborationKind {
+    NOTIFICATION,
+    APPROVAL,
+    PASSKEY_SIGNING,
+    OFFLINE_SYNC,
+    MESSENGER,
+    MAIL,
+    CALENDAR,
+    POLL,
+}
+
+internal enum class MobileCollaborationStatus(@get:StringRes val labelRes: Int) {
+    ACTION_REQUIRED(R.string.work_hub_status_action_required),
+    READY(R.string.work_hub_status_ready),
+    MONITORING(R.string.work_hub_status_monitoring),
+}
+
+internal data class MobileCollaborationAction(
+    val kind: MobileCollaborationKind,
+    @get:StringRes val titleRes: Int,
+    @get:StringRes val valueRes: Int,
+    @get:StringRes val detailRes: Int,
+    val count: Int?,
+    val status: MobileCollaborationStatus,
+    val requiresPasskey: Boolean = false,
+)
+
+internal fun buildMobileCollaborationActions(
+    urgentWorkCount: Int,
+    approvalRelatedCount: Int,
+    pendingSyncCount: Int,
+    messengerThreadCount: Int,
+    targetDueWorkCount: Int,
+): List<MobileCollaborationAction> {
+    val notificationCount = urgentWorkCount + approvalRelatedCount + pendingSyncCount
+    return listOf(
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.NOTIFICATION,
+            titleRes = R.string.work_hub_action_notifications_title,
+            valueRes = R.string.work_hub_action_notifications_value_format,
+            detailRes = R.string.work_hub_action_notifications_detail,
+            count = notificationCount,
+            status = if (notificationCount > 0) MobileCollaborationStatus.ACTION_REQUIRED else MobileCollaborationStatus.MONITORING,
+        ),
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.APPROVAL,
+            titleRes = R.string.work_hub_action_approvals_title,
+            valueRes = R.string.work_hub_action_approvals_value_format,
+            detailRes = R.string.work_hub_action_approvals_detail,
+            count = approvalRelatedCount,
+            status = if (approvalRelatedCount > 0) MobileCollaborationStatus.ACTION_REQUIRED else MobileCollaborationStatus.MONITORING,
+            requiresPasskey = approvalRelatedCount > 0,
+        ),
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.PASSKEY_SIGNING,
+            titleRes = R.string.work_hub_action_passkey_title,
+            valueRes = if (approvalRelatedCount > 0) {
+                R.string.work_hub_action_passkey_value_required
+            } else {
+                R.string.work_hub_action_passkey_value_ready
+            },
+            detailRes = R.string.work_hub_action_passkey_detail,
+            count = null,
+            status = if (approvalRelatedCount > 0) MobileCollaborationStatus.ACTION_REQUIRED else MobileCollaborationStatus.READY,
+            requiresPasskey = true,
+        ),
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.OFFLINE_SYNC,
+            titleRes = R.string.work_hub_action_offline_title,
+            valueRes = R.string.work_hub_action_offline_value_format,
+            detailRes = R.string.work_hub_action_offline_detail,
+            count = pendingSyncCount,
+            status = if (pendingSyncCount > 0) MobileCollaborationStatus.ACTION_REQUIRED else MobileCollaborationStatus.READY,
+        ),
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.MESSENGER,
+            titleRes = R.string.work_hub_action_messenger_title,
+            valueRes = R.string.work_hub_action_messenger_value_format,
+            detailRes = R.string.work_hub_action_messenger_detail,
+            count = messengerThreadCount,
+            status = MobileCollaborationStatus.READY,
+        ),
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.MAIL,
+            titleRes = R.string.work_hub_action_mail_title,
+            valueRes = R.string.work_hub_action_mail_value_ready,
+            detailRes = R.string.work_hub_action_mail_detail,
+            count = null,
+            status = MobileCollaborationStatus.READY,
+        ),
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.CALENDAR,
+            titleRes = R.string.work_hub_action_calendar_title,
+            valueRes = R.string.work_hub_action_calendar_value_format,
+            detailRes = R.string.work_hub_action_calendar_detail,
+            count = targetDueWorkCount,
+            status = MobileCollaborationStatus.READY,
+        ),
+        MobileCollaborationAction(
+            kind = MobileCollaborationKind.POLL,
+            titleRes = R.string.work_hub_action_polls_title,
+            valueRes = R.string.work_hub_action_polls_value_ready,
+            detailRes = R.string.work_hub_action_polls_detail,
+            count = null,
+            status = MobileCollaborationStatus.READY,
+        ),
+    )
+}
+
 internal data class WorkHubSummary(
     val todayWorkCount: Int,
     val urgentWorkCount: Int,
@@ -93,23 +216,39 @@ internal data class WorkHubSummary(
     val messengerThreadCount: Int,
     val targetDueWorkCount: Int,
     val gpsMayCollect: Boolean,
+    val collaborationActions: List<MobileCollaborationAction>,
 ) {
     companion object {
         fun build(
             today: List<TechnicianWorkOrder>,
             messengerState: MessengerState,
             gpsMayCollect: Boolean,
-        ): WorkHubSummary = WorkHubSummary(
-            todayWorkCount = today.size,
-            urgentWorkCount = today.count { it.priority == PriorityLevel.P1 },
-            approvalRelatedCount = today.count {
+        ): WorkHubSummary {
+            val urgentWorkCount = today.count { it.priority == PriorityLevel.P1 }
+            val approvalRelatedCount = today.count {
                 it.status == WorkOrderStatus.REPORT_SUBMITTED || it.status == WorkOrderStatus.ADMIN_REVIEW
-            },
-            pendingSyncCount = today.count { it.syncState != SyncState.SYNCED },
-            messengerThreadCount = messengerState.threads.size,
-            targetDueWorkCount = today.count { it.targetDueAt != null },
-            gpsMayCollect = gpsMayCollect,
-        )
+            }
+            val pendingSyncCount = today.count { it.syncState != SyncState.SYNCED }
+            val messengerThreadCount = messengerState.threads.size
+            val targetDueWorkCount = today.count { it.targetDueAt != null }
+
+            return WorkHubSummary(
+                todayWorkCount = today.size,
+                urgentWorkCount = urgentWorkCount,
+                approvalRelatedCount = approvalRelatedCount,
+                pendingSyncCount = pendingSyncCount,
+                messengerThreadCount = messengerThreadCount,
+                targetDueWorkCount = targetDueWorkCount,
+                gpsMayCollect = gpsMayCollect,
+                collaborationActions = buildMobileCollaborationActions(
+                    urgentWorkCount = urgentWorkCount,
+                    approvalRelatedCount = approvalRelatedCount,
+                    pendingSyncCount = pendingSyncCount,
+                    messengerThreadCount = messengerThreadCount,
+                    targetDueWorkCount = targetDueWorkCount,
+                ),
+            )
+        }
     }
 }
 
@@ -128,6 +267,10 @@ fun FieldApp(container: AppContainer) {
     var messengerSearchQuery by rememberSaveable { mutableStateOf("") }
     var messengerDraft by rememberSaveable { mutableStateOf("") }
     var locationConsent by remember { mutableStateOf<LocationConsentStatus?>(null) }
+    var operationsOverview by remember { mutableStateOf<MobileOperationsOverview?>(null) }
+    var approvalComment by rememberSaveable { mutableStateOf("") }
+    var notificationInbox by remember { mutableStateOf(MobileNotificationInbox(emptyList())) }
+    var sensitiveActionSummary by remember { mutableStateOf(MobileSensitiveActionQueueSummary(emptyList())) }
     val selected = orders.firstOrNull { it.id.toString() == selectedId }
     val messengerReducer = remember { MessengerReducer() }
     val loginFailedMessage = stringResource(R.string.login_failed)
@@ -137,6 +280,8 @@ fun FieldApp(container: AppContainer) {
     val operationFailedMessage = stringResource(R.string.operation_failed)
     val messengerSendPendingMessage = stringResource(R.string.messenger_send_pending)
     val locationConsentFailedMessage = stringResource(R.string.location_consent_failed)
+    val operationsPasskeyRequiredMessage = stringResource(R.string.operations_passkey_required)
+    val operationsPollVotedMessage = stringResource(R.string.operations_poll_voted)
 
     suspend fun loadMessengerMessages(threadId: UUID, beforeMessageId: UUID? = null) {
         val page = container.messenger.loadMessages(threadId, beforeMessageId)
@@ -156,6 +301,12 @@ fun FieldApp(container: AppContainer) {
         messengerState.selectedThreadId?.let { loadMessengerMessages(it) }
     }
 
+    suspend fun refreshOperations() {
+        operationsOverview = container.mobileOperations.refreshOverview()
+        notificationInbox = container.mobileOperations.notificationInbox()
+        sensitiveActionSummary = container.mobileOperations.sensitiveActionQueueSummary()
+    }
+
     LaunchedEffect(authenticated) {
         if (authenticated) {
             runCatching { container.workOrders.refreshToday() }
@@ -164,6 +315,9 @@ fun FieldApp(container: AppContainer) {
                 .onFailure { snackbarHostState.showSnackbar(locationConsentFailedMessage) }
         } else {
             locationConsent = null
+            operationsOverview = null
+            notificationInbox = MobileNotificationInbox(emptyList())
+            sensitiveActionSummary = MobileSensitiveActionQueueSummary(emptyList())
         }
     }
 
@@ -356,6 +510,10 @@ fun FieldApp(container: AppContainer) {
                                 selectedId = null
                                 messengerState = MessengerState()
                                 locationConsent = null
+                                operationsOverview = null
+                                approvalComment = ""
+                                notificationInbox = MobileNotificationInbox(emptyList())
+                                sensitiveActionSummary = MobileSensitiveActionQueueSummary(emptyList())
                             },
                             onLocationGrant = {
                                 updateLocationConsent { container.locationConsent.grant() }
@@ -397,7 +555,7 @@ fun FieldApp(container: AppContainer) {
                                 }
                             },
                         )
-                    } else {
+                    } else if (selectedTab == 2) {
                         MessengerScreen(
                             state = messengerState,
                             busy = busy,
@@ -491,6 +649,89 @@ fun FieldApp(container: AppContainer) {
                                 }
                             },
                         )
+                    } else {
+                        OperationsScreen(
+                            dashboard = operationsOverview?.snapshot?.let(::MobileOperationsDashboard),
+                            origin = operationsOverview?.origin,
+                            notificationInbox = notificationInbox,
+                            sensitiveActionSummary = sensitiveActionSummary,
+                            busy = busy,
+                            approvalComment = approvalComment,
+                            modifier = Modifier.weight(1f),
+                            onApprovalCommentChange = { approvalComment = it },
+                            onRefresh = {
+                                scope.launch {
+                                    busy = true
+                                    runCatching { refreshOperations() }
+                                        .onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                    busy = false
+                                }
+                            },
+                            onQueueApproval = {
+                                val approval = operationsOverview?.snapshot?.let(::MobileOperationsDashboard)?.approvals?.firstOrNull()
+                                if (approval != null) {
+                                    scope.launch {
+                                        busy = true
+                                        runCatching {
+                                            container.mobileOperations.approveWorkOrder(
+                                                approval = approval,
+                                                comment = approvalComment,
+                                                stepUpAssertion = null,
+                                            )
+                                            sensitiveActionSummary = container.mobileOperations.sensitiveActionQueueSummary()
+                                            snackbarHostState.showSnackbar(operationsPasskeyRequiredMessage)
+                                        }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                        busy = false
+                                    }
+                                }
+                            },
+                            onReplaySensitiveActions = {
+                                scope.launch {
+                                    busy = true
+                                    runCatching {
+                                        container.mobileOperations.replaySensitiveActions(stepUpAssertion = null)
+                                        sensitiveActionSummary = container.mobileOperations.sensitiveActionQueueSummary()
+                                    }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                    busy = false
+                                }
+                            },
+                            onMarkNotificationRead = { notification ->
+                                scope.launch {
+                                    notificationInbox = container.mobileOperations.markNotificationRead(notification.id)
+                                }
+                            },
+                            onMarkThreadRead = { thread ->
+                                scope.launch {
+                                    busy = true
+                                    runCatching {
+                                        operationsOverview = container.mobileOperations.markMailThreadSeen(thread.id, true)
+                                            ?: operationsOverview
+                                    }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                    busy = false
+                                }
+                            },
+                            onVotePoll = { poll ->
+                                val optionId = poll.firstOptionId
+                                if (poll.canVote && optionId != null) {
+                                    scope.launch {
+                                        busy = true
+                                        runCatching {
+                                            container.mobileOperations.stepUpEnvelope(
+                                                actionKind = MobileSensitiveActionKind.POLL_VOTE,
+                                                objectId = poll.id,
+                                                reasonKey = "operations_passkey_poll_vote",
+                                            )
+                                            container.mobileOperations.votePoll(poll.id, listOf(optionId))
+                                            operationsOverview = container.mobileOperations.cachedOverview()?.copy(
+                                                origin = MobileOperationsSnapshotOrigin.LIVE,
+                                            )
+                                            snackbarHostState.showSnackbar(operationsPollVotedMessage)
+                                        }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                        busy = false
+                                    }
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -524,6 +765,11 @@ private fun FieldTabRow(
             onClick = { onSelect(2) },
             label = { Text(stringResource(R.string.messenger_title)) },
         )
+        FilterChip(
+            selected = selectedTab == 3,
+            onClick = { onSelect(3) },
+            label = { Text(stringResource(R.string.operations_title)) },
+        )
     }
 }
 
@@ -532,8 +778,8 @@ private fun FieldTabRow(
 internal fun WorkHubScreen(
     summary: WorkHubSummary,
     busy: Boolean,
-    modifier: Modifier = Modifier,
     onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         if (busy) {
@@ -581,15 +827,44 @@ internal fun WorkHubScreen(
             }
             item {
                 WorkHubCard(title = stringResource(R.string.work_hub_collaboration_section)) {
-                    Text(stringResource(R.string.work_hub_messenger_count_format, summary.messengerThreadCount))
-                    Text(stringResource(R.string.work_hub_notifications_note))
-                    Text(stringResource(R.string.work_hub_company_mail_note))
-                    Text(stringResource(R.string.work_hub_shared_calendar_note))
-                    Text(stringResource(R.string.work_hub_polls_note))
-                    Text(stringResource(R.string.work_hub_staged_footer), style = MaterialTheme.typography.bodySmall)
+                    summary.collaborationActions.forEach { action ->
+                        WorkHubActionRow(action = action)
+                    }
+                    Text(stringResource(R.string.work_hub_collaboration_footer), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WorkHubActionRow(action: MobileCollaborationAction) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(text = stringResource(action.titleRes), style = MaterialTheme.typography.titleSmall)
+            val valueText = action.count?.let { stringResource(action.valueRes, it) }
+                ?: stringResource(action.valueRes)
+            Text(text = valueText, style = MaterialTheme.typography.bodyMedium)
+            Text(text = stringResource(action.detailRes), style = MaterialTheme.typography.bodySmall)
+            if (action.requiresPasskey) {
+                Text(
+                    text = stringResource(R.string.work_hub_action_passkey_step_up),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+        AssistChip(
+            onClick = {},
+            enabled = false,
+            label = { Text(stringResource(action.status.labelRes)) },
+        )
     }
 }
 
@@ -611,6 +886,281 @@ private fun WorkHubCard(
             content()
         }
     }
+}
+
+
+@Composable
+internal fun OperationsScreen(
+    dashboard: MobileOperationsDashboard?,
+    origin: MobileOperationsSnapshotOrigin?,
+    busy: Boolean,
+    approvalComment: String,
+    onApprovalCommentChange: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onQueueApproval: () -> Unit,
+    onMarkThreadRead: (MobileMailThreadRow) -> Unit,
+    onVotePoll: (MobilePollRow) -> Unit,
+    modifier: Modifier = Modifier,
+    notificationInbox: MobileNotificationInbox = MobileNotificationInbox(emptyList()),
+    sensitiveActionSummary: MobileSensitiveActionQueueSummary = MobileSensitiveActionQueueSummary(emptyList()),
+    onReplaySensitiveActions: () -> Unit = {},
+    onMarkNotificationRead: (MobileRoutedNotification) -> Unit = {},
+) {
+    LaunchedEffect(Unit) {
+        if (dashboard == null) {
+            onRefresh()
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.operations_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(
+                onClick = onRefresh,
+                enabled = !busy,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.refresh))
+            }
+        }
+
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (origin == MobileOperationsSnapshotOrigin.CACHED_AFTER_FAILURE) {
+                item { OperationsCard(title = stringResource(R.string.operations_cached_title)) { Text(stringResource(R.string.operations_cached_fallback)) } }
+            }
+            item {
+                OperationsCard(title = stringResource(R.string.operations_notification_section)) {
+                    Text(stringResource(R.string.operations_notification_badge_format, notificationInbox.badgeCount))
+                    Text(stringResource(R.string.operations_notification_unread_format, notificationInbox.unreadCount))
+                    Text(stringResource(R.string.operations_notification_urgent_format, notificationInbox.urgentUnreadCount))
+                    notificationInbox.notifications.take(3).forEach { notification ->
+                        OperationsNotificationRow(notification = notification, onMarkRead = { onMarkNotificationRead(notification) })
+                    }
+                }
+            }
+            item {
+                OperationsCard(title = stringResource(R.string.operations_approval_section)) {
+                    Text(stringResource(R.string.operations_approval_count_format, dashboard?.approvalCount ?: 0))
+                    val approvals = dashboard?.approvals.orEmpty()
+                    if (approvals.isEmpty()) {
+                        Text(stringResource(R.string.operations_approval_empty), style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        approvals.take(3).forEach {
+                            Text(it.title, style = MaterialTheme.typography.bodyMedium)
+                            Text(it.summary, style = MaterialTheme.typography.bodySmall)
+                            if (!it.canExecuteOnMobile) {
+                                Text(stringResource(R.string.operations_approval_unsupported_mobile), style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = approvalComment,
+                        onValueChange = onApprovalCommentChange,
+                        label = { Text(stringResource(R.string.operations_approval_comment)) },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = onQueueApproval,
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(stringResource(R.string.operations_queue_approval))
+                    }
+                    OutlinedButton(
+                        onClick = onReplaySensitiveActions,
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(stringResource(R.string.operations_replay_sensitive_actions))
+                    }
+                }
+            }
+            item {
+                OperationsCard(title = stringResource(R.string.operations_sensitive_section)) {
+                    Text(stringResource(R.string.operations_sensitive_waiting_passkey_format, sensitiveActionSummary.pendingPasskeyCount))
+                    Text(stringResource(R.string.operations_sensitive_ready_replay_format, sensitiveActionSummary.readyForReplayCount))
+                    Text(stringResource(R.string.operations_sensitive_failed_format, sensitiveActionSummary.failedCount))
+                }
+            }
+            item {
+                OperationsCard(title = stringResource(R.string.operations_mail_section)) {
+                    Text(stringResource(R.string.operations_mail_unread_format, dashboard?.unreadMailCount ?: 0))
+                    val threads = dashboard?.mailThreads.orEmpty()
+                    if (threads.isEmpty()) {
+                        Text(stringResource(R.string.operations_mail_empty), style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        threads.forEach { thread ->
+                            OperationsMailThreadRow(thread = thread, onMarkRead = { onMarkThreadRead(thread) })
+                        }
+                    }
+                }
+            }
+            item {
+                OperationsCard(title = stringResource(R.string.operations_calendar_section)) {
+                    val events = dashboard?.calendarEvents.orEmpty()
+                    if (events.isEmpty()) {
+                        Text(stringResource(R.string.operations_calendar_empty), style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        events.forEach { OperationsCalendarEventRow(event = it) }
+                    }
+                }
+            }
+            item {
+                OperationsCard(title = stringResource(R.string.operations_poll_section)) {
+                    val polls = dashboard?.polls.orEmpty()
+                    if (polls.isEmpty()) {
+                        Text(stringResource(R.string.operations_poll_empty), style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        polls.forEach { poll -> OperationsPollRow(poll = poll, onVote = { onVotePoll(poll) }) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperationsMailThreadRow(thread: MobileMailThreadRow, onMarkRead: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(thread.subject, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            if (thread.unreadCount > 0) AssistChip(onClick = {}, enabled = false, label = { Text(stringResource(R.string.operations_unread_chip)) })
+        }
+        Text(messengerTimestampFormatter.format(thread.lastMessageAt), style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.operations_mail_thread_unread_format, thread.unreadCount), style = MaterialTheme.typography.bodySmall)
+            if (thread.hasAttachments) Text(stringResource(R.string.operations_attachment_chip), style = MaterialTheme.typography.labelMedium)
+            if (thread.isFlagged) Text(stringResource(R.string.operations_flagged_chip), style = MaterialTheme.typography.labelMedium)
+        }
+        OutlinedButton(onClick = onMarkRead, enabled = thread.unreadCount > 0, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(stringResource(R.string.operations_mark_read))
+        }
+    }
+}
+
+@Composable
+private fun OperationsNotificationRow(notification: MobileRoutedNotification, onMarkRead: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(notification.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            AssistChip(
+                onClick = {},
+                enabled = false,
+                label = {
+                    Text(
+                        stringResource(
+                            if (notification.isUrgent) {
+                                R.string.operations_notification_urgent_chip
+                            } else {
+                                R.string.operations_notification_normal_chip
+                            },
+                        ),
+                    )
+                },
+            )
+        }
+        Text(notification.body, style = MaterialTheme.typography.bodyMedium)
+        Text(messengerTimestampFormatter.format(notification.receivedAt), style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onMarkRead, enabled = notification.isUnread, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(stringResource(R.string.operations_notification_mark_read))
+        }
+    }
+}
+
+@Composable
+private fun OperationsCalendarEventRow(event: MobileCalendarEventRow) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(event.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            AssistChip(onClick = {}, enabled = false, label = { Text(stringResource(scopeLabel(event.scopeType))) })
+        }
+        Text(event.description, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            stringResource(
+                R.string.operations_calendar_time_format,
+                messengerTimestampFormatter.format(event.startsAt),
+                messengerTimestampFormatter.format(event.endsAt),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        event.objectType?.let { Text(stringResource(R.string.operations_object_link_format, it), style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+private fun OperationsPollRow(poll: MobilePollRow, onVote: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(poll.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            AssistChip(onClick = {}, enabled = false, label = { Text(stringResource(pollStatusLabel(poll.status))) })
+        }
+        Text(poll.question, style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(pollAnonymityLabel(poll.anonymity)), style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.operations_poll_vote_count_format, poll.voteCount), style = MaterialTheme.typography.labelMedium)
+        }
+        poll.firstOptionLabel?.let { option ->
+            Button(onClick = onVote, enabled = poll.canVote, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.operations_poll_vote_option_format, option))
+            }
+        }
+        if (poll.hasSubmittedVote) {
+            Text(stringResource(R.string.operations_poll_submitted), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun OperationsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
+    }
+}
+
+@StringRes
+private fun scopeLabel(scope: CollaborationScopeType): Int = when (scope) {
+    CollaborationScopeType.TENANT -> R.string.operations_scope_tenant
+    CollaborationScopeType.ORG -> R.string.operations_scope_org
+    CollaborationScopeType.DEPARTMENT -> R.string.operations_scope_department
+    CollaborationScopeType.TEAM -> R.string.operations_scope_team
+    CollaborationScopeType.PERSONAL -> R.string.operations_scope_personal
+}
+
+@StringRes
+private fun pollStatusLabel(status: PollStatus): Int = when (status) {
+    PollStatus.DRAFT -> R.string.operations_poll_status_draft
+    PollStatus.OPEN -> R.string.operations_poll_status_open
+    PollStatus.CLOSED -> R.string.operations_poll_status_closed
+    PollStatus.ARCHIVED -> R.string.operations_poll_status_archived
+}
+
+@StringRes
+private fun pollAnonymityLabel(anonymity: PollAnonymity): Int = when (anonymity) {
+    PollAnonymity.NAMED -> R.string.operations_poll_named
+    PollAnonymity.ANONYMOUS -> R.string.operations_poll_anonymous
 }
 
 @Composable
@@ -675,7 +1225,6 @@ internal fun TodayScreen(
     orders: List<TechnicianWorkOrder>,
     busy: Boolean,
     locationConsent: LocationConsentStatus?,
-    modifier: Modifier = Modifier,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
     onLocationGrant: () -> Unit,
@@ -683,6 +1232,7 @@ internal fun TodayScreen(
     onLocationResume: () -> Unit,
     onLocationWithdraw: () -> Unit,
     onSelect: (TechnicianWorkOrder) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -757,7 +1307,6 @@ internal fun MessengerScreen(
     busy: Boolean,
     searchQuery: String,
     draft: String,
-    modifier: Modifier = Modifier,
     onSearchQueryChange: (String) -> Unit,
     onDraftChange: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -765,6 +1314,7 @@ internal fun MessengerScreen(
     onLoadOlder: () -> Unit,
     onSearch: () -> Unit,
     onSend: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(Unit) {
         if (state.threads.isEmpty()) {

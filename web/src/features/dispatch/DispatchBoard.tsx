@@ -162,7 +162,7 @@ export function DispatchBoard({
           return (
             <section
               key={group.key}
-              className="min-h-64 min-w-[18rem] flex-1 rounded-lg border border-line bg-muted-panel p-3"
+              className="min-h-64 min-w-[18rem] max-w-[22rem] flex-[1_0_18rem] rounded-lg border border-line bg-muted-panel p-3"
               role="listitem"
             >
               <div className="mb-3 flex items-start justify-between gap-3">
@@ -183,14 +183,14 @@ export function DispatchBoard({
                 {items.map((workOrder) => (
                   <article
                     key={workOrder.id}
-                    className={`grid gap-3 rounded-lg border bg-white p-3 shadow-sm ${
+                    className={`grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-white p-3 shadow-sm ${
                       selectedWorkOrderId === workOrder.id
                         ? "border-brand-teal ring-2 ring-brand-teal/20"
                         : "border-line"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold tabular-nums text-ink">
+                      <p className="min-w-0 break-all font-semibold tabular-nums text-ink">
                         {workOrder.request_no}
                       </p>
                       <Badge className={priorityClass(workOrder.priority)}>
@@ -203,14 +203,14 @@ export function DispatchBoard({
                       </Badge>
                       <SlaBadge workOrder={workOrder} />
                     </div>
-                    <div className="grid gap-1">
-                      <p className="text-sm font-semibold text-ink">
+                    <div className="grid min-w-0 gap-1">
+                      <p className="min-w-0 break-words text-sm font-semibold text-ink">
                         {equipmentLabel(workOrder)}
                       </p>
-                      <p className="text-sm text-steel">
+                      <p className="min-w-0 break-words text-sm text-steel">
                         {workOrder.customer.name} / {workOrder.site.name}
                       </p>
-                      <p className="text-sm text-steel">
+                      <p className="min-w-0 break-words text-sm text-steel">
                         {workOrder.equipment.model ?? ko.common.unknown}
                       </p>
                     </div>
@@ -229,7 +229,7 @@ export function DispatchBoard({
                     </div>
                     {workOrder.status === "RECEIVED" || workOrder.status === "UNASSIGNED" ? (
                       <Button
-                        className="w-full"
+                        className="w-full whitespace-normal text-center"
                         variant="secondary"
                         size="sm"
                         aria-label={`${workOrder.request_no} ${ko.dispatch.assign}`}
@@ -246,7 +246,7 @@ export function DispatchBoard({
                     ) : null}
                     {onSelectWorkOrder ? (
                       <Button
-                        className="w-full"
+                        className="w-full whitespace-normal text-center"
                         variant="ghost"
                         aria-label={`${workOrder.request_no} ${ko.dispatch.controls.title}`}
                         aria-pressed={selectedWorkOrderId === workOrder.id}

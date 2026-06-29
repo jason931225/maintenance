@@ -2,12 +2,9 @@ import {
   CalendarDays,
   CheckSquare,
   Inbox,
-  LifeBuoy,
   Mail,
   MessageSquare,
   RefreshCw,
-  ShieldCheck,
-  Users,
 } from "lucide-react";
 import {
   useCallback,
@@ -15,14 +12,21 @@ import {
   useMemo,
   useState,
   type ReactNode,
+  type SyntheticEvent,
 } from "react";
 import { Link } from "react-router-dom";
 
 import type {
   ApprovalItem,
+  CalendarEventResponse,
+  CollaborationScopeType,
+  CreateCalendarEventRequest,
+  CreatePollRequest,
   DailyPlanSummary,
   MailThreadView,
   MessengerThreadSummary,
+  PollAnonymity,
+  PollResponse,
   SupportTicketSummary,
   WorkOrderListItem,
 } from "../api/types";
@@ -34,6 +38,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
+import { isActionableSupportTicket } from "../features/support/support-format";
 import { ko } from "../i18n/ko";
 import { formatKoreanDateTime } from "../lib/datetime";
 import { todayInSeoul } from "../lib/utils";
@@ -63,6 +68,8 @@ interface CollaborationData {
   workOrders: WorkOrderListItem[];
   approvals: ApprovalItem[];
   dailyPlans: DailyPlanSummary[];
+  calendarEvents: CalendarEventResponse[];
+  polls: PollResponse[];
   supportTickets: SupportTicketSummary[];
   messengerThreads: MessengerThreadSummary[];
   mailThreads: MailThreadView[];
@@ -76,6 +83,25 @@ interface CalendarEntry {
   meta: string;
   kind: keyof typeof ko.collaboration.calendar.kinds;
   href: string;
+}
+
+interface CalendarFormState {
+  scopeType: CollaborationScopeType;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  objectType: string;
+  objectId: string;
+}
+
+interface PollFormState {
+  targetScopeType: CollaborationScopeType;
+  title: string;
+  question: string;
+  anonymity: PollAnonymity;
+  options: string;
+  objectType: string;
+  objectId: string;
 }
 
 function addDaysToSeoulDate(value: string, days: number): string {
@@ -131,11 +157,52 @@ function approvalHref(item: ApprovalItem): string {
   return approvalFallbackHref(item.source);
 }
 
+function objectHref(
+  objectType: string | null | undefined,
+  objectId: string | null | undefined,
+): string {
+  if (!objectType || !objectId) return "/collaboration";
+  switch (objectType) {
+    case "work_order":
+      return `/work-orders/${objectId}`;
+    case "daily_plan":
+      return `/daily-plan?planId=${objectId}`;
+    case "approval":
+      return `/approvals?focus=${objectId}`;
+    case "support_ticket":
+      return "/support";
+    default:
+      return "/collaboration";
+  }
+}
+
+function scopeLabel(scopeType: CollaborationScopeType): string {
+  return ko.collaboration.scopes[scopeType];
+}
+
+function policyLabel(policy: CalendarEventResponse["policy"]): string {
+  return `${scopeLabel(policy.scope_type)} · ${ko.collaboration.policy[policy.visibility]}`;
+}
+
 function calendarEntries(
   data: CollaborationData,
   today: string,
   weekEnd: string,
 ): CalendarEntry[] {
+  const apiEvents = data.calendarEvents
+    .filter((event) => {
+      const starts = dateOnly(event.starts_at);
+      const ends = dateOnly(event.ends_at);
+      return starts !== undefined && ends !== undefined && starts <= weekEnd && ends >= today;
+    })
+    .map((event) => ({
+      id: `event-${event.id}`,
+      dateLabel: event.all_day ? dateOnly(event.starts_at) ?? event.starts_at : formatKoreanDateTime(event.starts_at),
+      title: event.title,
+      meta: policyLabel(event.policy),
+      kind: "event" as const,
+      href: objectHref(event.object_type, event.object_id),
+    }));
   const plans = upcomingPlans(data.dailyPlans, today, weekEnd).map((plan) => ({
     id: `plan-${plan.id ?? plan.plan_date ?? "unknown"}`,
     dateLabel: plan.plan_date ?? ko.common.notSet,
@@ -172,7 +239,7 @@ function calendarEntries(
     href: approvalHref(item),
   }));
   const support = data.supportTickets
-    .filter((ticket) => ticket.status !== "CLOSED" && !ticket.closed_at)
+    .filter(isActionableSupportTicket)
     .slice(0, 5)
     .map((ticket) => ({
       id: `support-${ticket.id}`,
@@ -187,7 +254,7 @@ function calendarEntries(
       kind: "support" as const,
       href: "/support",
     }));
-  return [...plans, ...work, ...approvals, ...support].slice(0, 12);
+  return [...apiEvents, ...plans, ...work, ...approvals, ...support].slice(0, 16);
 }
 
 function MetricCard({
@@ -249,10 +316,34 @@ export function CollaborationPage() {
   const canDailyPlan = hasAnyRole(roles, DAILY_PLAN_ROLES);
   const canUseMail = hasAnyRole(roles, MAIL_USE_ROLES);
   const [readState, setReadState] = useState<ReadState>("loading");
+  const [mutationError, setMutationError] = useState<string>();
+  const [mutationOk, setMutationOk] = useState<string>();
+  const [calendarForm, setCalendarForm] = useState<CalendarFormState>(() => {
+    const day = todayInSeoul();
+    return {
+      scopeType: "ORG",
+      title: "",
+      startsAt: `${day}T09:00`,
+      endsAt: `${day}T10:00`,
+      objectType: "",
+      objectId: "",
+    };
+  });
+  const [pollForm, setPollForm] = useState<PollFormState>({
+    targetScopeType: "ORG",
+    title: "",
+    question: "",
+    anonymity: "NAMED",
+    options: ko.collaboration.polls.defaultOptions,
+    objectType: "",
+    objectId: "",
+  });
   const [data, setData] = useState<CollaborationData>({
     workOrders: [],
     approvals: [],
     dailyPlans: [],
+    calendarEvents: [],
+    polls: [],
     supportTickets: [],
     messengerThreads: [],
     mailThreads: [],
@@ -266,6 +357,8 @@ export function CollaborationPage() {
         workOrderRes,
         approvalRes,
         dailyPlanRes,
+        calendarRes,
+        pollRes,
         supportRes,
         messengerRes,
         mailRes,
@@ -283,6 +376,18 @@ export function CollaborationPage() {
         canDailyPlan
           ? api.GET("/api/daily-work-plans", { params: { query: {} } })
           : Promise.resolve(undefined),
+        api.GET("/api/v1/collaboration/calendar/events", {
+          params: {
+            query: {
+              from: `${todayInSeoul()}T00:00:00+09:00`,
+              to: `${addDaysToSeoulDate(todayInSeoul(), 6)}T23:59:59+09:00`,
+              limit: 50,
+            },
+          },
+        }),
+        api.GET("/api/v1/collaboration/polls", {
+          params: { query: { status: "OPEN", limit: 20 } },
+        }),
         api.GET("/api/v1/support/tickets", {
           params: {
             query: { status: "OPEN", include_untriaged: true, limit: 10 },
@@ -296,7 +401,13 @@ export function CollaborationPage() {
           : Promise.resolve(undefined),
       ]);
 
-      if (!workOrderRes.data || !supportRes.data || !messengerRes.data) {
+      if (
+        !workOrderRes.data ||
+        !calendarRes.data ||
+        !pollRes.data ||
+        !supportRes.data ||
+        !messengerRes.data
+      ) {
         setReadState("error");
         return;
       }
@@ -321,7 +432,9 @@ export function CollaborationPage() {
         workOrders: workOrderRes.data.items,
         approvals: approvalRes?.data?.items ?? [],
         dailyPlans: dailyPlanRes?.data?.items ?? [],
-        supportTickets: supportRes.data.items,
+        calendarEvents: calendarRes.data.items,
+        polls: pollRes.data.items,
+        supportTickets: supportRes.data.items.filter(isActionableSupportTicket),
         messengerThreads: messengerRes.data.items,
         mailThreads,
         mailState,
@@ -346,9 +459,101 @@ export function CollaborationPage() {
     (sum, thread) => sum + thread.unread_count,
     0,
   );
-  const openSupportCount = data.supportTickets.filter(
-    (ticket) => ticket.status !== "CLOSED" && !ticket.closed_at,
-  ).length;
+
+  const createCalendarEvent = useCallback(
+    async (event: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
+      event.preventDefault();
+      setMutationError(undefined);
+      setMutationOk(undefined);
+      const objectType = calendarForm.objectType.trim();
+      const objectId = calendarForm.objectId.trim();
+      const body: CreateCalendarEventRequest = {
+        scope_type: calendarForm.scopeType,
+        title: calendarForm.title,
+        starts_at: new Date(calendarForm.startsAt).toISOString(),
+        ends_at: new Date(calendarForm.endsAt).toISOString(),
+        all_day: false,
+        ...(objectType && objectId
+          ? { object_type: objectType, object_id: objectId }
+          : {}),
+      };
+      const response = await api.POST("/api/v1/collaboration/calendar/events", {
+        body,
+      });
+      if (!response.data) {
+        setMutationError(ko.collaboration.calendar.createFailed);
+        return;
+      }
+      setData((current) => ({
+        ...current,
+        calendarEvents: [response.data, ...current.calendarEvents],
+      }));
+      setCalendarForm((current) => ({ ...current, title: "", objectType: "", objectId: "" }));
+      setMutationOk(ko.collaboration.calendar.created);
+    },
+    [api, calendarForm],
+  );
+
+  const createPoll = useCallback(
+    async (event: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
+      event.preventDefault();
+      setMutationError(undefined);
+      setMutationOk(undefined);
+      const options = pollForm.options
+        .split(/\r?\n/)
+        .map((option) => option.trim())
+        .filter(Boolean);
+      const objectType = pollForm.objectType.trim();
+      const objectId = pollForm.objectId.trim();
+      const body: CreatePollRequest = {
+        target_scope_type: pollForm.targetScopeType,
+        title: pollForm.title,
+        question: pollForm.question,
+        status: "OPEN",
+        anonymity: pollForm.anonymity,
+        allow_multiple: false,
+        options,
+        ...(objectType && objectId
+          ? { object_type: objectType, object_id: objectId }
+          : {}),
+      };
+      const response = await api.POST("/api/v1/collaboration/polls", { body });
+      if (!response.data) {
+        setMutationError(ko.collaboration.polls.createFailed);
+        return;
+      }
+      setData((current) => ({
+        ...current,
+        polls: [response.data, ...current.polls],
+      }));
+      setPollForm((current) => ({ ...current, title: "", question: "", objectType: "", objectId: "" }));
+      setMutationOk(ko.collaboration.polls.created);
+    },
+    [api, pollForm],
+  );
+
+  const votePoll = useCallback(
+    async (poll: PollResponse, optionId: string) => {
+      setMutationError(undefined);
+      setMutationOk(undefined);
+      const response = await api.POST("/api/v1/collaboration/polls/{id}/vote", {
+        params: { path: { id: poll.id } },
+        body: { selected_option_ids: [optionId] },
+      });
+      if (!response.data) {
+        setMutationError(ko.collaboration.polls.voteFailed);
+        return;
+      }
+      setData((current) => ({
+        ...current,
+        polls: current.polls.map((item) =>
+          item.id === poll.id ? response.data : item,
+        ),
+      }));
+      setMutationOk(ko.collaboration.polls.voted);
+    },
+    [api],
+  );
 
   return (
     <>
@@ -409,7 +614,7 @@ export function CollaborationPage() {
             />
             <MetricCard
               title={ko.collaboration.metrics.polls}
-              value={openSupportCount + data.approvals.length}
+              value={data.polls.length}
               description={ko.collaboration.metrics.pollsHelp}
               icon={<CheckSquare size={18} aria-hidden="true" />}
             />
@@ -435,6 +640,113 @@ export function CollaborationPage() {
                 </div>
               }
             >
+              <form
+                className="grid gap-3 rounded-lg border border-line bg-muted-panel p-3 md:grid-cols-[10rem_1fr_12rem_12rem_auto]"
+                onSubmit={(event) => {
+                  void createCalendarEvent(event);
+                }}
+              >
+                <label className="grid gap-1 text-sm font-semibold text-steel">
+                  {ko.collaboration.scope}
+                  <select
+                    className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                    value={calendarForm.scopeType}
+                    onChange={(event) => {
+                      const scopeType = event.currentTarget.value as CollaborationScopeType;
+                      setCalendarForm((current) => ({
+                        ...current,
+                        scopeType,
+                      }));
+                    }}
+                  >
+                    {(["PERSONAL", "TEAM", "DEPARTMENT", "ORG", "TENANT"] as const).map((scope) => (
+                      <option key={scope} value={scope}>
+                        {scopeLabel(scope)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-semibold text-steel">
+                  {ko.collaboration.calendar.eventTitle}
+                  <input
+                    className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                    value={calendarForm.title}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCalendarForm((current) => ({
+                        ...current,
+                        title: value,
+                      }));
+                    }}
+                    required
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold text-steel">
+                  {ko.collaboration.calendar.startsAt}
+                  <input
+                    type="datetime-local"
+                    className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                    value={calendarForm.startsAt}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCalendarForm((current) => ({
+                        ...current,
+                        startsAt: value,
+                      }));
+                    }}
+                    required
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold text-steel">
+                  {ko.collaboration.calendar.endsAt}
+                  <input
+                    type="datetime-local"
+                    className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                    value={calendarForm.endsAt}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCalendarForm((current) => ({
+                        ...current,
+                        endsAt: value,
+                      }));
+                    }}
+                    required
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold text-steel md:col-span-2">
+                  {ko.collaboration.objectType}
+                  <input
+                    className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                    placeholder={ko.collaboration.objectTypePlaceholder}
+                    value={calendarForm.objectType}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCalendarForm((current) => ({
+                        ...current,
+                        objectType: value,
+                      }));
+                    }}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-semibold text-steel md:col-span-2">
+                  {ko.collaboration.objectId}
+                  <input
+                    className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                    placeholder={ko.collaboration.objectIdPlaceholder}
+                    value={calendarForm.objectId}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCalendarForm((current) => ({
+                        ...current,
+                        objectId: value,
+                      }));
+                    }}
+                  />
+                </label>
+                <Button type="submit" size="sm" className="self-end">
+                  {ko.collaboration.calendar.create}
+                </Button>
+              </form>
               {entries.length === 0 ? (
                 <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
                   {ko.collaboration.calendar.empty}
@@ -565,36 +877,189 @@ export function CollaborationPage() {
           <SectionCard
             title={ko.collaboration.polls.title}
             description={ko.collaboration.polls.description}
-            action={
-              <Badge className="border-amber-300 bg-amber-50 text-amber-800">
-                {ko.collaboration.polls.backendGate}
-              </Badge>
-            }
+            action={<Badge>{ko.collaboration.polls.backendReady}</Badge>}
           >
-            <div className="grid gap-3 md:grid-cols-3">
-              {ko.collaboration.polls.controls.map((control) => (
-                <div
-                  key={control.title}
-                  className="rounded-lg border border-line bg-white p-3"
+            {mutationError ? (
+              <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {mutationError}
+              </p>
+            ) : null}
+            {mutationOk ? (
+              <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                {mutationOk}
+              </p>
+            ) : null}
+            <form
+              className="grid gap-3 rounded-lg border border-line bg-muted-panel p-3 lg:grid-cols-[10rem_minmax(12rem,1fr)_minmax(12rem,1fr)_12rem_auto]"
+              onSubmit={(event) => {
+                void createPoll(event);
+              }}
+            >
+              <label className="grid gap-1 text-sm font-semibold text-steel">
+                {ko.collaboration.scope}
+                <select
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                  value={pollForm.targetScopeType}
+                  onChange={(event) => {
+                    const targetScopeType = event.currentTarget.value as CollaborationScopeType;
+                    setPollForm((current) => ({
+                      ...current,
+                      targetScopeType,
+                    }));
+                  }}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-muted-panel p-2 text-ink">
-                      {control.icon === "audience" ? (
-                        <Users size={16} aria-hidden="true" />
-                      ) : control.icon === "support" ? (
-                        <LifeBuoy size={16} aria-hidden="true" />
-                      ) : (
-                        <ShieldCheck size={16} aria-hidden="true" />
+                  {(["TEAM", "DEPARTMENT", "ORG", "TENANT"] as const).map((scope) => (
+                    <option key={scope} value={scope}>
+                      {scopeLabel(scope)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-steel">
+                {ko.collaboration.polls.pollTitle}
+                <input
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                  value={pollForm.title}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+                    setPollForm((current) => ({
+                      ...current,
+                      title: value,
+                    }));
+                  }}
+                  required
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-steel">
+                {ko.collaboration.polls.question}
+                <input
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                  value={pollForm.question}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+                    setPollForm((current) => ({
+                      ...current,
+                      question: value,
+                    }));
+                  }}
+                  required
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-steel">
+                {ko.collaboration.polls.anonymity}
+                <select
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                  value={pollForm.anonymity}
+                  onChange={(event) => {
+                    const anonymity = event.currentTarget.value as PollAnonymity;
+                    setPollForm((current) => ({
+                      ...current,
+                      anonymity,
+                    }));
+                  }}
+                >
+                  <option value="NAMED">{ko.collaboration.polls.named}</option>
+                  <option value="ANONYMOUS">{ko.collaboration.polls.anonymous}</option>
+                </select>
+              </label>
+              <Button type="submit" size="sm" className="self-end">
+                {ko.collaboration.polls.create}
+              </Button>
+              <label className="grid gap-1 text-sm font-semibold text-steel lg:col-span-5">
+                {ko.collaboration.polls.options}
+                <textarea
+                  className="min-h-20 rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                  value={pollForm.options}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+                    setPollForm((current) => ({
+                      ...current,
+                      options: value,
+                    }));
+                  }}
+                  required
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-steel lg:col-span-2">
+                {ko.collaboration.objectType}
+                <input
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                  placeholder={ko.collaboration.objectTypePlaceholder}
+                  value={pollForm.objectType}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+                    setPollForm((current) => ({
+                      ...current,
+                      objectType: value,
+                    }));
+                  }}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-steel lg:col-span-3">
+                {ko.collaboration.objectId}
+                <input
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                  placeholder={ko.collaboration.objectIdPlaceholder}
+                  value={pollForm.objectId}
+                  onChange={(event) => {
+                    const { value } = event.currentTarget;
+                    setPollForm((current) => ({
+                      ...current,
+                      objectId: value,
+                    }));
+                  }}
+                />
+              </label>
+            </form>
+            {data.polls.length === 0 ? (
+              <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
+                {ko.collaboration.polls.empty}
+              </p>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {data.polls.map((poll) => (
+                  <article key={poll.id} className="rounded-lg border border-line bg-white p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold text-ink">{poll.title}</h3>
+                        <p className="mt-1 text-sm text-steel">{poll.question}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge>{scopeLabel(poll.target_scope_type)}</Badge>
+                        <Badge>
+                          {poll.anonymity === "ANONYMOUS"
+                            ? ko.collaboration.polls.anonymous
+                            : ko.collaboration.polls.named}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {poll.options.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-left text-sm transition hover:border-brand-teal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal"
+                          onClick={() => {
+                            void votePoll(poll, option.id);
+                          }}
+                        >
+                          <span className="font-medium text-ink">{option.label}</span>
+                          <span className="text-steel">
+                            {ko.collaboration.polls.votes(option.vote_count)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-steel">
+                      {ko.collaboration.polls.policy(
+                        policyLabel(poll.policy),
+                        poll.vote_count,
                       )}
-                    </span>
-                    <h3 className="font-semibold text-ink">{control.title}</h3>
-                  </div>
-                  <p className="mt-2 text-sm text-steel">
-                    {control.description}
-                  </p>
-                </div>
-              ))}
-            </div>
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
             <div className="rounded-lg border border-brand-teal/20 bg-brand-teal/5 p-4">
               <div className="flex items-start gap-3">
                 <Inbox

@@ -10,6 +10,7 @@ use mnt_kernel_core::{
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use time::{Date, OffsetDateTime};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -164,6 +165,151 @@ pub struct SubstituteAssignment {
     pub return_note: Option<String>,
 }
 
+/// Ordered, auditable legal-owner transfer workflow for equipment assets.
+/// The registry row's tenant/org discriminator remains immutable; only the
+/// legal-owner fact (`asset_owner`) changes after every required signoff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentOwnershipTransferStepKey {
+    SendingOrgAdmin,
+    ReceivingOrgAdmin,
+    LegalSignoff,
+    AccountingSignoff,
+}
+
+impl EquipmentOwnershipTransferStepKey {
+    pub const ORDER: [Self; 4] = [
+        Self::SendingOrgAdmin,
+        Self::ReceivingOrgAdmin,
+        Self::LegalSignoff,
+        Self::AccountingSignoff,
+    ];
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SendingOrgAdmin => "sending_org_admin",
+            Self::ReceivingOrgAdmin => "receiving_org_admin",
+            Self::LegalSignoff => "legal_signoff",
+            Self::AccountingSignoff => "accounting_signoff",
+        }
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::SendingOrgAdmin => "이전 법인 승인",
+            Self::ReceivingOrgAdmin => "인수 법인 승인",
+            Self::LegalSignoff => "법무 소유권 검토",
+            Self::AccountingSignoff => "회계 자산대장 반영",
+        }
+    }
+}
+
+impl TryFrom<&str> for EquipmentOwnershipTransferStepKey {
+    type Error = KernelError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "sending_org_admin" => Ok(Self::SendingOrgAdmin),
+            "receiving_org_admin" => Ok(Self::ReceivingOrgAdmin),
+            "legal_signoff" => Ok(Self::LegalSignoff),
+            "accounting_signoff" => Ok(Self::AccountingSignoff),
+            _ => Err(KernelError::validation(format!(
+                "unknown ownership transfer step: {value}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EquipmentOwnershipTransferStatus {
+    Pending,
+    Approved,
+    Rejected,
+}
+
+impl EquipmentOwnershipTransferStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "PENDING",
+            Self::Approved => "APPROVED",
+            Self::Rejected => "REJECTED",
+        }
+    }
+}
+
+impl TryFrom<&str> for EquipmentOwnershipTransferStatus {
+    type Error = KernelError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "PENDING" => Ok(Self::Pending),
+            "APPROVED" => Ok(Self::Approved),
+            "REJECTED" => Ok(Self::Rejected),
+            _ => Err(KernelError::validation(format!(
+                "unknown ownership transfer status: {value}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentOwnershipTransferDecision {
+    Approve,
+    Reject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentOwnershipTransferStep {
+    pub step_key: String,
+    pub label: String,
+    pub status: String,
+    pub decided_by: Option<UserId>,
+    pub decided_at: Option<Timestamp>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentOwnershipTransferRequest {
+    pub id: Uuid,
+    pub equipment_id: EquipmentId,
+    pub branch_id: BranchId,
+    pub from_owner: String,
+    pub to_owner: String,
+    pub reason: String,
+    pub status: EquipmentOwnershipTransferStatus,
+    pub current_step: Option<EquipmentOwnershipTransferStepKey>,
+    pub approval_line: Vec<EquipmentOwnershipTransferStep>,
+    pub requested_by: Option<UserId>,
+    pub requested_at: Timestamp,
+    pub decided_at: Option<Timestamp>,
+    pub completed_at: Option<Timestamp>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CreateEquipmentOwnershipTransferCommand {
+    pub actor: UserId,
+    pub equipment_id: EquipmentId,
+    pub to_owner: String,
+    pub reason: String,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DecideEquipmentOwnershipTransferCommand {
+    pub actor: UserId,
+    pub request_id: Uuid,
+    pub decision: EquipmentOwnershipTransferDecision,
+    pub comment: String,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
 /// Fields a caller may set when creating a single equipment master row outside
 /// the bulk import path. Mirrors the importer's [`MasterListEquipment`] surface
 /// but omits derived prefix codes (recomputed from `equipment_no`) and the
@@ -171,6 +317,11 @@ pub struct SubstituteAssignment {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CreateEquipmentCommand {
     pub actor: UserId,
+    /// Branch to create the equipment under. Branch-scoped admins create on
+    /// their own branch so the row is immediately visible in branch-scoped
+    /// reads; org-wide principals pass `None` and the adapter falls back to the
+    /// tenant default HQ branch.
+    pub branch_id: Option<BranchId>,
     pub equipment_no: EquipmentNo,
     pub customer_name: String,
     pub site_name: String,
@@ -229,8 +380,8 @@ pub struct CreatedCustomer {
 }
 
 /// Create one site (현장) under an existing customer, directly. The site lands on
-/// the org's default HQ branch under `customer_id`; the adapter validates that the
-/// customer belongs to the caller's org (RLS + an explicit check) before writing.
+/// the existing customer's branch under `customer_id`; the adapter validates that
+/// the customer belongs to the caller's org (RLS + an explicit check) before writing.
 /// Optional location/contact fields mirror the PATCH /sites surface so a site can
 /// be onboarded with its address and representative contact in one step.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -398,6 +549,9 @@ pub struct EquipmentListItem {
     pub ton_text: String,
     pub customer_name: String,
     pub site_name: String,
+    /// Legal owner recorded on the asset master. This is distinct from the
+    /// customer/site operator currently using or hosting the equipment.
+    pub asset_owner: Option<String>,
     pub vin: Option<String>,
     pub updated_at: OffsetDateTime,
 }
@@ -855,4 +1009,71 @@ pub fn substitute_return_audit_event(
     )
     .with_branch(before.branch_id)
     .with_snapshots(Some(before_snap), Some(after)))
+}
+
+pub fn equipment_ownership_transfer_request_audit_event(
+    command: &CreateEquipmentOwnershipTransferCommand,
+    branch_id: BranchId,
+    request: &EquipmentOwnershipTransferRequest,
+) -> Result<AuditEvent, KernelError> {
+    let after = serde_json::json!({
+        "id": request.id,
+        "equipment_id": request.equipment_id,
+        "from_owner": request.from_owner,
+        "to_owner": request.to_owner,
+        "reason": request.reason,
+        "status": request.status,
+        "current_step": request.current_step.map(EquipmentOwnershipTransferStepKey::as_str),
+        "approval_line": request.approval_line,
+    });
+
+    Ok(AuditEvent::new(
+        Some(command.actor),
+        AuditAction::new("equipment.ownership_transfer.request")?,
+        "equipment_ownership_transfer_requests",
+        request.id.to_string(),
+        command.trace.clone(),
+        command.occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(None, Some(after)))
+}
+
+pub fn equipment_ownership_transfer_decision_audit_event(
+    command: &DecideEquipmentOwnershipTransferCommand,
+    before: &EquipmentOwnershipTransferRequest,
+    after: &EquipmentOwnershipTransferRequest,
+) -> Result<AuditEvent, KernelError> {
+    let before_snap = serde_json::json!({
+        "id": before.id,
+        "equipment_id": before.equipment_id,
+        "from_owner": before.from_owner,
+        "to_owner": before.to_owner,
+        "status": before.status,
+        "current_step": before.current_step.map(EquipmentOwnershipTransferStepKey::as_str),
+        "approval_line": before.approval_line,
+    });
+    let after_snap = serde_json::json!({
+        "id": after.id,
+        "equipment_id": after.equipment_id,
+        "from_owner": after.from_owner,
+        "to_owner": after.to_owner,
+        "status": after.status,
+        "current_step": after.current_step.map(EquipmentOwnershipTransferStepKey::as_str),
+        "decision": command.decision,
+        "comment": command.comment,
+        "approval_line": after.approval_line,
+        "completed_at": after.completed_at,
+    });
+
+    Ok(AuditEvent::new(
+        Some(command.actor),
+        AuditAction::new("equipment.ownership_transfer.decide")?,
+        "equipment_ownership_transfer_requests",
+        after.id.to_string(),
+        command.trace.clone(),
+        command.occurred_at,
+    )
+    .with_branch(after.branch_id)
+    .with_snapshots(Some(before_snap), Some(after_snap)))
 }

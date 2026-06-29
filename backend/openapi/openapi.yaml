@@ -1380,6 +1380,67 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/v1/employees/{id}/lifecycle-events:
+    get:
+      operationId: listEmployeeLifecycleEvents
+      summary: List audited employee lifecycle events
+      description: Tenant-scoped append-only lifecycle ledger for onboarding, offboarding, termination, and intra-group/company transfer decisions.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Employee lifecycle events, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeLifecycleEventPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createEmployeeLifecycleEvent
+      summary: Record an employee lifecycle transition with legal signoffs
+      description: Mutates the canonical employee status/company/org-unit/position only through an audited event requiring Korean labor, privacy, and payroll signoff gates.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEmployeeLifecycleEventRequest"
+      responses:
+        "200":
+          description: Recorded lifecycle event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeLifecycleEvent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/hr/org-chart:
     get:
       operationId: getHrOrgChart
@@ -1503,6 +1564,116 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/ValidationError"
+  /api/v1/employees/import/preview:
+    post:
+      operationId: previewEmployeeImport
+      summary: Preview an employee workbook through the governed import ledger
+      description: Creates an immutable tenant-scoped raw import run, preserves every non-empty source row, masks restricted/PII/payroll/location values in the response, and returns a column-to-employee schema mapping preview. No employee rows are written until dry-run and apply are completed.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Employee .xlsx workbook.
+      responses:
+        "200":
+          description: Import run preview with masked sample rows and mapping profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeImportPreviewResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/employees/import/{run_id}/dry-run:
+    post:
+      operationId: dryRunEmployeeImport
+      summary: Compute employee import insert/update counts without writing employees
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Dry-run candidate counts by company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeImportDryRunSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/employees/import/{run_id}/apply:
+    post:
+      operationId: applyEmployeeImport
+      summary: Apply a dry-run employee import run
+      description: Applies only candidate rows from a DRY_RUN import run; preserved rows remain raw-ledger evidence and are not promoted into employee records.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Applied import counts by company.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeImportReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/employees/export.csv:
+    get:
+      operationId: exportEmployeesCsv
+      summary: Export standardized employee directory CSV
+      description: Exports canonical employee fields only. Raw import ledger values, payroll data, account numbers, resident identifiers, and import provenance are not included.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Standardized employee CSV.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/equipment/{id}:
     get:
       operationId: getEquipment
@@ -3092,6 +3263,106 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "503":
           description: JWT verification is not configured.
+  /api/v1/equipment/{id}/ownership-transfer-requests:
+    get:
+      operationId: listEquipmentOwnershipTransfers
+      summary: List legal ownership transfer workflow requests for one equipment asset
+      description: >-
+        Returns the durable ownership-transfer request ledger for a single asset.
+        A transfer changes only the legal owner fact after ordered sending-org,
+        receiving-org, legal, and accounting signoff; the equipment tenant/org
+        discriminator stays immutable.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EquipmentId"
+      responses:
+        "200":
+          description: Transfer requests, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnershipTransferPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createEquipmentOwnershipTransfer
+      summary: Request a cross-org legal ownership transfer
+      description: >-
+        Creates a pending transfer request and approval line. This endpoint does
+        not immediately mutate `asset_owner`; final mutation happens only after
+        sending-org, receiving-org, legal, and accounting approval decisions.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EquipmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOwnershipTransferRequest"
+      responses:
+        "201":
+          description: Transfer request created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnershipTransfer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/equipment/ownership-transfer-requests/{id}/decisions:
+    post:
+      operationId: decideEquipmentOwnershipTransfer
+      summary: Approve or reject the current ownership-transfer signoff step
+      description: >-
+        Advances the ordered transfer signoff line one step at a time. The final
+        accounting approval writes the new `asset_owner` and records an audited
+        workflow event; rejection makes the request terminal without mutating the
+        asset owner.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecideOwnershipTransferRequest"
+      responses:
+        "200":
+          description: Transfer request after the decision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnershipTransfer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/financial/rental-quotes/compute:
     post:
       operationId: computeRentalQuote
@@ -5588,6 +5859,476 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/MailUnavailable"
+  /api/v1/workflow-studio/catalog:
+    get:
+      operationId: getWorkflowStudioCatalog
+      summary: List Workflow Studio connector allowlist and templates
+      description: >-
+        Returns the server-owned connector/action allowlist and starter workflow
+        templates. This is the safe no-code boundary: workflow authors can only
+        compose allowed internal actions, and every request still requires
+        tenant RLS plus RoleManage authorization.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Workflow Studio catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowStudioCatalogResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/workflow-studio/definitions:
+    get:
+      operationId: listWorkflowDefinitions
+      summary: List tenant workflow definitions
+      description: >-
+        Lists tenant-owned workflow definitions with latest version metadata,
+        approval/payment line requirements, notification rules, and action
+        allowlist. The backing schema keeps definitions tenant-scoped under RLS
+        and stores versions/change events append-only.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Workflow definitions for the caller's tenant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createWorkflowDefinition
+      summary: Create a draft workflow definition
+      description: >-
+        Creates a DRAFT workflow definition and version 1. Publishing, pausing,
+        rollback, and clone operations are sensitive actions that require a
+        fresh passkey step-up assertion and append immutable history.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowDefinitionRequest"
+      responses:
+        "200":
+          description: Draft workflow definition created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/workflow-studio/definitions/{id}/history:
+    get:
+      operationId: listWorkflowDefinitionHistory
+      summary: List append-only workflow definition change history
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Append-only Workflow Studio change history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionHistoryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/workflow-studio/definitions/{id}/simulate:
+    post:
+      operationId: simulateWorkflowDefinition
+      summary: Simulate publish readiness without writing
+      description: >-
+        Validates the workflow definition, required approval/payment lines,
+        conditional notification rules, and connector/action allowlist without
+        mutating state. Use this before passkey-gated publication.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulateWorkflowDefinitionRequest"
+      responses:
+        "200":
+          description: Simulation result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowSimulationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/workflow-studio/definitions/{id}/publish:
+    post:
+      operationId: publishWorkflowDefinition
+      summary: Publish a workflow definition version
+      description: >-
+        Sensitive no-code workflow publication. Requires RoleManage, tenant
+        RLS, a fresh passkey step-up assertion, required approval/payment line
+        validation, connector/action allowlist validation, append-only
+        workflow_definition_versions, workflow_definition_events, and audit log.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowStepUpRequest"
+      responses:
+        "200":
+          description: Published workflow definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "428":
+          description: Fresh passkey step-up is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/workflow-studio/definitions/{id}/pause:
+    post:
+      operationId: pauseWorkflowDefinition
+      summary: Pause an active workflow definition
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowStepUpRequest"
+      responses:
+        "200":
+          description: Paused workflow definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "428":
+          description: Fresh passkey step-up is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/workflow-studio/definitions/{id}/rollback:
+    post:
+      operationId: rollbackWorkflowDefinition
+      summary: Roll back by appending a new active version copied from history
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackWorkflowDefinitionRequest"
+      responses:
+        "200":
+          description: Rolled back workflow definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "428":
+          description: Fresh passkey step-up is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/workflow-studio/definitions/{id}/clone:
+    post:
+      operationId: cloneWorkflowDefinition
+      summary: Clone a workflow definition into a new draft
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloneWorkflowDefinitionRequest"
+      responses:
+        "200":
+          description: Cloned workflow definition draft.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "428":
+          description: Fresh passkey step-up is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/collaboration/calendar/events:
+    get:
+      operationId: listCollaborationCalendarEvents
+      summary: List tenant-scoped collaboration calendar events
+      description: >-
+        Returns server-filtered collaboration calendar events for the caller's tenant.
+        Personal events are visible only to the creator, while org/team/department
+        scopes carry explicit server policy metadata for future PBAC/ABAC expansion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: Calendar events visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEventListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      operationId: createCollaborationCalendarEvent
+      summary: Create an audited collaboration calendar event
+      description: >-
+        Creates a tenant-scoped calendar event with explicit audience scope and
+        optional source object link. The server records an audit event and an
+        append-only lifecycle event under forced RLS.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalendarEventRequest"
+      responses:
+        "200":
+          description: Created calendar event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEventResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/collaboration/polls:
+    get:
+      operationId: listCollaborationPolls
+      summary: List collaboration polls
+      description: >-
+        Returns open collaboration polls by default with aggregate option counts,
+        caller vote state, target-scope policy metadata, and source-object links.
+        Anonymous polls expose aggregate results but still keep server audit lineage.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PollStatus"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: Polls visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PollListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      operationId: createCollaborationPoll
+      summary: Create an audited collaboration poll
+      description: >-
+        Creates a poll with explicit target scope, anonymous/named vote mode,
+        source-object link, option validation, audit event, and append-only
+        lifecycle event. The UI no longer depends on placeholder/static poll text.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePollRequest"
+      responses:
+        "200":
+          description: Created poll.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PollResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/collaboration/polls/{id}/vote:
+    post:
+      operationId: voteCollaborationPoll
+      summary: Submit or replace the caller's poll vote
+      description: >-
+        Upserts the caller's vote after validating poll lifecycle, option ownership,
+        single-vs-multiple selection policy, tenant RLS, and audit/lifecycle evidence.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VotePollRequest"
+      responses:
+        "200":
+          description: Updated poll with aggregate counts and caller vote state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PollResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 components:
   securitySchemes:
     bearerAuth:
@@ -5747,6 +6488,318 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorBody"
   schemas:
+    CollaborationScopeType:
+      type: string
+      enum:
+        - TENANT
+        - ORG
+        - DEPARTMENT
+        - TEAM
+        - PERSONAL
+    CalendarEventStatus:
+      type: string
+      enum:
+        - ACTIVE
+        - CANCELLED
+    PollStatus:
+      type: string
+      enum:
+        - DRAFT
+        - OPEN
+        - CLOSED
+        - ARCHIVED
+    PollAnonymity:
+      type: string
+      enum:
+        - NAMED
+        - ANONYMOUS
+    CollaborationScopePolicy:
+      type: object
+      required:
+        - enforcement
+        - scope_type
+        - visibility
+      properties:
+        enforcement:
+          type: string
+          enum: [server]
+        scope_type:
+          $ref: "#/components/schemas/CollaborationScopeType"
+        scope_ref:
+          type:
+            - string
+            - "null"
+        visibility:
+          type: string
+          enum:
+            - org_members
+            - creator_only
+            - department_target
+            - team_target
+    CalendarEventResponse:
+      type: object
+      required:
+        - id
+        - scope_type
+        - title
+        - description
+        - starts_at
+        - ends_at
+        - all_day
+        - status
+        - created_at
+        - updated_at
+        - policy
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        scope_type:
+          $ref: "#/components/schemas/CollaborationScopeType"
+        scope_ref:
+          type:
+            - string
+            - "null"
+        title:
+          type: string
+        description:
+          type: string
+        starts_at:
+          $ref: "#/components/schemas/Timestamp"
+        ends_at:
+          $ref: "#/components/schemas/Timestamp"
+        all_day:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/CalendarEventStatus"
+        object_type:
+          type:
+            - string
+            - "null"
+        object_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        created_by:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        policy:
+          $ref: "#/components/schemas/CollaborationScopePolicy"
+    CalendarEventListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarEventResponse"
+    CreateCalendarEventRequest:
+      type: object
+      required:
+        - scope_type
+        - title
+        - starts_at
+        - ends_at
+      properties:
+        scope_type:
+          $ref: "#/components/schemas/CollaborationScopeType"
+        scope_ref:
+          type:
+            - string
+            - "null"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: string
+          maxLength: 2000
+        starts_at:
+          $ref: "#/components/schemas/Timestamp"
+        ends_at:
+          $ref: "#/components/schemas/Timestamp"
+        all_day:
+          type: boolean
+          default: false
+        object_type:
+          type:
+            - string
+            - "null"
+        object_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+    PollOptionResponse:
+      type: object
+      required:
+        - id
+        - label
+        - position
+        - vote_count
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        label:
+          type: string
+        position:
+          type: integer
+          format: int32
+        vote_count:
+          type: integer
+          format: int64
+    PollMyVote:
+      type: object
+      required:
+        - submitted
+      properties:
+        submitted:
+          type: boolean
+        selected_option_ids:
+          type:
+            - array
+            - "null"
+          items:
+            $ref: "#/components/schemas/Uuid"
+    PollResponse:
+      type: object
+      required:
+        - id
+        - target_scope_type
+        - title
+        - question
+        - status
+        - anonymity
+        - allow_multiple
+        - options
+        - vote_count
+        - my_vote
+        - created_at
+        - updated_at
+        - policy
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        target_scope_type:
+          $ref: "#/components/schemas/CollaborationScopeType"
+        target_scope_ref:
+          type:
+            - string
+            - "null"
+        title:
+          type: string
+        question:
+          type: string
+        status:
+          $ref: "#/components/schemas/PollStatus"
+        anonymity:
+          $ref: "#/components/schemas/PollAnonymity"
+        allow_multiple:
+          type: boolean
+        closes_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        object_type:
+          type:
+            - string
+            - "null"
+        object_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/PollOptionResponse"
+        vote_count:
+          type: integer
+          format: int64
+        my_vote:
+          $ref: "#/components/schemas/PollMyVote"
+        created_by:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        policy:
+          $ref: "#/components/schemas/CollaborationScopePolicy"
+    PollListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PollResponse"
+    CreatePollRequest:
+      type: object
+      required:
+        - target_scope_type
+        - title
+        - question
+        - options
+      properties:
+        target_scope_type:
+          $ref: "#/components/schemas/CollaborationScopeType"
+        target_scope_ref:
+          type:
+            - string
+            - "null"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        status:
+          $ref: "#/components/schemas/PollStatus"
+        anonymity:
+          $ref: "#/components/schemas/PollAnonymity"
+        allow_multiple:
+          type: boolean
+          default: false
+        closes_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        options:
+          type: array
+          minItems: 2
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 240
+        object_type:
+          type:
+            - string
+            - "null"
+        object_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+    VotePollRequest:
+      type: object
+      required:
+        - selected_option_ids
+      properties:
+        selected_option_ids:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/Uuid"
     Uuid:
       type: string
       format: uuid
@@ -6896,6 +7949,13 @@ components:
           type: string
         site_name:
           type: string
+        asset_owner:
+          type:
+            - string
+            - "null"
+          description: >-
+            Legal owner recorded on the asset master. Distinct from
+            customer_name/site_name, which describe the current operator/site.
         vin:
           type:
             - string
@@ -7068,6 +8128,305 @@ components:
         kind:
           type: string
         label:
+          type: string
+    WorkflowStudioCatalogResponse:
+      type: object
+      required:
+        - connectors
+        - templates
+      properties:
+        connectors:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowConnectorDescriptor"
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowTemplateDescriptor"
+    WorkflowConnectorDescriptor:
+      type: object
+      required:
+        - connector_key
+        - display_name
+        - action_keys
+      properties:
+        connector_key:
+          type: string
+        display_name:
+          type: string
+        action_keys:
+          type: array
+          items:
+            type: string
+    WorkflowTemplateDescriptor:
+      type: object
+      required:
+        - template_key
+        - display_name
+        - object_type
+        - required_approval_line
+        - required_payment_line
+      properties:
+        template_key:
+          type: string
+        display_name:
+          type: string
+        object_type:
+          type: string
+        required_approval_line:
+          type: boolean
+        required_payment_line:
+          type: boolean
+    WorkflowDefinitionListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowDefinitionResponse"
+    WorkflowDefinitionResponse:
+      type: object
+      required:
+        - id
+        - workflow_key
+        - display_name
+        - object_type
+        - status
+        - latest_version
+        - active_version
+        - definition
+        - approval_line
+        - payment_line
+        - notification_rules
+        - action_allowlist
+        - required_approval_line
+        - required_payment_line
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        workflow_key:
+          type: string
+          example: work_order.completion_review
+        display_name:
+          type: string
+        object_type:
+          type: string
+        status:
+          type: string
+          enum: [DRAFT, ACTIVE, PAUSED, RETIRED]
+        latest_version:
+          type: integer
+          format: int32
+        active_version:
+          type:
+            - integer
+            - "null"
+          format: int32
+        definition:
+          type: object
+          additionalProperties: true
+        approval_line:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        payment_line:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        notification_rules:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        action_allowlist:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowActionAllowlistEntry"
+        required_approval_line:
+          type: boolean
+        required_payment_line:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkflowActionAllowlistEntry:
+      type: object
+      required:
+        - connector_key
+        - action_key
+      properties:
+        connector_key:
+          type: string
+        action_key:
+          type: string
+    WorkflowDefinitionHistoryResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowDefinitionEventResponse"
+    WorkflowDefinitionEventResponse:
+      type: object
+      required:
+        - id
+        - definition_id
+        - version
+        - status
+        - action
+        - actor_display_name
+        - summary
+        - created_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        definition_id:
+          $ref: "#/components/schemas/Uuid"
+        version:
+          type:
+            - integer
+            - "null"
+          format: int32
+        status:
+          type: string
+        action:
+          type: string
+        actor_display_name:
+          type:
+            - string
+            - "null"
+        summary:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    CreateWorkflowDefinitionRequest:
+      type: object
+      required:
+        - workflow_key
+        - display_name
+        - object_type
+      properties:
+        workflow_key:
+          type: string
+        display_name:
+          type: string
+        object_type:
+          type: string
+        definition:
+          type: object
+          additionalProperties: true
+        approval_line:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        payment_line:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        notification_rules:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        action_allowlist:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowActionAllowlistEntry"
+        required_approval_line:
+          type: boolean
+        required_payment_line:
+          type: boolean
+    WorkflowStepUpRequest:
+      type: object
+      description: Fresh passkey step-up assertion for a sensitive Workflow Studio mutation.
+      properties:
+        step_up:
+          $ref: "#/components/schemas/PasskeyStepUpAssertion"
+    RollbackWorkflowDefinitionRequest:
+      type: object
+      required:
+        - target_version
+      properties:
+        target_version:
+          type: integer
+          format: int32
+          minimum: 1
+        step_up:
+          $ref: "#/components/schemas/PasskeyStepUpAssertion"
+    CloneWorkflowDefinitionRequest:
+      type: object
+      properties:
+        workflow_key:
+          type: string
+        display_name:
+          type: string
+        step_up:
+          $ref: "#/components/schemas/PasskeyStepUpAssertion"
+    SimulateWorkflowDefinitionRequest:
+      type: object
+      properties:
+        definition:
+          type: object
+          additionalProperties: true
+        approval_line:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        payment_line:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        notification_rules:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        action_allowlist:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowActionAllowlistEntry"
+    WorkflowSimulationResponse:
+      type: object
+      required:
+        - decision
+        - findings
+      properties:
+        decision:
+          type: string
+          enum: [ready, blocked]
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowSimulationFinding"
+    WorkflowSimulationFinding:
+      type: object
+      required:
+        - severity
+        - code
+        - message
+      properties:
+        severity:
+          type: string
+          enum: [info, warning, blocker]
+        code:
+          type: string
+        message:
           type: string
     ObjectActionCatalogResponse:
       type: object
@@ -7293,6 +8652,135 @@ components:
         offset:
           type: integer
           format: int64
+    EmployeeLifecycleSignoffs:
+      type: object
+      required:
+        - privacy_notice_ack
+        - korean_labor_law_ack
+        - payroll_cutoff_ack
+        - retirement_settlement_ack
+      properties:
+        privacy_notice_ack:
+          type: boolean
+          description: Confirms the employee was notified of personal-data processing for this HR action.
+        korean_labor_law_ack:
+          type: boolean
+          description: Confirms Korean labor-law and employment-rule review.
+        payroll_cutoff_ack:
+          type: boolean
+          description: Confirms payroll cutoff and final wage impact were reviewed.
+        retirement_settlement_ack:
+          type: boolean
+          description: Confirms severance/retirement settlement impact was reviewed.
+    CreateEmployeeLifecycleEventRequest:
+      type: object
+      required:
+        - event_type
+        - effective_date
+        - comment
+        - signoffs
+      properties:
+        event_type:
+          type: string
+          enum:
+            - ONBOARD
+            - OFFBOARD
+            - TERMINATE
+            - TRANSFER
+        to_status:
+          type: string
+          nullable: true
+          enum:
+            - ACTIVE
+            - EXITED
+            - UNKNOWN
+        to_company:
+          type: string
+          nullable: true
+        to_org_unit:
+          type: string
+          nullable: true
+        to_position:
+          type: string
+          nullable: true
+        effective_date:
+          type: string
+          minLength: 1
+        comment:
+          type: string
+          minLength: 1
+        signoffs:
+          $ref: "#/components/schemas/EmployeeLifecycleSignoffs"
+    EmployeeLifecycleEvent:
+      type: object
+      required:
+        - id
+        - employee_id
+        - event_type
+        - to_status
+        - effective_date
+        - comment
+        - signoffs
+        - created_by
+        - created_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        employee_id:
+          $ref: "#/components/schemas/Uuid"
+        event_type:
+          type: string
+          enum:
+            - ONBOARD
+            - OFFBOARD
+            - TERMINATE
+            - TRANSFER
+        from_status:
+          type: string
+          nullable: true
+        to_status:
+          type: string
+          enum:
+            - ACTIVE
+            - EXITED
+            - UNKNOWN
+        from_company:
+          type: string
+          nullable: true
+        to_company:
+          type: string
+          nullable: true
+        from_org_unit:
+          type: string
+          nullable: true
+        to_org_unit:
+          type: string
+          nullable: true
+        from_position:
+          type: string
+          nullable: true
+        to_position:
+          type: string
+          nullable: true
+        effective_date:
+          type: string
+        comment:
+          type: string
+        signoffs:
+          $ref: "#/components/schemas/EmployeeLifecycleSignoffs"
+        created_by:
+          $ref: "#/components/schemas/Uuid"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    EmployeeLifecycleEventPage:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmployeeLifecycleEvent"
     EmployeeImportCompanySummary:
       type: object
       required:
@@ -7312,6 +8800,144 @@ components:
         updated:
           type: integer
           minimum: 0
+    EmployeeImportColumn:
+      type: object
+      required:
+        - source_header
+        - normalized_header
+        - classification
+        - preview_allowed
+      properties:
+        source_header:
+          type: string
+        normalized_header:
+          type: string
+        target:
+          type: string
+          nullable: true
+          enum:
+            - name
+            - employee_number
+            - org_unit
+            - job
+            - position
+            - worksite_name
+            - worksite_address
+            - hire_date
+            - exit_date
+            - leave_accrued
+            - leave_used
+            - leave_remaining
+            - company
+        classification:
+          type: string
+          enum:
+            - canonical
+            - retained
+            - restricted
+            - location
+        preview_allowed:
+          type: boolean
+    EmployeeImportPreviewRow:
+      type: object
+      required:
+        - source_sheet
+        - source_row
+        - row_status
+        - values
+      properties:
+        source_sheet:
+          type: string
+        source_row:
+          type: integer
+          format: int32
+          minimum: 1
+        row_status:
+          type: string
+          enum:
+            - CANDIDATE
+            - PRESERVED
+            - ERROR
+        values:
+          type: object
+          additionalProperties: true
+    EmployeeImportPreviewResponse:
+      type: object
+      required:
+        - run_id
+        - entity_type
+        - source_filename
+        - source_sha256
+        - input_rows
+        - candidate_rows
+        - preserved_rows
+        - columns
+        - sample_rows
+        - mapping_profile
+      properties:
+        run_id:
+          $ref: "#/components/schemas/Uuid"
+        entity_type:
+          type: string
+          enum:
+            - employee_hr
+        source_filename:
+          type: string
+        source_sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        input_rows:
+          type: integer
+          minimum: 0
+        candidate_rows:
+          type: integer
+          minimum: 0
+        preserved_rows:
+          type: integer
+          minimum: 0
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmployeeImportColumn"
+        sample_rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmployeeImportPreviewRow"
+        mapping_profile:
+          type: object
+          additionalProperties: true
+    EmployeeImportDryRunSummary:
+      type: object
+      required:
+        - run_id
+        - input_rows
+        - candidate_rows
+        - preserved_rows
+        - insert_candidates
+        - update_candidates
+        - companies
+      properties:
+        run_id:
+          $ref: "#/components/schemas/Uuid"
+        input_rows:
+          type: integer
+          minimum: 0
+        candidate_rows:
+          type: integer
+          minimum: 0
+        preserved_rows:
+          type: integer
+          minimum: 0
+        insert_candidates:
+          type: integer
+          minimum: 0
+        update_candidates:
+          type: integer
+          minimum: 0
+        companies:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmployeeImportCompanySummary"
     EmployeeImportReport:
       type: object
       required:
@@ -9975,6 +11601,149 @@ components:
             - "null"
           format: date-time
         return_note:
+          type:
+            - string
+            - "null"
+    CreateOwnershipTransferRequest:
+      type: object
+      required:
+        - to_owner
+        - reason
+      properties:
+        to_owner:
+          type: string
+          minLength: 1
+          description: New legal-owner label after all signoffs approve.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Business/legal reason for the transfer.
+    DecideOwnershipTransferRequest:
+      type: object
+      required:
+        - decision
+        - comment
+      properties:
+        decision:
+          type: string
+          enum:
+            - approve
+            - reject
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    OwnershipTransferPage:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipTransfer"
+    OwnershipTransfer:
+      type: object
+      required:
+        - id
+        - equipment_id
+        - branch_id
+        - from_owner
+        - to_owner
+        - reason
+        - status
+        - current_step
+        - approval_line
+        - requested_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        equipment_id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        from_owner:
+          type: string
+        to_owner:
+          type: string
+        reason:
+          type: string
+        status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+            - REJECTED
+        current_step:
+          type:
+            - string
+            - "null"
+          enum:
+            - sending_org_admin
+            - receiving_org_admin
+            - legal_signoff
+            - accounting_signoff
+            - null
+        approval_line:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipTransferStep"
+        requested_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        requested_at:
+          type: string
+          format: date-time
+        decided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    OwnershipTransferStep:
+      type: object
+      required:
+        - step_key
+        - label
+        - status
+      properties:
+        step_key:
+          type: string
+          enum:
+            - sending_org_admin
+            - receiving_org_admin
+            - legal_signoff
+            - accounting_signoff
+        label:
+          type: string
+        status:
+          type: string
+          enum:
+            - WAITING
+            - PENDING
+            - APPROVED
+            - REJECTED
+        decided_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        decided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        comment:
           type:
             - string
             - "null"

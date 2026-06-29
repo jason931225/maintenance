@@ -1,10 +1,16 @@
 import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
+import { createServer } from "node:net";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const backendDir = resolve(root, "backend");
-const port = Number(process.env.OPENAPI_DRIFT_PORT ?? "18080");
+const port = process.env.OPENAPI_DRIFT_PORT
+  ? Number(process.env.OPENAPI_DRIFT_PORT)
+  : await findOpenPort();
+if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  throw new Error(`Invalid OPENAPI_DRIFT_PORT: ${process.env.OPENAPI_DRIFT_PORT}`);
+}
 const baseUrl = `http://127.0.0.1:${port}`;
 const expected = readFileSync(resolve(root, "backend/openapi/openapi.yaml"), "utf8");
 
@@ -93,4 +99,23 @@ async function runCommand(command, args, options) {
   if (code !== 0) {
     throw new Error(`${options.label} exited with ${code}\n${output}`);
   }
+}
+
+async function findOpenPort() {
+  return await new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const portNumber = typeof address === "object" && address ? address.port : 0;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolvePort(portNumber);
+        }
+      });
+    });
+  });
 }

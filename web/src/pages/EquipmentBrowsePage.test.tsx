@@ -39,6 +39,7 @@ const item: EquipmentListItem = {
   ton_text: "2.5T",
   customer_name: "케이앤엘",
   site_name: "본사",
+  asset_owner: "코스",
   vin: "VIN-0001",
   updated_at: "2026-06-12T08:00:00Z",
 };
@@ -184,6 +185,8 @@ describe("EquipmentBrowsePage detail dialog", () => {
     // Details from the list row are surfaced inline.
     expect(within(dialog).getByText("GTS25DE")).toBeVisible();
     expect(within(dialog).getByText("두산")).toBeVisible();
+    expect(within(dialog).getByText("법적 소유자")).toBeVisible();
+    expect(within(dialog).getByText("코스")).toBeVisible();
     expect(within(dialog).getByText("케이앤엘")).toBeVisible();
     expect(within(dialog).getByText("VIN-0001")).toBeVisible();
   });

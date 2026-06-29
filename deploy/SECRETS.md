@@ -4,8 +4,8 @@ These never live in git. Create them once in the `maintenance` namespace before
 (or just after) the `maintenance` Argo app first syncs. Argo CD does not manage
 or prune them.
 
-> Upgrade path: for fully-GitOps secrets, adopt [Sealed Secrets] or [External
-> Secrets] so encrypted material can live in the repo. For a 1–2 person team the
+> Upgrade path: for fully-GitOps secrets, adopt [Sealed Secrets] or
+> [External Secrets] so encrypted material can live in the repo. For a 1–2 person team the
 > out-of-band `kubectl create secret` below is the pragmatic, honest baseline.
 
 ## `mnt-secrets` — application secrets

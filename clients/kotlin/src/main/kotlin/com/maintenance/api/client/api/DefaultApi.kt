@@ -44,14 +44,19 @@ import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
 import com.maintenance.api.client.model.AttendanceSummaryPage
 import com.maintenance.api.client.model.BranchSummary
+import com.maintenance.api.client.model.CalendarEventListResponse
+import com.maintenance.api.client.model.CalendarEventResponse
+import com.maintenance.api.client.model.CloneWorkflowDefinitionRequest
 import com.maintenance.api.client.model.CompleteInspectionRoundRequest
 import com.maintenance.api.client.model.ComputeRentalQuoteRequest
 import com.maintenance.api.client.model.ComputedRentalQuote
 import com.maintenance.api.client.model.ConfigureMailAccountRequest
 import com.maintenance.api.client.model.CostLedgerEntrySummary
 import com.maintenance.api.client.model.CreateBranchRequest
+import com.maintenance.api.client.model.CreateCalendarEventRequest
 import com.maintenance.api.client.model.CreateCustomerRequest
 import com.maintenance.api.client.model.CreateDailyPlanRequest
+import com.maintenance.api.client.model.CreateEmployeeLifecycleEventRequest
 import com.maintenance.api.client.model.CreateEquipmentRequest
 import com.maintenance.api.client.model.CreateEquipmentResponse
 import com.maintenance.api.client.model.CreateInspectionScheduleRequest
@@ -60,19 +65,23 @@ import com.maintenance.api.client.model.CreateListingRequest
 import com.maintenance.api.client.model.CreateListingResponse
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
+import com.maintenance.api.client.model.CreateOwnershipTransferRequest
 import com.maintenance.api.client.model.CreatePolicyRoleRequest
+import com.maintenance.api.client.model.CreatePollRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
 import com.maintenance.api.client.model.CreateRegionRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
 import com.maintenance.api.client.model.CreateSiteRequest
 import com.maintenance.api.client.model.CreateUserRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
+import com.maintenance.api.client.model.CreateWorkflowDefinitionRequest
 import com.maintenance.api.client.model.CreatedCustomer
 import com.maintenance.api.client.model.CreatedSite
 import com.maintenance.api.client.model.CustomerInquiryPage
 import com.maintenance.api.client.model.CustomerIntakeRequest
 import com.maintenance.api.client.model.DailyPlanListPage
 import com.maintenance.api.client.model.DailyPlanSummary
+import com.maintenance.api.client.model.DecideOwnershipTransferRequest
 import com.maintenance.api.client.model.DeviceLoginApproveRequest
 import com.maintenance.api.client.model.DeviceLoginApproveSessionRequest
 import com.maintenance.api.client.model.DeviceLoginPollRequest
@@ -80,7 +89,11 @@ import com.maintenance.api.client.model.DeviceLoginPollResponse
 import com.maintenance.api.client.model.DeviceLoginStartResponse
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
+import com.maintenance.api.client.model.EmployeeImportDryRunSummary
+import com.maintenance.api.client.model.EmployeeImportPreviewResponse
 import com.maintenance.api.client.model.EmployeeImportReport
+import com.maintenance.api.client.model.EmployeeLifecycleEvent
+import com.maintenance.api.client.model.EmployeeLifecycleEventPage
 import com.maintenance.api.client.model.EmployeePage
 import com.maintenance.api.client.model.EnrollHandoffRequest
 import com.maintenance.api.client.model.EnrollHandoffResponse
@@ -140,6 +153,8 @@ import com.maintenance.api.client.model.OpsSummary
 import com.maintenance.api.client.model.OtpRedeemRequest
 import com.maintenance.api.client.model.OtpRedeemResponse
 import com.maintenance.api.client.model.OutsourceWorkSummary
+import com.maintenance.api.client.model.OwnershipTransfer
+import com.maintenance.api.client.model.OwnershipTransferPage
 import com.maintenance.api.client.model.P1DispatchSummary
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
 import com.maintenance.api.client.model.PasskeyLoginStartResponse
@@ -157,6 +172,9 @@ import com.maintenance.api.client.model.PolicyRoleResponse
 import com.maintenance.api.client.model.PolicyRoleStatusPreviewRequest
 import com.maintenance.api.client.model.PolicyRoleStatusPreviewResponse
 import com.maintenance.api.client.model.PolicyRoleTemplateResponse
+import com.maintenance.api.client.model.PollListResponse
+import com.maintenance.api.client.model.PollResponse
+import com.maintenance.api.client.model.PollStatus
 import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.PrivacyConsentAcceptRequest
@@ -174,6 +192,7 @@ import com.maintenance.api.client.model.RestartPurchaseRequest
 import com.maintenance.api.client.model.ReturnSubstituteRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
+import com.maintenance.api.client.model.RollbackWorkflowDefinitionRequest
 import com.maintenance.api.client.model.SalesListingPage
 import com.maintenance.api.client.model.SalesListingView
 import com.maintenance.api.client.model.SendMailRequest
@@ -181,6 +200,7 @@ import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.SignupRequest
 import com.maintenance.api.client.model.SignupResponse
+import com.maintenance.api.client.model.SimulateWorkflowDefinitionRequest
 import com.maintenance.api.client.model.StartP1DispatchRequest
 import com.maintenance.api.client.model.SubmitInquiryRequest
 import com.maintenance.api.client.model.SubmitReportRequest
@@ -216,12 +236,19 @@ import com.maintenance.api.client.model.UpdateWorkOrderIntakeRequest
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
 import com.maintenance.api.client.model.UserPage
 import com.maintenance.api.client.model.UserSummary
+import com.maintenance.api.client.model.VotePollRequest
 import com.maintenance.api.client.model.WorkDiaryDraft
 import com.maintenance.api.client.model.WorkDiaryUpdateRequest
 import com.maintenance.api.client.model.WorkOrderDetail
 import com.maintenance.api.client.model.WorkOrderListPage
 import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkOrderSummary
+import com.maintenance.api.client.model.WorkflowDefinitionHistoryResponse
+import com.maintenance.api.client.model.WorkflowDefinitionListResponse
+import com.maintenance.api.client.model.WorkflowDefinitionResponse
+import com.maintenance.api.client.model.WorkflowSimulationResponse
+import com.maintenance.api.client.model.WorkflowStepUpRequest
+import com.maintenance.api.client.model.WorkflowStudioCatalogResponse
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -1600,6 +1627,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/employees/import/{run_id}/apply
+     * Apply a dry-run employee import run
+     * Applies only candidate rows from a DRY_RUN import run; preserved rows remain raw-ledger evidence and are not promoted into employee records.
+     * @param runId
+     * @return EmployeeImportReport
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun applyEmployeeImport(runId: java.util.UUID) : EmployeeImportReport = withContext(Dispatchers.IO) {
+        val localVarResponse = applyEmployeeImportWithHttpInfo(runId = runId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeImportReport
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/employees/import/{run_id}/apply
+     * Apply a dry-run employee import run
+     * Applies only candidate rows from a DRY_RUN import run; preserved rows remain raw-ledger evidence and are not promoted into employee records.
+     * @param runId
+     * @return ApiResponse<EmployeeImportReport?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun applyEmployeeImportWithHttpInfo(runId: java.util.UUID) : ApiResponse<EmployeeImportReport?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = applyEmployeeImportRequestConfig(runId = runId)
+
+        return@withContext request<Unit, EmployeeImportReport>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation applyEmployeeImport
+     *
+     * @param runId
+     * @return RequestConfig
+     */
+    fun applyEmployeeImportRequestConfig(runId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/employees/import/{run_id}/apply".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/auth/device-login/approve
      * Approve a desktop QR login with an existing phone passkey
      * Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless passkey assertion; the approved user is resolved from that assertion. This endpoint does not mint a phone token.
@@ -2277,6 +2377,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/workflow-studio/definitions/{id}/clone
+     * Clone a workflow definition into a new draft
+     *
+     * @param id
+     * @param cloneWorkflowDefinitionRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun cloneWorkflowDefinition(id: java.util.UUID, cloneWorkflowDefinitionRequest: CloneWorkflowDefinitionRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = cloneWorkflowDefinitionWithHttpInfo(id = id, cloneWorkflowDefinitionRequest = cloneWorkflowDefinitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/clone
+     * Clone a workflow definition into a new draft
+     *
+     * @param id
+     * @param cloneWorkflowDefinitionRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun cloneWorkflowDefinitionWithHttpInfo(id: java.util.UUID, cloneWorkflowDefinitionRequest: CloneWorkflowDefinitionRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = cloneWorkflowDefinitionRequestConfig(id = id, cloneWorkflowDefinitionRequest = cloneWorkflowDefinitionRequest)
+
+        return@withContext request<CloneWorkflowDefinitionRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation cloneWorkflowDefinition
+     *
+     * @param id
+     * @param cloneWorkflowDefinitionRequest
+     * @return RequestConfig
+     */
+    fun cloneWorkflowDefinitionRequestConfig(id: java.util.UUID, cloneWorkflowDefinitionRequest: CloneWorkflowDefinitionRequest) : RequestConfig<CloneWorkflowDefinitionRequest> {
+        val localVariableBody = cloneWorkflowDefinitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/clone".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/inspections/schedules/{schedule_id}/rounds
      * Complete a scheduled regular inspection round
      *
@@ -2874,6 +3051,154 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/collaboration/calendar/events
+     * Create an audited collaboration calendar event
+     * Creates a tenant-scoped calendar event with explicit audience scope and optional source object link. The server records an audit event and an append-only lifecycle event under forced RLS.
+     * @param createCalendarEventRequest
+     * @return CalendarEventResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createCollaborationCalendarEvent(createCalendarEventRequest: CreateCalendarEventRequest) : CalendarEventResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createCollaborationCalendarEventWithHttpInfo(createCalendarEventRequest = createCalendarEventRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CalendarEventResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/collaboration/calendar/events
+     * Create an audited collaboration calendar event
+     * Creates a tenant-scoped calendar event with explicit audience scope and optional source object link. The server records an audit event and an append-only lifecycle event under forced RLS.
+     * @param createCalendarEventRequest
+     * @return ApiResponse<CalendarEventResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createCollaborationCalendarEventWithHttpInfo(createCalendarEventRequest: CreateCalendarEventRequest) : ApiResponse<CalendarEventResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createCollaborationCalendarEventRequestConfig(createCalendarEventRequest = createCalendarEventRequest)
+
+        return@withContext request<CreateCalendarEventRequest, CalendarEventResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createCollaborationCalendarEvent
+     *
+     * @param createCalendarEventRequest
+     * @return RequestConfig
+     */
+    fun createCollaborationCalendarEventRequestConfig(createCalendarEventRequest: CreateCalendarEventRequest) : RequestConfig<CreateCalendarEventRequest> {
+        val localVariableBody = createCalendarEventRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/collaboration/calendar/events",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/collaboration/polls
+     * Create an audited collaboration poll
+     * Creates a poll with explicit target scope, anonymous/named vote mode, source-object link, option validation, audit event, and append-only lifecycle event. The UI no longer depends on placeholder/static poll text.
+     * @param createPollRequest
+     * @return PollResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createCollaborationPoll(createPollRequest: CreatePollRequest) : PollResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createCollaborationPollWithHttpInfo(createPollRequest = createPollRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PollResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/collaboration/polls
+     * Create an audited collaboration poll
+     * Creates a poll with explicit target scope, anonymous/named vote mode, source-object link, option validation, audit event, and append-only lifecycle event. The UI no longer depends on placeholder/static poll text.
+     * @param createPollRequest
+     * @return ApiResponse<PollResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createCollaborationPollWithHttpInfo(createPollRequest: CreatePollRequest) : ApiResponse<PollResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createCollaborationPollRequestConfig(createPollRequest = createPollRequest)
+
+        return@withContext request<CreatePollRequest, PollResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createCollaborationPoll
+     *
+     * @param createPollRequest
+     * @return RequestConfig
+     */
+    fun createCollaborationPollRequestConfig(createPollRequest: CreatePollRequest) : RequestConfig<CreatePollRequest> {
+        val localVariableBody = createPollRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/collaboration/polls",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/customers
      * Create a customer (고객) directly
      * Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller&#39;s org on the caller&#39;s branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer&#39;s idempotent upsert, so it is surfaced, not merged.
@@ -3022,6 +3347,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/employees/{id}/lifecycle-events
+     * Record an employee lifecycle transition with legal signoffs
+     * Mutates the canonical employee status/company/org-unit/position only through an audited event requiring Korean labor, privacy, and payroll signoff gates.
+     * @param id
+     * @param createEmployeeLifecycleEventRequest
+     * @return EmployeeLifecycleEvent
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createEmployeeLifecycleEvent(id: java.util.UUID, createEmployeeLifecycleEventRequest: CreateEmployeeLifecycleEventRequest) : EmployeeLifecycleEvent = withContext(Dispatchers.IO) {
+        val localVarResponse = createEmployeeLifecycleEventWithHttpInfo(id = id, createEmployeeLifecycleEventRequest = createEmployeeLifecycleEventRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeLifecycleEvent
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/employees/{id}/lifecycle-events
+     * Record an employee lifecycle transition with legal signoffs
+     * Mutates the canonical employee status/company/org-unit/position only through an audited event requiring Korean labor, privacy, and payroll signoff gates.
+     * @param id
+     * @param createEmployeeLifecycleEventRequest
+     * @return ApiResponse<EmployeeLifecycleEvent?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createEmployeeLifecycleEventWithHttpInfo(id: java.util.UUID, createEmployeeLifecycleEventRequest: CreateEmployeeLifecycleEventRequest) : ApiResponse<EmployeeLifecycleEvent?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createEmployeeLifecycleEventRequestConfig(id = id, createEmployeeLifecycleEventRequest = createEmployeeLifecycleEventRequest)
+
+        return@withContext request<CreateEmployeeLifecycleEventRequest, EmployeeLifecycleEvent>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createEmployeeLifecycleEvent
+     *
+     * @param id
+     * @param createEmployeeLifecycleEventRequest
+     * @return RequestConfig
+     */
+    fun createEmployeeLifecycleEventRequestConfig(id: java.util.UUID, createEmployeeLifecycleEventRequest: CreateEmployeeLifecycleEventRequest) : RequestConfig<CreateEmployeeLifecycleEventRequest> {
+        val localVariableBody = createEmployeeLifecycleEventRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/employees/{id}/lifecycle-events".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/equipment
      * Create a single equipment master row on the HQ branch
      * Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
@@ -3088,6 +3490,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/equipment",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/equipment/{id}/ownership-transfer-requests
+     * Request a cross-org legal ownership transfer
+     * Creates a pending transfer request and approval line. This endpoint does not immediately mutate &#x60;asset_owner&#x60;; final mutation happens only after sending-org, receiving-org, legal, and accounting approval decisions.
+     * @param id
+     * @param createOwnershipTransferRequest
+     * @return OwnershipTransfer
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createEquipmentOwnershipTransfer(id: java.util.UUID, createOwnershipTransferRequest: CreateOwnershipTransferRequest) : OwnershipTransfer = withContext(Dispatchers.IO) {
+        val localVarResponse = createEquipmentOwnershipTransferWithHttpInfo(id = id, createOwnershipTransferRequest = createOwnershipTransferRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OwnershipTransfer
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment/{id}/ownership-transfer-requests
+     * Request a cross-org legal ownership transfer
+     * Creates a pending transfer request and approval line. This endpoint does not immediately mutate &#x60;asset_owner&#x60;; final mutation happens only after sending-org, receiving-org, legal, and accounting approval decisions.
+     * @param id
+     * @param createOwnershipTransferRequest
+     * @return ApiResponse<OwnershipTransfer?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createEquipmentOwnershipTransferWithHttpInfo(id: java.util.UUID, createOwnershipTransferRequest: CreateOwnershipTransferRequest) : ApiResponse<OwnershipTransfer?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createEquipmentOwnershipTransferRequestConfig(id = id, createOwnershipTransferRequest = createOwnershipTransferRequest)
+
+        return@withContext request<CreateOwnershipTransferRequest, OwnershipTransfer>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createEquipmentOwnershipTransfer
+     *
+     * @param id
+     * @param createOwnershipTransferRequest
+     * @return RequestConfig
+     */
+    fun createEquipmentOwnershipTransferRequestConfig(id: java.util.UUID, createOwnershipTransferRequest: CreateOwnershipTransferRequest) : RequestConfig<CreateOwnershipTransferRequest> {
+        val localVariableBody = createOwnershipTransferRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment/{id}/ownership-transfer-requests".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -3987,6 +4466,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/workflow-studio/definitions
+     * Create a draft workflow definition
+     * Creates a DRAFT workflow definition and version 1. Publishing, pausing, rollback, and clone operations are sensitive actions that require a fresh passkey step-up assertion and append immutable history.
+     * @param createWorkflowDefinitionRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createWorkflowDefinition(createWorkflowDefinitionRequest: CreateWorkflowDefinitionRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createWorkflowDefinitionWithHttpInfo(createWorkflowDefinitionRequest = createWorkflowDefinitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions
+     * Create a draft workflow definition
+     * Creates a DRAFT workflow definition and version 1. Publishing, pausing, rollback, and clone operations are sensitive actions that require a fresh passkey step-up assertion and append immutable history.
+     * @param createWorkflowDefinitionRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createWorkflowDefinitionWithHttpInfo(createWorkflowDefinitionRequest: CreateWorkflowDefinitionRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createWorkflowDefinitionRequestConfig(createWorkflowDefinitionRequest = createWorkflowDefinitionRequest)
+
+        return@withContext request<CreateWorkflowDefinitionRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createWorkflowDefinition
+     *
+     * @param createWorkflowDefinitionRequest
+     * @return RequestConfig
+     */
+    fun createWorkflowDefinitionRequestConfig(createWorkflowDefinitionRequest: CreateWorkflowDefinitionRequest) : RequestConfig<CreateWorkflowDefinitionRequest> {
+        val localVariableBody = createWorkflowDefinitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * DELETE /api/v1/branches/{id}
      * Soft-delete (deactivate) a branch
      * Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment, so live operational data is never orphaned. Returns the deactivated branch.
@@ -4198,6 +4751,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/users/{id}/deactivate".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/equipment/ownership-transfer-requests/{id}/decisions
+     * Approve or reject the current ownership-transfer signoff step
+     * Advances the ordered transfer signoff line one step at a time. The final accounting approval writes the new &#x60;asset_owner&#x60; and records an audited workflow event; rejection makes the request terminal without mutating the asset owner.
+     * @param id
+     * @param decideOwnershipTransferRequest
+     * @return OwnershipTransfer
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun decideEquipmentOwnershipTransfer(id: java.util.UUID, decideOwnershipTransferRequest: DecideOwnershipTransferRequest) : OwnershipTransfer = withContext(Dispatchers.IO) {
+        val localVarResponse = decideEquipmentOwnershipTransferWithHttpInfo(id = id, decideOwnershipTransferRequest = decideOwnershipTransferRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OwnershipTransfer
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment/ownership-transfer-requests/{id}/decisions
+     * Approve or reject the current ownership-transfer signoff step
+     * Advances the ordered transfer signoff line one step at a time. The final accounting approval writes the new &#x60;asset_owner&#x60; and records an audited workflow event; rejection makes the request terminal without mutating the asset owner.
+     * @param id
+     * @param decideOwnershipTransferRequest
+     * @return ApiResponse<OwnershipTransfer?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun decideEquipmentOwnershipTransferWithHttpInfo(id: java.util.UUID, decideOwnershipTransferRequest: DecideOwnershipTransferRequest) : ApiResponse<OwnershipTransfer?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = decideEquipmentOwnershipTransferRequestConfig(id = id, decideOwnershipTransferRequest = decideOwnershipTransferRequest)
+
+        return@withContext request<DecideOwnershipTransferRequest, OwnershipTransfer>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation decideEquipmentOwnershipTransfer
+     *
+     * @param id
+     * @param decideOwnershipTransferRequest
+     * @return RequestConfig
+     */
+    fun decideEquipmentOwnershipTransferRequestConfig(id: java.util.UUID, decideOwnershipTransferRequest: DecideOwnershipTransferRequest) : RequestConfig<DecideOwnershipTransferRequest> {
+        val localVariableBody = decideOwnershipTransferRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment/ownership-transfer-requests/{id}/decisions".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -4563,6 +5193,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/employees/import/{run_id}/dry-run
+     * Compute employee import insert/update counts without writing employees
+     *
+     * @param runId
+     * @return EmployeeImportDryRunSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun dryRunEmployeeImport(runId: java.util.UUID) : EmployeeImportDryRunSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = dryRunEmployeeImportWithHttpInfo(runId = runId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeImportDryRunSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/employees/import/{run_id}/dry-run
+     * Compute employee import insert/update counts without writing employees
+     *
+     * @param runId
+     * @return ApiResponse<EmployeeImportDryRunSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun dryRunEmployeeImportWithHttpInfo(runId: java.util.UUID) : ApiResponse<EmployeeImportDryRunSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = dryRunEmployeeImportRequestConfig(runId = runId)
+
+        return@withContext request<Unit, EmployeeImportDryRunSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation dryRunEmployeeImport
+     *
+     * @param runId
+     * @return RequestConfig
+     */
+    fun dryRunEmployeeImportRequestConfig(runId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/employees/import/{run_id}/dry-run".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/object-actions/execute
      * Execute a governed audited object action
      * Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice supports &#x60;equipment.update_profile&#x60;.
@@ -4702,6 +5405,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/execute".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/employees/export.csv
+     * Export standardized employee directory CSV
+     * Exports canonical employee fields only. Raw import ledger values, payroll data, account numbers, resident identifiers, and import provenance are not included.
+     * @return kotlin.String
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun exportEmployeesCsv() : kotlin.String = withContext(Dispatchers.IO) {
+        val localVarResponse = exportEmployeesCsvWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.String
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/employees/export.csv
+     * Export standardized employee directory CSV
+     * Exports canonical employee fields only. Raw import ledger values, payroll data, account numbers, resident identifiers, and import provenance are not included.
+     * @return ApiResponse<kotlin.String?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun exportEmployeesCsvWithHttpInfo() : ApiResponse<kotlin.String?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = exportEmployeesCsvRequestConfig()
+
+        return@withContext request<Unit, kotlin.String>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation exportEmployeesCsv
+     *
+     * @return RequestConfig
+     */
+    fun exportEmployeesCsvRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/employees/export.csv",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -6743,6 +7516,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/workflow-studio/catalog
+     * List Workflow Studio connector allowlist and templates
+     * Returns the server-owned connector/action allowlist and starter workflow templates. This is the safe no-code boundary: workflow authors can only compose allowed internal actions, and every request still requires tenant RLS plus RoleManage authorization.
+     * @return WorkflowStudioCatalogResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getWorkflowStudioCatalog() : WorkflowStudioCatalogResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getWorkflowStudioCatalogWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowStudioCatalogResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/catalog
+     * List Workflow Studio connector allowlist and templates
+     * Returns the server-owned connector/action allowlist and starter workflow templates. This is the safe no-code boundary: workflow authors can only compose allowed internal actions, and every request still requires tenant RLS plus RoleManage authorization.
+     * @return ApiResponse<WorkflowStudioCatalogResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getWorkflowStudioCatalogWithHttpInfo() : ApiResponse<WorkflowStudioCatalogResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getWorkflowStudioCatalogRequestConfig()
+
+        return@withContext request<Unit, WorkflowStudioCatalogResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getWorkflowStudioCatalog
+     *
+     * @return RequestConfig
+     */
+    fun getWorkflowStudioCatalogRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/catalog",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/location-consent/grant
      * Grant GPS location collection consent
      *
@@ -7352,6 +8195,180 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/collaboration/calendar/events
+     * List tenant-scoped collaboration calendar events
+     * Returns server-filtered collaboration calendar events for the caller&#39;s tenant. Personal events are visible only to the creator, while org/team/department scopes carry explicit server policy metadata for future PBAC/ABAC expansion.
+     * @param from  (optional)
+     * @param to  (optional)
+     * @param limit  (optional, default to 30L)
+     * @return CalendarEventListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listCollaborationCalendarEvents(from: java.time.OffsetDateTime? = null, to: java.time.OffsetDateTime? = null, limit: kotlin.Long? = 30L) : CalendarEventListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listCollaborationCalendarEventsWithHttpInfo(from = from, to = to, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CalendarEventListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/collaboration/calendar/events
+     * List tenant-scoped collaboration calendar events
+     * Returns server-filtered collaboration calendar events for the caller&#39;s tenant. Personal events are visible only to the creator, while org/team/department scopes carry explicit server policy metadata for future PBAC/ABAC expansion.
+     * @param from  (optional)
+     * @param to  (optional)
+     * @param limit  (optional, default to 30L)
+     * @return ApiResponse<CalendarEventListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listCollaborationCalendarEventsWithHttpInfo(from: java.time.OffsetDateTime?, to: java.time.OffsetDateTime?, limit: kotlin.Long?) : ApiResponse<CalendarEventListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listCollaborationCalendarEventsRequestConfig(from = from, to = to, limit = limit)
+
+        return@withContext request<Unit, CalendarEventListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listCollaborationCalendarEvents
+     *
+     * @param from  (optional)
+     * @param to  (optional)
+     * @param limit  (optional, default to 30L)
+     * @return RequestConfig
+     */
+    fun listCollaborationCalendarEventsRequestConfig(from: java.time.OffsetDateTime?, to: java.time.OffsetDateTime?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (from != null) {
+                    put("from", listOf(parseDateToQueryString<java.time.OffsetDateTime>(from)))
+                }
+                if (to != null) {
+                    put("to", listOf(parseDateToQueryString<java.time.OffsetDateTime>(to)))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/collaboration/calendar/events",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/collaboration/polls
+     * List collaboration polls
+     * Returns open collaboration polls by default with aggregate option counts, caller vote state, target-scope policy metadata, and source-object links. Anonymous polls expose aggregate results but still keep server audit lineage.
+     * @param status  (optional)
+     * @param limit  (optional, default to 30L)
+     * @return PollListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listCollaborationPolls(status: PollStatus? = null, limit: kotlin.Long? = 30L) : PollListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listCollaborationPollsWithHttpInfo(status = status, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PollListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/collaboration/polls
+     * List collaboration polls
+     * Returns open collaboration polls by default with aggregate option counts, caller vote state, target-scope policy metadata, and source-object links. Anonymous polls expose aggregate results but still keep server audit lineage.
+     * @param status  (optional)
+     * @param limit  (optional, default to 30L)
+     * @return ApiResponse<PollListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listCollaborationPollsWithHttpInfo(status: PollStatus?, limit: kotlin.Long?) : ApiResponse<PollListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listCollaborationPollsRequestConfig(status = status, limit = limit)
+
+        return@withContext request<Unit, PollListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listCollaborationPolls
+     *
+     * @param status  (optional)
+     * @param limit  (optional, default to 30L)
+     * @return RequestConfig
+     */
+    fun listCollaborationPollsRequestConfig(status: PollStatus?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/collaboration/polls",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/daily-work-plans
      * List branch-scoped daily work plans
      * Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
@@ -7422,6 +8439,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/daily-work-plans",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/employees/{id}/lifecycle-events
+     * List audited employee lifecycle events
+     * Tenant-scoped append-only lifecycle ledger for onboarding, offboarding, termination, and intra-group/company transfer decisions.
+     * @param id
+     * @return EmployeeLifecycleEventPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEmployeeLifecycleEvents(id: java.util.UUID) : EmployeeLifecycleEventPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEmployeeLifecycleEventsWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeLifecycleEventPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/employees/{id}/lifecycle-events
+     * List audited employee lifecycle events
+     * Tenant-scoped append-only lifecycle ledger for onboarding, offboarding, termination, and intra-group/company transfer decisions.
+     * @param id
+     * @return ApiResponse<EmployeeLifecycleEventPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEmployeeLifecycleEventsWithHttpInfo(id: java.util.UUID) : ApiResponse<EmployeeLifecycleEventPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEmployeeLifecycleEventsRequestConfig(id = id)
+
+        return@withContext request<Unit, EmployeeLifecycleEventPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEmployeeLifecycleEvents
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun listEmployeeLifecycleEventsRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/employees/{id}/lifecycle-events".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -7787,6 +8877,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/financial/equipment/{equipmentId}/cost-ledger".replace("{"+"equipmentId"+"}", encodeURIComponent(equipmentId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/equipment/{id}/ownership-transfer-requests
+     * List legal ownership transfer workflow requests for one equipment asset
+     * Returns the durable ownership-transfer request ledger for a single asset. A transfer changes only the legal owner fact after ordered sending-org, receiving-org, legal, and accounting signoff; the equipment tenant/org discriminator stays immutable.
+     * @param id
+     * @return OwnershipTransferPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEquipmentOwnershipTransfers(id: java.util.UUID) : OwnershipTransferPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEquipmentOwnershipTransfersWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OwnershipTransferPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment/{id}/ownership-transfer-requests
+     * List legal ownership transfer workflow requests for one equipment asset
+     * Returns the durable ownership-transfer request ledger for a single asset. A transfer changes only the legal owner fact after ordered sending-org, receiving-org, legal, and accounting signoff; the equipment tenant/org discriminator stays immutable.
+     * @param id
+     * @return ApiResponse<OwnershipTransferPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEquipmentOwnershipTransfersWithHttpInfo(id: java.util.UUID) : ApiResponse<OwnershipTransferPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEquipmentOwnershipTransfersRequestConfig(id = id)
+
+        return@withContext request<Unit, OwnershipTransferPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEquipmentOwnershipTransfers
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun listEquipmentOwnershipTransfersRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment/{id}/ownership-transfer-requests".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -9665,6 +10828,149 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/workflow-studio/definitions/{id}/history
+     * List append-only workflow definition change history
+     *
+     * @param id
+     * @return WorkflowDefinitionHistoryResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowDefinitionHistory(id: java.util.UUID) : WorkflowDefinitionHistoryResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowDefinitionHistoryWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionHistoryResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/definitions/{id}/history
+     * List append-only workflow definition change history
+     *
+     * @param id
+     * @return ApiResponse<WorkflowDefinitionHistoryResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowDefinitionHistoryWithHttpInfo(id: java.util.UUID) : ApiResponse<WorkflowDefinitionHistoryResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowDefinitionHistoryRequestConfig(id = id)
+
+        return@withContext request<Unit, WorkflowDefinitionHistoryResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowDefinitionHistory
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun listWorkflowDefinitionHistoryRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/definitions/{id}/history".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/definitions
+     * List tenant workflow definitions
+     * Lists tenant-owned workflow definitions with latest version metadata, approval/payment line requirements, notification rules, and action allowlist. The backing schema keeps definitions tenant-scoped under RLS and stores versions/change events append-only.
+     * @return WorkflowDefinitionListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowDefinitions() : WorkflowDefinitionListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowDefinitionsWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/definitions
+     * List tenant workflow definitions
+     * Lists tenant-owned workflow definitions with latest version metadata, approval/payment line requirements, notification rules, and action allowlist. The backing schema keeps definitions tenant-scoped under RLS and stores versions/change events append-only.
+     * @return ApiResponse<WorkflowDefinitionListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowDefinitionsWithHttpInfo() : ApiResponse<WorkflowDefinitionListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowDefinitionsRequestConfig()
+
+        return@withContext request<Unit, WorkflowDefinitionListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowDefinitions
+     *
+     * @return RequestConfig
+     */
+    fun listWorkflowDefinitionsRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/definitions",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/equipment/lookup
      * Resolve branch-scoped equipment by management number
      *
@@ -9810,6 +11116,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PUT,
             path = "/api/messenger/threads/{threadId}/read-receipt".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/pause
+     * Pause an active workflow definition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun pauseWorkflowDefinition(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = pauseWorkflowDefinitionWithHttpInfo(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/pause
+     * Pause an active workflow definition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun pauseWorkflowDefinitionWithHttpInfo(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = pauseWorkflowDefinitionRequestConfig(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext request<WorkflowStepUpRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation pauseWorkflowDefinition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return RequestConfig
+     */
+    fun pauseWorkflowDefinitionRequestConfig(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : RequestConfig<WorkflowStepUpRequest> {
+        val localVariableBody = workflowStepUpRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/pause".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -10117,6 +11500,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/employees/import/preview
+     * Preview an employee workbook through the governed import ledger
+     * Creates an immutable tenant-scoped raw import run, preserves every non-empty source row, masks restricted/PII/payroll/location values in the response, and returns a column-to-employee schema mapping preview. No employee rows are written until dry-run and apply are completed.
+     * @param file The master-list .xlsx workbook.
+     * @return EmployeeImportPreviewResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun previewEmployeeImport(file: java.io.File) : EmployeeImportPreviewResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = previewEmployeeImportWithHttpInfo(file = file)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeImportPreviewResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/employees/import/preview
+     * Preview an employee workbook through the governed import ledger
+     * Creates an immutable tenant-scoped raw import run, preserves every non-empty source row, masks restricted/PII/payroll/location values in the response, and returns a column-to-employee schema mapping preview. No employee rows are written until dry-run and apply are completed.
+     * @param file The master-list .xlsx workbook.
+     * @return ApiResponse<EmployeeImportPreviewResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun previewEmployeeImportWithHttpInfo(file: java.io.File) : ApiResponse<EmployeeImportPreviewResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = previewEmployeeImportRequestConfig(file = file)
+
+        return@withContext request<Map<String, PartConfig<*>>, EmployeeImportPreviewResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation previewEmployeeImport
+     *
+     * @param file The master-list .xlsx workbook.
+     * @return RequestConfig
+     */
+    fun previewEmployeeImportRequestConfig(file: java.io.File) : RequestConfig<Map<String, PartConfig<*>>> {
+        val localVariableBody = mapOf(
+            "file" to PartConfig(body = file, headers = mutableMapOf()),)
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf("Content-Type" to "multipart/form-data")
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/employees/import/preview",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/policy/users/{id}/assignment-preview
      * Preview requested custom-role assignment impact for one user
      * Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
@@ -10263,6 +11720,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/policy/roles/{id}/status-preview".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/publish
+     * Publish a workflow definition version
+     * Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+     * @param id
+     * @param workflowStepUpRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun publishWorkflowDefinition(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = publishWorkflowDefinitionWithHttpInfo(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/publish
+     * Publish a workflow definition version
+     * Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+     * @param id
+     * @param workflowStepUpRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun publishWorkflowDefinitionWithHttpInfo(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = publishWorkflowDefinitionRequestConfig(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext request<WorkflowStepUpRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation publishWorkflowDefinition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return RequestConfig
+     */
+    fun publishWorkflowDefinitionRequestConfig(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : RequestConfig<WorkflowStepUpRequest> {
+        val localVariableBody = workflowStepUpRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/publish".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -11559,6 +13093,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/workflow-studio/definitions/{id}/rollback
+     * Roll back by appending a new active version copied from history
+     *
+     * @param id
+     * @param rollbackWorkflowDefinitionRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun rollbackWorkflowDefinition(id: java.util.UUID, rollbackWorkflowDefinitionRequest: RollbackWorkflowDefinitionRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = rollbackWorkflowDefinitionWithHttpInfo(id = id, rollbackWorkflowDefinitionRequest = rollbackWorkflowDefinitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/rollback
+     * Roll back by appending a new active version copied from history
+     *
+     * @param id
+     * @param rollbackWorkflowDefinitionRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun rollbackWorkflowDefinitionWithHttpInfo(id: java.util.UUID, rollbackWorkflowDefinitionRequest: RollbackWorkflowDefinitionRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = rollbackWorkflowDefinitionRequestConfig(id = id, rollbackWorkflowDefinitionRequest = rollbackWorkflowDefinitionRequest)
+
+        return@withContext request<RollbackWorkflowDefinitionRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation rollbackWorkflowDefinition
+     *
+     * @param id
+     * @param rollbackWorkflowDefinitionRequest
+     * @return RequestConfig
+     */
+    fun rollbackWorkflowDefinitionRequestConfig(id: java.util.UUID, rollbackWorkflowDefinitionRequest: RollbackWorkflowDefinitionRequest) : RequestConfig<RollbackWorkflowDefinitionRequest> {
+        val localVariableBody = rollbackWorkflowDefinitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/rollback".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/messenger/search
      * Search branch-scoped messenger messages visible to the authenticated member
      *
@@ -11859,6 +13470,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/mail/threads/{id}/read-state".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/simulate
+     * Simulate publish readiness without writing
+     * Validates the workflow definition, required approval/payment lines, conditional notification rules, and connector/action allowlist without mutating state. Use this before passkey-gated publication.
+     * @param id
+     * @param simulateWorkflowDefinitionRequest
+     * @return WorkflowSimulationResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun simulateWorkflowDefinition(id: java.util.UUID, simulateWorkflowDefinitionRequest: SimulateWorkflowDefinitionRequest) : WorkflowSimulationResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = simulateWorkflowDefinitionWithHttpInfo(id = id, simulateWorkflowDefinitionRequest = simulateWorkflowDefinitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowSimulationResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/simulate
+     * Simulate publish readiness without writing
+     * Validates the workflow definition, required approval/payment lines, conditional notification rules, and connector/action allowlist without mutating state. Use this before passkey-gated publication.
+     * @param id
+     * @param simulateWorkflowDefinitionRequest
+     * @return ApiResponse<WorkflowSimulationResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun simulateWorkflowDefinitionWithHttpInfo(id: java.util.UUID, simulateWorkflowDefinitionRequest: SimulateWorkflowDefinitionRequest) : ApiResponse<WorkflowSimulationResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = simulateWorkflowDefinitionRequestConfig(id = id, simulateWorkflowDefinitionRequest = simulateWorkflowDefinitionRequest)
+
+        return@withContext request<SimulateWorkflowDefinitionRequest, WorkflowSimulationResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation simulateWorkflowDefinition
+     *
+     * @param id
+     * @param simulateWorkflowDefinitionRequest
+     * @return RequestConfig
+     */
+    fun simulateWorkflowDefinitionRequestConfig(id: java.util.UUID, simulateWorkflowDefinitionRequest: SimulateWorkflowDefinitionRequest) : RequestConfig<SimulateWorkflowDefinitionRequest> {
+        val localVariableBody = simulateWorkflowDefinitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/simulate".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -13919,6 +15607,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/work-orders/{workOrderId}/priority".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/collaboration/polls/{id}/vote
+     * Submit or replace the caller&#39;s poll vote
+     * Upserts the caller&#39;s vote after validating poll lifecycle, option ownership, single-vs-multiple selection policy, tenant RLS, and audit/lifecycle evidence.
+     * @param id
+     * @param votePollRequest
+     * @return PollResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun voteCollaborationPoll(id: java.util.UUID, votePollRequest: VotePollRequest) : PollResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = voteCollaborationPollWithHttpInfo(id = id, votePollRequest = votePollRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PollResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/collaboration/polls/{id}/vote
+     * Submit or replace the caller&#39;s poll vote
+     * Upserts the caller&#39;s vote after validating poll lifecycle, option ownership, single-vs-multiple selection policy, tenant RLS, and audit/lifecycle evidence.
+     * @param id
+     * @param votePollRequest
+     * @return ApiResponse<PollResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun voteCollaborationPollWithHttpInfo(id: java.util.UUID, votePollRequest: VotePollRequest) : ApiResponse<PollResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = voteCollaborationPollRequestConfig(id = id, votePollRequest = votePollRequest)
+
+        return@withContext request<VotePollRequest, PollResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation voteCollaborationPoll
+     *
+     * @param id
+     * @param votePollRequest
+     * @return RequestConfig
+     */
+    fun voteCollaborationPollRequestConfig(id: java.util.UUID, votePollRequest: VotePollRequest) : RequestConfig<VotePollRequest> {
+        val localVariableBody = votePollRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/collaboration/polls/{id}/vote".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
