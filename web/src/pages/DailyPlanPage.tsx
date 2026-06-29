@@ -7,6 +7,7 @@ import type {
   DailyPlanStatus,
   DailyPlanSummary,
   UserSummary,
+  WorkOrderListItem,
 } from "../api/types";
 import { useAuth } from "../context/auth";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
@@ -34,11 +35,65 @@ const PLAN_REVIEW_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 type WriteState = "idle" | "busy" | "error";
 
 interface PlanItem {
+  workOrderId: string;
   description: string;
 }
 
+interface DailyPlanItemSummary {
+  work_order_id?: string | null;
+  request_no?: string | null;
+  equipment_no?: string | null;
+  management_no?: string | null;
+  customer_name?: string | null;
+  site_name?: string | null;
+  description: string;
+  sort_order?: number;
+}
+
+type DailyPlanWithItems = DailyPlanSummary & {
+  items?: DailyPlanItemSummary[];
+};
+
+const DAILY_PLAN_SOURCE_STATUSES: WorkOrderListItem["status"][] = [
+  "RECEIVED",
+  "UNASSIGNED",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "ON_HOLD",
+  "DELAYED",
+  "TEMPORARY_ACTION",
+  "PART_WAITING",
+  "EQUIPMENT_IN_USE",
+  "REVISIT_REQUIRED",
+];
+
 function today(): string {
   return todayInSeoul();
+}
+
+function formatWorkOrderOption(workOrder: WorkOrderListItem): string {
+  const equipmentLabel =
+    workOrder.equipment.management_no ||
+    workOrder.equipment.equipment_no ||
+    ko.dailyPlan.unknownEquipment;
+  return [
+    workOrder.request_no,
+    equipmentLabel,
+    `${workOrder.customer.name} / ${workOrder.site.name}`,
+  ].join(" · ");
+}
+
+function formatDailyPlanItem(item: DailyPlanItemSummary): string {
+  const source = [
+    item.request_no,
+    item.management_no ?? item.equipment_no,
+    item.customer_name && item.site_name
+      ? `${item.customer_name} / ${item.site_name}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return source ? `${source} — ${item.description}` : item.description;
 }
 
 export function DailyPlanPage() {
@@ -50,12 +105,17 @@ export function DailyPlanPage() {
   const isMechanic = hasAnyRole(session?.roles, [ROLES.MECHANIC]);
 
   const [mechanics, setMechanics] = useState<UserSummary[]>([]);
+  const [sourceWorkOrders, setSourceWorkOrders] = useState<WorkOrderListItem[]>(
+    [],
+  );
   const [mechanicId, setMechanicId] = useState("");
   const [planDate, setPlanDate] = useState(today);
-  const [items, setItems] = useState<PlanItem[]>([{ description: "" }]);
+  const [items, setItems] = useState<PlanItem[]>([
+    { workOrderId: "", description: "" },
+  ]);
   const [reviewMemo, setReviewMemo] = useState("");
-  const [plan, setPlan] = useState<DailyPlanSummary>();
-  const [plans, setPlans] = useState<DailyPlanSummary[]>([]);
+  const [plan, setPlan] = useState<DailyPlanWithItems>();
+  const [plans, setPlans] = useState<DailyPlanWithItems[]>([]);
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [errorKey, setErrorKey] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -88,6 +148,30 @@ export function DailyPlanPage() {
     if (!canRequest) return;
     void Promise.resolve().then(loadMechanics);
   }, [canRequest, loadMechanics]);
+
+  const loadSourceWorkOrders = useCallback(async () => {
+    const response = await api
+      .GET("/api/v1/work-orders", {
+        params: {
+          query: {
+            status: DAILY_PLAN_SOURCE_STATUSES,
+            limit: 100,
+            offset: 0,
+          },
+        },
+      })
+      .catch(() => undefined);
+    if (response?.data) {
+      setSourceWorkOrders(response.data.items);
+    } else {
+      setErrorKey("sourceWorkOrdersLoadFailed");
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (!canRequest) return;
+    void Promise.resolve().then(loadSourceWorkOrders);
+  }, [canRequest, loadSourceWorkOrders]);
 
   // The approval queue: every branch-scoped plan, DRAFT/REQUESTED included, so
   // approvers actually see plans awaiting them (#19.17). Replaces the prior
@@ -127,14 +211,20 @@ export function DailyPlanPage() {
       .catch(() => undefined);
   }, [api, planIdParam]);
 
-  function setItem(index: number, description: string) {
+  function setItemWorkOrder(index: number, workOrderId: string) {
     setItems((prev) =>
-      prev.map((item, idx) => (idx === index ? { description } : item)),
+      prev.map((item, idx) => (idx === index ? { ...item, workOrderId } : item)),
+    );
+  }
+
+  function setItemDescription(index: number, description: string) {
+    setItems((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, description } : item)),
     );
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { description: "" }]);
+    setItems((prev) => [...prev, { workOrderId: "", description: "" }]);
   }
 
   function removeItem(index: number) {
@@ -151,14 +241,24 @@ export function DailyPlanPage() {
       setErrorKey(isMechanic ? "needMechanic" : "needMechanicAdmin");
       return;
     }
-    const cleanItems = items
-      .map((item) => item.description.trim())
-      .filter((description) => description.length > 0)
-      .map((description) => ({ description }));
-    if (cleanItems.length === 0) {
+    const candidates = items
+      .map((item) => ({
+        workOrderId: item.workOrderId.trim(),
+        description: item.description.trim(),
+      }))
+      .filter((item) => item.workOrderId.length > 0 || item.description.length > 0);
+    if (candidates.length === 0 || candidates.some((item) => item.workOrderId.length === 0)) {
+      setErrorKey("needWorkOrder");
+      return;
+    }
+    if (candidates.some((item) => item.description.length === 0)) {
       setErrorKey("needItem");
       return;
     }
+    const cleanItems = candidates.map((item) => ({
+      work_order_id: item.workOrderId,
+      description: item.description,
+    }));
     setWriteState("busy");
     try {
       const body: CreateDailyPlanRequest = {
@@ -315,27 +415,66 @@ export function DailyPlanPage() {
                 {ko.dailyPlan.items}
               </span>
               {items.map((item, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input
-                    aria-label={`${ko.dailyPlan.itemDescription} ${String(index + 1)}`}
-                    value={item.description}
-                    placeholder={ko.dailyPlan.itemPlaceholder}
-                    onChange={(event) => {
-                      setItem(index, event.currentTarget.value);
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`${ko.dailyPlan.removeItem} ${String(index + 1)}`}
-                    disabled={items.length === 1}
-                    onClick={() => {
-                      removeItem(index);
-                    }}
-                  >
-                    <Trash2 aria-hidden="true" size={16} />
-                  </Button>
+                <div
+                  key={index}
+                  className="grid gap-3 rounded-md border border-line p-3"
+                >
+                  <div className="grid gap-2">
+                    <label
+                      className="text-sm font-medium text-steel"
+                      htmlFor={`plan-source-work-order-${String(index)}`}
+                    >
+                      {ko.dailyPlan.sourceWorkOrder} {String(index + 1)}
+                    </label>
+                    <Select
+                      id={`plan-source-work-order-${String(index)}`}
+                      value={item.workOrderId}
+                      onChange={(event) => {
+                        setItemWorkOrder(index, event.currentTarget.value);
+                      }}
+                    >
+                      <option value="">
+                        {sourceWorkOrders.length === 0
+                          ? ko.dailyPlan.sourceWorkOrderEmpty
+                          : ko.dailyPlan.sourceWorkOrderPlaceholder}
+                      </option>
+                      {sourceWorkOrders.map((workOrder) => (
+                        <option key={workOrder.id} value={workOrder.id}>
+                          {formatWorkOrderOption(workOrder)}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="grid flex-1 gap-2">
+                      <label
+                        className="text-sm font-medium text-steel"
+                        htmlFor={`plan-item-description-${String(index)}`}
+                      >
+                        {ko.dailyPlan.itemDescription} {String(index + 1)}
+                      </label>
+                      <Input
+                        id={`plan-item-description-${String(index)}`}
+                        value={item.description}
+                        placeholder={ko.dailyPlan.itemPlaceholder}
+                        onChange={(event) => {
+                          setItemDescription(index, event.currentTarget.value);
+                        }}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`${ko.dailyPlan.removeItem} ${String(index + 1)}`}
+                      disabled={items.length === 1}
+                      onClick={() => {
+                        removeItem(index);
+                      }}
+                    >
+                      <Trash2 aria-hidden="true" size={16} />
+                    </Button>
+                  </div>
                 </div>
               ))}
               <Button
@@ -421,6 +560,24 @@ export function DailyPlanPage() {
                 </Badge>
               ) : null}
             </div>
+
+            {plan.items?.length ? (
+              <section className="grid gap-2 rounded-md border border-line p-3">
+                <h3 className="text-base font-semibold text-ink">
+                  {ko.dailyPlan.linkedWorkOrders}
+                </h3>
+                <ul className="grid gap-2">
+                  {plan.items.map((item, index) => (
+                    <li
+                      key={`${item.work_order_id ?? "item"}-${String(index)}`}
+                      className="text-sm text-steel"
+                    >
+                      {formatDailyPlanItem(item)}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
             {status === "DRAFT" && canRequest ? (
               <Button

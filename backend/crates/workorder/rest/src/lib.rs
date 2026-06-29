@@ -35,8 +35,8 @@ use mnt_workorder_application::{
     RejectWorkOrderCommand, ReviewDailyPlanCommand, ReviewTargetChangeCommand,
     SendDailyPlanForReviewCommand, SubmitReportCommand, TargetChangeDecision,
     TargetChangeRequestCommand, TargetChangeRequestSummary, TargetChangeStatus,
-    UpdatePriorityCommand, WorkOrderApprovalCommand, WorkOrderAssignmentCommand,
-    WorkOrderStartCommand,
+    UpdatePriorityCommand, UpdateWorkOrderIntakeCommand, WorkOrderApprovalCommand,
+    WorkOrderAssignmentCommand, WorkOrderStartCommand,
 };
 use mnt_workorder_domain::{
     AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
@@ -147,7 +147,10 @@ pub fn router(state: WorkOrderRestState) -> Router {
         .route("/api/v1/equipment/lookup", get(lookup_equipment))
         .route("/api/v1/equipment", get(autocomplete_equipment))
         .route("/api/work-orders", post(create_work_order))
-        .route("/api/work-orders/{work_order_id}", get(get_work_order))
+        .route(
+            "/api/work-orders/{work_order_id}",
+            get(get_work_order).patch(update_work_order_intake),
+        )
         .route(
             "/api/work-orders/{work_order_id}/priority",
             patch(update_priority),
@@ -234,6 +237,12 @@ struct CreateWorkOrderRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct UpdateWorkOrderIntakeRequest {
+    symptom: Option<String>,
+    customer_request: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UpdatePriorityRequest {
     priority: PriorityLevel,
 }
@@ -259,6 +268,11 @@ struct SubmitReportRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ApproveWorkOrderRequest {
+    comment: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct TargetChangeRequestBody {
     // The OpenAPI contract types this as an rfc3339 `string`; a bare OffsetDateTime
     // serde impl expects the array form and rejects the ISO instant the web client
@@ -276,7 +290,7 @@ struct ReviewTargetChangeRequestBody {
 
 #[derive(Debug, Deserialize)]
 struct DailyPlanItemRequest {
-    work_order_id: Option<WorkOrderId>,
+    work_order_id: WorkOrderId,
     description: String,
 }
 
@@ -613,10 +627,13 @@ struct ApprovalStepSummary {
     step_order: i16,
     role: String,
     approver_id: Option<UserId>,
+    approver_name: Option<String>,
     status: String,
     requested_at: Option<time::OffsetDateTime>,
     approved_at: Option<time::OffsetDateTime>,
     approved_by_id: Option<UserId>,
+    approved_by_name: Option<String>,
+    decision_comment: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2122,9 +2139,11 @@ async fn list_approval_items(
     let branch_scope = work_order_list_scope(&principal);
     let pool = state.store.pool();
 
-    let counts = fetch_approval_source_counts(pool, &branch_scope, visibility).await?;
+    let counts =
+        fetch_approval_source_counts(pool, &branch_scope, visibility, principal.user_id).await?;
     let total: i64 = counts.values().sum();
-    let rows = fetch_approval_rows(pool, &branch_scope, visibility, &query).await?;
+    let rows =
+        fetch_approval_rows(pool, &branch_scope, visibility, principal.user_id, &query).await?;
     let work_order_ids = rows
         .iter()
         .filter_map(|row| {
@@ -2695,6 +2714,35 @@ async fn get_work_order(
     Ok(Json(summary))
 }
 
+async fn update_work_order_intake(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Path(work_order_id): Path<uuid::Uuid>,
+    Json(body): Json<UpdateWorkOrderIntakeRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let work_order_id = WorkOrderId::from_uuid(work_order_id);
+    let principal = authorize_for_work_order(
+        &state,
+        &headers,
+        work_order_id,
+        Action::new(Feature::WorkOrderEditIntake),
+    )
+    .await?;
+    let summary = state
+        .store
+        .update_work_order_intake(UpdateWorkOrderIntakeCommand {
+            actor: principal.user_id,
+            work_order_id,
+            symptom: body.symptom,
+            customer_request: body.customer_request,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
+}
+
 async fn update_priority(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
@@ -2821,6 +2869,7 @@ async fn approve_work_order(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
     Path(work_order_id): Path<uuid::Uuid>,
+    Json(body): Json<ApproveWorkOrderRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let work_order_id = WorkOrderId::from_uuid(work_order_id);
     let principal = authorize_for_work_order(
@@ -2835,6 +2884,7 @@ async fn approve_work_order(
         .approve_work_order(WorkOrderApprovalCommand {
             actor: principal.user_id,
             work_order_id,
+            comment: body.comment,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
         })
@@ -3192,13 +3242,14 @@ async fn fetch_approval_source_counts(
     pool: &PgPool,
     branch_scope: &BranchScope,
     visibility: ApprovalSourceVisibility,
+    actor: UserId,
 ) -> Result<BTreeMap<String, i64>, RestError> {
     let org = current_org()
         .map_err(KernelError::from)
         .map_err(RestError::from_kernel)?;
     let mut builder =
         QueryBuilder::<Postgres>::new("SELECT source, COUNT(*)::BIGINT AS count FROM (");
-    push_approval_federation_union(&mut builder, branch_scope, visibility)?;
+    push_approval_federation_union(&mut builder, branch_scope, visibility, actor)?;
     builder.push(") approval GROUP BY source");
     let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
         Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
@@ -3219,6 +3270,7 @@ async fn fetch_approval_rows(
     pool: &PgPool,
     branch_scope: &BranchScope,
     visibility: ApprovalSourceVisibility,
+    actor: UserId,
     query: &NormalizedApprovalItemsQuery,
 ) -> Result<Vec<sqlx::postgres::PgRow>, RestError> {
     let org = current_org()
@@ -3269,7 +3321,7 @@ async fn fetch_approval_rows(
         FROM (
         "#,
     );
-    push_approval_federation_union(&mut builder, branch_scope, visibility)?;
+    push_approval_federation_union(&mut builder, branch_scope, visibility, actor)?;
     builder.push(
         r#"
         ) approval
@@ -3313,6 +3365,7 @@ fn push_approval_federation_union(
     builder: &mut QueryBuilder<Postgres>,
     branch_scope: &BranchScope,
     visibility: ApprovalSourceVisibility,
+    actor: UserId,
 ) -> Result<(), RestError> {
     let mut pushed = false;
     if visibility.work_orders {
@@ -3331,14 +3384,21 @@ fn push_approval_federation_union(
             1 AS sort_rank
         FROM work_orders w
         LEFT JOIN LATERAL (
-            SELECT step.requested_at
+            SELECT step.requested_at, step.approver_id
             FROM work_order_approval_steps step
             WHERE step.work_order_id = w.id
+              AND step.role IN ('ADMIN', 'EXECUTIVE')
               AND step.status = 'PENDING'
             ORDER BY step.step_order ASC
             LIMIT 1
         ) pending_step ON TRUE
         WHERE w.status IN ('REPORT_SUBMITTED', 'ADMIN_REVIEW')
+          AND pending_step.approver_id =
+        "#,
+        );
+        builder.push_bind(*actor.as_uuid());
+        builder.push(
+            r#"
           AND
         "#,
         );
@@ -3836,11 +3896,22 @@ async fn fetch_approval_line(
             Ok(sqlx::query(
                 r#"
         SELECT
-            id, step_order, role, approver_id, status, requested_at,
-            approved_at, approved_by_id
-        FROM work_order_approval_steps
-        WHERE work_order_id = $1
-        ORDER BY step_order
+            step.id,
+            step.step_order,
+            step.role,
+            step.approver_id,
+            approver.display_name AS approver_name,
+            step.status,
+            step.requested_at,
+            step.approved_at,
+            step.approved_by_id,
+            approved_by.display_name AS approved_by_name,
+            step.decision_comment
+        FROM work_order_approval_steps step
+        LEFT JOIN users approver ON approver.id = step.approver_id
+        LEFT JOIN users approved_by ON approved_by.id = step.approved_by_id
+        WHERE step.work_order_id = $1
+        ORDER BY step.step_order
         "#,
             )
             .bind(wo_uuid)
@@ -3988,6 +4059,7 @@ fn approval_item_from_row(
                 plan_date: row.try_get("daily_plan_date")?,
                 status: DailyPlanStatus::from_db_str(&daily_status)
                     .map_err(RestError::from_kernel)?,
+                items: Vec::new(),
             };
             let title = format!("{} 계획업무 검토", plan.plan_date);
             Ok(base.into_item(
@@ -4223,12 +4295,15 @@ fn approval_step_from_row(row: &sqlx::postgres::PgRow) -> Result<ApprovalStepSum
         approver_id: row
             .try_get::<Option<uuid::Uuid>, _>("approver_id")?
             .map(UserId::from_uuid),
+        approver_name: row.try_get("approver_name")?,
         status: row.try_get("status")?,
         requested_at: row.try_get("requested_at")?,
         approved_at: row.try_get("approved_at")?,
         approved_by_id: row
             .try_get::<Option<uuid::Uuid>, _>("approved_by_id")?
             .map(UserId::from_uuid),
+        approved_by_name: row.try_get("approved_by_name")?,
+        decision_comment: row.try_get("decision_comment")?,
     })
 }
 

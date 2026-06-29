@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.DailyPlanItemSummary
 import com.maintenance.api.client.model.DailyPlanStatus
 
 import kotlinx.serialization.Serializable
@@ -37,6 +38,7 @@ import kotlinx.serialization.Contextual
  * @param mechanicId
  * @param planDate
  * @param status
+ * @param items
  */
 @Serializable
 
@@ -55,7 +57,10 @@ data class DailyPlanSummary (
     val planDate: java.time.LocalDate? = null,
 
     @Contextual @SerialName(value = "status")
-    val status: DailyPlanStatus? = null
+    val status: DailyPlanStatus? = null,
+
+    @SerialName(value = "items")
+    val items: kotlin.collections.List<DailyPlanItemSummary>? = null
 
 ) {
 

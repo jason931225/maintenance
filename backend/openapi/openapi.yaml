@@ -167,6 +167,34 @@ paths:
                 $ref: "#/components/schemas/WorkOrderSummary"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateWorkOrderIntake
+      summary: Edit work-order intake narrative fields
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWorkOrderIntakeRequest"
+      responses:
+        "200":
+          description: Work order updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/work-orders/{workOrderId}/priority:
     patch:
       operationId: updateWorkOrderPriority
@@ -258,6 +286,12 @@ paths:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveWorkOrderRequest"
       responses:
         "200":
           description: Updated work-order approval state.
@@ -2254,6 +2288,98 @@ paths:
                 $ref: "#/components/schemas/TokenPairResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/device-login/start:
+    post:
+      operationId: startDeviceLogin
+      summary: Start desktop QR login handoff
+      description: >-
+        Creates a short-lived desktop login handoff. The desktop keeps the
+        `poll_token` and renders `approve_url` as a QR. A phone opens the
+        approve URL and proves a passkey; the desktop then polls once for its
+        own token pair. No phone session is minted by this endpoint.
+      responses:
+        "200":
+          description: Poll token and phone approval URL for the desktop QR.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceLoginStartResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/v1/auth/device-login/poll:
+    post:
+      operationId: pollDeviceLogin
+      summary: Poll a desktop QR login handoff
+      description: >-
+        Desktop-only polling endpoint. Pending/expired responses carry no
+        tokens. Once a phone has approved the paired approve token, this endpoint
+        consumes the poll token exactly once and returns a normal token pair; in
+        web cookie transport the refresh token is set as `mnt_refresh` and is
+        omitted from the JSON body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceLoginPollRequest"
+      responses:
+        "200":
+          description: Pending, expired, or approved desktop-login status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceLoginPollResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/v1/auth/device-login/approve:
+    post:
+      operationId: approveDeviceLogin
+      summary: Approve a desktop QR login with an existing phone passkey
+      description: >-
+        Phone-side approval for an existing passkey user. The phone submits the
+        approve token plus a usernameless passkey assertion; the approved user is
+        resolved from that assertion. This endpoint does not mint a phone token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceLoginApproveRequest"
+      responses:
+        "204":
+          description: The desktop handoff was approved.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/v1/auth/device-login/approve-session:
+    post:
+      operationId: approveDeviceLoginSession
+      summary: Approve a desktop QR login from an authenticated phone session
+      description: >-
+        Phone-side approval used after first-time QR enrollment. The phone has
+        redeemed the handoff OTP and enrolled a passkey; this authenticated call
+        links that phone-registered passkey back to the waiting desktop poll
+        token.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceLoginApproveSessionRequest"
+      responses:
+        "204":
+          description: The desktop handoff was approved from the authenticated phone session.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /api/v1/auth/otp/redeem:
     post:
       summary: First sign-in by redeeming a one-time code
@@ -6059,6 +6185,14 @@ components:
           type: string
         target_due_at:
           $ref: "#/components/schemas/Timestamp"
+    UpdateWorkOrderIntakeRequest:
+      type: object
+      minProperties: 1
+      properties:
+        symptom:
+          type: string
+        customer_request:
+          type: string
     AssignWorkOrderRequest:
       type: object
       required:
@@ -6133,6 +6267,7 @@ components:
           items:
             type: object
             required:
+              - work_order_id
               - description
             properties:
               work_order_id:
@@ -6160,6 +6295,14 @@ components:
           type: string
         reason:
           type: string
+    ApproveWorkOrderRequest:
+      type: object
+      required:
+        - comment
+      properties:
+        comment:
+          type: string
+          minLength: 1
     RejectWorkOrderRequest:
       type: object
       required:
@@ -7413,10 +7556,13 @@ components:
         - step_order
         - role
         - approver_id
+        - approver_name
         - status
         - requested_at
         - approved_at
         - approved_by_id
+        - approved_by_name
+        - decision_comment
       properties:
         id:
           $ref: "#/components/schemas/Uuid"
@@ -7430,6 +7576,10 @@ components:
             - string
             - "null"
           format: uuid
+        approver_name:
+          type:
+            - string
+            - "null"
         status:
           type: string
         requested_at:
@@ -7447,6 +7597,14 @@ components:
             - string
             - "null"
           format: uuid
+        approved_by_name:
+          type:
+            - string
+            - "null"
+        decision_comment:
+          type:
+            - string
+            - "null"
     StatusHistorySummary:
       type: object
       required:
@@ -8746,11 +8904,14 @@ components:
         The minted single-use, short-lived passkey-enrollment code (returned once,
         only its hash is stored) plus the ready-to-encode enrollment URL the
         frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via
-        the first-sign-in path, and enrolls a platform passkey.
+        the first-sign-in path, enrolls a platform passkey, then approves the
+        paired desktop poll token when `desktop_approve` is present in the URL
+        fragment.
       required:
         - otp
         - expires_at
         - enroll_url
+        - poll_token
       properties:
         otp:
           type: string
@@ -8759,9 +8920,90 @@ components:
           $ref: "#/components/schemas/Timestamp"
         enroll_url:
           type: string
-          description:
+          description: >-
             The console enrollment URL carrying the handoff code in the fragment
-            (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
+            (`{origin}/login#otp=<code>&desktop_approve=<approve-token>`), to be
+            rendered as a QR and scanned on a phone.
+        poll_token:
+          type: string
+          description: >-
+            Desktop-only poll token paired to the phone enrollment QR. The
+            desktop polls the device-login endpoint with this token and receives
+            its own session once the phone enrollment approves the handoff.
+    DeviceLoginStartResponse:
+      type: object
+      required:
+        - poll_token
+        - approve_url
+        - expires_at
+      properties:
+        poll_token:
+          type: string
+          description: Desktop-only token used to poll for approval.
+        approve_url:
+          type: string
+          description: Phone QR URL carrying the approve token in the URL fragment.
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+    DeviceLoginPollRequest:
+      type: object
+      required:
+        - poll_token
+      properties:
+        poll_token:
+          type: string
+    DeviceLoginPollResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - expired
+        access_token:
+          type: string
+          nullable: true
+        refresh_token:
+          type: string
+          nullable: true
+          description: Null in web cookie transport; present in body transport.
+        token_type:
+          type: string
+          nullable: true
+          enum:
+            - Bearer
+        refresh_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        requires_passkey_setup:
+          type: boolean
+          nullable: true
+          description: Approved desktop QR sessions are passkey-authenticated and return false.
+    DeviceLoginApproveRequest:
+      type: object
+      required:
+        - approve_token
+        - ceremony_id
+        - credential
+      properties:
+        approve_token:
+          type: string
+        ceremony_id:
+          $ref: "#/components/schemas/Uuid"
+        credential:
+          type: object
+          additionalProperties: true
+    DeviceLoginApproveSessionRequest:
+      type: object
+      required:
+        - approve_token
+      properties:
+        approve_token:
+          type: string
     PrivacyConsentAcceptRequest:
       type: object
       description: >-
@@ -8849,6 +9091,7 @@ components:
         - access_token
         - token_type
         - refresh_expires_at
+        - requires_passkey_setup
       properties:
         access_token:
           type: string
@@ -8865,6 +9108,13 @@ components:
             - Bearer
         refresh_expires_at:
           $ref: "#/components/schemas/Timestamp"
+        requires_passkey_setup:
+          type: boolean
+          description:
+            True when the refreshed session belongs to an OTP-signed-in user who
+            still has no passkey. Web clients must keep routing this session to
+            initial passkey enrollment after a reload; passkey-authenticated
+            sessions return false.
     WorkOrderSummary:
       type: object
       required:
@@ -8917,6 +9167,35 @@ components:
             - REQUESTED
             - APPROVED
             - REJECTED
+    DailyPlanItemSummary:
+      type: object
+      required:
+        - description
+        - sort_order
+      properties:
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+          nullable: true
+        request_no:
+          type: string
+          nullable: true
+        equipment_no:
+          type: string
+          nullable: true
+        management_no:
+          type: string
+          nullable: true
+        customer_name:
+          type: string
+          nullable: true
+        site_name:
+          type: string
+          nullable: true
+        description:
+          type: string
+        sort_order:
+          type: integer
+          format: int32
     DailyPlanSummary:
       type: object
       properties:
@@ -8930,6 +9209,10 @@ components:
           $ref: "#/components/schemas/Date"
         status:
           $ref: "#/components/schemas/DailyPlanStatus"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyPlanItemSummary"
     DailyPlanListPage:
       type: object
       required:

@@ -9,6 +9,7 @@ import {
 } from "../api/groupAdmin";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
+import { visibleNavItemsForRoles } from "../components/shell/nav";
 import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { Button } from "../components/ui/button";
@@ -17,12 +18,74 @@ import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 
 type ReadState = "loading" | "idle" | "error";
-type GroupAdminDestination = "/settings/org" | "/approvals" | "/daily-plan" | "/work-hub";
+type GroupAdminDestination = string;
+
+const GROUP_ADMIN_HIDDEN_MODULE_KEYS = new Set([
+  // The source group console and personal profile are already available outside a
+  // subsidiary context. Policy/integrity stay hidden because a delegated ADMIN
+  // tenant context does not carry SUPER_ADMIN/EXECUTIVE authority.
+  "group",
+  "profile",
+  "policy",
+  "integrity",
+]);
+
+interface GroupAdminModule {
+  key: string;
+  label: string;
+  href: string;
+}
+
+interface GroupAdminModuleGroup {
+  key: string;
+  label: string;
+  modules: GroupAdminModule[];
+}
+
+function labelForKey(labelKey: string): string {
+  if (!labelKey.startsWith("nav.")) return labelKey;
+  const path = labelKey.slice("nav.".length).split(".");
+  let value: unknown = ko.nav;
+  for (const part of path) {
+    if (!value || typeof value !== "object" || !(part in value)) {
+      return labelKey;
+    }
+    value = (value as Record<string, unknown>)[part];
+  }
+  return typeof value === "string" ? value : labelKey;
+}
+
+function buildGroupAdminModuleGroups(): GroupAdminModuleGroup[] {
+  const groups: GroupAdminModuleGroup[] = [];
+  for (const item of visibleNavItemsForRoles(["ADMIN"], ["GROUP_ADMIN"])) {
+    if (GROUP_ADMIN_HIDDEN_MODULE_KEYS.has(item.key)) continue;
+    let group = groups.find((candidate) => candidate.key === item.groupKey);
+    if (!group) {
+      group = {
+        key: item.groupKey,
+        label: labelForKey(item.groupLabelKey),
+        modules: [],
+      };
+      groups.push(group);
+    }
+    group.modules.push({
+      key: item.key,
+      label: labelForKey(item.labelKey),
+      href: item.href,
+    });
+  }
+  return groups;
+}
+
+const GROUP_ADMIN_MODULE_GROUPS = buildGroupAdminModuleGroups();
 
 export function GroupAdminPage() {
-  const { session, enterViewAs } = useAuth();
+  const { session, enterViewAs, viewAs } = useAuth();
   const navigate = useNavigate();
-  const token = session?.access_token;
+  const groupAdminToken =
+    viewAs?.source === "GROUP_ADMIN"
+      ? viewAs.platformSession.access_token
+      : session?.access_token;
   const [groups, setGroups] = useState<GroupAdminGroup[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
   const [manageOrgId, setManageOrgId] = useState<string | undefined>();
@@ -51,13 +114,13 @@ export function GroupAdminPage() {
     setReadState("loading");
     setManageError(undefined);
     try {
-      const result = await listGroupAdminGroups(token);
+      const result = await listGroupAdminGroups(groupAdminToken);
       setGroups(result);
       setReadState("idle");
     } catch {
       setReadState("error");
     }
-  }, [token]);
+  }, [groupAdminToken]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -70,7 +133,7 @@ export function GroupAdminPage() {
     setManageOrgId(member.id);
     setManageError(undefined);
     try {
-      const result = await startGroupTenantContext(token, member.id);
+      const result = await startGroupTenantContext(groupAdminToken, member.id);
       enterViewAs({
         token: result.access_token,
         mode: "MANAGE",
@@ -264,56 +327,41 @@ export function GroupAdminPage() {
                           {member.status}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              disabled={manageOrgId === member.id}
-                              aria-label={`${member.name} ${ko.groupAdmin.actions.workHub}`}
-                              onClick={() => {
-                                void manageSubsidiary(member, "/work-hub");
-                              }}
-                            >
-                              {manageOrgId === member.id
-                                ? ko.groupAdmin.managing
-                                : ko.groupAdmin.actions.workHub}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={manageOrgId === member.id}
-                              aria-label={`${member.name} ${ko.groupAdmin.actions.org}`}
-                              onClick={() => {
-                                void manageSubsidiary(member, "/settings/org");
-                              }}
-                            >
-                              {ko.groupAdmin.actions.org}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={manageOrgId === member.id}
-                              aria-label={`${member.name} ${ko.groupAdmin.actions.approvals}`}
-                              onClick={() => {
-                                void manageSubsidiary(member, "/approvals");
-                              }}
-                            >
-                              {ko.groupAdmin.actions.approvals}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={manageOrgId === member.id}
-                              aria-label={`${member.name} ${ko.groupAdmin.actions.dailyPlan}`}
-                              onClick={() => {
-                                void manageSubsidiary(member, "/daily-plan");
-                              }}
-                            >
-                              {ko.groupAdmin.actions.dailyPlan}
-                            </Button>
+                          <div className="grid min-w-[34rem] gap-3">
+                            {GROUP_ADMIN_MODULE_GROUPS.map((moduleGroup) => (
+                              <div key={moduleGroup.key} className="grid gap-2">
+                                <p className="text-left text-xs font-semibold uppercase tracking-wide text-steel">
+                                  {moduleGroup.label}
+                                </p>
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  {moduleGroup.modules.map((module) => (
+                                    <Button
+                                      key={module.key}
+                                      type="button"
+                                      size="sm"
+                                      variant={
+                                        module.key === "work-hub"
+                                          ? "default"
+                                          : "secondary"
+                                      }
+                                      disabled={manageOrgId === member.id}
+                                      aria-label={`${member.name} ${module.label}`}
+                                      onClick={() => {
+                                        void manageSubsidiary(
+                                          member,
+                                          module.href,
+                                        );
+                                      }}
+                                    >
+                                      {manageOrgId === member.id &&
+                                      module.key === "work-hub"
+                                        ? ko.groupAdmin.managing
+                                        : module.label}
+                                    </Button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </td>
                       </tr>

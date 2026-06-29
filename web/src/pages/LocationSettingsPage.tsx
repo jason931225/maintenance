@@ -15,6 +15,7 @@ export function LocationSettingsPage() {
         access_token: session.access_token,
         token_type: "Bearer" as const,
         refresh_expires_at: "",
+        requires_passkey_setup: session.requires_passkey_setup ?? false,
       }
     : undefined;
 

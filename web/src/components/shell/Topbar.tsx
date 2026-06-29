@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
 import { useCurrentTitle } from "../../context/title";
+import { GroupScopeSwitcher } from "../../features/group/GroupScopeSwitcher";
 import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
 import { useActiveBranchName } from "../../lib/useActiveBranchName";
@@ -55,6 +56,8 @@ export function Topbar({
           </kbd>
         </button>
       ) : null}
+
+      <GroupScopeSwitcher />
 
       {/* Branch chip */}
       <BranchChip />

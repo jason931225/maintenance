@@ -286,6 +286,20 @@ export function DispatchPage() {
         setWriteState("error");
         return false;
       }
+      if (priority === "P1") {
+        const dispatchResponse = await api.POST(
+          "/api/v1/work-orders/{workOrderId}/p1-dispatch",
+          {
+            params: { path: { workOrderId } },
+            body: { include_region: false },
+          },
+        );
+        if (!dispatchResponse.data) {
+          setWriteState("error");
+          return false;
+        }
+        setActiveDispatch(dispatchResponse.data);
+      }
       await loadData();
       return true;
     } catch {

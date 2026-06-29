@@ -8,9 +8,9 @@ use mnt_workorder_application::{
     AssignmentInput, CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
     DailyPlanItemInput, DailyPlanStatus, ReviewDailyPlanCommand, ReviewTargetChangeCommand,
     SendDailyPlanForReviewCommand, SubmitReportCommand, TargetChangeDecision,
-    TargetChangeRequestCommand, UpdatePriorityCommand, WorkOrderApprovalCommand,
-    WorkOrderAssignmentCommand, WorkOrderCreatedEvent, WorkOrderCreatedFuture,
-    WorkOrderCreatedListener, WorkOrderStartCommand,
+    TargetChangeRequestCommand, UpdatePriorityCommand, UpdateWorkOrderIntakeCommand,
+    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderCreatedEvent,
+    WorkOrderCreatedFuture, WorkOrderCreatedListener, WorkOrderStartCommand,
 };
 use mnt_workorder_domain::{
     AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
@@ -110,6 +110,7 @@ async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
             .approve_work_order(WorkOrderApprovalCommand {
                 actor: seeded.admin,
                 work_order_id: created.id,
+                comment: "검토 의견".to_owned(),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -121,6 +122,7 @@ async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
             .approve_work_order(WorkOrderApprovalCommand {
                 actor: seeded.executive,
                 work_order_id: created.id,
+                comment: "검토 의견".to_owned(),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -145,6 +147,7 @@ async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
             .approve_work_order(WorkOrderApprovalCommand {
                 actor: seeded.executive,
                 work_order_id: created.id,
+                comment: "검토 의견".to_owned(),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -170,6 +173,58 @@ async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn update_intake_edits_work_order_narrative_and_audits(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_operational_context(&pool).await;
+        let store = PgWorkOrderStore::new(pool.clone());
+        let created = store
+            .create_work_order(CreateWorkOrderCommand {
+                actor: seeded.receptionist,
+                branch_id: seeded.branch_id,
+                management_no: "#290".to_owned(),
+                symptom: "Hydraulic oil leak".to_owned(),
+                customer_request: Some("Inspect before afternoon shift".to_owned()),
+                target_due_at: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+
+        let updated = store
+            .update_work_order_intake(UpdateWorkOrderIntakeCommand {
+                actor: seeded.admin,
+                work_order_id: created.id,
+                symptom: Some("Hydraulic oil leak with pump noise".to_owned()),
+                // Empty string is an intentional clear of the optional field.
+                customer_request: Some("".to_owned()),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(updated.id, created.id);
+        let row = sqlx::query("SELECT symptom, customer_request FROM work_orders WHERE id = $1")
+            .bind(*created.id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let symptom: String = row.try_get("symptom").unwrap();
+        let customer_request: Option<String> = row.try_get("customer_request").unwrap();
+        assert_eq!(symptom, "Hydraulic oil leak with pump noise");
+        assert_eq!(customer_request, None);
+
+        let actions = audit_actions_for(&pool, created.id).await;
+        assert_eq!(
+            actions,
+            vec!["work_order.create", "work_order.update_intake"]
+        );
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn final_completion_ignores_legacy_flag_and_blocks_unverified_completion_evidence(
     pool: PgPool,
 ) {
@@ -182,6 +237,7 @@ async fn final_completion_ignores_legacy_flag_and_blocks_unverified_completion_e
             .approve_work_order(WorkOrderApprovalCommand {
                 actor: seeded.admin,
                 work_order_id: created.id,
+                comment: "검토 의견".to_owned(),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -207,6 +263,7 @@ async fn final_completion_ignores_legacy_flag_and_blocks_unverified_completion_e
             .approve_work_order(WorkOrderApprovalCommand {
                 actor: seeded.executive,
                 work_order_id: created.id,
+                comment: "검토 의견".to_owned(),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -336,7 +393,7 @@ async fn target_change_daily_plan_and_outsource_flows_are_audited(pool: PgPool) 
                 mechanic_id: seeded.mechanic,
                 plan_date: date!(2026 - 06 - 12),
                 items: vec![DailyPlanItemInput {
-                    work_order_id: Some(work_order.id),
+                    work_order_id: work_order.id,
                     description: "Repair hydraulic leak".to_owned(),
                 }],
                 trace: TraceContext::generate(),
@@ -345,6 +402,12 @@ async fn target_change_daily_plan_and_outsource_flows_are_audited(pool: PgPool) 
             .await
             .unwrap();
         assert_eq!(daily_plan.status, DailyPlanStatus::Draft);
+        assert_eq!(daily_plan.items.len(), 1);
+        assert_eq!(daily_plan.items[0].work_order_id, Some(work_order.id));
+        assert_eq!(
+            daily_plan.items[0].request_no.as_deref(),
+            Some(work_order.request_no.as_str())
+        );
 
         let requested = store
             .request_daily_plan_review(SendDailyPlanForReviewCommand {
@@ -356,6 +419,10 @@ async fn target_change_daily_plan_and_outsource_flows_are_audited(pool: PgPool) 
             .await
             .unwrap();
         assert_eq!(requested.status, DailyPlanStatus::Requested);
+        assert_eq!(
+            requested.items[0].request_no.as_deref(),
+            Some(work_order.request_no.as_str())
+        );
 
         let approved = store
             .review_daily_plan(ReviewDailyPlanCommand {

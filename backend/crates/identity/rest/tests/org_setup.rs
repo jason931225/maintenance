@@ -6,6 +6,8 @@
 //! "Cold Start Admin" fixing its own name).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::collections::BTreeSet;
+
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
@@ -313,6 +315,82 @@ async fn non_super_admin_cannot_create_elevated_user(pool: PgPool) {
             "roles": ["EXECUTIVE"],
             "branch_ids": [admin_branch.to_string()],
         })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn admin_can_grant_admin_to_existing_executive_in_scope(pool: PgPool) {
+    let harness = Harness::new(pool.clone());
+    let admin_branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
+    let executive = seed_user(&pool, "임원", &["EXECUTIVE"], Some(admin_branch)).await;
+    let token = harness.token(admin, &["ADMIN"], vec![admin_branch]);
+
+    let (status, updated) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{executive}"),
+        &token,
+        json!({
+            "roles": ["EXECUTIVE", "ADMIN"],
+            "branch_ids": [admin_branch.to_string()],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated:?}");
+    let roles: BTreeSet<&str> = updated["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|role| role.as_str().unwrap())
+        .collect();
+    assert_eq!(roles, BTreeSet::from(["ADMIN", "EXECUTIVE"]));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn admin_cannot_grant_new_executive_role_on_update(pool: PgPool) {
+    let harness = Harness::new(pool.clone());
+    let admin_branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
+    let mechanic = seed_user(&pool, "정비사", &["MECHANIC"], Some(admin_branch)).await;
+    let token = harness.token(admin, &["ADMIN"], vec![admin_branch]);
+
+    let (status, body) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{mechanic}"),
+        &token,
+        json!({
+            "roles": ["MECHANIC", "EXECUTIVE"],
+            "branch_ids": [admin_branch.to_string()],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn admin_cannot_remove_existing_executive_role_on_update(pool: PgPool) {
+    let harness = Harness::new(pool.clone());
+    let admin_branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
+    let executive = seed_user(
+        &pool,
+        "임원 관리자",
+        &["EXECUTIVE", "ADMIN"],
+        Some(admin_branch),
+    )
+    .await;
+    let token = harness.token(admin, &["ADMIN"], vec![admin_branch]);
+
+    let (status, body) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{executive}"),
+        &token,
+        json!({
+            "roles": ["ADMIN"],
+            "branch_ids": [admin_branch.to_string()],
+        }),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");

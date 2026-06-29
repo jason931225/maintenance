@@ -32,6 +32,7 @@ use mnt_platform_email::{EmailSender, StubEmailSender};
 use mnt_platform_group::GroupMemberOrg;
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -66,6 +67,10 @@ pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-res
 pub const AUTH_PASSKEYS_PATH: &str = "/api/v1/auth/passkeys";
 pub const AUTH_PASSKEY_PATH_TEMPLATE: &str = "/api/v1/auth/passkeys/{id}";
 pub const PASSKEY_ENROLL_HANDOFF_PATH: &str = "/api/v1/auth/passkey/enroll-handoff";
+pub const DEVICE_LOGIN_START_PATH: &str = "/api/v1/auth/device-login/start";
+pub const DEVICE_LOGIN_POLL_PATH: &str = "/api/v1/auth/device-login/poll";
+pub const DEVICE_LOGIN_APPROVE_PATH: &str = "/api/v1/auth/device-login/approve";
+pub const DEVICE_LOGIN_APPROVE_SESSION_PATH: &str = "/api/v1/auth/device-login/approve-session";
 pub const PRIVACY_CONSENT_STATUS_PATH: &str = "/api/v1/auth/privacy-consent/status";
 pub const PRIVACY_CONSENT_ACCEPT_PATH: &str = "/api/v1/auth/privacy-consent/accept";
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
@@ -85,6 +90,10 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     AUTH_PASSKEYS_PATH,
     AUTH_PASSKEY_PATH_TEMPLATE,
     PASSKEY_ENROLL_HANDOFF_PATH,
+    DEVICE_LOGIN_START_PATH,
+    DEVICE_LOGIN_POLL_PATH,
+    DEVICE_LOGIN_APPROVE_PATH,
+    DEVICE_LOGIN_APPROVE_SESSION_PATH,
     PRIVACY_CONSENT_STATUS_PATH,
     PRIVACY_CONSENT_ACCEPT_PATH,
     TOKEN_REFRESH_PATH,
@@ -111,6 +120,10 @@ const MAX_OTP_TTL: Duration = Duration::hours(24);
 /// themselves and scanned onto a second device within seconds, so a tight window
 /// keeps the leaked-code blast radius minimal for this credential-handoff path.
 const ENROLL_HANDOFF_TTL: Duration = Duration::minutes(5);
+
+/// Lifetime of a desktop-login QR handoff. The QR approve token and desktop poll
+/// token are separate bearer secrets; both expire quickly like enrollment QR.
+const DEVICE_LOGIN_HANDOFF_TTL: Duration = Duration::minutes(5);
 
 /// Required first-login privacy/terms notice version. This is an engineering
 /// control, not a substitute for counsel-approved policy text: bump it whenever
@@ -284,6 +297,13 @@ pub fn router(state: AuthRestState) -> Router {
         .route(AUTH_PASSKEYS_PATH, get(list_self_passkeys))
         .route(AUTH_PASSKEY_PATH_TEMPLATE, delete(delete_self_passkey))
         .route(PASSKEY_ENROLL_HANDOFF_PATH, post(enroll_handoff))
+        .route(DEVICE_LOGIN_START_PATH, post(start_device_login))
+        .route(DEVICE_LOGIN_POLL_PATH, post(poll_device_login))
+        .route(DEVICE_LOGIN_APPROVE_PATH, post(approve_device_login))
+        .route(
+            DEVICE_LOGIN_APPROVE_SESSION_PATH,
+            post(approve_device_login_session),
+        )
         .route(PRIVACY_CONSENT_STATUS_PATH, post(privacy_consent_status))
         .route(PRIVACY_CONSENT_ACCEPT_PATH, post(accept_privacy_consent))
         .route(TOKEN_REFRESH_PATH, post(refresh_token))
@@ -458,6 +478,50 @@ struct EnrollHandoffResponse {
     #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
     enroll_url: String,
+    /// Desktop poll token paired to this phone-enrollment QR. Present so the PC
+    /// can finish its own session after the phone registers/authenticates.
+    poll_token: String,
+}
+
+/// Desktop-initiated, phone-approved login handoff. The poll token stays only in
+/// the desktop browser; the approve URL carries a distinct token for the phone.
+#[derive(Debug, Serialize)]
+struct DeviceLoginStartResponse {
+    poll_token: String,
+    approve_url: String,
+    #[serde(with = "time::serde::rfc3339")]
+    expires_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceLoginPollRequest {
+    poll_token: String,
+}
+
+/// Poll response for the desktop. Pending/expired responses carry no tokens; an
+/// approved response carries a normal token pair and sets the web refresh cookie
+/// when the caller uses cookie transport.
+#[derive(Debug, Serialize)]
+struct DeviceLoginPollResponse {
+    status: &'static str,
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    token_type: Option<&'static str>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    refresh_expires_at: Option<OffsetDateTime>,
+    requires_passkey_setup: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceLoginApproveRequest {
+    approve_token: String,
+    ceremony_id: Uuid,
+    credential: PasskeyAuthenticationCredential,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceLoginApproveSessionRequest {
+    approve_token: String,
 }
 
 /// Passkey credential summary for the authenticated user's self-management
@@ -494,7 +558,8 @@ struct PrivacyConsentStatusResponse {
 /// transport (web) — the refresh token rides in the HttpOnly `mnt_refresh`
 /// cookie instead — and `Some` in the body transport (mobile). The access token
 /// is ALWAYS in the body: it stays a short-lived in-memory bearer token, never a
-/// cookie.
+/// cookie. `requires_passkey_setup` is true only for an OTP-created session whose
+/// user still has zero passkeys, so a refresh cannot bypass initial enrollment.
 #[derive(Debug, Serialize)]
 struct TokenPairResponse {
     access_token: String,
@@ -502,6 +567,7 @@ struct TokenPairResponse {
     token_type: &'static str,
     #[serde(with = "time::serde::rfc3339")]
     refresh_expires_at: OffsetDateTime,
+    requires_passkey_setup: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1473,12 +1539,381 @@ async fn enroll_handoff(
         .issue_self_enroll_handoff(&state.pool, user_id, org_id, now, ENROLL_HANDOFF_TTL)
         .await
         .map_err(RestError::from_provisioning)?;
+    let handoff_id = Uuid::new_v4();
+    let poll_token = generate_device_login_token("mnt_dlp_");
+    let approve_token = generate_device_login_token("mnt_dla_");
+
+    sqlx::query(
+        r#"
+        INSERT INTO auth_device_login_handoffs (
+            id,
+            poll_token_hash,
+            approve_token_hash,
+            issued_at,
+            expires_at,
+            target_user_id,
+            target_org_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(handoff_id)
+    .bind(hash_device_login_token(&poll_token))
+    .bind(hash_device_login_token(&approve_token))
+    .bind(now)
+    .bind(issue.expires_at.min(now + DEVICE_LOGIN_HANDOFF_TTL))
+    .bind(user_id)
+    .bind(*org_id.as_uuid())
+    // rls-arming: ok auth_device_login_handoffs is a global pre-auth table.
+    .execute(&state.pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
 
     Ok(Json(EnrollHandoffResponse {
-        enroll_url: build_enroll_url(&services.rp_origin, issue.token.as_str()),
+        enroll_url: build_enroll_url(
+            &services.rp_origin,
+            issue.token.as_str(),
+            Some(&approve_token),
+        ),
         otp: issue.token.as_str().to_owned(),
         expires_at: issue.expires_at,
+        poll_token,
     }))
+}
+
+/// Start a desktop-login handoff that a phone passkey can approve.
+///
+/// This is NOT enrollment and does not mint a phone session. The desktop keeps a
+/// poll token returned in the JSON body; the QR URL carries a distinct approve
+/// token. The phone proves possession of an existing passkey against the approve
+/// token, then the desktop poll token can be consumed exactly once for a normal
+/// session.
+async fn start_device_login(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+) -> Result<Json<DeviceLoginStartResponse>, RestError> {
+    let services = state.services()?;
+    let now = OffsetDateTime::now_utc();
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::DeviceLoginStart,
+        now,
+    )
+    .await?;
+
+    let handoff_id = Uuid::new_v4();
+    let poll_token = generate_device_login_token("mnt_dlp_");
+    let approve_token = generate_device_login_token("mnt_dla_");
+    let expires_at = now + DEVICE_LOGIN_HANDOFF_TTL;
+
+    sqlx::query(
+        r#"
+        INSERT INTO auth_device_login_handoffs (
+            id, poll_token_hash, approve_token_hash, issued_at, expires_at
+        ) VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(handoff_id)
+    .bind(hash_device_login_token(&poll_token))
+    .bind(hash_device_login_token(&approve_token))
+    .bind(now)
+    .bind(expires_at)
+    // rls-arming: ok auth_device_login_handoffs is a global pre-auth table.
+    .execute(&state.pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+
+    record_anonymous_auth_audit(
+        &state.pool,
+        "auth.device_login.start",
+        serde_json::json!({
+            "handoff_id": handoff_id,
+            "expires_at": expires_at,
+        }),
+    )
+    .await?;
+
+    Ok(Json(DeviceLoginStartResponse {
+        poll_token,
+        approve_url: build_device_login_approve_url(&services.rp_origin, &approve_token),
+        expires_at,
+    }))
+}
+
+async fn poll_device_login(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<DeviceLoginPollRequest>,
+) -> Result<Response, RestError> {
+    let services = state.services()?;
+    let now = OffsetDateTime::now_utc();
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::DeviceLoginPoll,
+        now,
+    )
+    .await?;
+
+    let poll_token = normalize_device_login_token(&body.poll_token, "mnt_dlp_")?;
+    let poll_hash = hash_device_login_token(&poll_token);
+
+    let status = sqlx::query(
+        r#"
+        SELECT id, expires_at, approved_at, consumed_at
+        FROM auth_device_login_handoffs
+        WHERE poll_token_hash = $1
+        "#,
+    )
+    .bind(&poll_hash)
+    // rls-arming: ok auth_device_login_handoffs is a global pre-auth table.
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+
+    let Some(status) = status else {
+        return Err(RestError::unauthorized("invalid or expired login handoff"));
+    };
+    let expires_at: OffsetDateTime = status.try_get("expires_at").map_err(DbError::Sqlx)?;
+    let approved_at: Option<OffsetDateTime> =
+        status.try_get("approved_at").map_err(DbError::Sqlx)?;
+    let consumed_at: Option<OffsetDateTime> =
+        status.try_get("consumed_at").map_err(DbError::Sqlx)?;
+
+    if consumed_at.is_some() {
+        return Err(RestError::unauthorized("invalid or expired login handoff"));
+    }
+    if expires_at <= now {
+        return Ok(Json(device_login_status("expired")).into_response());
+    }
+    if approved_at.is_none() {
+        return Ok(Json(device_login_status("pending")).into_response());
+    }
+
+    let approved = sqlx::query(
+        r#"
+        UPDATE auth_device_login_handoffs
+        SET consumed_at = $2
+        WHERE poll_token_hash = $1
+          AND consumed_at IS NULL
+          AND approved_at IS NOT NULL
+          AND expires_at > $2
+        RETURNING id, approved_user_id, approved_org_id, approved_passkey_id
+        "#,
+    )
+    .bind(&poll_hash)
+    .bind(now)
+    // rls-arming: ok auth_device_login_handoffs is a global pre-auth table.
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+
+    let Some(approved) = approved else {
+        return Err(RestError::unauthorized("invalid or expired login handoff"));
+    };
+    let handoff_id: Uuid = approved.try_get("id").map_err(DbError::Sqlx)?;
+    let user_id: Uuid = approved
+        .try_get::<Option<Uuid>, _>("approved_user_id")
+        .map_err(DbError::Sqlx)?
+        .ok_or_else(|| RestError::internal("approved login handoff missing user"))?;
+    let org_uuid: Uuid = approved
+        .try_get::<Option<Uuid>, _>("approved_org_id")
+        .map_err(DbError::Sqlx)?
+        .ok_or_else(|| RestError::internal("approved login handoff missing org"))?;
+    let passkey_id: Option<Uuid> = approved
+        .try_get("approved_passkey_id")
+        .map_err(DbError::Sqlx)?;
+
+    let org_id = OrgId::from_uuid(org_uuid);
+    let user = load_user_auth_context_in_org(&state.pool, org_id, user_id).await?;
+    let tokens = issue_token_pair(&state.pool, services, &user).await?;
+    record_auth_audit(
+        &state.pool,
+        user_id,
+        "auth.device_login.consume",
+        serde_json::json!({
+            "handoff_id": handoff_id,
+            "passkey_id": passkey_id,
+            "refresh_family_id": tokens.family_id,
+        }),
+    )
+    .await?;
+
+    Ok(device_login_token_response(
+        tokens,
+        &headers,
+        services.cookie_secure,
+    ))
+}
+
+async fn approve_device_login(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<DeviceLoginApproveRequest>,
+) -> Result<StatusCode, RestError> {
+    let services = state.services()?;
+    let now = OffsetDateTime::now_utc();
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::DeviceLoginApprove,
+        now,
+    )
+    .await?;
+
+    let approve_token = normalize_device_login_token(&body.approve_token, "mnt_dla_")?;
+    let approve_hash = hash_device_login_token(&approve_token);
+
+    let pending_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM auth_device_login_handoffs
+        WHERE approve_token_hash = $1
+          AND approved_at IS NULL
+          AND consumed_at IS NULL
+          AND expires_at > $2
+        "#,
+    )
+    .bind(&approve_hash)
+    .bind(now)
+    // rls-arming: ok auth_device_login_handoffs is a global pre-auth table.
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    let Some(handoff_id) = pending_id else {
+        return Err(RestError::unauthorized("invalid or expired login handoff"));
+    };
+
+    let outcome = services
+        .passkeys
+        .finish_authentication(&state.pool, body.ceremony_id, body.credential)
+        .await
+        .map_err(|err| RestError::unauthorized(err.to_string()))?;
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE auth_device_login_handoffs
+        SET approved_at = $2,
+            approved_user_id = $3,
+            approved_org_id = $4,
+            approved_passkey_id = $5
+        WHERE approve_token_hash = $1
+          AND approved_at IS NULL
+          AND consumed_at IS NULL
+          AND expires_at > $2
+          AND (target_user_id IS NULL OR target_user_id = $3)
+          AND (target_org_id IS NULL OR target_org_id = $4)
+        RETURNING id
+        "#,
+    )
+    .bind(&approve_hash)
+    .bind(now)
+    .bind(outcome.user_id)
+    .bind(*outcome.org_id.as_uuid())
+    .bind(outcome.passkey_id)
+    // rls-arming: ok auth_device_login_handoffs is a global pre-auth table.
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+
+    if updated.is_none() {
+        return Err(RestError::unauthorized("invalid or expired login handoff"));
+    }
+
+    record_auth_audit(
+        &state.pool,
+        outcome.user_id,
+        "auth.device_login.approve",
+        serde_json::json!({
+            "handoff_id": handoff_id,
+            "passkey_id": outcome.passkey_id,
+        }),
+    )
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn approve_device_login_session(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<DeviceLoginApproveSessionRequest>,
+) -> Result<StatusCode, RestError> {
+    let services = state.services()?;
+    let now = OffsetDateTime::now_utc();
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::DeviceLoginApprove,
+        now,
+    )
+    .await?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+
+    let approve_token = normalize_device_login_token(&body.approve_token, "mnt_dla_")?;
+    let approve_hash = hash_device_login_token(&approve_token);
+    let existing_passkeys = services
+        .passkeys
+        .count_user_passkeys(&state.pool, org_id, user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    if existing_passkeys == 0 {
+        return Err(RestError::forbidden(
+            "desktop login approval requires an enrolled passkey",
+        ));
+    }
+    let latest_passkey_id = latest_user_passkey_id(&state.pool, org_id, user_id).await?;
+
+    let approved = sqlx::query(
+        r#"
+        UPDATE auth_device_login_handoffs
+        SET approved_at = $2,
+            approved_user_id = $3,
+            approved_org_id = $4,
+            approved_passkey_id = $5
+        WHERE approve_token_hash = $1
+          AND approved_at IS NULL
+          AND consumed_at IS NULL
+          AND expires_at > $2
+          AND target_user_id = $3
+          AND target_org_id = $4
+        RETURNING id, approved_passkey_id
+        "#,
+    )
+    .bind(&approve_hash)
+    .bind(now)
+    .bind(user_id)
+    .bind(*org_id.as_uuid())
+    .bind(latest_passkey_id)
+    // rls-arming: ok auth_device_login_handoffs is a global pre-auth table.
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+
+    let Some(approved) = approved else {
+        return Err(RestError::unauthorized("invalid or expired login handoff"));
+    };
+    let handoff_id: Uuid = approved.try_get("id").map_err(DbError::Sqlx)?;
+    let passkey_id: Option<Uuid> = approved
+        .try_get("approved_passkey_id")
+        .map_err(DbError::Sqlx)?;
+
+    record_auth_audit(
+        &state.pool,
+        user_id,
+        "auth.device_login.approve_session",
+        serde_json::json!({
+            "handoff_id": handoff_id,
+            "passkey_id": passkey_id,
+        }),
+    )
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Read whether the authenticated user has accepted the current required
@@ -1556,12 +1991,29 @@ async fn accept_privacy_consent(
 /// validated console origin and the freshly minted handoff code. The OTP is an
 /// auth secret, so keep it out of query strings that are commonly logged by
 /// servers and proxies; the fragment stays client-side and is cleared by the UI.
-fn build_enroll_url(rp_origin: &Url, otp: &str) -> String {
+fn build_enroll_url(rp_origin: &Url, otp: &str, approve_token: Option<&str>) -> String {
+    let mut url = rp_origin.clone();
+    url.set_path("/login");
+    url.set_query(None);
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    serializer.append_pair("otp", otp);
+    if let Some(approve_token) = approve_token {
+        serializer.append_pair("desktop_approve", approve_token);
+    }
+    let fragment = serializer.finish();
+    url.set_fragment(Some(&fragment));
+    url.to_string()
+}
+
+/// Build the QR-encoded approval URL `{rp_origin}/login#desktop_approve=<token>`.
+/// The approve token is a short-lived bearer secret, so it stays in the fragment
+/// and is never enough to poll/receive the desktop token pair.
+fn build_device_login_approve_url(rp_origin: &Url, approve_token: &str) -> String {
     let mut url = rp_origin.clone();
     url.set_path("/login");
     url.set_query(None);
     let fragment = url::form_urlencoded::Serializer::new(String::new())
-        .append_pair("otp", otp)
+        .append_pair("desktop_approve", approve_token)
         .finish();
     url.set_fragment(Some(&fragment));
     url.to_string()
@@ -1625,6 +2077,12 @@ async fn refresh_token(
     // Refresh is a pre-auth route (no tenant middleware): arm the GUC with the org
     // the rotated token belongs to so the `users` read runs under that tenant.
     let user = load_user_auth_context_in_org(&state.pool, issue.org_id, issue.user_id).await?;
+    let requires_passkey_setup = services
+        .passkeys
+        .count_user_passkeys(&state.pool, issue.org_id, issue.user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?
+        == 0;
     let access_token = issue_access_token(services, &user)?;
     if cookie_mode {
         let max_age = (issue.expires_at - now).whole_seconds();
@@ -1634,6 +2092,7 @@ async fn refresh_token(
             refresh_token: None,
             token_type: "Bearer",
             refresh_expires_at: issue.expires_at,
+            requires_passkey_setup,
         })
         .into_response();
         Ok(with_refresh_cookie(response, cookie))
@@ -1643,6 +2102,7 @@ async fn refresh_token(
             refresh_token: Some(issue.token.as_str().to_owned()),
             token_type: "Bearer",
             refresh_expires_at: issue.expires_at,
+            requires_passkey_setup,
         })
         .into_response())
     }
@@ -1819,6 +2279,7 @@ impl IssuedTokenPair {
             refresh_token: Some(self.refresh_token),
             token_type: "Bearer",
             refresh_expires_at: self.refresh_expires_at,
+            requires_passkey_setup: false,
         }
     }
 }
@@ -2158,6 +2619,31 @@ async fn required_privacy_consent_accepted_at(
     .await
 }
 
+async fn latest_user_passkey_id(
+    pool: &PgPool,
+    org_id: OrgId,
+    user_id: Uuid,
+) -> Result<Option<Uuid>, RestError> {
+    with_org_conn(pool, org_id, move |tx| {
+        Box::pin(async move {
+            sqlx::query_scalar::<_, Uuid>(
+                r#"
+                SELECT id
+                FROM auth_webauthn_credentials
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(user_id)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|err| RestError::internal(err.to_string()))
+        })
+    })
+    .await
+}
+
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
     let header_value = headers
         .get(header::AUTHORIZATION)
@@ -2475,6 +2961,9 @@ enum RateLimitEndpoint {
     Signup,
     OtpRedeem,
     LoginStart,
+    DeviceLoginStart,
+    DeviceLoginPoll,
+    DeviceLoginApprove,
     Refresh,
 }
 
@@ -2484,7 +2973,19 @@ impl RateLimitEndpoint {
             Self::Signup => "signup",
             Self::OtpRedeem => "otp_redeem",
             Self::LoginStart => "login_start",
+            Self::DeviceLoginStart => "device_login_start",
+            Self::DeviceLoginPoll => "device_login_poll",
+            Self::DeviceLoginApprove => "device_login_approve",
             Self::Refresh => "refresh",
+        }
+    }
+
+    const fn limits(self) -> (i64, i64, i64) {
+        match self {
+            // Polling is expected while a desktop waits for a phone approval; use
+            // a wider bucket than credential submission while keeping a bound.
+            Self::DeviceLoginPoll => (60, 60, 1_000),
+            _ => (RATE_LIMIT_PER_IP, RATE_LIMIT_PER_DEVICE, RATE_LIMIT_GLOBAL),
         }
     }
 }
@@ -2510,13 +3011,14 @@ async fn rate_limit(
     let endpoint_str = endpoint.as_str();
 
     let mut buckets: Vec<(String, i64)> = Vec::with_capacity(3);
+    let (per_ip_cap, per_device_cap, global_cap) = endpoint.limits();
     if let Some(ip) = client_ip(headers, trusted_proxy_count) {
-        buckets.push((format!("ip:{ip}"), RATE_LIMIT_PER_IP));
+        buckets.push((format!("ip:{ip}"), per_ip_cap));
     }
     if let Some(device) = client_device_id(headers) {
-        buckets.push((format!("dev:{device}"), RATE_LIMIT_PER_DEVICE));
+        buckets.push((format!("dev:{device}"), per_device_cap));
     }
-    buckets.push(("global".to_owned(), RATE_LIMIT_GLOBAL));
+    buckets.push(("global".to_owned(), global_cap));
 
     for (client_key, cap) in buckets {
         let attempts = increment_rate_bucket(pool, &client_key, endpoint_str, window_start).await?;
@@ -2682,6 +3184,7 @@ fn token_pair_response(
             refresh_token: None,
             token_type: "Bearer",
             refresh_expires_at: tokens.refresh_expires_at,
+            requires_passkey_setup: false,
         };
         with_refresh_cookie(
             Json(body).into_response(),
@@ -2690,6 +3193,81 @@ fn token_pair_response(
     } else {
         Json(tokens.into_response()).into_response()
     }
+}
+
+fn device_login_status(status: &'static str) -> DeviceLoginPollResponse {
+    DeviceLoginPollResponse {
+        status,
+        access_token: None,
+        refresh_token: None,
+        token_type: None,
+        refresh_expires_at: None,
+        requires_passkey_setup: None,
+    }
+}
+
+fn device_login_token_response(
+    tokens: IssuedTokenPair,
+    headers: &HeaderMap,
+    cookie_secure: bool,
+) -> Response {
+    if wants_cookie_transport(headers) {
+        let max_age = (tokens.refresh_expires_at - OffsetDateTime::now_utc()).whole_seconds();
+        let body = DeviceLoginPollResponse {
+            status: "approved",
+            access_token: Some(tokens.access_token),
+            refresh_token: None,
+            token_type: Some("Bearer"),
+            refresh_expires_at: Some(tokens.refresh_expires_at),
+            requires_passkey_setup: Some(false),
+        };
+        with_refresh_cookie(
+            Json(body).into_response(),
+            refresh_set_cookie(&tokens.refresh_token, max_age, cookie_secure),
+        )
+    } else {
+        let body = DeviceLoginPollResponse {
+            status: "approved",
+            access_token: Some(tokens.access_token),
+            refresh_token: Some(tokens.refresh_token),
+            token_type: Some("Bearer"),
+            refresh_expires_at: Some(tokens.refresh_expires_at),
+            requires_passkey_setup: Some(false),
+        };
+        Json(body).into_response()
+    }
+}
+
+fn normalize_device_login_token(raw: &str, prefix: &str) -> Result<String, RestError> {
+    let token = raw.trim();
+    let suffix = token
+        .strip_prefix(prefix)
+        .ok_or_else(|| RestError::unauthorized("invalid or expired login handoff"))?;
+    if suffix.len() != 64 || !suffix.chars().all(|char| char.is_ascii_hexdigit()) {
+        return Err(RestError::unauthorized("invalid or expired login handoff"));
+    }
+    Ok(token.to_owned())
+}
+
+fn generate_device_login_token(prefix: &str) -> String {
+    let mut bytes = [0u8; 32];
+    bytes[..16].copy_from_slice(Uuid::new_v4().as_bytes());
+    bytes[16..].copy_from_slice(Uuid::new_v4().as_bytes());
+    format!("{prefix}{}", hex_encode(&bytes))
+}
+
+fn hash_device_login_token(token: &str) -> Vec<u8> {
+    Sha256::digest(token.as_bytes()).to_vec()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 /// Append a `Set-Cookie` header to a response when one was built.
@@ -2720,7 +3298,7 @@ mod tests {
         let origin = Url::parse("https://console.knllogistic.com/app?ignored=1")?;
         let otp = "A&c#%_!9";
 
-        let enroll_url = build_enroll_url(&origin, otp);
+        let enroll_url = build_enroll_url(&origin, otp, None);
         let parsed = Url::parse(&enroll_url)?;
         let decoded = parsed.fragment().and_then(|fragment| {
             form_urlencoded::parse(fragment.as_bytes())

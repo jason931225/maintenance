@@ -120,7 +120,7 @@ const mechanicSession: AuthSession = {
 };
 
 describe("DispatchPage manager controls", () => {
-  it("sets priority through the existing endpoint", async () => {
+  it("sets non-urgent priority through the existing endpoint", async () => {
     const user = userEvent.setup();
     const patched = vi.fn();
     server.use(
@@ -146,6 +146,47 @@ describe("DispatchPage manager controls", () => {
 
     await waitFor(() => {
       expect(patched).toHaveBeenCalledWith({ priority: "P2" });
+    });
+  });
+
+  it("starts the urgent P1 dispatch broadcast when priority is set to 긴급", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    const broadcast = vi.fn();
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
+      http.patch("*/api/work-orders/:id/priority", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({ ...workOrderListItems[0], priority: "P1" });
+      }),
+      http.post(
+        "*/api/v1/work-orders/:id/p1-dispatch",
+        async ({ request, params }) => {
+          broadcast({
+            id: params.id,
+            body: await request.json(),
+          });
+          return HttpResponse.json(dispatchSummary);
+        },
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    await user.click(
+      await screen.findByRole("button", { name: "20260612-001 배차 제어" }),
+    );
+
+    await user.selectOptions(await screen.findByLabelText("중요도"), "P1");
+    await user.click(screen.getByRole("button", { name: "중요도 변경" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({ priority: "P1" });
+      expect(broadcast).toHaveBeenCalledWith({
+        id: workOrderListItems[0].id,
+        body: { include_region: false },
+      });
     });
   });
 

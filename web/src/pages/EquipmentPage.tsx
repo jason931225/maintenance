@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { EquipmentLookupResponse, EquipmentLookupState } from "../api/types";
+import {
+  listGroupAdminGroups,
+  type GroupAdminGroup,
+} from "../api/groupAdmin";
 import { useAuth } from "../context/auth";
-import { hasAnyRole, ROLES } from "../components/shell/nav";
+import { hasAnyRole, hasGroupAdminRole, ROLES } from "../components/shell/nav";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageError } from "../components/states/PageError";
 import { EquipmentImportPanel } from "../features/equipment/EquipmentImportPanel";
-import { EquipmentManagementPanel } from "../features/equipment/EquipmentManagementPanel";
+import {
+  EquipmentManagementPanel,
+  type EquipmentOwnerOrgOption,
+} from "../features/equipment/EquipmentManagementPanel";
 import { ManagementNoCombobox } from "../features/equipment/ManagementNoCombobox";
 import { SiteGeographyPanel } from "../features/equipment/SiteGeographyPanel";
 import { SubstitutionPanel } from "../features/equipment/SubstitutionPanel";
@@ -25,13 +32,44 @@ const EQUIPMENT_MANAGE_ROLES = [
 /** MasterListImport holders (backend matrix: ADMIN/SUPER_ADMIN). */
 const MASTER_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 
+function flattenOwnerOrgOptions(
+  groups: readonly GroupAdminGroup[],
+): EquipmentOwnerOrgOption[] {
+  return groups
+    .flatMap((group) =>
+      group.members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        slug: member.slug,
+        groupName: group.name,
+      })),
+    )
+    .sort(
+      (a, b) =>
+        a.groupName.localeCompare(b.groupName, "ko") ||
+        a.name.localeCompare(b.name, "ko") ||
+        a.slug.localeCompare(b.slug),
+    );
+}
+
 export function EquipmentPage() {
-  const { api, session } = useAuth();
+  const { api, session, viewAs } = useAuth();
   const canManage = hasAnyRole(session?.roles, EQUIPMENT_MANAGE_ROLES);
   const canImport = hasAnyRole(session?.roles, MASTER_IMPORT_ROLES);
+  const sourceIsGroupAdminContext = viewAs?.source === "GROUP_ADMIN";
+  const canSelectEquipmentOwnerOrg =
+    sourceIsGroupAdminContext || hasGroupAdminRole(session?.group_roles);
+  const groupAdminSourceToken = sourceIsGroupAdminContext
+    ? viewAs.platformSession.access_token
+    : session?.access_token;
+  const activeOrgId = viewAs?.actingOrgId ?? session?.org_id;
   const [managementNo, setManagementNo] = useState("");
   const [suggestions, setSuggestions] = useState<EquipmentLookupResponse[]>([]);
   const [lookupState, setLookupState] = useState<EquipmentLookupState>({ status: "idle" });
+  const [ownerOrgOptions, setOwnerOrgOptions] = useState<
+    EquipmentOwnerOrgOption[]
+  >([]);
+  const [selectedOwnerOrgId, setSelectedOwnerOrgId] = useState<string>();
 
   const runSearch = useCallback(
     async (query: string, ignore: () => boolean) => {
@@ -99,6 +137,59 @@ export function EquipmentPage() {
       window.clearTimeout(timer);
     };
   }, [managementNo, runSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!canSelectEquipmentOwnerOrg || !groupAdminSourceToken) {
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        setOwnerOrgOptions([]);
+        setSelectedOwnerOrgId(undefined);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    async function loadOwnerOrgs() {
+      try {
+        const groups = await listGroupAdminGroups(groupAdminSourceToken);
+        if (cancelled) return;
+        setOwnerOrgOptions(flattenOwnerOrgOptions(groups));
+      } catch {
+        if (!cancelled) setOwnerOrgOptions([]);
+      }
+    }
+
+    void loadOwnerOrgs();
+    return () => {
+      cancelled = true;
+    };
+  }, [canSelectEquipmentOwnerOrg, groupAdminSourceToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      if (!canSelectEquipmentOwnerOrg || ownerOrgOptions.length === 0) {
+        setSelectedOwnerOrgId(undefined);
+        return;
+      }
+      setSelectedOwnerOrgId((current) => {
+        if (current && ownerOrgOptions.some((option) => option.id === current)) {
+          return current;
+        }
+        if (activeOrgId && ownerOrgOptions.some((option) => option.id === activeOrgId)) {
+          return activeOrgId;
+        }
+        return ownerOrgOptions[0]?.id;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeOrgId, canSelectEquipmentOwnerOrg, ownerOrgOptions]);
 
   function handleChange(value: string) {
     setManagementNo(value);
@@ -172,6 +263,12 @@ export function EquipmentPage() {
             api={api}
             results={suggestions}
             onMutated={refreshSearch}
+            ownerOrgOptions={ownerOrgOptions}
+            ownerSelectionRequired={canSelectEquipmentOwnerOrg}
+            selectedOwnerOrgId={selectedOwnerOrgId}
+            onSelectedOwnerOrgIdChange={setSelectedOwnerOrgId}
+            activeOrgId={activeOrgId}
+            groupAdminSourceToken={groupAdminSourceToken}
           />
         ) : null}
         {/* Master-list bulk .xlsx import (MasterListImport: ADMIN/SUPER_ADMIN). */}

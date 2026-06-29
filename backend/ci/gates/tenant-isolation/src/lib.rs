@@ -58,6 +58,14 @@ pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
             "auth_webauthn_ceremonies",
             "pre-auth ceremony state, user/org not yet resolved",
         ),
+        // Cross-device login handoff state: a desktop starts polling before the
+        // approving phone has proven user/org/passkey possession. It stores
+        // split-token hashes plus optional target/approved identity columns,
+        // expires quickly, and is not tenant business data.
+        (
+            "auth_device_login_handoffs",
+            "pre-auth cross-device login handoff, tenant resolved only after approval",
+        ),
         // Apalis job/queue tables: created and owned by the apalis-postgres
         // worker runtime, NOT by our migrations. Listed so that if a future
         // migration ever does touch them, the classifier already accounts for
@@ -1236,6 +1244,31 @@ mod tests {
                 .iter()
                 .any(|v| v.kind == ViolationKind::UnclassifiedTable),
             "allowlisted global table must not be unclassified: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn pre_auth_device_login_handoff_is_classified_global() {
+        let dir = tmpdir("device-login-handoff");
+        write(
+            &dir,
+            "0001_w.sql",
+            "CREATE TABLE auth_device_login_handoffs (
+                id uuid primary key,
+                poll_token_hash bytea not null,
+                approve_token_hash bytea not null,
+                target_org_id uuid,
+                approved_org_id uuid
+            );\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            !result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::UnclassifiedTable),
+            "pre-auth device login handoff must be classified as an explicit global table: {:?}",
             result.violations
         );
     }

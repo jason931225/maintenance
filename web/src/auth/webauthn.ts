@@ -176,6 +176,11 @@ export async function acceptPrivacyConsent(
 }
 
 type EnrollHandoffResponse = components["schemas"]["EnrollHandoffResponse"];
+type DeviceLoginStartResponse =
+  components["schemas"]["DeviceLoginStartResponse"];
+type DeviceLoginPollResponse =
+  components["schemas"]["DeviceLoginPollResponse"];
+
 
 /**
  * Mint a cross-device passkey-enrollment handoff for the authenticated user. The
@@ -198,6 +203,67 @@ export async function issueEnrollHandoff(
     body: stepUp ? { step_up: stepUp } : {},
   });
   return requireData<EnrollHandoffResponse>(result.data);
+}
+
+export async function startDeviceLogin(
+  api: WebAuthnApi,
+): Promise<DeviceLoginStartResponse> {
+  const result = await api.POST("/api/v1/auth/device-login/start", {});
+  return requireData<DeviceLoginStartResponse>(result.data);
+}
+
+export async function pollDeviceLogin(
+  api: WebAuthnApi,
+  pollToken: string,
+): Promise<DeviceLoginPollResponse> {
+  const result = await api.POST("/api/v1/auth/device-login/poll", {
+    body: { poll_token: pollToken },
+  });
+  return requireData<DeviceLoginPollResponse>(result.data);
+}
+
+/**
+ * Phone-side approval for a desktop QR login when the phone already has a
+ * passkey. This verifies the phone passkey and approves the waiting desktop
+ * session; it deliberately does NOT accept tokens on the phone.
+ */
+export async function approveDeviceLoginWithPasskey(
+  api: WebAuthnApi,
+  approveToken: string,
+): Promise<void> {
+  const ceremony = await startPasskeyLogin(api);
+  const credential = await getCredential(ceremony.publicKey);
+  const result = await api.POST("/api/v1/auth/device-login/approve", {
+    body: {
+      approve_token: approveToken,
+      ceremony_id: ceremony.ceremonyId,
+      credential: publicKeyCredentialToJson(credential),
+    },
+  });
+  if (!result.response.ok) {
+    throw new Error(
+      `device login approval failed: ${String(result.response.status)}`,
+    );
+  }
+}
+
+/**
+ * Phone-side approval after first-time QR enrollment. The phone is now
+ * authenticated and has just registered a passkey; this links that completed
+ * enrollment back to the waiting desktop poll token.
+ */
+export async function approveDeviceLoginSession(
+  api: WebAuthnApi,
+  approveToken: string,
+): Promise<void> {
+  const result = await api.POST("/api/v1/auth/device-login/approve-session", {
+    body: { approve_token: approveToken },
+  });
+  if (!result.response.ok) {
+    throw new Error(
+      `device login session approval failed: ${String(result.response.status)}`,
+    );
+  }
 }
 
 export async function startPasskeyRegistration(

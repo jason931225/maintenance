@@ -34,6 +34,7 @@ import kotlinx.serialization.Contextual
  * @param accessToken
  * @param tokenType
  * @param refreshExpiresAt
+ * @param requiresPasskeySetup True when the refreshed session belongs to an OTP-signed-in user who still has no passkey. Web clients must keep routing this session to initial passkey enrollment after a reload; passkey-authenticated sessions return false.
  * @param refreshToken The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
  */
 @Serializable
@@ -48,6 +49,10 @@ data class TokenPairResponse (
 
     @Contextual @SerialName(value = "refresh_expires_at")
     val refreshExpiresAt: java.time.OffsetDateTime,
+
+    /* True when the refreshed session belongs to an OTP-signed-in user who still has no passkey. Web clients must keep routing this session to initial passkey enrollment after a reload; passkey-authenticated sessions return false. */
+    @SerialName(value = "requires_passkey_setup")
+    val requiresPasskeySetup: kotlin.Boolean,
 
     /* The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS. */
     @SerialName(value = "refresh_token")

@@ -24,12 +24,12 @@ import { WorkOrderDetail } from "../dispatch/WorkOrderDetail";
 interface ApprovalQueueProps {
   workOrders: WorkOrderListItem[];
   focusedWorkOrderId?: string;
-  onApprove: (workOrderId: string) => Promise<boolean>;
+  onApprove: (workOrderId: string, comment: string) => Promise<boolean>;
   onReject: (workOrderId: string, memo: string) => Promise<boolean>;
 }
 
 /** The order the per-order reject dialog is scoped to (carries its own memo). */
-interface RejectTarget {
+interface DecisionTarget {
   id: string;
   requestNo: string;
 }
@@ -41,24 +41,33 @@ export function ApprovalQueue({
   onReject,
 }: ApprovalQueueProps) {
   // The currently approving order id (locks every action while in flight).
-  const [approving, setApproving] = useState<string | undefined>();
+  const [approveTarget, setApproveTarget] = useState<DecisionTarget | undefined>();
+  const [approveComment, setApproveComment] = useState("");
+  const [approveCommentError, setApproveCommentError] = useState<string | undefined>();
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState<string | undefined>();
   // The order whose reject dialog is open, plus that dialog's own memo. Scoping
   // the memo to this single target makes it impossible to reject order B with a
   // memo that was typed for order A.
-  const [rejectTarget, setRejectTarget] = useState<RejectTarget | undefined>();
+  const [rejectTarget, setRejectTarget] = useState<DecisionTarget | undefined>();
   const [rejectMemo, setRejectMemo] = useState("");
   const [rejectMemoError, setRejectMemoError] = useState<string | undefined>();
   const [rejecting, setRejecting] = useState(false);
   const [rejectError, setRejectError] = useState<string | undefined>();
   const [feedback, setFeedback] = useState<"approved" | "rejected" | "error">();
 
+  const approveTitleId = useId();
+  const approveMessageId = useId();
+  const approveCommentId = useId();
+  const approveCommentErrorId = useId();
+  const approveCommentRef = useRef<HTMLTextAreaElement>(null);
   const rejectTitleId = useId();
   const rejectMessageId = useId();
   const rejectMemoId = useId();
   const rejectMemoErrorId = useId();
   const rejectMemoRef = useRef<HTMLTextAreaElement>(null);
 
-  const busy = Boolean(approving) || rejecting;
+  const busy = approving || rejecting;
 
   // Self-dismiss the action result: success clears fast, an error lingers a bit
   // longer so it is not missed before it disappears.
@@ -81,18 +90,51 @@ export function ApprovalQueue({
       pending.some((workOrder) => workOrder.id === focusedWorkOrderId),
   );
 
-  async function handleApprove(workOrderId: string) {
+  function openApproveDialog(target: DecisionTarget) {
     if (busy) {
       return;
     }
-    setFeedback(undefined);
-    setApproving(workOrderId);
-    const ok = await onApprove(workOrderId);
-    setApproving(undefined);
-    setFeedback(ok ? "approved" : "error");
+    setApproveTarget(target);
+    setApproveComment("");
+    setApproveCommentError(undefined);
+    setApproveError(undefined);
   }
 
-  function openRejectDialog(target: RejectTarget) {
+  function closeApproveDialog() {
+    if (approving) {
+      return;
+    }
+    setApproveTarget(undefined);
+    setApproveComment("");
+    setApproveCommentError(undefined);
+    setApproveError(undefined);
+  }
+
+  async function confirmApprove() {
+    if (!approveTarget || approving) {
+      return;
+    }
+    const trimmedComment = approveComment.trim();
+    if (!trimmedComment) {
+      setApproveCommentError(ko.approvals.requiredApproveComment);
+      return;
+    }
+    setFeedback(undefined);
+    setApproveError(undefined);
+    setApproving(true);
+    const ok = await onApprove(approveTarget.id, trimmedComment);
+    setApproving(false);
+    if (ok) {
+      setApproveTarget(undefined);
+      setApproveComment("");
+      setFeedback("approved");
+    } else {
+      setApproveError(ko.approvals.actionFailed);
+      setFeedback("error");
+    }
+  }
+
+  function openRejectDialog(target: DecisionTarget) {
     if (busy) {
       return;
     }
@@ -184,9 +226,12 @@ export function ApprovalQueue({
             workOrder={workOrder}
             isFocused={workOrder.id === focusedWorkOrderId}
             busy={busy}
-            approving={approving === workOrder.id}
+            approving={approving && approveTarget?.id === workOrder.id}
             onApprove={() => {
-              void handleApprove(workOrder.id);
+              openApproveDialog({
+                id: workOrder.id,
+                requestNo: workOrder.request_no,
+              });
             }}
             onReject={() => {
               openRejectDialog({
@@ -197,6 +242,92 @@ export function ApprovalQueue({
           />
         ))}
       </div>
+
+      <Dialog
+        open={Boolean(approveTarget)}
+        onClose={closeApproveDialog}
+        titleId={approveTitleId}
+        describedById={approveMessageId}
+        initialFocusRef={approveCommentRef}
+        closeOnScrimClick={!approving}
+      >
+        <div className="grid gap-1">
+          <h2 id={approveTitleId} className="text-lg font-semibold text-ink">
+            {ko.approvals.approveTitle}
+          </h2>
+          <p id={approveMessageId} className="text-sm text-steel">
+            {approveTarget ? (
+              <>
+                <span className="font-semibold text-ink">
+                  {approveTarget.requestNo}
+                </span>
+                {" — "}
+                {ko.approvals.approveMessage}
+              </>
+            ) : (
+              ko.approvals.approveMessage
+            )}
+          </p>
+        </div>
+
+        <div className="grid gap-2">
+          <label
+            className="text-sm font-medium text-steel"
+            htmlFor={approveCommentId}
+          >
+            {ko.approvals.approveCommentLabel}
+          </label>
+          <Textarea
+            id={approveCommentId}
+            ref={approveCommentRef}
+            rows={3}
+            value={approveComment}
+            placeholder={ko.approvals.approveCommentPlaceholder}
+            disabled={approving}
+            aria-invalid={Boolean(approveCommentError)}
+            aria-describedby={approveCommentError ? approveCommentErrorId : undefined}
+            onChange={(event) => {
+              setApproveComment(event.currentTarget.value);
+              setApproveCommentError(undefined);
+            }}
+          />
+          {approveCommentError ? (
+            <p
+              id={approveCommentErrorId}
+              role="alert"
+              className="text-sm font-medium text-red-700"
+            >
+              {approveCommentError}
+            </p>
+          ) : null}
+        </div>
+
+        {approveError ? (
+          <p role="alert" className="text-sm font-medium text-red-700">
+            {approveError}
+          </p>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={approving}
+            onClick={closeApproveDialog}
+          >
+            {ko.common.cancel}
+          </Button>
+          <Button
+            type="button"
+            disabled={approving}
+            onClick={() => {
+              void confirmApprove();
+            }}
+          >
+            {approving ? ko.approvals.approving : ko.approvals.approveConfirm}
+          </Button>
+        </div>
+      </Dialog>
 
       {/* Per-order reject dialog (destructive). Scoped to a single order with its
           own required memo, built on the Dialog primitive so the memo lives in

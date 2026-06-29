@@ -149,7 +149,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Edit work-order intake narrative fields */
+        patch: operations["updateWorkOrderIntake"];
         trace?: never;
     };
     "/api/work-orders/{workOrderId}/priority": {
@@ -1355,6 +1356,86 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/device-login/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start desktop QR login handoff
+         * @description Creates a short-lived desktop login handoff. The desktop keeps the `poll_token` and renders `approve_url` as a QR. A phone opens the approve URL and proves a passkey; the desktop then polls once for its own token pair. No phone session is minted by this endpoint.
+         */
+        post: operations["startDeviceLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/device-login/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll a desktop QR login handoff
+         * @description Desktop-only polling endpoint. Pending/expired responses carry no tokens. Once a phone has approved the paired approve token, this endpoint consumes the poll token exactly once and returns a normal token pair; in web cookie transport the refresh token is set as `mnt_refresh` and is omitted from the JSON body.
+         */
+        post: operations["pollDeviceLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/device-login/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a desktop QR login with an existing phone passkey
+         * @description Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless passkey assertion; the approved user is resolved from that assertion. This endpoint does not mint a phone token.
+         */
+        post: operations["approveDeviceLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/device-login/approve-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a desktop QR login from an authenticated phone session
+         * @description Phone-side approval used after first-time QR enrollment. The phone has redeemed the handoff OTP and enrolled a passkey; this authenticated call links that phone-registered passkey back to the waiting desktop poll token.
+         */
+        post: operations["approveDeviceLoginSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3389,6 +3470,10 @@ export interface components {
             customer_request?: string;
             target_due_at?: components["schemas"]["Timestamp"];
         };
+        UpdateWorkOrderIntakeRequest: {
+            symptom?: string;
+            customer_request?: string;
+        };
         AssignWorkOrderRequest: {
             assignments: {
                 mechanic_id: components["schemas"]["Uuid"];
@@ -3415,7 +3500,7 @@ export interface components {
             mechanic_id: components["schemas"]["Uuid"];
             plan_date: components["schemas"]["Date"];
             items: {
-                work_order_id?: components["schemas"]["Uuid"];
+                work_order_id: components["schemas"]["Uuid"];
                 description: string;
             }[];
         };
@@ -3427,6 +3512,9 @@ export interface components {
             vendor_name: string;
             vendor_contact?: string;
             reason: string;
+        };
+        ApproveWorkOrderRequest: {
+            comment: string;
         };
         RejectWorkOrderRequest: {
             memo: string;
@@ -3867,6 +3955,7 @@ export interface components {
             role: string;
             /** Format: uuid */
             approver_id: string | null;
+            approver_name: string | null;
             status: string;
             /** Format: date-time */
             requested_at: string | null;
@@ -3874,6 +3963,8 @@ export interface components {
             approved_at: string | null;
             /** Format: uuid */
             approved_by_id: string | null;
+            approved_by_name: string | null;
+            decision_comment: string | null;
         };
         StatusHistorySummary: {
             id: components["schemas"]["Uuid"];
@@ -4376,13 +4467,48 @@ export interface components {
         EnrollHandoffRequest: {
             step_up?: components["schemas"]["PasskeyStepUpAssertion"];
         };
-        /** @description The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, and enrolls a platform passkey. */
+        /** @description The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, enrolls a platform passkey, then approves the paired desktop poll token when `desktop_approve` is present in the URL fragment. */
         EnrollHandoffResponse: {
             /** @description The single-use enrollment handoff code. */
             otp: string;
             expires_at: components["schemas"]["Timestamp"];
-            /** @description The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone. */
+            /** @description The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>&desktop_approve=<approve-token>`), to be rendered as a QR and scanned on a phone. */
             enroll_url: string;
+            /** @description Desktop-only poll token paired to the phone enrollment QR. The desktop polls the device-login endpoint with this token and receives its own session once the phone enrollment approves the handoff. */
+            poll_token: string;
+        };
+        DeviceLoginStartResponse: {
+            /** @description Desktop-only token used to poll for approval. */
+            poll_token: string;
+            /** @description Phone QR URL carrying the approve token in the URL fragment. */
+            approve_url: string;
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        DeviceLoginPollRequest: {
+            poll_token: string;
+        };
+        DeviceLoginPollResponse: {
+            /** @enum {string} */
+            status: "pending" | "approved" | "expired";
+            access_token?: string | null;
+            /** @description Null in web cookie transport; present in body transport. */
+            refresh_token?: string | null;
+            /** @enum {string|null} */
+            token_type?: "Bearer" | null;
+            /** Format: date-time */
+            refresh_expires_at?: string | null;
+            /** @description Approved desktop QR sessions are passkey-authenticated and return false. */
+            requires_passkey_setup?: boolean | null;
+        };
+        DeviceLoginApproveRequest: {
+            approve_token: string;
+            ceremony_id: components["schemas"]["Uuid"];
+            credential: {
+                [key: string]: unknown;
+            };
+        };
+        DeviceLoginApproveSessionRequest: {
+            approve_token: string;
         };
         /** @description Required initial-login Korean privacy collection/use and service-terms acknowledgement. These required agreements are explicit booleans so the client cannot bundle them into one generic "agree all" flag. Optional marketing consent and GPS/location consent are not collected by this request. */
         PrivacyConsentAcceptRequest: {
@@ -4430,6 +4556,8 @@ export interface components {
             /** @enum {string} */
             token_type: "Bearer";
             refresh_expires_at: components["schemas"]["Timestamp"];
+            /** @description True when the refreshed session belongs to an OTP-signed-in user who still has no passkey. Web clients must keep routing this session to initial passkey enrollment after a reload; passkey-authenticated sessions return false. */
+            requires_passkey_setup: boolean;
         };
         WorkOrderSummary: {
             id: components["schemas"]["Uuid"];
@@ -4451,12 +4579,24 @@ export interface components {
             /** @enum {string} */
             status?: "REQUESTED" | "APPROVED" | "REJECTED";
         };
+        DailyPlanItemSummary: {
+            work_order_id?: components["schemas"]["Uuid"];
+            request_no?: string | null;
+            equipment_no?: string | null;
+            management_no?: string | null;
+            customer_name?: string | null;
+            site_name?: string | null;
+            description: string;
+            /** Format: int32 */
+            sort_order: number;
+        };
         DailyPlanSummary: {
             id?: components["schemas"]["Uuid"];
             branch_id?: components["schemas"]["Uuid"];
             mechanic_id?: components["schemas"]["Uuid"];
             plan_date?: components["schemas"]["Date"];
             status?: components["schemas"]["DailyPlanStatus"];
+            items?: components["schemas"]["DailyPlanItemSummary"][];
         };
         DailyPlanListPage: {
             items: components["schemas"]["DailyPlanSummary"][];
@@ -6031,6 +6171,36 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    updateWorkOrderIntake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workOrderId: components["parameters"]["WorkOrderId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkOrderIntakeRequest"];
+            };
+        };
+        responses: {
+            /** @description Work order updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrderSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     updateWorkOrderPriority: {
         parameters: {
             query?: never;
@@ -6142,7 +6312,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveWorkOrderRequest"];
+            };
+        };
         responses: {
             /** @description Updated work-order approval state. */
             200: {
@@ -7870,6 +8044,102 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    startDeviceLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Poll token and phone approval URL for the desktop QR. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceLoginStartResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    pollDeviceLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceLoginPollRequest"];
+            };
+        };
+        responses: {
+            /** @description Pending, expired, or approved desktop-login status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceLoginPollResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    approveDeviceLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceLoginApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description The desktop handoff was approved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    approveDeviceLoginSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceLoginApproveSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description The desktop handoff was approved from the authenticated phone session. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     listAuthPasskeys: {

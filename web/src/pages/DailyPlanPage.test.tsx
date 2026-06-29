@@ -24,6 +24,7 @@ afterAll(() => {
 });
 
 const planId = "abcdef01-abcd-4bcd-8bcd-abcdefabcdef";
+const sourceWorkOrderId = "11111111-1111-4111-8111-111111111111";
 
 const mechanics = [
   {
@@ -90,6 +91,54 @@ function usersHandler() {
   return http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics)));
 }
 
+function workOrdersHandler() {
+  return http.get("*/api/v1/work-orders", () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: sourceWorkOrderId,
+          request_no: "20260629-001",
+          branch_id: branchId,
+          status: "RECEIVED",
+          priority: "P2",
+          result_type: "UNKNOWN",
+          target_due_at: null,
+          created_at: "2026-06-29T00:00:00Z",
+          updated_at: "2026-06-29T00:00:00Z",
+          equipment: {
+            id: "22222222-2222-4222-8222-222222222222",
+            equipment_no: "EXP30-0001",
+            management_no: "001",
+            model: "EX30",
+            status: "임대",
+            specification: "굴착기",
+            ton_text: "3t",
+          },
+          customer: {
+            id: "33333333-3333-4333-8333-333333333333",
+            name: "항성",
+          },
+          site: {
+            id: "44444444-4444-4444-8444-444444444444",
+            name: "1공장",
+          },
+          site_contact: null,
+          assignments: [],
+        },
+      ],
+      limit: 100,
+      offset: 0,
+      total: 1,
+    }),
+  );
+}
+
+function dailyPlansHandler() {
+  return http.get("*/api/daily-work-plans", () =>
+    HttpResponse.json({ items: [] }),
+  );
+}
+
 function planSummary(status: string) {
   return {
     id: planId,
@@ -97,6 +146,18 @@ function planSummary(status: string) {
     mechanic_id: primaryMechanicId,
     plan_date: "2026-06-16",
     status,
+    items: [
+      {
+        work_order_id: sourceWorkOrderId,
+        request_no: "20260629-001",
+        equipment_no: "EXP30-0001",
+        management_no: "001",
+        customer_name: "항성",
+        site_name: "1공장",
+        description: "오일 교환",
+        sort_order: 1,
+      },
+    ],
   };
 }
 
@@ -109,7 +170,9 @@ describe("DailyPlanPage", () => {
     const confirmed = vi.fn();
 
     server.use(
+      dailyPlansHandler(),
       usersHandler(),
+      workOrdersHandler(),
       http.post("*/api/daily-work-plans", async ({ request }) => {
         created(await request.json());
         return HttpResponse.json(planSummary("DRAFT"), { status: 201 });
@@ -137,6 +200,10 @@ describe("DailyPlanPage", () => {
     const dateInput = screen.getByLabelText("계획 일자");
     await user.clear(dateInput);
     await user.type(dateInput, "2026-06-16");
+    await user.selectOptions(
+      await screen.findByLabelText("접수내용 1"),
+      sourceWorkOrderId,
+    );
     await user.type(screen.getByLabelText("작업 내용 1"), "오일 교환");
     await user.click(screen.getByRole("button", { name: "계획 생성" }));
 
@@ -145,7 +212,7 @@ describe("DailyPlanPage", () => {
         branch_id: branchId,
         mechanic_id: primaryMechanicId,
         plan_date: "2026-06-16",
-        items: [{ description: "오일 교환" }],
+        items: [{ work_order_id: sourceWorkOrderId, description: "오일 교환" }],
       });
     });
     expect(await screen.findByText("작성 중")).toBeVisible();
@@ -175,7 +242,9 @@ describe("DailyPlanPage", () => {
   it("lets a mechanic create and request review but not approve", async () => {
     const user = userEvent.setup();
     server.use(
+      dailyPlansHandler(),
       usersHandler(),
+      workOrdersHandler(),
       http.post("*/api/daily-work-plans", () =>
         HttpResponse.json(planSummary("DRAFT"), { status: 201 }),
       ),
@@ -190,6 +259,10 @@ describe("DailyPlanPage", () => {
     await user.selectOptions(
       screen.getByLabelText("담당 정비사"),
       primaryMechanicId,
+    );
+    await user.selectOptions(
+      await screen.findByLabelText("접수내용 1"),
+      sourceWorkOrderId,
     );
     await user.type(screen.getByLabelText("작업 내용 1"), "타이어 점검");
     await user.click(screen.getByRole("button", { name: "계획 생성" }));

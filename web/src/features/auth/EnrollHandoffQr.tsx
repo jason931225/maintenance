@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
-import { issueEnrollHandoff } from "../../auth/webauthn";
+import { issueEnrollHandoff, pollDeviceLogin } from "../../auth/webauthn";
 
 interface EnrollHandoffQrProps {
   /**
@@ -13,19 +13,24 @@ interface EnrollHandoffQrProps {
    * mid-onboarding first enrollment, where there is no existing passkey to assert.
    */
   requireStepUp: boolean;
-  /**
-   * Number of credentials that already existed before this QR was shown. The
-   * desktop considers the phone flow complete only when the authenticated
-   * user's credential count grows beyond this value.
+  /** Deprecated compatibility prop: the desktop now observes the paired
+   * device-login handoff, not a credential-count poll.
    */
   initialPasskeyCount?: number;
-  /** Called once the desktop observes the phone-created passkey. */
-  onCompleted?: () => void;
+  /** Called once the desktop receives its approved token from the phone handoff. */
+  onCompleted?: (accessToken?: string) => void;
 }
 
 type HandoffState =
   | { status: "loading" }
-  | { status: "ready"; url: string; otp: string; expiresAt: string }
+  | {
+      status: "ready";
+      url: string;
+      otp: string;
+      expiresAt: string;
+      pollToken: string;
+    }
+  | { status: "expired" }
   | { status: "error" };
 
 /**
@@ -42,7 +47,6 @@ const COMPLETION_POLL_MS = 2_500;
 
 export function EnrollHandoffQr({
   requireStepUp,
-  initialPasskeyCount = 0,
   onCompleted,
 }: EnrollHandoffQrProps) {
   const { api } = useAuth();
@@ -61,6 +65,7 @@ export function EnrollHandoffQr({
         url: handoff.enroll_url,
         otp: handoff.otp,
         expiresAt: handoff.expires_at,
+        pollToken: handoff.poll_token,
       });
     } catch {
       setState({ status: "error" });
@@ -77,16 +82,21 @@ export function EnrollHandoffQr({
   useEffect(() => {
     if (state.status !== "ready" || completed) return;
     let cancelled = false;
+    const pollToken = state.pollToken;
 
     async function pollCompletion() {
-      const response = await api.GET("/api/v1/auth/passkeys").catch(() => undefined);
-      if (cancelled || !response?.data) return;
-      if (response.data.length <= initialPasskeyCount) return;
+      const result = await pollDeviceLogin(api, pollToken).catch(() => undefined);
+      if (cancelled || !result) return;
+      if (result.status === "expired") {
+        setState({ status: "expired" });
+        return;
+      }
+      if (result.status !== "approved" || !result.access_token) return;
       if (completedRef.current) return;
 
       completedRef.current = true;
       setCompleted(true);
-      onCompleted?.();
+      onCompleted?.(result.access_token);
     }
 
     void pollCompletion();
@@ -97,7 +107,7 @@ export function EnrollHandoffQr({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [api, completed, initialPasskeyCount, onCompleted, state.status]);
+  }, [api, completed, onCompleted, state]);
 
   if (state.status === "loading") {
     return (
@@ -107,11 +117,13 @@ export function EnrollHandoffQr({
     );
   }
 
-  if (state.status === "error") {
+  if (state.status === "error" || state.status === "expired") {
     return (
       <div className="grid gap-3">
         <p role="alert" className="text-sm font-medium text-red-700">
-          {ko.enrollHandoff.failed}
+          {state.status === "expired"
+            ? ko.enrollHandoff.expired
+            : ko.enrollHandoff.failed}
         </p>
         <Button
           type="button"

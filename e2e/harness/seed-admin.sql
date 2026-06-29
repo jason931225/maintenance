@@ -89,8 +89,8 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO work_order_approval_steps (work_order_id, step_order, role, approver_id, status, requested_at, approved_at, approved_by_id, org_id)
 VALUES
   ('00000000-0000-0000-0000-000000f00007', 1, 'MECHANIC',  :'mech_id', 'APPROVED', now(), now(), :'mech_id', :'org_id'),
-  ('00000000-0000-0000-0000-000000f00007', 2, 'ADMIN',     NULL,       'PENDING',  now(), NULL, NULL,        :'org_id'),
-  ('00000000-0000-0000-0000-000000f00007', 3, 'EXECUTIVE', NULL,       'NOT_STARTED', NULL, NULL, NULL,     :'org_id')
+  ('00000000-0000-0000-0000-000000f00007', 2, 'ADMIN',     :'admin_id', 'PENDING',  now(), NULL, NULL,        :'org_id'),
+  ('00000000-0000-0000-0000-000000f00007', 3, 'EXECUTIVE', :'sadmin_id', 'NOT_STARTED', NULL, NULL, NULL,     :'org_id')
 ON CONFLICT (work_order_id, step_order) DO NOTHING;
 
 INSERT INTO work_orders (
@@ -112,6 +112,16 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO work_order_assignments (id, work_order_id, mechanic_id, role, assigned_at, org_id)
 VALUES ('00000000-0000-0000-0000-000000a00008', '00000000-0000-0000-0000-000000f00008', :'mech_id', 'PRIMARY', now(), :'org_id')
 ON CONFLICT (id) DO NOTHING;
+
+-- Approval line for the reject-target WO: mechanic step APPROVED, admin step
+-- PENDING and assigned to the seeded admin. The queue intentionally hides
+-- unassigned approver steps so the audit log can identify the actual actor.
+INSERT INTO work_order_approval_steps (work_order_id, step_order, role, approver_id, status, requested_at, approved_at, approved_by_id, org_id)
+VALUES
+  ('00000000-0000-0000-0000-000000f00008', 1, 'MECHANIC',  :'mech_id',  'APPROVED', now(), now(), :'mech_id', :'org_id'),
+  ('00000000-0000-0000-0000-000000f00008', 2, 'ADMIN',     :'admin_id', 'PENDING',  now(), NULL, NULL,        :'org_id'),
+  ('00000000-0000-0000-0000-000000f00008', 3, 'EXECUTIVE', :'sadmin_id', 'NOT_STARTED', NULL, NULL, NULL,     :'org_id')
+ON CONFLICT (work_order_id, step_order) DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- ADMIN-09: a RECEIVED P1 work order with a BROADCASTING dispatch so the dispatch

@@ -35,10 +35,13 @@ import kotlinx.serialization.Contextual
  * @param stepOrder
  * @param role
  * @param approverId
+ * @param approverName
  * @param status
  * @param requestedAt
  * @param approvedAt
  * @param approvedById
+ * @param approvedByName
+ * @param decisionComment
  */
 @Serializable
 
@@ -56,6 +59,9 @@ data class ApprovalStepSummary (
     @Contextual @SerialName(value = "approver_id")
     val approverId: java.util.UUID?,
 
+    @SerialName(value = "approver_name")
+    val approverName: kotlin.String?,
+
     @SerialName(value = "status")
     val status: kotlin.String,
 
@@ -66,7 +72,13 @@ data class ApprovalStepSummary (
     val approvedAt: java.time.OffsetDateTime?,
 
     @Contextual @SerialName(value = "approved_by_id")
-    val approvedById: java.util.UUID?
+    val approvedById: java.util.UUID?,
+
+    @SerialName(value = "approved_by_name")
+    val approvedByName: kotlin.String?,
+
+    @SerialName(value = "decision_comment")
+    val decisionComment: kotlin.String?
 
 ) {
 
