@@ -270,6 +270,61 @@ async fn cursor_pagination_is_stable_when_newer_messages_arrive(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn list_threads_reports_unread_incoming_messages_for_actor(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+        let base = OffsetDateTime::now_utc();
+        let _own = send_at(&store, &seeded, thread.id, "own setup", base).await;
+        let incoming = send_from(
+            &store,
+            seeded.recipient,
+            seeded.branch,
+            thread.id,
+            "incoming approval note",
+            base + Duration::seconds(1),
+        )
+        .await;
+
+        let visible = store
+            .list_threads(ListThreadsQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        let summary = visible.iter().find(|item| item.id == thread.id).unwrap();
+        assert_eq!(summary.unread_count, 1);
+
+        store
+            .mark_thread_read(MarkThreadReadCommand {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                last_read_message_id: incoming.id,
+                trace: TraceContext::generate(),
+                occurred_at: base + Duration::seconds(2),
+            })
+            .await
+            .unwrap();
+
+        let after_read = store
+            .list_threads(ListThreadsQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        let summary = after_read.iter().find(|item| item.id == thread.id).unwrap();
+        assert_eq!(summary.unread_count, 0);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn read_receipt_coalesces_to_latest_message_and_audits_once(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
         let seeded = seed_context(&pool).await;
@@ -392,6 +447,28 @@ async fn send_at(
         .send_message(SendMessageCommand {
             actor: seeded.sender,
             branch_scope: BranchScope::single(seeded.branch),
+            thread_id,
+            body: body.to_owned(),
+            attachment_evidence_ids: Vec::new(),
+            trace: TraceContext::generate(),
+            occurred_at,
+        })
+        .await
+        .unwrap()
+}
+
+async fn send_from(
+    store: &PgMessengerStore,
+    actor: UserId,
+    branch_id: BranchId,
+    thread_id: ThreadId,
+    body: &str,
+    occurred_at: OffsetDateTime,
+) -> mnt_messenger_application::MessageSummary {
+    store
+        .send_message(SendMessageCommand {
+            actor,
+            branch_scope: BranchScope::single(branch_id),
             thread_id,
             body: body.to_owned(),
             attachment_evidence_ids: Vec::new(),

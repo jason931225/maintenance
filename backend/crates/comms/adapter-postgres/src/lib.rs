@@ -699,6 +699,61 @@ impl PgMailStore {
         })
         .await
     }
+
+    async fn set_thread_seen_inner(
+        &self,
+        org: OrgId,
+        thread_id: uuid::Uuid,
+        seen: bool,
+        audit: AuditEvent,
+    ) -> Result<bool, PgMailError> {
+        let audit_org = audit
+            .org_id
+            .ok_or_else(|| KernelError::internal("mail thread read-state audit is missing org"))?;
+        if audit_org != org {
+            return Err(KernelError::internal("mail thread read-state audit org mismatch").into());
+        }
+
+        with_audit::<_, bool, PgMailError>(&self.pool, audit, move |tx| {
+            Box::pin(async move {
+                let folder_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
+                    "SELECT DISTINCT folder_id FROM email_messages WHERE thread_id = $1",
+                )
+                .bind(thread_id)
+                .fetch_all(tx.as_mut())
+                .await?;
+                let thread_exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM email_threads WHERE id = $1)")
+                        .bind(thread_id)
+                        .fetch_one(tx.as_mut())
+                        .await?;
+                if !thread_exists {
+                    return Ok(false);
+                }
+
+                sqlx::query(
+                    r#"
+                    UPDATE email_messages
+                    SET seen = $2, updated_at = now()
+                    WHERE thread_id = $1
+                      AND direction = 'IN'
+                      AND seen <> $2
+                    "#,
+                )
+                .bind(thread_id)
+                .bind(seen)
+                .execute(tx.as_mut())
+                .await?;
+
+                recompute_thread_read_state_tx(tx, thread_id).await?;
+                if !folder_ids.is_empty() {
+                    recompute_folder_counts_tx(tx, &folder_ids).await?;
+                }
+                Ok(true)
+            })
+        })
+        .await
+    }
 }
 
 impl MailReadStore for PgMailStore {
@@ -818,6 +873,20 @@ impl MailReadStore for PgMailStore {
     {
         Box::pin(async move {
             self.get_attachment_key_inner(org, attachment_id)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn set_thread_seen<'a>(
+        &'a self,
+        org: OrgId,
+        thread_id: uuid::Uuid,
+        seen: bool,
+        audit: AuditEvent,
+    ) -> mnt_comms_application::MailFuture<'a, Result<bool, MailServiceError>> {
+        Box::pin(async move {
+            self.set_thread_seen_inner(org, thread_id, seen, audit)
                 .await
                 .map_err(Into::into)
         })
@@ -1100,6 +1169,54 @@ async fn advance_folder_cursor_tx(
     .bind(folder_id)
     .bind(uid_validity)
     .bind(i64::from(imap_uid))
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn recompute_thread_read_state_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    thread_id: uuid::Uuid,
+) -> Result<(), PgMailError> {
+    sqlx::query(
+        r#"
+        UPDATE email_threads
+        SET unread_count = (
+                SELECT COUNT(*)::INTEGER FROM email_messages
+                WHERE thread_id = $1 AND direction = 'IN' AND seen = FALSE
+            ),
+            is_flagged = COALESCE((
+                SELECT BOOL_OR(flagged) FROM email_messages WHERE thread_id = $1
+            ), FALSE),
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(thread_id)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn recompute_folder_counts_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    folder_ids: &[uuid::Uuid],
+) -> Result<(), PgMailError> {
+    sqlx::query(
+        r#"
+        UPDATE email_folders f
+        SET unread_count = (
+                SELECT COUNT(*)::INTEGER FROM email_messages
+                WHERE folder_id = f.id AND seen = FALSE
+            ),
+            total_count = (
+                SELECT COUNT(*)::INTEGER FROM email_messages WHERE folder_id = f.id
+            ),
+            updated_at = now()
+        WHERE f.id = ANY($1)
+        "#,
+    )
+    .bind(folder_ids)
     .execute(tx.as_mut())
     .await?;
     Ok(())

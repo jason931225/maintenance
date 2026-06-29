@@ -412,6 +412,7 @@ struct MaintenanceFieldCoreBehaviorTests {
             branchId: messengerBranchID,
             title: "팀 채널",
             memberCount: 3,
+            unreadCount: 0,
             createdAt: isoDate("2026-06-12T09:00:00Z"),
             updatedAt: isoDate("2026-06-12T09:00:00Z")
         )

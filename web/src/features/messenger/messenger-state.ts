@@ -28,8 +28,14 @@ export type MessengerAction =
       page: MessengerMessagePage;
     }
   | { type: "messageSent"; message: MessengerMessageSummary }
+  | { type: "threadRead"; threadId: string }
   | { type: "searchResultsLoaded"; results: MessengerMessageSummary[] }
-  | { type: "realtimeEventReceived"; event: MessengerRealtimeEvent };
+  | {
+      type: "realtimeEventReceived";
+      event: MessengerRealtimeEvent;
+      selectedThreadId?: string;
+      currentUserId?: string;
+    };
 
 export function createMessengerState(): MessengerState {
   return {
@@ -69,14 +75,21 @@ export function messengerReducer(
     case "messagesPageLoaded":
       return mergeThreadMessages(state, action.threadId, action.page);
     case "messageSent":
-      return upsertMessage(state, action.message);
+      return upsertMessage(state, action.message, { markRead: true });
+    case "threadRead":
+      return markThreadRead(state, action.threadId);
     case "searchResultsLoaded":
       return {
         ...state,
         searchResults: sortMessages(action.results),
       };
     case "realtimeEventReceived":
-      return upsertMessage(state, action.event.message);
+      return upsertMessage(state, action.event.message, {
+        markRead: action.event.message.thread_id === action.selectedThreadId,
+        incrementUnread:
+          action.event.message.thread_id !== action.selectedThreadId &&
+          action.event.message.sender_id !== action.currentUserId,
+      });
   }
 }
 
@@ -114,6 +127,7 @@ function mergeThreadMessages(
 function upsertMessage(
   state: MessengerState,
   message: MessengerMessageSummary,
+  options: { markRead?: boolean; incrementUnread?: boolean } = {},
 ): MessengerState {
   const messages = mergeMessages(
     state.messagesByThread[message.thread_id] ?? [],
@@ -129,6 +143,7 @@ function upsertMessage(
               last_message_id: message.id,
               last_message_at: message.sent_at,
               updated_at: message.created_at,
+              unread_count: nextUnreadCount(thread, options),
             }
           : thread,
       ),
@@ -142,6 +157,28 @@ function upsertMessage(
       [message.thread_id]: message.id,
     },
   };
+}
+
+function markThreadRead(state: MessengerState, threadId: string): MessengerState {
+  return {
+    ...state,
+    threads: state.threads.map((thread) =>
+      thread.id === threadId ? { ...thread, unread_count: 0 } : thread,
+    ),
+  };
+}
+
+function nextUnreadCount(
+  thread: MessengerThreadSummary,
+  options: { markRead?: boolean; incrementUnread?: boolean },
+): number {
+  if (options.markRead) {
+    return 0;
+  }
+  if (options.incrementUnread) {
+    return Math.max(0, thread.unread_count) + 1;
+  }
+  return Math.max(0, thread.unread_count);
 }
 
 function mergeMessages(

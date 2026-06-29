@@ -3171,6 +3171,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mail/threads/{id}/read-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Mark a mail thread read or unread
+         * @description Sets every inbound message in the visible thread to read or unread and recomputes thread/folder unread aggregates. The action is RLS-armed to the caller's org and audited without duplicating message content. Requires the MailUse feature.
+         */
+        patch: operations["setMailThreadReadState"];
+        trace?: never;
+    };
     "/api/v1/mail/messages/{id}": {
         parameters: {
             query?: never;
@@ -4493,6 +4513,11 @@ export interface components {
             last_message_at: string | null;
             /** Format: int64 */
             member_count: number;
+            /**
+             * Format: int64
+             * @description Messages newer than the caller's read receipt, excluding messages sent by the caller.
+             */
+            unread_count: number;
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };
@@ -5673,6 +5698,10 @@ export interface components {
             unread_count: number;
             has_attachments: boolean;
             is_flagged: boolean;
+        };
+        MailThreadReadStateRequest: {
+            /** @description True marks inbound messages in the thread read; false marks them unread. */
+            seen: boolean;
         };
         MailThreadDetail: {
             id: components["schemas"]["Uuid"];
@@ -10629,6 +10658,35 @@ export interface operations {
                     "application/json": components["schemas"]["MailThreadDetail"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    setMailThreadReadState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailThreadReadStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Thread read-state updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

@@ -217,6 +217,7 @@ function installHappyHandlers() {
             work_order_id: workOrderListItems[0].id,
             last_message_id: "66666666-6666-4666-8666-666666666666",
             last_message_at: "2026-06-28T02:00:00Z",
+            unread_count: 1,
             member_count: 4,
             created_at: "2026-06-28T01:00:00Z",
             updated_at: "2026-06-28T02:00:00Z",
@@ -404,6 +405,41 @@ describe("WorkHubPage", () => {
     expect(await screen.findByText("부품 입고 확인")).toBeVisible();
     expect(screen.queryByText("이미 닫힌 요청")).not.toBeInTheDocument();
     expect(screen.queryByText("이미 해결된 요청")).not.toBeInTheDocument();
+  });
+
+  it("does not keep an already-read messenger thread in the action inbox", async () => {
+    installHappyHandlers();
+    server.use(
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "55555555-5555-4555-8555-555555555555",
+              kind: "dm",
+              branch_id: branchId,
+              title: "이운창 현장 확인",
+              work_order_id: null,
+              last_message_id: "66666666-6666-4666-8666-666666666666",
+              last_message_at: "2026-06-28T02:00:00Z",
+              unread_count: 0,
+              member_count: 2,
+              created_at: "2026-06-28T01:00:00Z",
+              updated_at: "2026-06-28T02:00:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderPage({
+      access_token: "admin-token",
+      roles: ["ADMIN"],
+      branches: [branchId],
+    });
+
+    expect(await screen.findByRole("heading", { name: "업무 허브", level: 1 })).toBeVisible();
+    expect(screen.getByRole("button", { name: "대화 0건 보기" })).toBeVisible();
+    expect(screen.queryByText("이운창 현장 확인")).not.toBeInTheDocument();
   });
 
   it("does not render protocol-relative approval links from server payloads", async () => {

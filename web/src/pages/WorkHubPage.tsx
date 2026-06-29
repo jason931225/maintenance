@@ -250,8 +250,16 @@ function threadDisplayTitle(thread: MessengerThreadSummary): string {
   );
 }
 
+function messengerUnreadCount(thread: MessengerThreadSummary): number {
+  return Math.max(0, thread.unread_count);
+}
+
+function isActionableConversationThread(thread: MessengerThreadSummary): boolean {
+  return messengerUnreadCount(thread) > 0;
+}
+
 function buildConversationItems(threads: MessengerThreadSummary[]): HubItem[] {
-  return threads.map((thread) => ({
+  return threads.filter(isActionableConversationThread).map((thread) => ({
     id: `conversation-${thread.id}`,
     filter: "conversation",
     title: threadDisplayTitle(thread),
@@ -371,7 +379,7 @@ export function WorkHubPage() {
       workOrders: (results.find((r) => r.key === "workOrders")?.data as { items?: WorkOrderListItem[] } | undefined)?.items ?? [],
       approvalItems: (results.find((r) => r.key === "approvals")?.data as { items?: ApprovalItem[] } | undefined)?.items ?? [],
       dailyPlans: (results.find((r) => r.key === "dailyPlans")?.data as { items?: DailyPlanSummary[] } | undefined)?.items ?? [],
-      threads: (results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? [],
+      threads: ((results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? []).filter(isActionableConversationThread),
       tickets: ((results.find((r) => r.key === "support")?.data as { items?: SupportTicketSummary[] } | undefined)?.items ?? []).filter(isActionableSupportTicket),
     };
 

@@ -113,6 +113,7 @@ pub struct ThreadSummary {
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_message_at: Option<Timestamp>,
     pub member_count: i64,
+    pub unread_count: i64,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
     #[serde(with = "time::serde::rfc3339")]

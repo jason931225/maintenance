@@ -26,6 +26,7 @@ use mnt_comms_adapter_postgres::PgMailStore;
 use mnt_comms_application::{
     AccountUpsert, EmailAccountId, EmailMessageId, FetchedMessage, ImapFolder, InboundUpsert,
     MailReadStore, MailStore, StoredAttachment, ThreadQuery, account_config_audit_event,
+    thread_read_state_audit_event,
 };
 use mnt_comms_credential_cipher::{
     Aad, CredentialCipher, EnvelopeCredentialCipher, SealedCredential,
@@ -332,6 +333,138 @@ async fn references_group_into_one_thread_as_runtime_role(owner_pool: PgPool) {
         "References must group the reply into one thread"
     );
     assert_eq!(in_thread, 2, "both messages live in the single thread");
+}
+
+// ===========================================================================
+// Read-state actions recompute thread/folder aggregates and stay audited.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn set_thread_seen_recomputes_unread_counts_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    seed_org(&owner_pool, *org.as_uuid(), "A").await;
+    let actor = seed_active_user(&owner_pool, *org.as_uuid()).await;
+    let cipher = test_cipher();
+    let store = PgMailStore::new(rt_pool.clone());
+
+    let account = seed_account(&store, &cipher, org, actor).await;
+    let cursors = CURRENT_ORG
+        .scope(org, store.upsert_folders(org, account, &[inbox_folder()]))
+        .await
+        .expect("folders");
+    CURRENT_ORG
+        .scope(
+            org,
+            store.upsert_inbound(
+                org,
+                upsert_for(account, cursors[0].folder_id, message(25, "Read State")),
+            ),
+        )
+        .await
+        .expect("message");
+
+    let thread = CURRENT_ORG
+        .scope(
+            org,
+            store.list_threads(
+                org,
+                account,
+                &ThreadQuery {
+                    limit: 50,
+                    ..Default::default()
+                },
+            ),
+        )
+        .await
+        .expect("thread list")
+        .pop()
+        .expect("thread exists");
+    assert_eq!(thread.unread_count, 1, "new inbound message starts unread");
+
+    let read_audit = thread_read_state_audit_event(
+        actor,
+        thread.id,
+        1,
+        0,
+        true,
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .unwrap()
+    .with_org(org);
+    let updated = CURRENT_ORG
+        .scope(org, store.set_thread_seen(org, thread.id, true, read_audit))
+        .await
+        .expect("mark read");
+    assert!(updated, "visible thread can be marked read");
+
+    let after_read = CURRENT_ORG
+        .scope(
+            org,
+            store.list_threads(
+                org,
+                account,
+                &ThreadQuery {
+                    limit: 50,
+                    ..Default::default()
+                },
+            ),
+        )
+        .await
+        .expect("thread list after read")
+        .pop()
+        .expect("thread remains visible");
+    assert_eq!(after_read.unread_count, 0, "thread aggregate recomputed");
+    let folders = CURRENT_ORG
+        .scope(org, store.list_folders(org, account))
+        .await
+        .expect("folders after read");
+    assert_eq!(folders[0].unread_count, 0, "folder aggregate recomputed");
+    let detail = CURRENT_ORG
+        .scope(org, store.get_thread(org, thread.id))
+        .await
+        .expect("detail")
+        .expect("thread detail");
+    assert!(
+        detail.messages.iter().all(|message| message.seen),
+        "inbound message flags were updated"
+    );
+
+    let unread_audit = thread_read_state_audit_event(
+        actor,
+        thread.id,
+        0,
+        1,
+        false,
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .unwrap()
+    .with_org(org);
+    CURRENT_ORG
+        .scope(
+            org,
+            store.set_thread_seen(org, thread.id, false, unread_audit),
+        )
+        .await
+        .expect("mark unread");
+    let after_unread = CURRENT_ORG
+        .scope(
+            org,
+            store.list_threads(
+                org,
+                account,
+                &ThreadQuery {
+                    limit: 50,
+                    ..Default::default()
+                },
+            ),
+        )
+        .await
+        .expect("thread list after unread")
+        .pop()
+        .expect("thread remains visible");
+    assert_eq!(after_unread.unread_count, 1, "thread can be marked unread");
 }
 
 // ===========================================================================

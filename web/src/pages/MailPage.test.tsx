@@ -185,6 +185,83 @@ describe("MailPage", () => {
     expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
   });
 
+  it("sends a composed message with the mail-client keyboard shortcut", async () => {
+    const user = userEvent.setup();
+    const sent = vi.fn();
+    mockMailbox();
+    server.use(
+      http.post("*/api/v1/mail/send", async ({ request }) => {
+        sent(await request.json());
+        return HttpResponse.json({
+          message_id: "44444444-4444-4444-8444-444444444444",
+          rfc_message_id: "<sent@example.com>",
+        }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+
+    const compose = await screen.findByRole("heading", { name: "새 메일" });
+    const form = compose.closest("section");
+    expect(form).not.toBeNull();
+    if (!form) throw new Error("compose form missing");
+    await user.type(within(form).getByLabelText("받는 사람"), "payroll@example.com");
+    await user.type(within(form).getByLabelText("제목"), "단축키 전송");
+    await user.type(within(form).getByLabelText("본문"), "키보드로 전송합니다.");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
+    expect(sent.mock.calls[0][0]).toEqual({
+      to: [{ address: "payroll@example.com" }],
+      subject: "단축키 전송",
+      body_text: "키보드로 전송합니다.",
+    });
+    expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
+  });
+
+  it("marks the selected mail thread read and unread through the mail API", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    let threadRows = [{ ...threads[0] }];
+    let folderRows = [{ ...folders[0] }];
+    mockMailbox();
+    server.use(
+      http.get("*/api/v1/mail/folders", () => HttpResponse.json(folderRows)),
+      http.get("*/api/v1/mail/threads", () => HttpResponse.json(threadRows)),
+      http.patch("*/api/v1/mail/threads/:id/read-state", async ({ request }) => {
+        const body = (await request.json()) as { seen: boolean };
+        patched(body);
+        threadRows = threadRows.map((thread) => ({
+          ...thread,
+          unread_count: body.seen ? 0 : 1,
+        }));
+        folderRows = folderRows.map((folder) => ({
+          ...folder,
+          unread_count: body.seen ? 0 : 1,
+        }));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("읽지 않음 1건")).toBeVisible();
+    await user.click(await screen.findByRole("button", { name: "읽음 처리" }));
+
+    await waitFor(() => { expect(patched).toHaveBeenCalledWith({ seen: true }); });
+    expect(await screen.findByText("메일을 읽음으로 표시했습니다.")).toBeVisible();
+    await waitFor(() => {
+      expect(screen.queryByText("읽지 않음 1건")).not.toBeInTheDocument();
+    });
+    expect(await screen.findByRole("button", { name: "읽지 않음으로 표시" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "읽지 않음으로 표시" }));
+    await waitFor(() => {
+      expect(patched).toHaveBeenLastCalledWith({ seen: false });
+    });
+    expect(await screen.findByText("읽지 않음 1건")).toBeVisible();
+  });
+
   it("sends selected compose attachments through the mail API", async () => {
     const user = userEvent.setup();
     const sent = vi.fn();

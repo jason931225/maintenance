@@ -130,6 +130,7 @@ function thread(
     last_message_id: null,
     last_message_at: null,
     member_count: 3,
+    unread_count: 1,
     created_at: "2026-06-12T09:00:00Z",
     updated_at: "2026-06-12T09:00:00Z",
     ...overrides,

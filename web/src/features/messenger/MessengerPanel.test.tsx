@@ -33,6 +33,7 @@ const readReceiptBodies: unknown[] = [];
 const sentBodies: unknown[] = [];
 const uploadedEvidence: string[] = [];
 const confirmedEvidence: string[] = [];
+const scrollIntoView = vi.fn();
 
 const thread: MessengerThreadSummary = {
   id: threadId,
@@ -43,6 +44,7 @@ const thread: MessengerThreadSummary = {
   last_message_id: secondMessageId,
   last_message_at: "2026-06-12T09:12:00Z",
   member_count: 3,
+  unread_count: 1,
   created_at: "2026-06-12T09:00:00Z",
   updated_at: "2026-06-12T09:12:00Z",
 };
@@ -129,6 +131,10 @@ const server = setupServer(
 );
 
 beforeAll(() => {
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
+  });
   vi.stubGlobal(
     "WebSocket",
     class {
@@ -145,6 +151,7 @@ afterEach(() => {
   sentBodies.length = 0;
   uploadedEvidence.length = 0;
   confirmedEvidence.length = 0;
+  scrollIntoView.mockClear();
 });
 
 afterAll(() => {
@@ -194,6 +201,46 @@ describe("MessengerPanel", () => {
     });
   });
 
+  it("sends with Enter, keeps Shift+Enter as a newline, highlights mentions, and focuses the latest message", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MessengerPanel
+        api={createConsoleApiClient("test-access-token")}
+        accessToken="test-access-token"
+        apiBaseUrl="http://localhost:8080"
+      />,
+    );
+
+    expect(await screen.findByText("현장 도착")).toBeVisible();
+
+    const composer = screen.getByLabelText(ko.messenger.composer);
+    await user.type(composer, "첫 줄");
+    await user.keyboard("{Shift>}{Enter}{/Shift}두 번째 줄");
+
+    expect(composer).toHaveValue("첫 줄\n두 번째 줄");
+    expect(sentBodies).toEqual([]);
+
+    await user.clear(composer);
+    await user.type(composer, "@이운창 확인했습니다.");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(sentBodies).toContainEqual({
+        body: "@이운창 확인했습니다.",
+        attachment_evidence_ids: [],
+      });
+    });
+
+    const latestMention = await screen.findByText("@이운창");
+    const latestMessage = latestMention.closest("article");
+    expect(latestMessage).not.toBeNull();
+    expect(latestMessage).toHaveTextContent("@이운창 확인했습니다.");
+    expect(latestMessage).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(latestMention).toHaveClass("font-semibold");
+  });
+
   it("creates a new conversation then sends into it", async () => {
     const user = userEvent.setup();
     const memberId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -239,6 +286,7 @@ describe("MessengerPanel", () => {
             last_message_id: null,
             last_message_at: null,
             member_count: 2,
+            unread_count: 0,
             created_at: "2026-06-12T10:00:00Z",
             updated_at: "2026-06-12T10:00:00Z",
           },
@@ -329,6 +377,7 @@ describe("MessengerPanel", () => {
       last_message_id: "bbbbbbbb-1111-4bbb-8bbb-111111111111",
       last_message_at: "2026-06-12T08:30:00Z",
       member_count: 5,
+      unread_count: 1,
       created_at: "2026-06-12T08:00:00Z",
       updated_at: "2026-06-12T08:30:00Z",
     };
@@ -372,6 +421,9 @@ describe("MessengerPanel", () => {
     );
 
     expect(await screen.findByText("현장 도착")).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getAllByText(ko.messenger.unreadCount(1))).toHaveLength(1);
+    });
 
     await user.type(screen.getByLabelText(ko.messenger.search), "공지");
     await user.click(

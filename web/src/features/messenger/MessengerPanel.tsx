@@ -13,7 +13,9 @@ import {
   useReducer,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
@@ -30,6 +32,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { SkeletonCards } from "../../components/states/Skeleton";
+import { MentionText } from "../../components/text/MentionText";
 import { cn, safeLabel } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
 import {
@@ -92,16 +95,30 @@ export function MessengerPanel({
   const newThreadTitleId = useId();
   const cursorRef = useRef<string | undefined>(undefined);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const latestMessageRef = useRef<HTMLElement | null>(null);
+  const selectedThreadIdRef = useRef<string | undefined>(undefined);
   const selectedThread = state.threads.find(
     (thread) => thread.id === state.selectedThreadId,
   );
   const selectedMessages = state.selectedThreadId
     ? (state.messagesByThread[state.selectedThreadId] ?? [])
     : [];
+  const latestMessageId = selectedMessages.at(-1)?.id;
 
   useEffect(() => {
     cursorRef.current = resumeCursor(state);
+    selectedThreadIdRef.current = state.selectedThreadId;
   }, [state]);
+
+
+  useEffect(() => {
+    if (!latestMessageId) {
+      return;
+    }
+    const latestMessage = latestMessageRef.current;
+    latestMessage?.scrollIntoView({ block: "end", behavior: "smooth" });
+    latestMessage?.focus({ preventScroll: true });
+  }, [latestMessageId, state.selectedThreadId]);
 
   // Auto-grow the chat composer from one line up to its CSS max-height, so a
   // short message stays compact but a longer draft expands instead of forcing
@@ -148,6 +165,7 @@ export function MessengerPanel({
       const lastMessage = response.data.items.at(-1);
       if (lastMessage) {
         await markRead(threadId, lastMessage.id);
+        dispatch({ type: "threadRead", threadId });
       }
     },
     [api, markRead],
@@ -200,8 +218,18 @@ export function MessengerPanel({
         accessToken,
         lastMessageId: cursorRef.current,
         onEvent: (event) => {
-          dispatch({ type: "realtimeEventReceived", event });
-          void markRead(event.message.thread_id, event.message.id);
+          const selectedThreadId = selectedThreadIdRef.current;
+          dispatch({
+            type: "realtimeEventReceived",
+            event,
+            selectedThreadId,
+            currentUserId,
+          });
+          if (event.message.thread_id === selectedThreadId) {
+            void markRead(event.message.thread_id, event.message.id).then(() => {
+              dispatch({ type: "threadRead", threadId: event.message.thread_id });
+            });
+          }
         },
         onDisconnect: () => {
           if (closed) {
@@ -221,7 +249,7 @@ export function MessengerPanel({
       }
       connection?.close();
     };
-  }, [accessToken, apiBaseUrl, markRead]);
+  }, [accessToken, apiBaseUrl, currentUserId, markRead]);
 
   async function handleSearch() {
     const query = searchQuery.trim();
@@ -337,6 +365,7 @@ export function MessengerPanel({
       }
       dispatch({ type: "messageSent", message: response.data });
       await markRead(selectedThread.id, response.data.id);
+      dispatch({ type: "threadRead", threadId: selectedThread.id });
       setComposer("");
       setAttachment(undefined);
     } catch {
@@ -344,6 +373,22 @@ export function MessengerPanel({
     } finally {
       setIsSending(false);
     }
+  }
+
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+    event.preventDefault();
+    void handleSend();
   }
 
   async function uploadWorkOrderAttachment(
@@ -510,9 +555,14 @@ export function MessengerPanel({
                 </span>
                 <Badge>{ko.messenger.kinds[thread.kind]}</Badge>
               </span>
-              <span className="mt-2 block text-sm text-steel">
-                {thread.member_count}
-                {ko.messenger.memberCount}
+              <span className="mt-2 flex flex-wrap items-center gap-2 text-sm text-steel">
+                <span>
+                  {thread.member_count}
+                  {ko.messenger.memberCount}
+                </span>
+                {thread.unread_count > 0 ? (
+                  <Badge>{ko.messenger.unreadCount(thread.unread_count)}</Badge>
+                ) : null}
               </span>
             </button>
           ))}
@@ -557,7 +607,12 @@ export function MessengerPanel({
                     </p>
                   ) : null}
                   {selectedMessages.map((message) => (
-                    <MessageRow key={message.id} message={message} />
+                    <MessageRow
+                      key={message.id}
+                      message={message}
+                      articleRef={message.id === latestMessageId ? latestMessageRef : undefined}
+                      isLatest={message.id === latestMessageId}
+                    />
                   ))}
                 </div>
               </div>
@@ -589,6 +644,7 @@ export function MessengerPanel({
                   onChange={(event) => {
                     setComposer(event.currentTarget.value);
                   }}
+                  onKeyDown={handleComposerKeyDown}
                 />
                 {sendError ? (
                   <p
@@ -721,15 +777,26 @@ function MessageRow({
   message,
   action,
   role,
+  articleRef,
+  isLatest = false,
 }: {
   message: MessengerMessageSummary;
   action?: ReactNode;
   role?: string;
+  articleRef?: Ref<HTMLElement>;
+  isLatest?: boolean;
 }) {
   return (
-    <article role={role} className="rounded-md border border-line bg-white p-3">
+    <article
+      ref={articleRef}
+      role={role}
+      tabIndex={isLatest ? -1 : undefined}
+      className="rounded-md border border-line bg-white p-3 focus:outline-none focus:ring-2 focus:ring-signal"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="whitespace-pre-wrap text-sm text-ink">{message.body}</p>
+        <p className="text-sm text-ink">
+          <MentionText text={message.body} />
+        </p>
         {action}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-steel">

@@ -40,6 +40,7 @@ import kotlinx.serialization.Contextual
  * @param lastMessageId
  * @param lastMessageAt
  * @param memberCount
+ * @param unreadCount Messages newer than the caller's read receipt, excluding messages sent by the caller.
  * @param createdAt
  * @param updatedAt
  */
@@ -70,6 +71,10 @@ data class MessengerThreadSummary (
 
     @SerialName(value = "member_count")
     val memberCount: kotlin.Long,
+
+    /* Messages newer than the caller's read receipt, excluding messages sent by the caller. */
+    @SerialName(value = "unread_count")
+    val unreadCount: kotlin.Long,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,

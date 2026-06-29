@@ -25,7 +25,7 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use mnt_comms_adapter_imap::AsyncImapClient;
 use mnt_comms_adapter_postgres::PgMailStore;
@@ -53,6 +53,7 @@ pub const MAIL_FORWARD_PATH: &str = "/api/v1/mail/forward";
 pub const MAIL_FOLDERS_PATH: &str = "/api/v1/mail/folders";
 pub const MAIL_THREADS_PATH: &str = "/api/v1/mail/threads";
 pub const MAIL_THREAD_PATH: &str = "/api/v1/mail/threads/{id}";
+pub const MAIL_THREAD_READ_STATE_PATH: &str = "/api/v1/mail/threads/{id}/read-state";
 pub const MAIL_MESSAGE_PATH: &str = "/api/v1/mail/messages/{id}";
 pub const MAIL_ATTACHMENT_DOWNLOAD_PATH: &str = "/api/v1/mail/attachments/{id}/download";
 
@@ -128,6 +129,7 @@ pub fn router(state: CommsRestState) -> Router {
         .route(MAIL_FOLDERS_PATH, get(list_folders))
         .route(MAIL_THREADS_PATH, get(list_threads))
         .route(MAIL_THREAD_PATH, get(get_thread))
+        .route(MAIL_THREAD_READ_STATE_PATH, patch(set_thread_read_state))
         .route(MAIL_MESSAGE_PATH, get(get_message))
         .route(MAIL_ATTACHMENT_DOWNLOAD_PATH, get(download_attachment))
         .with_state(state);
@@ -190,6 +192,11 @@ struct SendRequest {
     in_reply_to: Option<String>,
     #[serde(default)]
     references: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThreadReadStateRequest {
+    seen: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -479,6 +486,60 @@ async fn get_thread(
             "thread not found",
         )),
     }
+}
+
+async fn set_thread_read_state(
+    State(state): State<CommsRestState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ThreadReadStateRequest>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_feature(&principal, Feature::MailUse)?;
+    let _cipher = state.cipher_ref()?;
+    let thread_id =
+        uuid::Uuid::from_str(&id).map_err(|_| RestError::bad_request("invalid thread id"))?;
+    let detail = state
+        .store
+        .get_thread(principal.org_id, thread_id)
+        .await
+        .map_err(RestError::from_service)?
+        .ok_or_else(|| RestError::new(StatusCode::NOT_FOUND, "not_found", "thread not found"))?;
+    let inbound_count = detail
+        .messages
+        .iter()
+        .filter(|message| message.direction == "IN")
+        .count() as i64;
+    let before_unread_count = detail
+        .messages
+        .iter()
+        .filter(|message| message.direction == "IN" && !message.seen)
+        .count() as i64;
+    let after_unread_count = if body.seen { 0 } else { inbound_count };
+    let audit = mnt_comms_application::thread_read_state_audit_event(
+        principal.user_id,
+        thread_id,
+        before_unread_count,
+        after_unread_count,
+        body.seen,
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .map_err(RestError::from_kernel)?
+    .with_org(principal.org_id);
+    let updated = state
+        .store
+        .set_thread_seen(principal.org_id, thread_id, body.seen, audit)
+        .await
+        .map_err(RestError::from_service)?;
+    if !updated {
+        return Err(RestError::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "thread not found",
+        ));
+    }
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 async fn get_message(
