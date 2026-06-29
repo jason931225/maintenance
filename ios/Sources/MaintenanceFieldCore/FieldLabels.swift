@@ -57,6 +57,16 @@ public extension SyncState {
     }
 }
 
+public extension MobileCollaborationStatus {
+    var fieldLabelKey: String {
+        switch self {
+        case .actionRequired: "work_hub_status_action_required"
+        case .ready: "work_hub_status_ready"
+        case .monitoring: "work_hub_status_monitoring"
+        }
+    }
+}
+
 public extension Components.Schemas.MessengerThreadKind {
     var fieldLabelKey: String {
         switch self {

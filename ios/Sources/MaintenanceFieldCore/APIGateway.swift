@@ -16,7 +16,7 @@ public enum MaintenanceGatewayError: Error, Sendable, CustomStringConvertible {
     }
 }
 
-public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway {
+public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway, MobileOperationsGateway {
     func listTodayWorkOrders() async throws -> [TechnicianWorkOrder]
     func getWorkOrderDetail(id: Components.Schemas.Uuid) async throws -> TechnicianWorkOrder
     func startWorkOrder(id: Components.Schemas.Uuid) async throws
@@ -115,9 +115,96 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
     }
 
     public func registerDevice(deviceID: String, appVersion: String) async throws -> Components.Schemas.DeviceRegistrationResponse {
+        try await registerDevice(deviceID: deviceID, appVersion: appVersion, pushToken: nil)
+    }
+
+    public func registerDevice(
+        deviceID: String,
+        appVersion: String,
+        pushToken: String?
+    ) async throws -> Components.Schemas.DeviceRegistrationResponse {
         let output = try await client.registerMobileDevice(
             headers: Operations.RegisterMobileDevice.Input.Headers(xDeviceId: deviceID),
-            body: .json(Components.Schemas.DeviceRegistrationRequest(platform: .ios, appVersion: appVersion))
+            body: .json(Components.Schemas.DeviceRegistrationRequest(platform: .ios, pushToken: pushToken, appVersion: appVersion))
+        )
+        return try output.ok.body.json
+    }
+
+    public func listApprovalItems(limit: Int64, offset: Int64) async throws -> Components.Schemas.ApprovalItemsPage {
+        let output = try await client.listApprovalItems(
+            query: Operations.ListApprovalItems.Input.Query(limit: limit, offset: offset)
+        )
+        return try output.ok.body.json
+    }
+
+    public func approveWorkOrder(workOrderID: Components.Schemas.Uuid, comment: String) async throws {
+        let output = try await client.approveWorkOrder(
+            path: Operations.ApproveWorkOrder.Input.Path(workOrderId: workOrderID),
+            body: .json(Components.Schemas.ApproveWorkOrderRequest(comment: comment))
+        )
+        _ = try output.ok.body.json
+    }
+
+    public func listMailFolders() async throws -> [Components.Schemas.MailFolderView] {
+        let output = try await client.listMailFolders()
+        return try output.ok.body.json
+    }
+
+    public func listMailThreads(
+        unread: Bool?,
+        query: String?,
+        folderID: Components.Schemas.Uuid?,
+        before: Int64?,
+        limit: Int64
+    ) async throws -> [Components.Schemas.MailThreadView] {
+        let output = try await client.listMailThreads(
+            query: Operations.ListMailThreads.Input.Query(
+                unread: unread,
+                q: query,
+                folder: folderID,
+                before: before,
+                limit: limit
+            )
+        )
+        return try output.ok.body.json
+    }
+
+    public func setMailThreadReadState(threadID: Components.Schemas.Uuid, seen: Bool) async throws {
+        let output = try await client.setMailThreadReadState(
+            path: Operations.SetMailThreadReadState.Input.Path(id: threadID),
+            body: .json(Components.Schemas.MailThreadReadStateRequest(seen: seen))
+        )
+        _ = try output.noContent
+    }
+
+    public func listCalendarEvents(
+        from: Components.Schemas.Timestamp?,
+        to: Components.Schemas.Timestamp?,
+        limit: Int64
+    ) async throws -> [Components.Schemas.CalendarEventResponse] {
+        let output = try await client.listCollaborationCalendarEvents(
+            query: Operations.ListCollaborationCalendarEvents.Input.Query(from: from, to: to, limit: limit)
+        )
+        return try output.ok.body.json.items
+    }
+
+    public func listPolls(
+        status: Components.Schemas.PollStatus?,
+        limit: Int64
+    ) async throws -> [Components.Schemas.PollResponse] {
+        let output = try await client.listCollaborationPolls(
+            query: Operations.ListCollaborationPolls.Input.Query(status: status, limit: limit)
+        )
+        return try output.ok.body.json.items
+    }
+
+    public func votePoll(
+        pollID: Components.Schemas.Uuid,
+        selectedOptionIDs: [Components.Schemas.Uuid]
+    ) async throws -> Components.Schemas.PollResponse {
+        let output = try await client.voteCollaborationPoll(
+            path: Operations.VoteCollaborationPoll.Input.Path(id: pollID),
+            body: .json(Components.Schemas.VotePollRequest(selectedOptionIds: selectedOptionIDs))
         )
         return try output.ok.body.json
     }

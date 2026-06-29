@@ -1,0 +1,27 @@
+apiVersion: policy.sigstore.dev/v1alpha1
+kind: ClusterImagePolicy
+metadata:
+  name: mnt-ghcr-keyless-signature-audit
+  labels:
+    app.kubernetes.io/name: maintenance
+    app.kubernetes.io/part-of: maintenance-platform
+  annotations:
+    maintenance.knllogistic.com/admission-mode: audit-only
+    maintenance.knllogistic.com/hard-fail-upgrade: "change spec.mode from warn after warning burn-in"
+spec:
+  # Audit/warn first: unsigned or mismatched images are admitted but the API
+  # server returns an admission warning. This is safe for the single-node free
+  # tier while proving the exact policy before hard-fail enforcement.
+  mode: warn
+  images:
+    - glob: ghcr.io/jason931225/mnt-app
+    - glob: ghcr.io/jason931225/mnt-web
+  authorities:
+    - name: github-actions-keyless-image-release
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: '^https://github\.com/jason931225/maintenance/\.github/workflows/image-release\.yml@refs/(heads/main|tags/v[0-9].*)$'
+      ctlog:
+        url: https://rekor.sigstore.dev

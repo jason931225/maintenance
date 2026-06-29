@@ -44,6 +44,7 @@ import kotlinx.serialization.Contextual
  * @param managementNo
  * @param model
  * @param maker
+ * @param assetOwner Legal owner recorded on the asset master. Distinct from customer_name/site_name, which describe the current operator/site.
  * @param vin
  */
 @Serializable
@@ -85,6 +86,10 @@ data class EquipmentListItem (
 
     @SerialName(value = "maker")
     val maker: kotlin.String? = null,
+
+    /* Legal owner recorded on the asset master. Distinct from customer_name/site_name, which describe the current operator/site. */
+    @SerialName(value = "asset_owner")
+    val assetOwner: kotlin.String? = null,
 
     @SerialName(value = "vin")
     val vin: kotlin.String? = null

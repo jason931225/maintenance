@@ -2,6 +2,7 @@ import type {
   SupportTicketCategory,
   SupportTicketOrigin,
   SupportTicketPriority,
+  SupportTicketSummary,
   SupportTicketStatus,
 } from "../../api/types";
 import { ko } from "../../i18n/ko";
@@ -33,6 +34,18 @@ export const SUPPORT_CATEGORIES: SupportTicketCategory[] = [
 ];
 
 export const SUPPORT_ORIGINS: SupportTicketOrigin[] = ["INTERNAL", "CUSTOMER"];
+
+export function isActionableSupportTicket(
+  ticket: Pick<SupportTicketSummary, "status" | "resolved_at" | "closed_at">,
+): boolean {
+  return (
+    (ticket.status === "OPEN" ||
+      ticket.status === "IN_PROGRESS" ||
+      ticket.status === "ON_HOLD") &&
+    !ticket.resolved_at &&
+    !ticket.closed_at
+  );
+}
 
 export function statusLabel(status: SupportTicketStatus): string {
   return ko.support.ticketStatus[status];

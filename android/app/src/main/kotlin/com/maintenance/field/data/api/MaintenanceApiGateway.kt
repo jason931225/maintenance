@@ -1,7 +1,18 @@
 package com.maintenance.field.data.api
 
 import com.maintenance.api.client.api.DefaultApi
+import com.maintenance.api.client.model.ApproveWorkOrderRequest
 import com.maintenance.api.client.model.DevicePlatform
+import com.maintenance.api.client.model.ApprovalItemsPage
+import com.maintenance.api.client.model.CalendarEventResponse
+import com.maintenance.api.client.model.MailFolderView
+import com.maintenance.api.client.model.MailThreadReadStateRequest
+import com.maintenance.api.client.model.MailThreadView
+import com.maintenance.api.client.model.PollResponse
+import com.maintenance.api.client.model.PollStatus
+import com.maintenance.api.client.model.VotePollRequest
+import com.maintenance.field.data.collaboration.MobileOperationsGateway
+import java.time.OffsetDateTime
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
 import com.maintenance.api.client.model.EvidenceConfirmResponse
@@ -32,7 +43,7 @@ import com.maintenance.field.data.offline.SyncGateway
 import java.util.UUID
 import kotlinx.serialization.json.JsonElement
 
-interface MaintenanceApiGateway : SyncGateway, MessengerGateway {
+interface MaintenanceApiGateway : SyncGateway, MessengerGateway, MobileOperationsGateway {
     suspend fun listTodayWorkOrders(): List<TechnicianWorkOrder>
 
     suspend fun getWorkOrder(id: UUID): TechnicianWorkOrder
@@ -49,7 +60,11 @@ interface MaintenanceApiGateway : SyncGateway, MessengerGateway {
 
     suspend fun finishPasskeyLogin(ceremonyId: UUID, credential: Map<String, JsonElement>): TokenPairResponse
 
-    suspend fun registerAndroidDevice(deviceId: String, appVersion: String): DeviceRegistrationResponse
+    override suspend fun registerAndroidDevice(
+        deviceId: String,
+        appVersion: String,
+        pushToken: String?,
+    ): DeviceRegistrationResponse
 
     suspend fun getLocationConsentStatus(): LocationConsentStatus
 
@@ -61,7 +76,7 @@ interface MaintenanceApiGateway : SyncGateway, MessengerGateway {
 
     suspend fun withdrawLocationConsent(): LocationConsentStatus
 
-    suspend fun recordLocationPing(request: LocationPingRequest)
+    override suspend fun recordLocationPing(request: LocationPingRequest)
 }
 
 class GeneratedMaintenanceApiGateway(
@@ -101,14 +116,70 @@ class GeneratedMaintenanceApiGateway(
     ): TokenPairResponse =
         api.apiV1AuthPasskeyLoginFinishPost(PasskeyLoginFinishRequest(ceremonyId, credential))
 
-    override suspend fun registerAndroidDevice(deviceId: String, appVersion: String): DeviceRegistrationResponse =
+    override suspend fun registerAndroidDevice(
+        deviceId: String,
+        appVersion: String,
+        pushToken: String?,
+    ): DeviceRegistrationResponse =
         api.registerMobileDevice(
             xDeviceId = deviceId,
             deviceRegistrationRequest = DeviceRegistrationRequest(
                 platform = DevicePlatform.ANDROID,
-                pushToken = null,
+                pushToken = pushToken,
                 appVersion = appVersion,
             ),
+        )
+
+    override suspend fun listApprovalItems(limit: Long, offset: Long): ApprovalItemsPage =
+        api.listApprovalItems(limit = limit, offset = offset)
+
+    override suspend fun approveWorkOrder(workOrderId: UUID, comment: String) {
+        api.approveWorkOrder(
+            workOrderId = workOrderId,
+            approveWorkOrderRequest = ApproveWorkOrderRequest(comment = comment),
+        )
+    }
+
+    override suspend fun listMailFolders(): List<MailFolderView> = api.listMailFolders()
+
+    override suspend fun listMailThreads(
+        unread: Boolean?,
+        query: String?,
+        folderId: UUID?,
+        before: Long?,
+        limit: Long,
+    ): List<MailThreadView> = api.listMailThreads(
+        unread = unread,
+        q = query,
+        folder = folderId,
+        before = before,
+        limit = limit,
+    )
+
+    override suspend fun setMailThreadReadState(threadId: UUID, seen: Boolean) {
+        api.setMailThreadReadState(
+            id = threadId,
+            mailThreadReadStateRequest = MailThreadReadStateRequest(seen = seen),
+        )
+    }
+
+    override suspend fun listCalendarEvents(
+        from: OffsetDateTime?,
+        to: OffsetDateTime?,
+        limit: Long,
+    ): List<CalendarEventResponse> = api.listCollaborationCalendarEvents(
+        from = from,
+        to = to,
+        limit = limit,
+    ).items
+
+    override suspend fun listPolls(status: PollStatus?, limit: Long): List<PollResponse> =
+        api.listCollaborationPolls(status = status, limit = limit).items
+
+    override suspend fun votePoll(pollId: UUID, selectedOptionIds: List<UUID>): PollResponse =
+        api.voteCollaborationPoll(
+            id = pollId,
+            votePollRequest = VotePollRequest(selectedOptionIds = selectedOptionIds),
         )
 
     override suspend fun listThreads(limit: Long): List<MessengerThread> =

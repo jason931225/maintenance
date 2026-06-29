@@ -1,23 +1,31 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 
-use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
-use mnt_kernel_core::{BranchScope, ErrorKind, KernelError};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, TraceContext};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
-use mnt_platform_db::{DbError, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub const EMPLOYEES_PATH: &str = "/api/v1/employees";
 pub const EMPLOYEES_IMPORT_PATH: &str = "/api/v1/employees/import";
+pub const EMPLOYEES_IMPORT_PREVIEW_PATH: &str = "/api/v1/employees/import/preview";
+pub const EMPLOYEES_IMPORT_DRY_RUN_PATH_TEMPLATE: &str =
+    "/api/v1/employees/import/{run_id}/dry-run";
+pub const EMPLOYEES_IMPORT_APPLY_PATH_TEMPLATE: &str = "/api/v1/employees/import/{run_id}/apply";
+pub const EMPLOYEES_EXPORT_CSV_PATH: &str = "/api/v1/employees/export.csv";
+pub const EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE: &str = "/api/v1/employees/{id}/lifecycle-events";
 pub const HR_ORG_CHART_PATH: &str = "/api/v1/hr/org-chart";
 pub const HR_LEAVE_BALANCES_PATH: &str = "/api/v1/hr/leave-balances";
 pub const HR_ATTENDANCE_SUMMARY_PATH: &str = "/api/v1/hr/attendance-summary";
@@ -49,6 +57,23 @@ pub fn router(state: HrState) -> Router {
         .route(
             EMPLOYEES_IMPORT_PATH,
             post(import_employees).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
+        )
+        .route(
+            EMPLOYEES_IMPORT_PREVIEW_PATH,
+            post(preview_employee_import).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
+        )
+        .route(
+            EMPLOYEES_IMPORT_DRY_RUN_PATH_TEMPLATE,
+            post(dry_run_employee_import),
+        )
+        .route(
+            EMPLOYEES_IMPORT_APPLY_PATH_TEMPLATE,
+            post(apply_employee_import),
+        )
+        .route(EMPLOYEES_EXPORT_CSV_PATH, get(export_employees_csv))
+        .route(
+            EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE,
+            get(list_employee_lifecycle_events).post(create_employee_lifecycle_event),
         )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
@@ -191,6 +216,74 @@ struct AttendanceSummaryItem {
     last_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_event_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateEmployeeLifecycleEventRequest {
+    event_type: String,
+    #[serde(default)]
+    to_status: Option<String>,
+    #[serde(default)]
+    to_company: Option<String>,
+    #[serde(default)]
+    to_org_unit: Option<String>,
+    #[serde(default)]
+    to_position: Option<String>,
+    effective_date: String,
+    comment: String,
+    signoffs: EmployeeLifecycleSignoffs,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+struct EmployeeLifecycleSignoffs {
+    #[serde(default)]
+    privacy_notice_ack: bool,
+    #[serde(default)]
+    korean_labor_law_ack: bool,
+    #[serde(default)]
+    payroll_cutoff_ack: bool,
+    #[serde(default)]
+    retirement_settlement_ack: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeLifecycleEventPage {
+    items: Vec<EmployeeLifecycleEventResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeLifecycleEventResponse {
+    id: Uuid,
+    employee_id: Uuid,
+    event_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from_status: Option<String>,
+    to_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from_company: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_company: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from_org_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_org_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from_position: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_position: Option<String>,
+    effective_date: String,
+    comment: String,
+    signoffs: EmployeeLifecycleSignoffs,
+    created_by: Uuid,
+    created_at: time::OffsetDateTime,
+}
+
+#[derive(Debug)]
+struct EmployeeForLifecycle {
+    company: String,
+    org_unit: Option<String>,
+    position: Option<String>,
+    employment_status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -506,97 +599,479 @@ async fn import_employees(
     let org_uuid = *org.as_uuid();
 
     let report = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
-        Box::pin(async move {
-            let mut report = EmployeeImportReport::default();
-            let mut by_company = BTreeMap::<String, CompanyImportSummary>::new();
-            for row in parsed.rows {
-                let company_entry =
-                    by_company
-                        .entry(row.company.clone())
-                        .or_insert_with(|| CompanyImportSummary {
-                            company: row.company.clone(),
-                            ..CompanyImportSummary::default()
-                        });
-                company_entry.input_rows += 1;
-                report.input_rows += 1;
+        Box::pin(async move { apply_employee_rows_tx(tx, org_uuid, parsed.rows).await })
+    })
+    .await?;
 
-                let outcome: String = sqlx::query_scalar(
+    record_hr_import(report.inserted, report.updated);
+    Ok(Json(report))
+}
+
+async fn preview_employee_import(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    multipart: Multipart,
+) -> Result<Json<EmployeeImportPreviewResponse>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let upload = read_xlsx_upload(multipart).await?;
+    let source_sha256 = sha256_hex(&upload.bytes);
+    let parsed = parse_employee_import_workbook(&upload.filename, &upload.bytes)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+    let run_id = Uuid::new_v4();
+    let mapping_profile = employee_import_mapping_profile(&parsed.columns);
+    let input_rows = i32::try_from(parsed.input_rows())
+        .map_err(|_| HrError::validation("import row count exceeds i32"))?;
+    let candidate_rows = i32::try_from(parsed.candidate_rows())
+        .map_err(|_| HrError::validation("candidate row count exceeds i32"))?;
+    let preserved_rows = i32::try_from(parsed.preserved_rows())
+        .map_err(|_| HrError::validation("preserved row count exceeds i32"))?;
+    let audit_after = json!({
+        "run_id": run_id,
+        "entity_type": "employee_hr",
+        "source_filename": &upload.filename,
+        "source_sha256": &source_sha256,
+        "input_rows": input_rows,
+        "candidate_rows": candidate_rows,
+        "preserved_rows": preserved_rows,
+        "sensitive_values_returned": false
+    });
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("data_import.preview").map_err(HrError::from_kernel)?,
+        "data_import_run",
+        run_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(None, Some(audit_after));
+
+    let preview = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        let rows = parsed.rows.clone();
+        let columns = parsed.columns.clone();
+        let filename = upload.filename.clone();
+        let source_sha256 = source_sha256.clone();
+        let mapping_profile = mapping_profile.clone();
+        Box::pin(async move {
+            sqlx::query(
+                r#"
+                INSERT INTO data_import_runs (
+                    id, org_id, entity_type, status, source_filename, source_format,
+                    source_sha256, mapping_profile, input_rows, candidate_rows,
+                    preserved_rows, created_by
+                )
+                VALUES ($1, $2, 'employee_hr', 'PREVIEWED', $3, 'xlsx', $4, $5, $6, $7, $8, $9)
+                "#,
+            )
+            .bind(run_id)
+            .bind(org_uuid)
+            .bind(&filename)
+            .bind(&source_sha256)
+            .bind(&mapping_profile)
+            .bind(input_rows)
+            .bind(candidate_rows)
+            .bind(preserved_rows)
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
+
+            for row in &rows {
+                sqlx::query(
                     r#"
-                    INSERT INTO employees (
-                        org_id, company, name, source_filename, source_sheet, source_row,
-                        source_key, raw_row, source_metadata, employee_number, org_unit, job,
-                        position, worksite_name, worksite_address, hire_date, exit_date,
-                        employment_status, leave_accrued, leave_used, leave_remaining
+                    INSERT INTO data_import_rows (
+                        org_id, run_id, source_sheet, source_row, source_key,
+                        row_status, raw_row, canonical_row, validation
                     )
-                    VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                        $14, $15, $16, $17, $18, NULLIF($19::TEXT, '')::NUMERIC,
-                        NULLIF($20::TEXT, '')::NUMERIC, NULLIF($21::TEXT, '')::NUMERIC
-                    )
-                    ON CONFLICT (org_id, source_key) DO UPDATE SET
-                        company = EXCLUDED.company,
-                        name = EXCLUDED.name,
-                        source_filename = EXCLUDED.source_filename,
-                        source_sheet = EXCLUDED.source_sheet,
-                        source_row = EXCLUDED.source_row,
-                        raw_row = EXCLUDED.raw_row,
-                        source_metadata = EXCLUDED.source_metadata,
-                        employee_number = EXCLUDED.employee_number,
-                        org_unit = EXCLUDED.org_unit,
-                        job = EXCLUDED.job,
-                        position = EXCLUDED.position,
-                        worksite_name = EXCLUDED.worksite_name,
-                        worksite_address = EXCLUDED.worksite_address,
-                        hire_date = EXCLUDED.hire_date,
-                        exit_date = EXCLUDED.exit_date,
-                        employment_status = EXCLUDED.employment_status,
-                        leave_accrued = EXCLUDED.leave_accrued,
-                        leave_used = EXCLUDED.leave_used,
-                        leave_remaining = EXCLUDED.leave_remaining,
-                        updated_at = now()
-                    RETURNING CASE WHEN xmax = 0 THEN 'inserted' ELSE 'updated' END
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     "#,
                 )
                 .bind(org_uuid)
-                .bind(&row.company)
-                .bind(&row.name)
-                .bind(&row.source_filename)
+                .bind(run_id)
                 .bind(&row.source_sheet)
                 .bind(row.source_row)
                 .bind(&row.source_key)
+                .bind(row.row_status.as_str())
                 .bind(&row.raw_row)
-                .bind(&row.source_metadata)
-                .bind(row.canonical.employee_number.as_deref())
-                .bind(row.canonical.org_unit.as_deref())
-                .bind(row.canonical.job.as_deref())
-                .bind(row.canonical.position.as_deref())
-                .bind(row.canonical.worksite_name.as_deref())
-                .bind(row.canonical.worksite_address.as_deref())
-                .bind(row.canonical.hire_date.as_deref())
-                .bind(row.canonical.exit_date.as_deref())
-                .bind(row.canonical.employment_status.as_str())
-                .bind(row.canonical.leave_accrued.as_deref())
-                .bind(row.canonical.leave_used.as_deref())
-                .bind(row.canonical.leave_remaining.as_deref())
-                .fetch_one(tx.as_mut())
+                .bind(import_canonical_row_json(row))
+                .bind(import_validation_json(row))
+                .execute(tx.as_mut())
                 .await?;
-
-                if outcome == "inserted" {
-                    company_entry.inserted += 1;
-                    report.inserted += 1;
-                } else {
-                    company_entry.updated += 1;
-                    report.updated += 1;
-                }
             }
-            report.companies = by_company.into_values().collect();
+
+            Ok(EmployeeImportPreviewResponse::from_rows(
+                run_id,
+                filename,
+                source_sha256,
+                columns,
+                rows,
+            ))
+        })
+    })
+    .await?;
+
+    metrics::counter!("hr_data_import_runs_total", "stage" => "preview").increment(1);
+    Ok(Json(preview))
+}
+
+async fn dry_run_employee_import(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<EmployeeImportDryRunSummary>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("data_import.dry_run").map_err(HrError::from_kernel)?,
+        "data_import_run",
+        run_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({ "run_id": run_id, "entity_type": "employee_hr" })),
+    );
+
+    let summary = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let run = import_run_for_update(tx, org_uuid, run_id).await?;
+            if run.entity_type != "employee_hr" {
+                return Err(HrError::validation(
+                    "import run entity_type is not employee_hr",
+                ));
+            }
+            if run.status != "PREVIEWED" && run.status != "DRY_RUN" {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    format!("cannot dry-run import run in {} status", run.status),
+                )));
+            }
+            let rows = load_candidate_import_rows(tx, org_uuid, run_id).await?;
+            let summary =
+                compute_employee_import_dry_run(tx, org_uuid, run_id, &run, &rows).await?;
+            sqlx::query(
+                r#"
+                UPDATE data_import_runs
+                SET status = 'DRY_RUN', dry_run_summary = $3, updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(run_id)
+            .bind(json!(&summary))
+            .execute(tx.as_mut())
+            .await?;
+            Ok(summary)
+        })
+    })
+    .await?;
+
+    metrics::counter!("hr_data_import_runs_total", "stage" => "dry_run").increment(1);
+    Ok(Json(summary))
+}
+
+async fn apply_employee_import(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<EmployeeImportReport>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("data_import.apply").map_err(HrError::from_kernel)?,
+        "data_import_run",
+        run_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({ "run_id": run_id, "entity_type": "employee_hr" })),
+    );
+
+    let report = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let run = import_run_for_update(tx, org_uuid, run_id).await?;
+            if run.entity_type != "employee_hr" {
+                return Err(HrError::validation(
+                    "import run entity_type is not employee_hr",
+                ));
+            }
+            if run.status != "DRY_RUN" {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    format!("apply requires DRY_RUN status, got {}", run.status),
+                )));
+            }
+            let rows = load_candidate_import_rows(tx, org_uuid, run_id).await?;
+            let parsed_rows = rows
+                .into_iter()
+                .map(StoredEmployeeImportRow::into_parsed)
+                .collect::<Result<Vec<_>, _>>()?;
+            let report = apply_employee_rows_tx(tx, org_uuid, parsed_rows).await?;
+            sqlx::query(
+                r#"
+                UPDATE data_import_runs
+                SET status = 'APPLIED', apply_summary = $3, applied_by = $4,
+                    applied_at = now(), updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(run_id)
+            .bind(json!(&report))
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
             Ok(report)
         })
     })
     .await?;
 
     record_hr_import(report.inserted, report.updated);
+    metrics::counter!("hr_data_import_runs_total", "stage" => "apply").increment(1);
     Ok(Json(report))
+}
+
+async fn export_employees_csv(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Response, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    authorize_hr_org_wide(&principal, Feature::ExcelDownload)?;
+    let org = principal.org_id;
+    let rows = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                r#"
+                SELECT company, name, employee_number, org_unit, worksite_name, job,
+                       position, hire_date, exit_date, employment_status,
+                       leave_remaining::TEXT AS leave_remaining
+                FROM employees
+                ORDER BY company ASC, name ASC, source_sheet ASC, source_row ASC
+                LIMIT 10000
+                "#,
+            )
+            .fetch_all(tx.as_mut())
+            .await
+            .map_err(HrError::from)
+        })
+    })
+    .await?;
+
+    let csv = standardized_employees_csv(&rows)?;
+    let mut response = csv.into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"employees-standard.csv\""),
+    );
+    Ok(response)
+}
+
+async fn list_employee_lifecycle_events(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(employee_id): Path<Uuid>,
+) -> Result<Json<EmployeeLifecycleEventPage>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("lifecycle_events");
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+
+    let items = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            // Keep missing employees distinguishable from an employee with no
+            // lifecycle events, without returning raw employee/import data.
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM employees WHERE org_id = $1 AND id = $2)",
+            )
+            .bind(org_uuid)
+            .bind(employee_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+            if !exists {
+                return Err(HrError::from_kernel(KernelError::not_found(
+                    "employee not found",
+                )));
+            }
+
+            sqlx::query(
+                r#"
+                SELECT
+                    id, employee_id, event_type, from_status, to_status,
+                    from_company, to_company, from_org_unit, to_org_unit,
+                    from_position, to_position, effective_date, comment,
+                    signoffs, created_by, created_at
+                FROM employee_lifecycle_events
+                WHERE org_id = $1 AND employee_id = $2
+                ORDER BY created_at DESC, id DESC
+                LIMIT 200
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(employee_id)
+            .fetch_all(tx.as_mut())
+            .await?
+            .into_iter()
+            .map(employee_lifecycle_event_from_row)
+            .collect::<Result<Vec<_>, HrError>>()
+        })
+    })
+    .await?;
+
+    Ok(Json(EmployeeLifecycleEventPage { items }))
+}
+
+async fn create_employee_lifecycle_event(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(employee_id): Path<Uuid>,
+    Json(body): Json<CreateEmployeeLifecycleEventRequest>,
+) -> Result<Json<EmployeeLifecycleEventResponse>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+    let transition = normalize_lifecycle_transition(body)?;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.lifecycle.record").map_err(HrError::from_kernel)?,
+        "employee",
+        employee_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "employee_id": employee_id,
+            "event_type": &transition.event_type,
+            "to_status": &transition.to_status,
+            "effective_date": &transition.effective_date,
+            "has_privacy_notice_ack": transition.signoffs.privacy_notice_ack,
+            "has_korean_labor_law_ack": transition.signoffs.korean_labor_law_ack,
+            "has_payroll_cutoff_ack": transition.signoffs.payroll_cutoff_ack,
+            "has_retirement_settlement_ack": transition.signoffs.retirement_settlement_ack
+        })),
+    );
+
+    let item = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let current = load_employee_for_lifecycle(tx, org_uuid, employee_id).await?;
+            validate_lifecycle_transition(&current, &transition)?;
+            let next_company = transition
+                .to_company
+                .clone()
+                .unwrap_or_else(|| current.company.clone());
+            let next_org_unit = transition
+                .to_org_unit
+                .clone()
+                .or_else(|| current.org_unit.clone());
+            let next_position = transition
+                .to_position
+                .clone()
+                .or_else(|| current.position.clone());
+            let lifecycle_id = Uuid::new_v4();
+
+            sqlx::query(
+                r#"
+                INSERT INTO employee_lifecycle_events (
+                    id, org_id, employee_id, event_type, from_status, to_status,
+                    from_company, to_company, from_org_unit, to_org_unit,
+                    from_position, to_position, effective_date, comment,
+                    signoffs, created_by
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5, $6,
+                    $7, $8, $9, $10,
+                    $11, $12, $13, $14,
+                    $15, $16
+                )
+                "#,
+            )
+            .bind(lifecycle_id)
+            .bind(org_uuid)
+            .bind(employee_id)
+            .bind(&transition.event_type)
+            .bind(&current.employment_status)
+            .bind(&transition.to_status)
+            .bind(&current.company)
+            .bind(&next_company)
+            .bind(current.org_unit.as_deref())
+            .bind(next_org_unit.as_deref())
+            .bind(current.position.as_deref())
+            .bind(next_position.as_deref())
+            .bind(&transition.effective_date)
+            .bind(&transition.comment)
+            .bind(json!(&transition.signoffs))
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
+
+            sqlx::query(
+                r#"
+                UPDATE employees
+                SET
+                    company = $3,
+                    org_unit = $4,
+                    position = $5,
+                    employment_status = $6,
+                    exit_date = CASE WHEN $6 = 'EXITED' THEN $7 ELSE exit_date END,
+                    updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(employee_id)
+            .bind(&next_company)
+            .bind(next_org_unit.as_deref())
+            .bind(next_position.as_deref())
+            .bind(&transition.to_status)
+            .bind(&transition.effective_date)
+            .execute(tx.as_mut())
+            .await?;
+
+            let row = sqlx::query(
+                r#"
+                SELECT
+                    id, employee_id, event_type, from_status, to_status,
+                    from_company, to_company, from_org_unit, to_org_unit,
+                    from_position, to_position, effective_date, comment,
+                    signoffs, created_by, created_at
+                FROM employee_lifecycle_events
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(lifecycle_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            employee_lifecycle_event_from_row(row)
+        })
+    })
+    .await?;
+
+    metrics::counter!("hr_employee_lifecycle_events_total", "event_type" => item.event_type.clone())
+        .increment(1);
+    Ok(Json(item))
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -613,6 +1088,136 @@ struct CompanyImportSummary {
     input_rows: usize,
     inserted: usize,
     updated: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EmployeeImportColumn {
+    source_header: String,
+    normalized_header: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    classification: String,
+    preview_allowed: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeImportPreviewRow {
+    source_sheet: String,
+    source_row: i32,
+    row_status: String,
+    values: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeImportPreviewResponse {
+    run_id: Uuid,
+    entity_type: String,
+    source_filename: String,
+    source_sha256: String,
+    input_rows: usize,
+    candidate_rows: usize,
+    preserved_rows: usize,
+    columns: Vec<EmployeeImportColumn>,
+    sample_rows: Vec<EmployeeImportPreviewRow>,
+    mapping_profile: Value,
+}
+
+impl EmployeeImportPreviewResponse {
+    fn from_rows(
+        run_id: Uuid,
+        source_filename: String,
+        source_sha256: String,
+        columns: Vec<EmployeeImportColumn>,
+        rows: Vec<ParsedEmployeeImportRow>,
+    ) -> Self {
+        let sample_rows = rows
+            .iter()
+            .take(12)
+            .map(|row| EmployeeImportPreviewRow {
+                source_sheet: row.source_sheet.clone(),
+                source_row: row.source_row,
+                row_status: row.row_status.as_str().to_owned(),
+                values: masked_preview_values(&row.raw_row, &columns),
+            })
+            .collect::<Vec<_>>();
+        let input_rows = rows.len();
+        let candidate_rows = rows
+            .iter()
+            .filter(|row| row.row_status == ImportRowStatus::Candidate)
+            .count();
+        let preserved_rows = rows
+            .iter()
+            .filter(|row| row.row_status == ImportRowStatus::Preserved)
+            .count();
+        let mapping_profile = employee_import_mapping_profile(&columns);
+
+        Self {
+            run_id,
+            entity_type: "employee_hr".to_owned(),
+            source_filename,
+            source_sha256,
+            input_rows,
+            candidate_rows,
+            preserved_rows,
+            columns,
+            sample_rows,
+            mapping_profile,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeImportDryRunSummary {
+    run_id: Uuid,
+    input_rows: usize,
+    candidate_rows: usize,
+    preserved_rows: usize,
+    insert_candidates: usize,
+    update_candidates: usize,
+    companies: Vec<CompanyImportSummary>,
+}
+
+#[derive(Debug)]
+struct DataImportRunRecord {
+    entity_type: String,
+    status: String,
+    input_rows: i32,
+    candidate_rows: i32,
+    preserved_rows: i32,
+}
+
+#[derive(Debug)]
+struct StoredEmployeeImportRow {
+    company: String,
+    name: String,
+    source_filename: String,
+    source_sheet: String,
+    source_row: i32,
+    source_key: String,
+    raw_row: Value,
+    source_metadata: Value,
+    canonical: EmployeeCanonicalFields,
+}
+
+impl StoredEmployeeImportRow {
+    fn into_parsed(self) -> Result<ParsedEmployeeRow, HrError> {
+        if self.name.trim().is_empty() {
+            return Err(HrError::validation(
+                "candidate import row is missing required employee name",
+            ));
+        }
+        Ok(ParsedEmployeeRow {
+            company: self.company,
+            name: self.name,
+            source_filename: self.source_filename,
+            source_sheet: self.source_sheet,
+            source_row: self.source_row,
+            source_key: self.source_key,
+            raw_row: self.raw_row,
+            source_metadata: self.source_metadata,
+            canonical: self.canonical,
+        })
+    }
 }
 
 struct XlsxUpload {
@@ -633,6 +1238,11 @@ async fn read_xlsx_upload(mut multipart: Multipart) -> Result<XlsxUpload, HrErro
             .file_name()
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| "employees.xlsx".to_owned());
+        if !filename.to_ascii_lowercase().ends_with(".xlsx") {
+            return Err(HrError::validation(
+                "employee import currently accepts .xlsx workbooks only",
+            ));
+        }
         let mut bytes = Vec::new();
         while let Some(chunk) = field
             .chunk()
@@ -661,7 +1271,7 @@ struct ParsedEmployeeWorkbook {
     rows: Vec<ParsedEmployeeRow>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ParsedEmployeeRow {
     company: String,
     name: String,
@@ -674,20 +1284,91 @@ struct ParsedEmployeeRow {
     canonical: EmployeeCanonicalFields,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct EmployeeCanonicalFields {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     employee_number: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     org_unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     job: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     position: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     worksite_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     worksite_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     hire_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     exit_date: Option<String>,
+    #[serde(default = "default_active_status")]
     employment_status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     leave_accrued: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     leave_used: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     leave_remaining: Option<String>,
+}
+
+fn default_active_status() -> String {
+    "ACTIVE".to_owned()
+}
+
+#[derive(Debug, Clone)]
+struct ParsedEmployeeImportWorkbook {
+    rows: Vec<ParsedEmployeeImportRow>,
+    columns: Vec<EmployeeImportColumn>,
+}
+
+impl ParsedEmployeeImportWorkbook {
+    fn input_rows(&self) -> usize {
+        self.rows.len()
+    }
+
+    fn candidate_rows(&self) -> usize {
+        self.rows
+            .iter()
+            .filter(|row| row.row_status == ImportRowStatus::Candidate)
+            .count()
+    }
+
+    fn preserved_rows(&self) -> usize {
+        self.rows
+            .iter()
+            .filter(|row| row.row_status == ImportRowStatus::Preserved)
+            .count()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ParsedEmployeeImportRow {
+    company: String,
+    name: Option<String>,
+    source_filename: String,
+    source_sheet: String,
+    source_row: i32,
+    source_key: String,
+    raw_row: Value,
+    source_metadata: Value,
+    canonical: Option<EmployeeCanonicalFields>,
+    row_status: ImportRowStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportRowStatus {
+    Candidate,
+    Preserved,
+}
+
+impl ImportRowStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Candidate => "CANDIDATE",
+            Self::Preserved => "PRESERVED",
+        }
+    }
 }
 
 fn parse_employee_workbook(
@@ -714,7 +1395,10 @@ fn parse_employee_sheet(
     let Some(headers) = range.rows().next() else {
         return Ok(Vec::new());
     };
-    let headers = headers.iter().map(cell_text).collect::<Vec<_>>();
+    let headers = headers
+        .iter()
+        .map(|cell| normalize_header_label(&cell_text(cell)))
+        .collect::<Vec<_>>();
     let name_index = headers
         .iter()
         .position(|header| header == "성명")
@@ -762,6 +1446,122 @@ fn parse_employee_sheet(
     Ok(parsed)
 }
 
+fn parse_employee_import_workbook(
+    filename: &str,
+    bytes: &[u8],
+) -> Result<ParsedEmployeeImportWorkbook, HrError> {
+    let mut workbook =
+        Xlsx::new(Cursor::new(bytes)).map_err(|err| HrError::workbook(err.to_string()))?;
+    let mut rows = Vec::new();
+    let mut columns = BTreeMap::<String, EmployeeImportColumn>::new();
+    for sheet in workbook.sheet_names().to_owned() {
+        let range = workbook
+            .worksheet_range(&sheet)
+            .map_err(|err| HrError::workbook(err.to_string()))?;
+        let parsed = parse_employee_import_sheet(filename, &sheet, &range)?;
+        for column in parsed.columns {
+            columns
+                .entry(column.normalized_header.clone())
+                .or_insert(column);
+        }
+        rows.extend(parsed.rows);
+    }
+    Ok(ParsedEmployeeImportWorkbook {
+        rows,
+        columns: columns.into_values().collect(),
+    })
+}
+
+#[derive(Debug)]
+struct ParsedEmployeeImportSheet {
+    rows: Vec<ParsedEmployeeImportRow>,
+    columns: Vec<EmployeeImportColumn>,
+}
+
+fn parse_employee_import_sheet(
+    filename: &str,
+    sheet: &str,
+    range: &calamine::Range<Data>,
+) -> Result<ParsedEmployeeImportSheet, HrError> {
+    let Some(header_cells) = range.rows().next() else {
+        return Ok(ParsedEmployeeImportSheet {
+            rows: Vec::new(),
+            columns: Vec::new(),
+        });
+    };
+    let headers = header_cells.iter().map(cell_text).collect::<Vec<_>>();
+    let normalized_headers = headers
+        .iter()
+        .map(|header| normalize_header_label(header))
+        .collect::<Vec<_>>();
+    let columns = headers
+        .iter()
+        .zip(normalized_headers.iter())
+        .filter(|(_, normalized)| !normalized.is_empty())
+        .map(|(source, normalized)| employee_import_column(source, normalized))
+        .collect::<Vec<_>>();
+    let name_index = normalized_headers
+        .iter()
+        .position(|header| header == "성명")
+        .ok_or_else(|| HrError::workbook(format!("sheet {sheet} is missing 성명 header")))?;
+
+    let mut parsed = Vec::new();
+    for (zero_based_idx, row) in range.rows().enumerate().skip(1) {
+        if !row.iter().any(|cell| !cell_text(cell).is_empty()) {
+            continue;
+        }
+        let source_row = i32::try_from(zero_based_idx + 1)
+            .map_err(|_| HrError::workbook("source row does not fit i32"))?;
+        let mut raw = Map::new();
+        for (idx, header) in normalized_headers.iter().enumerate() {
+            if header.is_empty() {
+                continue;
+            }
+            let value = row.get(idx).map(cell_json).unwrap_or(Value::Null);
+            raw.insert(header.clone(), value);
+        }
+        let raw_row = Value::Object(raw);
+        let name = row
+            .get(name_index)
+            .map(cell_text)
+            .filter(|value| !value.is_empty());
+        let canonical = name.as_ref().map(|_| canonical_employee_fields(&raw_row));
+        let source_key = format!("filename:{filename}|sheet:{sheet}|row:{source_row}");
+        parsed.push(ParsedEmployeeImportRow {
+            company: sheet.to_owned(),
+            name,
+            source_filename: filename.to_owned(),
+            source_sheet: sheet.to_owned(),
+            source_row,
+            source_key,
+            raw_row,
+            source_metadata: json!({
+                "filename": filename,
+                "sheet": sheet,
+                "row": source_row,
+                "source_key_kind": "filename_sheet_row",
+                "header_normalization": "trim_remove_whitespace"
+            }),
+            canonical,
+            row_status: if row
+                .get(name_index)
+                .map(cell_text)
+                .filter(|value| !value.is_empty())
+                .is_some()
+            {
+                ImportRowStatus::Candidate
+            } else {
+                ImportRowStatus::Preserved
+            },
+        });
+    }
+
+    Ok(ParsedEmployeeImportSheet {
+        rows: parsed,
+        columns,
+    })
+}
+
 fn cell_text(cell: &Data) -> String {
     match cell {
         Data::String(value) | Data::DateTimeIso(value) | Data::DurationIso(value) => {
@@ -796,6 +1596,630 @@ fn cell_json(cell: &Data) -> Value {
     }
 }
 
+fn normalize_header_label(raw: &str) -> String {
+    raw.chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>()
+}
+
+fn employee_import_column(source_header: &str, normalized_header: &str) -> EmployeeImportColumn {
+    let target = employee_import_target_for_header(normalized_header).map(ToOwned::to_owned);
+    let classification =
+        employee_import_column_classification(normalized_header, target.as_deref());
+    EmployeeImportColumn {
+        source_header: source_header.trim().to_owned(),
+        normalized_header: normalized_header.to_owned(),
+        target,
+        preview_allowed: classification == "canonical" || classification == "retained",
+        classification: classification.to_owned(),
+    }
+}
+
+fn employee_import_target_for_header(header: &str) -> Option<&'static str> {
+    match header {
+        "성명" => Some("name"),
+        "사번" => Some("employee_number"),
+        "부서명" | "소속" => Some("org_unit"),
+        "업무" => Some("job"),
+        "직책" | "직위" => Some("position"),
+        "근무지" => Some("worksite_name"),
+        "근무지(주소)" => Some("worksite_address"),
+        "입사일" | "보험가입일" => Some("hire_date"),
+        "퇴사일" | "보험상실일" => Some("exit_date"),
+        "발생연차" => Some("leave_accrued"),
+        "사용연차" => Some("leave_used"),
+        "잔여연차" => Some("leave_remaining"),
+        "회사" | "법인" | "소속회사" => Some("company"),
+        _ => None,
+    }
+}
+
+fn employee_import_column_classification(header: &str, target: Option<&str>) -> &'static str {
+    if target == Some("worksite_address") || is_location_header(header) {
+        return "location";
+    }
+    if is_restricted_employee_import_header(header) {
+        return "restricted";
+    }
+    if target.is_some() {
+        return "canonical";
+    }
+    "retained"
+}
+
+fn is_location_header(header: &str) -> bool {
+    header.contains("위치") || header.contains("주소")
+}
+
+fn is_restricted_employee_import_header(header: &str) -> bool {
+    let restricted_fragments = [
+        "주민",
+        "급여",
+        "시급",
+        "통상",
+        "수당",
+        "국민연금",
+        "건강보험",
+        "고용보험",
+        "산재",
+        "소득세",
+        "은행",
+        "계좌",
+        "장애",
+        "퇴직금",
+        "지급일",
+        "급여산정",
+        "휴대폰",
+        "전화",
+        "연락처",
+        "개인주소",
+        "거주주소",
+    ];
+    restricted_fragments
+        .iter()
+        .any(|fragment| header.contains(fragment))
+}
+
+fn employee_import_mapping_profile(columns: &[EmployeeImportColumn]) -> Value {
+    json!({
+        "entity_type": "employee_hr",
+        "target_allowlist": [
+            "name",
+            "employee_number",
+            "org_unit",
+            "job",
+            "position",
+            "worksite_name",
+            "worksite_address",
+            "hire_date",
+            "exit_date",
+            "leave_accrued",
+            "leave_used",
+            "leave_remaining",
+            "company"
+        ],
+        "columns": columns,
+        "policy": {
+            "unknown_columns": "retain_raw_only",
+            "restricted_columns": "retain_raw_mask_preview",
+            "blank_name_rows": "preserve_raw_only",
+            "server_side_entity_allowlist": ["employee_hr"]
+        }
+    })
+}
+
+fn masked_preview_values(
+    raw_row: &Value,
+    columns: &[EmployeeImportColumn],
+) -> BTreeMap<String, Value> {
+    let Some(object) = raw_row.as_object() else {
+        return BTreeMap::new();
+    };
+    columns
+        .iter()
+        .filter_map(|column| {
+            let value = object.get(&column.normalized_header)?;
+            let masked = if column.preview_allowed {
+                safe_preview_value(value)
+            } else if value.is_null() {
+                Value::Null
+            } else {
+                json!("••••")
+            };
+            Some((column.normalized_header.clone(), masked))
+        })
+        .collect()
+}
+
+fn safe_preview_value(value: &Value) -> Value {
+    match value {
+        Value::String(value) if value.len() > 80 => {
+            json!(format!("{}…", value.chars().take(80).collect::<String>()))
+        }
+        Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::Null => value.clone(),
+        Value::Array(_) | Value::Object(_) => json!("복합 값"),
+    }
+}
+
+fn import_canonical_row_json(row: &ParsedEmployeeImportRow) -> Value {
+    let Some(name) = row.name.as_ref() else {
+        return json!({
+            "source_filename": &row.source_filename,
+            "source_sheet": &row.source_sheet,
+            "source_row": row.source_row,
+            "source_key": &row.source_key,
+            "raw_only_reason": "missing_name"
+        });
+    };
+    json!({
+        "company": &row.company,
+        "name": name,
+        "source_filename": &row.source_filename,
+        "source_sheet": &row.source_sheet,
+        "source_row": row.source_row,
+        "source_key": &row.source_key,
+        "source_metadata": &row.source_metadata,
+        "canonical": &row.canonical
+    })
+}
+
+fn import_validation_json(row: &ParsedEmployeeImportRow) -> Value {
+    match row.row_status {
+        ImportRowStatus::Candidate => json!({ "status": "ok", "errors": [], "warnings": [] }),
+        ImportRowStatus::Preserved => json!({
+            "status": "preserved",
+            "errors": [],
+            "warnings": ["missing_name_preserved_raw_only"]
+        }),
+    }
+}
+
+async fn apply_employee_rows_tx(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    rows: Vec<ParsedEmployeeRow>,
+) -> Result<EmployeeImportReport, HrError> {
+    let mut report = EmployeeImportReport::default();
+    let mut by_company = BTreeMap::<String, CompanyImportSummary>::new();
+    for row in rows {
+        let company_entry =
+            by_company
+                .entry(row.company.clone())
+                .or_insert_with(|| CompanyImportSummary {
+                    company: row.company.clone(),
+                    ..CompanyImportSummary::default()
+                });
+        company_entry.input_rows += 1;
+        report.input_rows += 1;
+
+        let outcome: String = sqlx::query_scalar(
+            r#"
+            INSERT INTO employees (
+                org_id, company, name, source_filename, source_sheet, source_row,
+                source_key, raw_row, source_metadata, employee_number, org_unit, job,
+                position, worksite_name, worksite_address, hire_date, exit_date,
+                employment_status, leave_accrued, leave_used, leave_remaining
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                $14, $15, $16, $17, $18, NULLIF($19::TEXT, '')::NUMERIC,
+                NULLIF($20::TEXT, '')::NUMERIC, NULLIF($21::TEXT, '')::NUMERIC
+            )
+            ON CONFLICT (org_id, source_key) DO UPDATE SET
+                company = EXCLUDED.company,
+                name = EXCLUDED.name,
+                source_filename = EXCLUDED.source_filename,
+                source_sheet = EXCLUDED.source_sheet,
+                source_row = EXCLUDED.source_row,
+                raw_row = EXCLUDED.raw_row,
+                source_metadata = EXCLUDED.source_metadata,
+                employee_number = EXCLUDED.employee_number,
+                org_unit = EXCLUDED.org_unit,
+                job = EXCLUDED.job,
+                position = EXCLUDED.position,
+                worksite_name = EXCLUDED.worksite_name,
+                worksite_address = EXCLUDED.worksite_address,
+                hire_date = EXCLUDED.hire_date,
+                exit_date = EXCLUDED.exit_date,
+                employment_status = EXCLUDED.employment_status,
+                leave_accrued = EXCLUDED.leave_accrued,
+                leave_used = EXCLUDED.leave_used,
+                leave_remaining = EXCLUDED.leave_remaining,
+                updated_at = now()
+            RETURNING CASE WHEN xmax = 0 THEN 'inserted' ELSE 'updated' END
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(&row.company)
+        .bind(&row.name)
+        .bind(&row.source_filename)
+        .bind(&row.source_sheet)
+        .bind(row.source_row)
+        .bind(&row.source_key)
+        .bind(&row.raw_row)
+        .bind(&row.source_metadata)
+        .bind(row.canonical.employee_number.as_deref())
+        .bind(row.canonical.org_unit.as_deref())
+        .bind(row.canonical.job.as_deref())
+        .bind(row.canonical.position.as_deref())
+        .bind(row.canonical.worksite_name.as_deref())
+        .bind(row.canonical.worksite_address.as_deref())
+        .bind(row.canonical.hire_date.as_deref())
+        .bind(row.canonical.exit_date.as_deref())
+        .bind(row.canonical.employment_status.as_str())
+        .bind(row.canonical.leave_accrued.as_deref())
+        .bind(row.canonical.leave_used.as_deref())
+        .bind(row.canonical.leave_remaining.as_deref())
+        .fetch_one(tx.as_mut())
+        .await?;
+
+        if outcome == "inserted" {
+            company_entry.inserted += 1;
+            report.inserted += 1;
+        } else {
+            company_entry.updated += 1;
+            report.updated += 1;
+        }
+    }
+    report.companies = by_company.into_values().collect();
+    Ok(report)
+}
+
+async fn import_run_for_update(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    run_id: Uuid,
+) -> Result<DataImportRunRecord, HrError> {
+    let row = sqlx::query(
+        r#"
+        SELECT entity_type, status, input_rows, candidate_rows, preserved_rows
+        FROM data_import_runs
+        WHERE org_id = $1 AND id = $2
+        FOR UPDATE
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(run_id)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| HrError::from_kernel(KernelError::not_found("import run not found")))?;
+
+    Ok(DataImportRunRecord {
+        entity_type: row.try_get("entity_type")?,
+        status: row.try_get("status")?,
+        input_rows: row.try_get("input_rows")?,
+        candidate_rows: row.try_get("candidate_rows")?,
+        preserved_rows: row.try_get("preserved_rows")?,
+    })
+}
+
+async fn load_candidate_import_rows(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    run_id: Uuid,
+) -> Result<Vec<StoredEmployeeImportRow>, HrError> {
+    sqlx::query(
+        r#"
+        SELECT raw_row, canonical_row
+        FROM data_import_rows
+        WHERE org_id = $1 AND run_id = $2 AND row_status = 'CANDIDATE'
+        ORDER BY source_sheet ASC, source_row ASC
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(run_id)
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|row| stored_employee_import_row(row.try_get("raw_row")?, row.try_get("canonical_row")?))
+    .collect()
+}
+
+fn stored_employee_import_row(
+    raw_row: Value,
+    canonical_row: Value,
+) -> Result<StoredEmployeeImportRow, HrError> {
+    let source_metadata = canonical_row
+        .get("source_metadata")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let canonical = serde_json::from_value::<EmployeeCanonicalFields>(
+        canonical_row
+            .get("canonical")
+            .cloned()
+            .unwrap_or_else(|| json!({ "employment_status": "ACTIVE" })),
+    )
+    .map_err(|err| HrError::validation(format!("stored import canonical row is invalid: {err}")))?;
+    Ok(StoredEmployeeImportRow {
+        company: required_json_string(&canonical_row, "company")?,
+        name: required_json_string(&canonical_row, "name")?,
+        source_filename: required_json_string(&canonical_row, "source_filename")?,
+        source_sheet: required_json_string(&canonical_row, "source_sheet")?,
+        source_row: required_json_i32(&canonical_row, "source_row")?,
+        source_key: required_json_string(&canonical_row, "source_key")?,
+        raw_row,
+        source_metadata,
+        canonical,
+    })
+}
+
+fn required_json_string(value: &Value, key: &'static str) -> Result<String, HrError> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| HrError::validation(format!("stored import row is missing {key}")))
+}
+
+fn required_json_i32(value: &Value, key: &'static str) -> Result<i32, HrError> {
+    let number = value
+        .get(key)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| HrError::validation(format!("stored import row is missing {key}")))?;
+    i32::try_from(number)
+        .map_err(|_| HrError::validation(format!("stored import row {key} does not fit i32")))
+}
+
+async fn compute_employee_import_dry_run(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    run_id: Uuid,
+    run: &DataImportRunRecord,
+    rows: &[StoredEmployeeImportRow],
+) -> Result<EmployeeImportDryRunSummary, HrError> {
+    let source_keys = rows
+        .iter()
+        .map(|row| row.source_key.clone())
+        .collect::<Vec<_>>();
+    let existing = if source_keys.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT source_key FROM employees WHERE org_id = $1 AND source_key = ANY($2)",
+        )
+        .bind(org_uuid)
+        .bind(&source_keys)
+        .fetch_all(tx.as_mut())
+        .await?
+    };
+    let existing = existing
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut by_company = BTreeMap::<String, CompanyImportSummary>::new();
+    let mut insert_candidates = 0usize;
+    let mut update_candidates = 0usize;
+    for row in rows {
+        let entry = by_company
+            .entry(row.company.clone())
+            .or_insert_with(|| CompanyImportSummary {
+                company: row.company.clone(),
+                ..CompanyImportSummary::default()
+            });
+        entry.input_rows += 1;
+        if existing.contains(&row.source_key) {
+            entry.updated += 1;
+            update_candidates += 1;
+        } else {
+            entry.inserted += 1;
+            insert_candidates += 1;
+        }
+    }
+    Ok(EmployeeImportDryRunSummary {
+        run_id,
+        input_rows: usize::try_from(run.input_rows).unwrap_or_default(),
+        candidate_rows: usize::try_from(run.candidate_rows).unwrap_or_default(),
+        preserved_rows: usize::try_from(run.preserved_rows).unwrap_or_default(),
+        insert_candidates,
+        update_candidates,
+        companies: by_company.into_values().collect(),
+    })
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+#[derive(Debug)]
+struct NormalizedEmployeeLifecycleTransition {
+    event_type: String,
+    to_status: String,
+    to_company: Option<String>,
+    to_org_unit: Option<String>,
+    to_position: Option<String>,
+    effective_date: String,
+    comment: String,
+    signoffs: EmployeeLifecycleSignoffs,
+}
+
+fn normalize_lifecycle_transition(
+    body: CreateEmployeeLifecycleEventRequest,
+) -> Result<NormalizedEmployeeLifecycleTransition, HrError> {
+    let event_type = normalize_enum_text(body.event_type);
+    if !matches!(
+        event_type.as_str(),
+        "ONBOARD" | "OFFBOARD" | "TERMINATE" | "TRANSFER"
+    ) {
+        return Err(HrError::validation(
+            "event_type must be ONBOARD, OFFBOARD, TERMINATE, or TRANSFER",
+        ));
+    }
+
+    let to_status = body
+        .to_status
+        .map(normalize_enum_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default_lifecycle_status(&event_type).to_owned());
+    if !matches!(to_status.as_str(), "ACTIVE" | "EXITED" | "UNKNOWN") {
+        return Err(HrError::validation(
+            "to_status must be ACTIVE, EXITED, or UNKNOWN",
+        ));
+    }
+
+    let effective_date = body.effective_date.trim().to_owned();
+    if effective_date.is_empty() {
+        return Err(HrError::validation("effective_date is required"));
+    }
+    let comment = body.comment.trim().to_owned();
+    if comment.is_empty() {
+        return Err(HrError::validation("comment is required"));
+    }
+
+    Ok(NormalizedEmployeeLifecycleTransition {
+        event_type,
+        to_status,
+        to_company: normalize_optional_text(body.to_company),
+        to_org_unit: normalize_optional_text(body.to_org_unit),
+        to_position: normalize_optional_text(body.to_position),
+        effective_date,
+        comment,
+        signoffs: body.signoffs,
+    })
+}
+
+fn default_lifecycle_status(event_type: &str) -> &'static str {
+    match event_type {
+        "OFFBOARD" | "TERMINATE" => "EXITED",
+        "ONBOARD" | "TRANSFER" => "ACTIVE",
+        _ => "UNKNOWN",
+    }
+}
+
+fn validate_lifecycle_transition(
+    current: &EmployeeForLifecycle,
+    transition: &NormalizedEmployeeLifecycleTransition,
+) -> Result<(), HrError> {
+    if !transition.signoffs.privacy_notice_ack {
+        return Err(HrError::validation(
+            "privacy_notice_ack is required for employee lifecycle events",
+        ));
+    }
+    if !transition.signoffs.korean_labor_law_ack {
+        return Err(HrError::validation(
+            "korean_labor_law_ack is required for employee lifecycle events",
+        ));
+    }
+
+    let current_status = normalize_enum_text(current.employment_status.clone());
+    match transition.event_type.as_str() {
+        "ONBOARD" => {
+            if transition.to_status != "ACTIVE" {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    "ONBOARD must result in ACTIVE status",
+                )));
+            }
+        }
+        "OFFBOARD" | "TERMINATE" => {
+            if current_status == "EXITED" {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    "employee is already EXITED",
+                )));
+            }
+            if transition.to_status != "EXITED" {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    "OFFBOARD and TERMINATE must result in EXITED status",
+                )));
+            }
+            if !transition.signoffs.payroll_cutoff_ack {
+                return Err(HrError::validation(
+                    "payroll_cutoff_ack is required before offboarding or termination",
+                ));
+            }
+            if !transition.signoffs.retirement_settlement_ack {
+                return Err(HrError::validation(
+                    "retirement_settlement_ack is required before offboarding or termination",
+                ));
+            }
+        }
+        "TRANSFER" => {
+            if transition.to_status != "ACTIVE" {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    "TRANSFER must keep the employee ACTIVE",
+                )));
+            }
+            let cross_company = transition
+                .to_company
+                .as_ref()
+                .is_some_and(|next| next != &current.company);
+            if cross_company
+                && (!transition.signoffs.payroll_cutoff_ack
+                    || !transition.signoffs.retirement_settlement_ack)
+            {
+                return Err(HrError::validation(
+                    "cross-company transfer requires payroll cutoff and retirement-settlement signoffs",
+                ));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn load_employee_for_lifecycle(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    employee_id: Uuid,
+) -> Result<EmployeeForLifecycle, HrError> {
+    let row = sqlx::query(
+        r#"
+        SELECT company, org_unit, position, employment_status
+        FROM employees
+        WHERE org_id = $1 AND id = $2
+        FOR UPDATE
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(employee_id)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| HrError::from_kernel(KernelError::not_found("employee not found")))?;
+
+    Ok(EmployeeForLifecycle {
+        company: row.try_get("company")?,
+        org_unit: row.try_get("org_unit")?,
+        position: row.try_get("position")?,
+        employment_status: row.try_get("employment_status")?,
+    })
+}
+
+fn employee_lifecycle_event_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<EmployeeLifecycleEventResponse, HrError> {
+    let signoffs: Value = row.try_get("signoffs")?;
+    let signoffs = serde_json::from_value::<EmployeeLifecycleSignoffs>(signoffs)
+        .map_err(|err| HrError::validation(format!("invalid lifecycle signoffs: {err}")))?;
+    Ok(EmployeeLifecycleEventResponse {
+        id: row.try_get("id")?,
+        employee_id: row.try_get("employee_id")?,
+        event_type: row.try_get("event_type")?,
+        from_status: row.try_get("from_status")?,
+        to_status: row.try_get("to_status")?,
+        from_company: row.try_get("from_company")?,
+        to_company: row.try_get("to_company")?,
+        from_org_unit: row.try_get("from_org_unit")?,
+        to_org_unit: row.try_get("to_org_unit")?,
+        from_position: row.try_get("from_position")?,
+        to_position: row.try_get("to_position")?,
+        effective_date: row.try_get("effective_date")?,
+        comment: row.try_get("comment")?,
+        signoffs,
+        created_by: row.try_get("created_by")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn normalize_enum_text(value: String) -> String {
+    value.trim().to_ascii_uppercase()
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
 fn employee_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeResponse, HrError> {
     Ok(EmployeeResponse {
         id: row.try_get("id")?,
@@ -816,6 +2240,57 @@ fn employee_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeResponse, HrE
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
+}
+
+fn standardized_employees_csv(rows: &[sqlx::postgres::PgRow]) -> Result<String, HrError> {
+    let mut csv =
+        "company,name,employee_number,org_unit,worksite_name,job,position,hire_date,exit_date,status,leave_remaining\r\n"
+            .to_owned();
+    for row in rows {
+        let cells = [
+            optional_row_text(row, "company")?,
+            optional_row_text(row, "name")?,
+            optional_row_text(row, "employee_number")?,
+            optional_row_text(row, "org_unit")?,
+            optional_row_text(row, "worksite_name")?,
+            optional_row_text(row, "job")?,
+            optional_row_text(row, "position")?,
+            optional_row_text(row, "hire_date")?,
+            optional_row_text(row, "exit_date")?,
+            optional_row_text(row, "employment_status")?,
+            optional_row_text(row, "leave_remaining")?,
+        ];
+        csv.push_str(
+            &cells
+                .iter()
+                .map(|cell| csv_field(cell))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        csv.push_str("\r\n");
+    }
+    Ok(csv)
+}
+
+fn optional_row_text(row: &sqlx::postgres::PgRow, key: &str) -> Result<String, HrError> {
+    Ok(row.try_get::<Option<String>, _>(key)?.unwrap_or_default())
+}
+
+fn csv_field(value: &str) -> String {
+    let safe = neutralize_spreadsheet_formula(value);
+    if safe.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", safe.replace('"', "\"\""))
+    } else {
+        safe
+    }
+}
+
+fn neutralize_spreadsheet_formula(value: &str) -> String {
+    if matches!(value.chars().next(), Some('=' | '+' | '-' | '@')) {
+        format!("'{value}")
+    } else {
+        value.to_owned()
+    }
 }
 
 fn canonical_employee_fields(raw_row: &Value) -> EmployeeCanonicalFields {
@@ -1003,6 +2478,12 @@ impl HrError {
     }
 }
 
+impl From<KernelError> for HrError {
+    fn from(error: KernelError) -> Self {
+        Self::from_kernel(error)
+    }
+}
+
 impl From<DbError> for HrError {
     fn from(value: DbError) -> Self {
         tracing::error!(error = %value, "employee directory database operation failed");
@@ -1123,6 +2604,45 @@ mod tests {
         assert_eq!(canonical.exit_date.as_deref(), Some("2026-01-31"));
         assert_eq!(canonical.employment_status, "EXITED");
         assert_eq!(raw["퇴직금 중간정산일"], json!("2025-12-31"));
+    }
+
+    #[test]
+    fn governed_import_preview_preserves_blank_name_rows_and_masks_sensitive_columns()
+    -> Result<(), String> {
+        let mut range = Range::new((0, 0), (2, 4));
+        range.set_value((0, 0), Data::String("성명".to_owned()));
+        range.set_value((0, 1), Data::String("근무지\n(주소)".to_owned()));
+        range.set_value((0, 2), Data::String("계좌번호".to_owned()));
+        range.set_value((0, 3), Data::String("퇴직금 중간정산일".to_owned()));
+        range.set_value((0, 4), Data::String("메모".to_owned()));
+        range.set_value((1, 0), Data::String("홍길동".to_owned()));
+        range.set_value((1, 1), Data::String("서울".to_owned()));
+        range.set_value((1, 2), Data::String("123-456".to_owned()));
+        range.set_value((1, 3), Data::String("2025-12-31".to_owned()));
+        range.set_value((1, 4), Data::String("현장 배치".to_owned()));
+        range.set_value((2, 2), Data::String("빈 이름 원천 행".to_owned()));
+
+        let parsed = parse_employee_import_sheet("employees.xlsx", "코스", &range)
+            .map_err(|err| format!("expected governed import sheet to parse, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 2);
+        assert_eq!(parsed.rows[0].row_status, ImportRowStatus::Candidate);
+        assert_eq!(parsed.rows[1].row_status, ImportRowStatus::Preserved);
+        assert_eq!(parsed.rows[0].raw_row["근무지(주소)"], json!("서울"));
+        assert_eq!(parsed.rows[1].raw_row["계좌번호"], json!("빈 이름 원천 행"));
+
+        let preview = masked_preview_values(&parsed.rows[0].raw_row, &parsed.columns);
+        assert_eq!(preview["근무지(주소)"], json!("••••"));
+        assert_eq!(preview["계좌번호"], json!("••••"));
+        assert_eq!(preview["퇴직금중간정산일"], json!("••••"));
+        assert_eq!(preview["메모"], json!("현장 배치"));
+        Ok(())
+    }
+
+    #[test]
+    fn standardized_csv_neutralizes_spreadsheet_formulas() {
+        assert_eq!(csv_field("=cmd|' /C calc'!A0"), "'=cmd|' /C calc'!A0");
+        assert_eq!(csv_field("hello, world"), "\"hello, world\"");
     }
 
     #[test]

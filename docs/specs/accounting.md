@@ -37,3 +37,10 @@ Excluded until follow-up slices:
 - VAT, VAT periods, and e-tax invoices carry source URLs and effective dates.
 - E-tax invoice issuance is a signed sensitive action: passkey step-up, audit log, and immutable source document id are required in the future REST layer.
 - Consolidated group views aggregate per-법인 ledgers; they do not bypass per-org RLS.
+
+## G025 console integration contract
+
+- `/financial` is an operating console for purchase requests, rental quotes, equipment cost ledger, and asset lifecycle economics. It must keep source-object links to equipment, work orders, evidence, approval/payment line state, and cost-ledger outcomes instead of acting as a standalone form.
+- Purchase execution is not an accounting close. It may append an equipment cost-ledger event and audit transition, but GL/AP/VAT posting remains gated by the ERP/accounting release rules above.
+- Rental pricing and asset sell/keep/acquire signals are deterministic review aids. They must not automatically change prices, sell assets, issue invoices, or bypass approval/policy workflows.
+- Any future action that has signature-grade effect—전자세금계산서 issuance, asset sale/disposal, payment execution, write-off, or regulated accounting close—requires passkey step-up, source document lineage, immutable audit evidence, and professional/legal release gates before the UI may label it enforced.

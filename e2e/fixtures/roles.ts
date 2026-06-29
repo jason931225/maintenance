@@ -92,6 +92,25 @@ export function sql(statement: string): void {
   });
 }
 
+/** Run a SELECT against the e2e DB and parse the result as JSON rows. */
+export function querySql<T>(selectStatement: string): T[] {
+  const json = execFileSync(
+    "psql",
+    [
+      E2E_DB_URL,
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-q",
+      "-t",
+      "-A",
+      "-c",
+      `SELECT COALESCE(json_agg(row_to_json(q)), '[]'::json) FROM (${selectStatement}) q`,
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  ).trim();
+  return JSON.parse(json) as T[];
+}
+
 /**
  * Clear the fixed-window auth rate-limit counters before a role ceremony.
  *

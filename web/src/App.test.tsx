@@ -28,9 +28,12 @@ const approvalRequests: URL[] = [];
 const kpiRequests: URL[] = [];
 const autocompleteRequests: URL[] = [];
 const lookupRequests: URL[] = [];
+const storefrontInquiryRequests: unknown[] = [];
 let createWorkOrderRequest: unknown;
 let rejectRequest: { url: URL; body: unknown } | undefined;
 const activeBranchId = "00000000-0000-4000-8000-000000000001";
+const publicListingId = "cccccccc-3333-4333-8333-cccccccccccc";
+const publicListingModelName = "공개매물-E2E-전동지게차";
 const homeDailyPlan = {
   id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
   branch_id: activeBranchId,
@@ -152,6 +155,42 @@ const server = setupServer(
   http.get("*/api/v1/support/tickets", () =>
     HttpResponse.json(supportTicketPage([homeSupportTicket])),
   ),
+  http.get("*/api/v1/storefront/listings", () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: publicListingId,
+          equipment_id: null,
+          kind: "ELECTRIC",
+          condition: "USED",
+          model_name: publicListingModelName,
+          capacity_milli: 2500,
+          model_year: 2024,
+          usage_hours: 120,
+          price_won: 18500000,
+          badge: "즉시 출고",
+          usage_label: "검수 완료",
+          condition_label: "중고",
+          availability: "상담 가능",
+          location: "창원",
+          description: "공개 매물 테스트",
+          listing_type: "SALE",
+          status: "PUBLISHED",
+          sort_weight: 10,
+          created_at: "2026-06-12T00:00:00Z",
+          updated_at: "2026-06-12T00:00:00Z",
+          media: [],
+        },
+      ],
+      limit: 24,
+      offset: 0,
+      total: 1,
+    }),
+  ),
+  http.post("*/api/v1/storefront/inquiries", async ({ request }) => {
+    storefrontInquiryRequests.push(await request.json());
+    return HttpResponse.json({ status: "accepted" }, { status: 201 });
+  }),
   http.get("*/api/v1/branches", () =>
     HttpResponse.json([
       { id: activeBranchId, name: "본사" },
@@ -219,6 +258,7 @@ afterEach(() => {
   kpiRequests.length = 0;
   autocompleteRequests.length = 0;
   lookupRequests.length = 0;
+  storefrontInquiryRequests.length = 0;
   createWorkOrderRequest = undefined;
   rejectRequest = undefined;
 });
@@ -440,6 +480,60 @@ describe("routing", () => {
     expect(
       screen.getByRole("link", { name: "Bestec Family Site" }),
     ).toHaveAttribute("href", "https://www.bestec-kr.com/");
+  });
+
+  it("routes public used-asset inquiries to the sales inquiry form with listing context", async () => {
+    renderAt("/used");
+
+    expect(
+      await screen.findByRole("heading", {
+        name: publicListingModelName,
+        level: 3,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "상담 접수" }),
+    ).toHaveAttribute(
+      "href",
+      `/contact?listing=${publicListingId}&topic=USED_SALES`,
+    );
+  });
+
+  it("submits contact-page sales leads to the storefront inquiry queue with topic and listing id", async () => {
+    const user = userEvent.setup();
+    renderAt(`/contact?topic=USED_SALES&listing=${publicListingId}`);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "온라인 견적 문의",
+        level: 2,
+      }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("문의 유형")).toHaveValue("USED_SALES");
+    expect(
+      screen.getByText(
+        `선택한 매물 ID ${publicListingId}가 문의와 함께 영업 관리함에 연결됩니다.`,
+      ),
+    ).toBeVisible();
+
+    await user.type(screen.getByLabelText("이름"), "홍길동");
+    await user.type(screen.getByLabelText("연락처"), "010-1111-2222");
+    await user.type(screen.getByLabelText("문의 내용"), "매물 상태와 납기 문의");
+    await user.click(screen.getByRole("button", { name: "문의 남기기" }));
+
+    await waitFor(() => {
+      expect(storefrontInquiryRequests).toHaveLength(1);
+    });
+    expect(storefrontInquiryRequests[0]).toMatchObject({
+      name: "홍길동",
+      phone: "010-1111-2222",
+      topic: "USED_SALES",
+      message: "매물 상태와 납기 문의",
+      listing_id: publicListingId,
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "문의가 접수되었습니다.",
+    );
   });
 
   it("renders the public /platform-fsm showcase", async () => {

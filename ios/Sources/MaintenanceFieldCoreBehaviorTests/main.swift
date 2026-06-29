@@ -9,6 +9,9 @@ struct MaintenanceFieldCoreBehaviorTests {
         try locationConsentStateMachineMirrorsAndroidGpsGate()
         try workOrderMappersMirrorAndroidModels()
         try reportDraftTrimsGeneratedRequestFields()
+        try workHubCollaborationActionsCaptureMobileOperationalState()
+        try await mobileOperationsRepositoryCachesAndMutatesProductionSeams()
+        try await mobileOperationsRepositoryRoutesNotificationsAndQueuesSensitiveActions()
         try await offlineStartRetriesSameRequestIDAndAcceptsCachedSyncResult()
         try await failedOperationSurfacesQueueResultWithoutDroppingMutation()
         try messengerMappersAndReducerMirrorAndroidModels()
@@ -117,6 +120,168 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expectEqual(request.resultType, .completed)
         try expectEqual(request.diagnosis, "배터리 커넥터 접촉 불량")
         try expectEqual(request.actionTaken, "커넥터 교체 및 충전 확인")
+    }
+
+    private static func workHubCollaborationActionsCaptureMobileOperationalState() throws {
+        let actions = MobileCollaborationActionBuilder.build(
+            counts: MobileCollaborationActionCounts(
+                urgentWorkCount: 1,
+                approvalRelatedCount: 2,
+                pendingSyncCount: 1,
+                messengerThreadCount: 3,
+                targetDueWorkCount: 4
+            )
+        )
+
+        try expectEqual(actions.map(\.kind), MobileCollaborationKind.allCases)
+        try expectEqual(actions.first { $0.kind == .notification }?.count, 4)
+        try expectEqual(actions.first { $0.kind == .approval }?.status, .actionRequired)
+        try expectEqual(actions.first { $0.kind == .passkeySigning }?.requiresPasskey, true)
+        try expectEqual(actions.first { $0.kind == .offlineSync }?.count, 1)
+        try expectEqual(actions.first { $0.kind == .messenger }?.count, 3)
+        try expectEqual(actions.first { $0.kind == .calendar }?.count, 4)
+        try expectEqual(actions.first { $0.kind == .mail }?.status, .ready)
+        try expectEqual(actions.first { $0.kind == .poll }?.valueKey, "work_hub_action_polls_value_ready")
+    }
+
+
+
+    private static func mobileOperationsRepositoryCachesAndMutatesProductionSeams() async throws {
+        let gateway = RecordingMobileOperationsGateway()
+        let cache = InMemoryMobileOperationsCacheStore()
+        let repository = MobileOperationsRepository(
+            gateway: gateway,
+            cache: cache,
+            clock: FixedClock(date: isoDate("2026-06-12T12:00:00Z"))
+        )
+
+        let live = try await repository.refreshOverview()
+
+        try expectEqual(live.origin, .live)
+        try expectEqual(live.snapshot.approvals.total, 0)
+        try expectEqual(live.snapshot.mailFolders.single()?.name, "받은메일함")
+        try expectEqual(live.snapshot.mailThreads.single()?.unreadCount, 2)
+        try expectEqual(live.snapshot.calendarEvents.single()?.title, "주간 정비 계획")
+        try expectEqual(live.snapshot.polls.single()?.myVote.submitted, false)
+        let dashboard = MobileOperationsDashboard(snapshot: live.snapshot)
+        try expectEqual(dashboard.unreadMailCount, 2)
+        try expectEqual(dashboard.mailThreads.single()?.subject, "승인 증빙 확인")
+        try expectEqual(dashboard.calendarEvents.single()?.scopeType, .org)
+        try expectEqual(dashboard.polls.single()?.canVote, true)
+        try expectEqual(gateway.approvalQueries.count, 1)
+        try expectEqual(gateway.approvalQueries.first?.limit, 50)
+        try expectEqual(gateway.approvalQueries.first?.offset, 0)
+
+        gateway.errorToThrow = URLError(.notConnectedToInternet)
+        let cached = try await repository.refreshOverview()
+
+        try expectEqual(cached.origin, .cachedAfterFailure)
+        try expectEqual(cached.snapshot.mailThreads.single()?.id, mailThreadID)
+        try expect(cached.failureDescription?.isEmpty == false, "offline fallback should retain failure detail")
+
+        let readOverview = try await repository.markMailThreadSeen(threadID: mailThreadID, seen: true)
+
+        try expectEqual(gateway.readStateRequests.count, 1)
+        try expectEqual(gateway.readStateRequests.first?.threadID, mailThreadID)
+        try expectEqual(gateway.readStateRequests.first?.seen, true)
+        try expectEqual(readOverview?.snapshot.mailThreads.single()?.unreadCount, 0)
+
+        let updatedPoll = try await repository.votePoll(pollID: pollID, selectedOptionIDs: [pollOptionID])
+
+        try expectEqual(gateway.pollVoteRequests.count, 1)
+        try expectEqual(gateway.pollVoteRequests.first?.pollID, pollID)
+        try expectEqual(gateway.pollVoteRequests.first?.selectedOptionIDs, [pollOptionID])
+        try expectEqual(updatedPoll.myVote.submitted, true)
+        try expectEqual((await repository.cachedOverview())?.snapshot.polls.single()?.voteCount, 1)
+
+        let device = try await repository.registerPushDevice(
+            deviceID: "ios-device-a",
+            appVersion: "0.1.0",
+            pushToken: "apns-token"
+        )
+
+        try expectEqual(device.pushToken, "apns-token")
+        try expectEqual(gateway.deviceRegistrations.count, 1)
+        try expectEqual(gateway.deviceRegistrations.first?.deviceID, "ios-device-a")
+        try expectEqual(gateway.deviceRegistrations.first?.appVersion, "0.1.0")
+        try expectEqual(gateway.deviceRegistrations.first?.pushToken, "apns-token")
+
+        let stepUp = repository.stepUpEnvelope(
+            actionKind: .pollVote,
+            objectID: pollID,
+            reasonKey: "passkey_step_up_poll_vote"
+        )
+
+        try expectEqual(stepUp.actionKind, .pollVote)
+        try expectEqual(stepUp.requiresFreshPasskey, true)
+    }
+
+    private static func mobileOperationsRepositoryRoutesNotificationsAndQueuesSensitiveActions() async throws {
+        let gateway = RecordingMobileOperationsGateway()
+        gateway.approvalPage = generatedWorkOrderApprovalItemsPage()
+        gateway.errorToThrow = URLError(.notConnectedToInternet)
+        let repository = MobileOperationsRepository(
+            gateway: gateway,
+            requestIDFactory: FixedRequestIDFactory("mobile-action-1"),
+            clock: FixedClock(date: isoDate("2026-06-12T12:30:00Z"))
+        )
+
+        let queuedDevice = await repository.registerOrQueuePushDevice(
+            deviceID: "ios-device-b",
+            appVersion: "0.2.0",
+            pushToken: "offline-apns-token"
+        )
+        try expectEqual(queuedDevice?.actionKind, .deviceRegistration)
+        try expectEqual((await repository.sensitiveActionQueueSummary()).readyForReplayCount, 1)
+
+        let routed = await repository.ingestPushNotification(
+            MobilePushNotificationPayload(
+                id: "push-1",
+                title: "긴급 승인",
+                body: "승인 대기 항목이 있습니다.",
+                category: "approval",
+                priority: .critical,
+                objectType: "WORK_ORDER",
+                objectID: workOrderID,
+                receivedAt: isoDate("2026-06-12T12:31:00Z")
+            )
+        )
+        try expectEqual(routed.route, .operationsApproval)
+        try expectEqual((await repository.notificationInbox()).urgentUnreadCount, 1)
+
+        let overview = try await repository.refreshOverview()
+        let approval = try expectNotNil(MobileOperationsDashboard(snapshot: overview.snapshot).approvals.first)
+        let queuedApproval = try await repository.approveWorkOrder(
+            approval: approval,
+            comment: "확인 후 승인",
+            stepUpAssertion: nil
+        )
+        try expectEqual(queuedApproval?.status, .waitingForPasskey)
+        try expectEqual(gateway.approvedWorkOrders.count, 0)
+
+        gateway.errorToThrow = nil
+        let stepUp = Components.Schemas.PasskeyStepUpAssertion(
+            ceremonyId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            credential: Components.Schemas.PasskeyStepUpAssertion.CredentialPayload()
+        )
+        let submitted = try await repository.approveWorkOrder(
+            approval: approval,
+            comment: "패스키 확인 승인",
+            stepUpAssertion: stepUp
+        )
+        try expectEqual(submitted, nil)
+        try expectEqual(gateway.approvedWorkOrders.single()?.workOrderID, workOrderID)
+        try expectEqual(gateway.approvedWorkOrders.single()?.comment, "패스키 확인 승인")
+
+        gateway.errorToThrow = URLError(.timedOut)
+        let queuedPing = await repository.recordOnDutyPing(
+            state: GPSCollectionState(consentState: .granted, onDuty: true),
+            latitude: 37.5665,
+            longitude: 126.9780,
+            accuracyM: 15,
+            recordedAt: isoDate("2026-06-12T12:32:00Z")
+        )
+        try expectEqual(queuedPing?.actionKind, .onDutyPing)
     }
 
     private static func offlineStartRetriesSameRequestIDAndAcceptsCachedSyncResult() async throws {
@@ -346,6 +511,11 @@ struct MaintenanceFieldCoreBehaviorTests {
     private static let messengerSenderID = "33333333-3333-4333-8333-333333333333"
     private static let firstMessageID = "44444444-4444-4444-8444-444444444444"
     private static let secondMessageID = "55555555-5555-4555-8555-555555555555"
+    fileprivate static let mailFolderID = "66666666-6666-4666-8666-666666666666"
+    fileprivate static let mailThreadID = "77777777-7777-4777-8777-777777777777"
+    fileprivate static let calendarEventID = "88888888-8888-4888-8888-888888888888"
+    fileprivate static let pollID = "99999999-9999-4999-8999-999999999999"
+    fileprivate static let pollOptionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
     private static func generatedWorkOrder(
         priority: Components.Schemas.PriorityLevel,
@@ -435,6 +605,137 @@ struct MaintenanceFieldCoreBehaviorTests {
         )
     }
 
+
+
+    fileprivate static func emptyApprovalItemsPage() -> Components.Schemas.ApprovalItemsPage {
+        Components.Schemas.ApprovalItemsPage(items: [], sources: [], limit: 50, offset: 0, total: 0)
+    }
+
+    fileprivate static func generatedWorkOrderApprovalItemsPage() -> Components.Schemas.ApprovalItemsPage {
+        let branchID: Components.Schemas.Uuid = "00000000-0000-0000-0000-000000000222"
+        let tenantID: Components.Schemas.Uuid = "00000000-0000-0000-0000-000000000999"
+        let item = Components.Schemas.ApprovalItem(
+            id: "WORK_ORDER:\(workOrderID)",
+            source: .workOrder,
+            sourceId: workOrderID,
+            branchId: branchID,
+            status: "ADMIN_REVIEW",
+            title: "작업 보고 승인",
+            summary: "정비 보고를 승인합니다.",
+            requestedAt: isoDate("2026-06-12T12:00:00Z"),
+            dueAt: nil,
+            href: "/work-orders/\(workOrderID)",
+            actionHref: "/api/work-orders/\(workOrderID)/approve",
+            ontology: Components.Schemas.ApprovalOntologyContext(
+                objectType: .workOrder,
+                objectId: workOrderID,
+                tenantId: tenantID,
+                branchId: branchID
+            ),
+            workflow: Components.Schemas.ApprovalWorkflowContext(
+                workflowKey: "work_order.report",
+                actionKey: "approve"
+            ),
+            policy: Components.Schemas.ApprovalPolicyContext(
+                decision: .allowed,
+                enforcement: .server,
+                requiredFeatures: ["ApprovalDecide"],
+                scopeKind: .branch,
+                scopeId: branchID
+            ),
+            workOrder: generatedWorkOrder(priority: .p2, status: .adminReview)
+        )
+        return Components.Schemas.ApprovalItemsPage(items: [item], sources: [], limit: 50, offset: 0, total: 1)
+    }
+
+    fileprivate static func generatedMailFolder() -> Components.Schemas.MailFolderView {
+        Components.Schemas.MailFolderView(
+            id: mailFolderID,
+            role: "INBOX",
+            name: "받은메일함",
+            unreadCount: 2,
+            totalCount: 10
+        )
+    }
+
+    fileprivate static func generatedMailThread(unreadCount: Int64 = 2) -> Components.Schemas.MailThreadView {
+        Components.Schemas.MailThreadView(
+            id: mailThreadID,
+            subject: "승인 증빙 확인",
+            lastMessageAt: isoDate("2026-06-12T11:30:00Z"),
+            messageCount: 4,
+            unreadCount: unreadCount,
+            hasAttachments: true,
+            isFlagged: false
+        )
+    }
+
+    fileprivate static func generatedCollaborationPolicy() -> Components.Schemas.CollaborationScopePolicy {
+        Components.Schemas.CollaborationScopePolicy(
+            enforcement: .server,
+            scopeType: .org,
+            visibility: .orgMembers
+        )
+    }
+
+    fileprivate static func generatedCalendarEvent() -> Components.Schemas.CalendarEventResponse {
+        Components.Schemas.CalendarEventResponse(
+            id: calendarEventID,
+            scopeType: .org,
+            title: "주간 정비 계획",
+            description: "현장 정비 캘린더",
+            startsAt: isoDate("2026-06-12T13:00:00Z"),
+            endsAt: isoDate("2026-06-12T14:00:00Z"),
+            allDay: false,
+            status: .active,
+            objectType: "work_order",
+            createdAt: isoDate("2026-06-12T10:00:00Z"),
+            updatedAt: isoDate("2026-06-12T10:00:00Z"),
+            policy: generatedCollaborationPolicy()
+        )
+    }
+
+    fileprivate static func generatedPoll(submitted: Bool, voteCount: Int64) -> Components.Schemas.PollResponse {
+        Components.Schemas.PollResponse(
+            id: pollID,
+            targetScopeType: .org,
+            title: "작업 일정 투표",
+            question: "오전 정비를 먼저 진행할까요?",
+            status: .open,
+            anonymity: .named,
+            allowMultiple: false,
+            objectType: "work_order",
+            options: [
+                Components.Schemas.PollOptionResponse(
+                    id: pollOptionID,
+                    label: "찬성",
+                    position: 0,
+                    voteCount: voteCount
+                ),
+            ],
+            voteCount: voteCount,
+            myVote: Components.Schemas.PollMyVote(
+                submitted: submitted,
+                selectedOptionIds: submitted ? [pollOptionID] : []
+            ),
+            createdAt: isoDate("2026-06-12T10:00:00Z"),
+            updatedAt: isoDate("2026-06-12T10:00:00Z"),
+            policy: generatedCollaborationPolicy()
+        )
+    }
+
+    fileprivate static func generatedDevice(pushToken: String?) -> Components.Schemas.DeviceRegistrationResponse {
+        Components.Schemas.DeviceRegistrationResponse(
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            userId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            deviceHash: "hash",
+            platform: .ios,
+            pushToken: pushToken,
+            appVersion: "0.1.0",
+            lastRegisteredAt: isoDate("2026-06-12T12:00:00Z")
+        )
+    }
+
     private static func isoDate(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
     }
@@ -461,6 +762,101 @@ struct MaintenanceFieldCoreBehaviorTests {
             throw BehaviorTestFailure("expected non-nil value")
         }
         return value
+    }
+}
+
+
+
+private final class RecordingMobileOperationsGateway: MobileOperationsGateway, @unchecked Sendable {
+    var errorToThrow: Error?
+    var approvalPage = MaintenanceFieldCoreBehaviorTests.emptyApprovalItemsPage()
+    var mailFolders = [MaintenanceFieldCoreBehaviorTests.generatedMailFolder()]
+    var mailThreads = [MaintenanceFieldCoreBehaviorTests.generatedMailThread()]
+    var calendarEvents = [MaintenanceFieldCoreBehaviorTests.generatedCalendarEvent()]
+    var polls = [MaintenanceFieldCoreBehaviorTests.generatedPoll(submitted: false, voteCount: 0)]
+    private(set) var approvalQueries: [(limit: Int64, offset: Int64)] = []
+    private(set) var readStateRequests: [(threadID: Components.Schemas.Uuid, seen: Bool)] = []
+    private(set) var pollVoteRequests: [(pollID: Components.Schemas.Uuid, selectedOptionIDs: [Components.Schemas.Uuid])] = []
+    private(set) var deviceRegistrations: [(deviceID: String, appVersion: String, pushToken: String?)] = []
+    private(set) var approvedWorkOrders: [(workOrderID: Components.Schemas.Uuid, comment: String)] = []
+    private(set) var locationPings: [Components.Schemas.LocationPingRequest] = []
+
+    func listApprovalItems(limit: Int64, offset: Int64) async throws -> Components.Schemas.ApprovalItemsPage {
+        approvalQueries.append((limit, offset))
+        if let errorToThrow {
+            self.errorToThrow = nil
+            throw errorToThrow
+        }
+        return approvalPage
+    }
+
+    func approveWorkOrder(workOrderID: Components.Schemas.Uuid, comment: String) async throws {
+        if let errorToThrow {
+            self.errorToThrow = nil
+            throw errorToThrow
+        }
+        approvedWorkOrders.append((workOrderID, comment))
+    }
+
+    func listMailFolders() async throws -> [Components.Schemas.MailFolderView] {
+        mailFolders
+    }
+
+    func listMailThreads(
+        unread: Bool?,
+        query: String?,
+        folderID: Components.Schemas.Uuid?,
+        before: Int64?,
+        limit: Int64
+    ) async throws -> [Components.Schemas.MailThreadView] {
+        mailThreads
+    }
+
+    func setMailThreadReadState(threadID: Components.Schemas.Uuid, seen: Bool) async throws {
+        readStateRequests.append((threadID, seen))
+    }
+
+    func listCalendarEvents(
+        from: Components.Schemas.Timestamp?,
+        to: Components.Schemas.Timestamp?,
+        limit: Int64
+    ) async throws -> [Components.Schemas.CalendarEventResponse] {
+        calendarEvents
+    }
+
+    func listPolls(status: Components.Schemas.PollStatus?, limit: Int64) async throws -> [Components.Schemas.PollResponse] {
+        polls
+    }
+
+    func votePoll(
+        pollID: Components.Schemas.Uuid,
+        selectedOptionIDs: [Components.Schemas.Uuid]
+    ) async throws -> Components.Schemas.PollResponse {
+        pollVoteRequests.append((pollID, selectedOptionIDs))
+        let updated = MaintenanceFieldCoreBehaviorTests.generatedPoll(submitted: true, voteCount: Int64(selectedOptionIDs.count))
+        polls = [updated]
+        return updated
+    }
+
+    func registerDevice(
+        deviceID: String,
+        appVersion: String,
+        pushToken: String?
+    ) async throws -> Components.Schemas.DeviceRegistrationResponse {
+        if let errorToThrow {
+            self.errorToThrow = nil
+            throw errorToThrow
+        }
+        deviceRegistrations.append((deviceID, appVersion, pushToken))
+        return MaintenanceFieldCoreBehaviorTests.generatedDevice(pushToken: pushToken)
+    }
+
+    func recordLocationPing(_ request: Components.Schemas.LocationPingRequest) async throws {
+        if let errorToThrow {
+            self.errorToThrow = nil
+            throw errorToThrow
+        }
+        locationPings.append(request)
     }
 }
 

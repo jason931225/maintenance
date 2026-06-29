@@ -24,11 +24,21 @@ async function findImportInput(page: import("@playwright/test").Page) {
 }
 
 async function submitImport(page: import("@playwright/test").Page) {
-  const button = page.getByRole("button", {
-    name: /가져오기|업로드|불러오기|Import|Upload/i,
+  const preview = page.getByRole("button", {
+    name: /미리보기|가져오기|업로드|불러오기|Preview|Import|Upload/i,
   });
-  if (await button.first().isVisible().catch(() => false)) {
-    await button.first().click();
+  if (await preview.first().isVisible().catch(() => false)) {
+    await preview.first().click();
+  }
+  const dryRun = page.getByRole("button", { name: /드라이런|Dry.?run/i });
+  if (await dryRun.first().isVisible({ timeout: 30_000 }).catch(() => false)) {
+    await dryRun.first().click();
+  }
+  const apply = page.getByRole("button", {
+    name: /검토 후 적용|적용|Apply/i,
+  });
+  if (await apply.first().isVisible({ timeout: 30_000 }).catch(() => false)) {
+    await apply.first().click();
   }
 }
 

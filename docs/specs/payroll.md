@@ -78,3 +78,24 @@ Production payroll calculations are disabled unless all are true:
 4. a 노무사/세무사 validation artifact hash is stored;
 5. the payroll run references immutable source and gate version ids;
 6. audit, RBAC, and passkey-signing requirements are active for payroll run approval and pay-statement issuance.
+
+## G028 production-control contract
+
+This contract keeps payroll useful for import/staging and receipt workflows while preventing a false
+"payroll is live" claim.
+
+- **Domain ownership:** payroll calculations live in `mnt-payroll-domain`; general HR pages may show
+  employment/lifecycle facts but must not own wage, bank, resident-registration, tax, insurance, or
+  severance amounts.
+- **Protected staging:** HR workbooks may preserve payroll/severance fields in the raw import ledger,
+  but generic employee import/export can only preview masked values and canonical non-payroll fields.
+- **No estimate path:** payroll drafts must require an official NTS withholding row and effective-dated
+  rate table record. Missing tables, source URLs, golden cases, or professional validation fail closed.
+- **Receipt workflow:** payroll/wage-statement mail may exist as an audited work-mail object only after
+  a payroll processor creates the source object under payroll permission; mail is not a calculator.
+- **Signing and audit:** payroll run approval, wage-statement issuance, severance/interim-settlement
+  approval, and any correction that changes pay require passkey step-up, actor attribution, memo/evidence,
+  and audit records that avoid raw sensitive payloads.
+- **Release evidence:** production enablement requires `npm run check:payroll`, `npm run
+  check:payroll-release-gate`, golden-case artifacts, and licensed labor/tax reviewer evidence. Until
+  those artifacts exist, UI must present payroll as controlled staging/readiness, not as a payable run.

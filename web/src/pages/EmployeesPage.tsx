@@ -1,9 +1,16 @@
 import { Upload } from "lucide-react";
+import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import type { ConsoleApiClient } from "../api/client";
 import type {
   AttendanceSummaryPage,
+  CreateEmployeeLifecycleEventRequest,
+  EmployeeImportDryRun,
+  EmployeeLifecycleEvent,
+  EmployeeLifecycleEventPage,
+  EmployeeImportPreview,
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
   EmployeeImportSummary,
@@ -26,7 +33,14 @@ import { formatListCount } from "../lib/utils";
 const EMPLOYEE_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 
 type ReadState = "loading" | "idle" | "error";
-type UploadState = "idle" | "uploading" | "error";
+type UploadState = "idle" | "previewing" | "dryRunning" | "applying" | "exporting" | "error";
+const LIFECYCLE_EVENT_TYPES = [
+  "ONBOARD",
+  "OFFBOARD",
+  "TERMINATE",
+  "TRANSFER",
+] as const;
+type EmployeeLifecycleEventType = (typeof LIFECYCLE_EVENT_TYPES)[number];
 
 type EmployeeApi = ConsoleApiClient & {
   GET(
@@ -46,6 +60,10 @@ type EmployeeApi = ConsoleApiClient & {
     path: "/api/v1/hr/attendance-summary",
     options?: { params?: { query?: { limit?: number; offset?: number } } },
   ): Promise<{ data?: AttendanceSummaryPage }>;
+  GET(
+    path: "/api/v1/employees/{id}/lifecycle-events",
+    options: { params: { path: { id: string } } },
+  ): Promise<{ data?: EmployeeLifecycleEventPage }>;
   POST(
     path: "/api/v1/employees/import",
     options: {
@@ -53,6 +71,32 @@ type EmployeeApi = ConsoleApiClient & {
       bodySerializer: (body: { file: string }) => FormData;
     },
   ): Promise<{ data?: EmployeeImportSummary }>;
+  POST(
+    path: "/api/v1/employees/import/preview",
+    options: {
+      body: { file: string };
+      bodySerializer: (body: { file: string }) => FormData;
+    },
+  ): Promise<{ data?: EmployeeImportPreview }>;
+  POST(
+    path: "/api/v1/employees/import/{run_id}/dry-run",
+    options: { params: { path: { run_id: string } } },
+  ): Promise<{ data?: EmployeeImportDryRun }>;
+  POST(
+    path: "/api/v1/employees/import/{run_id}/apply",
+    options: { params: { path: { run_id: string } } },
+  ): Promise<{ data?: EmployeeImportSummary }>;
+  POST(
+    path: "/api/v1/employees/{id}/lifecycle-events",
+    options: {
+      params: { path: { id: string } };
+      body: CreateEmployeeLifecycleEventRequest;
+    },
+  ): Promise<{ data?: EmployeeLifecycleEvent }>;
+  GET(
+    path: "/api/v1/employees/export.csv",
+    options: { parseAs: "text" },
+  ): Promise<{ data?: string }>;
 };
 
 export function EmployeesPage() {
@@ -69,6 +113,8 @@ export function EmployeesPage() {
     useState<AttendanceSummaryPage>();
   const [total, setTotal] = useState<number>();
   const [company, setCompany] = useState("all");
+  const [lifecycleEmployee, setLifecycleEmployee] =
+    useState<EmployeeDirectoryItem>();
 
   const loadEmployees = useCallback(async () => {
     setState("loading");
@@ -205,12 +251,33 @@ export function EmployeesPage() {
               leaveBalances={leaveBalances}
               attendanceSummary={attendanceSummary}
             />
+            <PeopleOperationsPanel
+              selectedCompany={company}
+              companies={companies}
+              employees={employees}
+              visibleEmployees={visibleEmployees}
+              canImport={canImport}
+              onManageLifecycle={setLifecycleEmployee}
+            />
             <OrgChartPanel orgChart={orgChart} />
             <div className="grid gap-5 xl:grid-cols-2">
               <LeaveBalancePanel leaveBalances={leaveBalances} />
               <AttendanceSummaryPanel attendanceSummary={attendanceSummary} />
             </div>
-            <EmployeeTable employees={visibleEmployees} />
+            <EmployeeTable
+              employees={visibleEmployees}
+              onManageLifecycle={setLifecycleEmployee}
+            />
+            {lifecycleEmployee ? (
+              <EmployeeLifecyclePanel
+                key={lifecycleEmployee.id}
+                api={employeeApi}
+                employee={lifecycleEmployee}
+                onChanged={() => {
+                  void loadEmployees();
+                }}
+              />
+            ) : null}
           </>
         ) : null}
 
@@ -267,6 +334,106 @@ function HrDashboard({
           </div>
         ))}
       </dl>
+    </Card>
+  );
+}
+
+function PeopleOperationsPanel({
+  selectedCompany,
+  companies,
+  employees,
+  visibleEmployees,
+  canImport,
+  onManageLifecycle,
+}: {
+  selectedCompany: string;
+  companies: string[];
+  employees: EmployeeDirectoryItem[];
+  visibleEmployees: EmployeeDirectoryItem[];
+  canImport: boolean;
+  onManageLifecycle: (employee: EmployeeDirectoryItem) => void;
+}) {
+  const t = ko.employees.operations;
+  const statusCounts = countEmploymentStatuses(visibleEmployees);
+  const scopeLabel =
+    selectedCompany === "all" ? t.groupScope : `${selectedCompany} ${t.orgScope}`;
+  const cards = [
+    {
+      title: t.scope.title,
+      value: scopeLabel,
+      meta: t.scope.meta
+        .replace("{visible}", formatListCount(visibleEmployees.length))
+        .replace("{total}", formatListCount(employees.length))
+        .replace("{companies}", formatListCount(companies.length)),
+    },
+    {
+      title: t.lifecycle.title,
+      value: t.lifecycle.value
+        .replace("{active}", formatListCount(statusCounts.active))
+        .replace("{exited}", formatListCount(statusCounts.exited)),
+      meta: t.lifecycle.meta,
+    },
+    {
+      title: t.policy.title,
+      value: t.policy.value,
+      meta: t.policy.meta,
+    },
+    {
+      title: t.importControls.title,
+      value: canImport ? t.importControls.adminValue : t.importControls.readValue,
+      meta: t.importControls.meta,
+    },
+  ];
+
+  return (
+    <Card className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+          <p className="text-sm text-steel">{t.description}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild type="button" variant="secondary" size="sm">
+            <Link to="/settings/users">{t.actions.users}</Link>
+          </Button>
+          <Button asChild type="button" variant="secondary" size="sm">
+            <Link to="/settings/policy">{t.actions.policy}</Link>
+          </Button>
+          <Button asChild type="button" variant="secondary" size="sm">
+            <Link to="/settings/workflows">{t.actions.workflows}</Link>
+          </Button>
+        </div>
+      </div>
+      <dl className="grid gap-3 lg:grid-cols-4">
+        {cards.map((card) => (
+          <div
+            key={card.title}
+            className="rounded-lg border border-line bg-white p-3"
+          >
+            <dt className="text-xs font-semibold uppercase tracking-wide text-steel">
+              {card.title}
+            </dt>
+            <dd className="mt-1 text-base font-semibold text-ink">
+              {card.value}
+            </dd>
+            <dd className="mt-1 text-xs text-steel">{card.meta}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-muted-panel/50 p-3">
+        <p className="text-sm text-steel">{t.lifecycleCta}</p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={visibleEmployees.length === 0}
+          onClick={() => {
+            onManageLifecycle(visibleEmployees[0]);
+          }}
+        >
+          {t.actions.lifecycle}
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -434,7 +601,13 @@ function AttendanceSummaryPanel({
   );
 }
 
-function EmployeeTable({ employees }: { employees: EmployeeDirectoryItem[] }) {
+function EmployeeTable({
+  employees,
+  onManageLifecycle,
+}: {
+  employees: EmployeeDirectoryItem[];
+  onManageLifecycle?: (employee: EmployeeDirectoryItem) => void;
+}) {
   const t = ko.employees;
   if (employees.length === 0) return <PageEmpty message={t.empty} />;
 
@@ -454,6 +627,7 @@ function EmployeeTable({ employees }: { employees: EmployeeDirectoryItem[] }) {
             <th className="px-4 py-3">{t.columns.exitDate}</th>
             <th className="px-4 py-3">{t.columns.status}</th>
             <th className="px-4 py-3">{t.columns.leaveRemaining}</th>
+            <th className="px-4 py-3">{t.columns.actions}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
@@ -486,11 +660,326 @@ function EmployeeTable({ employees }: { employees: EmployeeDirectoryItem[] }) {
               <td className="px-4 py-3 text-steel">
                 {text(employee.leave_remaining)}
               </td>
+              <td className="px-4 py-3">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="secondary"
+                  aria-label={`${employeeName(employee)} ${t.lifecycle.manage}`}
+                  onClick={() => onManageLifecycle?.(employee)}
+                >
+                  {t.lifecycle.manage}
+                </Button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function EmployeeLifecyclePanel({
+  api,
+  employee,
+  onChanged,
+}: {
+  api: EmployeeApi;
+  employee: EmployeeDirectoryItem;
+  onChanged: () => void;
+}) {
+  const t = ko.employees.lifecycle;
+  const [events, setEvents] = useState<EmployeeLifecycleEvent[]>([]);
+  const [state, setState] = useState<"loading" | "idle" | "submitting" | "error">(
+    "loading",
+  );
+  const [eventType, setEventType] =
+    useState<EmployeeLifecycleEventType>("TRANSFER");
+  const [effectiveDate, setEffectiveDate] = useState("");
+  const [comment, setComment] = useState("");
+  const [toCompany, setToCompany] = useState("");
+  const [toOrgUnit, setToOrgUnit] = useState("");
+  const [toPosition, setToPosition] = useState("");
+  const [signoffs, setSignoffs] = useState({
+    privacy_notice_ack: false,
+    korean_labor_law_ack: false,
+    payroll_cutoff_ack: false,
+    retirement_settlement_ack: false,
+  });
+
+  const loadEvents = useCallback(async () => {
+    setState("loading");
+    const response = await api
+      .GET("/api/v1/employees/{id}/lifecycle-events", {
+        params: { path: { id: employee.id } },
+      })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    setEvents(response.data.items);
+    setState("idle");
+  }, [api, employee.id]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadEvents);
+  }, [employee.id, loadEvents]);
+
+  async function submitLifecycleEvent(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setState("submitting");
+    const body: CreateEmployeeLifecycleEventRequest = {
+      event_type: eventType,
+      to_status: lifecycleToStatus(eventType),
+      effective_date: effectiveDate,
+      comment,
+      signoffs,
+    };
+    if (eventType === "TRANSFER") {
+      body.to_company = trimmedOrNull(toCompany);
+      body.to_org_unit = trimmedOrNull(toOrgUnit);
+      body.to_position = trimmedOrNull(toPosition);
+    }
+    const response = await api
+      .POST("/api/v1/employees/{id}/lifecycle-events", {
+        params: { path: { id: employee.id } },
+        body,
+      })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    const created = response.data;
+    setEvents((current) => [created, ...current]);
+    setComment("");
+    setEffectiveDate("");
+    setToCompany("");
+    setToOrgUnit("");
+    setToPosition("");
+    setState("idle");
+    onChanged();
+  }
+
+  function toggleSignoff(key: keyof typeof signoffs) {
+    setSignoffs((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  return (
+    <Card className="grid gap-4" aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+          <p className="text-sm text-steel">
+            {employeeName(employee)} · {companyName(employee)} ·{" "}
+            {text(employee.status)}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={state === "loading"}
+          onClick={() => {
+            void loadEvents();
+          }}
+        >
+          {t.refresh}
+        </Button>
+      </div>
+
+      {state === "error" ? (
+        <p role="alert" className="text-sm font-semibold text-red-700">
+          {t.failed}
+        </p>
+      ) : null}
+
+      <form
+        className="grid gap-3 rounded-lg border border-line bg-muted-panel/40 p-4"
+        onSubmit={(event) => {
+          void submitLifecycleEvent(event);
+        }}
+      >
+        <div className="grid gap-3 md:grid-cols-3">
+          <label className="grid gap-2 text-sm font-medium text-steel">
+            {t.typeLabel}
+            <Select
+              value={eventType}
+              onChange={(event) => {
+                setEventType(
+                  event.currentTarget.value as EmployeeLifecycleEventType,
+                );
+              }}
+            >
+              {LIFECYCLE_EVENT_TYPES.map((value) => (
+                <option key={value} value={value}>
+                  {t.eventTypes[value]}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="grid gap-2 text-sm font-medium text-steel">
+            {t.effectiveDate}
+            <input
+              className="min-h-12 rounded border border-line bg-white px-3 py-2 text-base text-ink outline-none transition focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+              type="date"
+              value={effectiveDate}
+              onChange={(event) => {
+                setEffectiveDate(event.currentTarget.value);
+              }}
+              required
+            />
+          </label>
+          <label className="grid gap-2 text-sm font-medium text-steel md:col-span-3">
+            {t.comment}
+            <textarea
+              className="min-h-24 rounded border border-line bg-white px-3 py-2 text-base text-ink outline-none transition focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+              value={comment}
+              onChange={(event) => {
+                setComment(event.currentTarget.value);
+              }}
+              required
+            />
+          </label>
+        </div>
+        {eventType === "TRANSFER" ? (
+          <fieldset className="grid gap-3 rounded-md border border-line bg-white p-3 md:grid-cols-3">
+            <legend className="px-1 text-sm font-semibold text-ink">
+              {t.transferTargetTitle}
+            </legend>
+            <label className="grid gap-2 text-sm font-medium text-steel">
+              {t.toCompany}
+              <input
+                className="min-h-12 rounded border border-line bg-white px-3 py-2 text-base text-ink outline-none transition focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                value={toCompany}
+                onChange={(event) => {
+                  setToCompany(event.currentTarget.value);
+                }}
+                required
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-medium text-steel">
+              {t.toOrgUnit}
+              <input
+                className="min-h-12 rounded border border-line bg-white px-3 py-2 text-base text-ink outline-none transition focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                value={toOrgUnit}
+                onChange={(event) => {
+                  setToOrgUnit(event.currentTarget.value);
+                }}
+                required
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-medium text-steel">
+              {t.toPosition}
+              <input
+                className="min-h-12 rounded border border-line bg-white px-3 py-2 text-base text-ink outline-none transition focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                value={toPosition}
+                onChange={(event) => {
+                  setToPosition(event.currentTarget.value);
+                }}
+                required
+              />
+            </label>
+          </fieldset>
+        ) : null}
+        <fieldset className="grid gap-2 rounded-md border border-line bg-white p-3">
+          <legend className="px-1 text-sm font-semibold text-ink">
+            {t.signoffsTitle}
+          </legend>
+          {(
+            [
+              ["privacy_notice_ack", t.privacyNotice],
+              ["korean_labor_law_ack", t.koreanLaborLaw],
+              ["payroll_cutoff_ack", t.payrollCutoff],
+              ["retirement_settlement_ack", t.retirementSettlement],
+            ] as const
+          ).map(([key, label]) => (
+            <label
+              key={key}
+              className="flex items-center gap-2 text-sm font-medium text-steel"
+            >
+              <input
+                type="checkbox"
+                checked={signoffs[key]}
+                onChange={() => {
+                  toggleSignoff(key);
+                }}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+        <div className="flex justify-end">
+          <Button
+            type="submit"
+            disabled={state === "submitting" || !effectiveDate || !comment}
+          >
+            {state === "submitting" ? t.submitting : t.submit}
+          </Button>
+        </div>
+      </form>
+
+      {state === "loading" ? <SkeletonTable rows={2} cols={4} /> : null}
+      {state !== "loading" && events.length === 0 ? (
+        <PageEmpty message={t.empty} />
+      ) : null}
+      {events.length > 0 ? (
+        <ol className="grid gap-2">
+          {events.map((event) => (
+            <li
+              key={event.id}
+              className="rounded-md border border-line bg-white p-3 text-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold text-ink">
+                  {t.eventTypes[event.event_type]}
+                </p>
+                <p className="text-steel">{event.effective_date}</p>
+              </div>
+              <p className="mt-1 text-steel">{event.comment}</p>
+              <p className="mt-2 text-xs text-steel">
+                {t.fromTo}: {text(event.from_status)} → {event.to_status}
+              </p>
+              {event.to_company || event.to_org_unit || event.to_position ? (
+                <p className="mt-1 text-xs text-steel">
+                  {t.transferTargetTitle}:{" "}
+                  {[event.to_company, event.to_org_unit, event.to_position]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              ) : null}
+              <dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {(
+                  [
+                    ["privacy_notice_ack", t.privacyNotice],
+                    ["korean_labor_law_ack", t.koreanLaborLaw],
+                    ["payroll_cutoff_ack", t.payrollCutoff],
+                    ["retirement_settlement_ack", t.retirementSettlement],
+                  ] as const
+                ).map(([key, label]) => (
+                  <div
+                    key={key}
+                    className="rounded border border-line bg-muted-panel/50 px-2 py-1"
+                  >
+                    <dt className="text-[11px] font-semibold text-steel">
+                      {label}
+                    </dt>
+                    <dd className="text-xs font-semibold text-ink">
+                      {event.signoffs[key] ? t.confirmed : t.notConfirmed}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-2 text-xs text-steel">
+                {t.recordedBy}: {text(event.created_by)} · {t.recordedAt}:{" "}
+                {text(event.created_at)}
+              </p>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </Card>
   );
 }
 
@@ -505,17 +994,21 @@ function EmployeeImportPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File>();
   const [state, setState] = useState<UploadState>("idle");
+  const [preview, setPreview] = useState<EmployeeImportPreview>();
+  const [dryRun, setDryRun] = useState<EmployeeImportDryRun>();
   const [summary, setSummary] = useState<EmployeeImportSummary>();
 
-  async function upload() {
+  async function previewFile() {
     if (!file) {
       setState("error");
       return;
     }
-    setState("uploading");
+    setState("previewing");
+    setPreview(undefined);
+    setDryRun(undefined);
     setSummary(undefined);
     const response = await api
-      .POST("/api/v1/employees/import", {
+      .POST("/api/v1/employees/import/preview", {
         body: { file: file as unknown as string },
         bodySerializer(body: { file: string }) {
           const form = new FormData();
@@ -528,11 +1021,60 @@ function EmployeeImportPanel({
       setState("error");
       return;
     }
+    setPreview(response.data);
+    setState("idle");
+  }
+
+  async function dryRunImport() {
+    if (!preview) return;
+    setState("dryRunning");
+    setDryRun(undefined);
+    setSummary(undefined);
+    const response = await api
+      .POST("/api/v1/employees/import/{run_id}/dry-run", {
+        params: { path: { run_id: preview.run_id } },
+      })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    setDryRun(response.data);
+    setState("idle");
+  }
+
+  async function applyImport() {
+    if (!preview || !dryRun) return;
+    setState("applying");
+    const response = await api
+      .POST("/api/v1/employees/import/{run_id}/apply", {
+        params: { path: { run_id: preview.run_id } },
+      })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
     setSummary(response.data);
     setState("idle");
     setFile(undefined);
+    setPreview(undefined);
+    setDryRun(undefined);
     if (inputRef.current) inputRef.current.value = "";
     onImported();
+  }
+
+  async function exportCsv() {
+    setState("exporting");
+    const response = await api
+      .GET("/api/v1/employees/export.csv", { parseAs: "text" })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    downloadCsv(response.data, "employees-standard.csv");
+    setState("idle");
   }
 
   return (
@@ -563,23 +1105,185 @@ function EmployeeImportPanel({
           onChange={(event) => {
             setFile(event.currentTarget.files?.[0]);
             setState("idle");
+            setPreview(undefined);
+            setDryRun(undefined);
+            setSummary(undefined);
           }}
         />
       </div>
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button
           type="button"
-          disabled={!file || state === "uploading"}
+          variant="secondary"
+          disabled={state === "exporting"}
           onClick={() => {
-            void upload();
+            void exportCsv();
+          }}
+        >
+          {state === "exporting" ? t.exporting : t.exportCsv}
+        </Button>
+        <Button
+          type="button"
+          disabled={!file || state === "previewing"}
+          onClick={() => {
+            void previewFile();
           }}
         >
           <Upload aria-hidden="true" size={16} />
-          {state === "uploading" ? t.uploading : t.submit}
+          {state === "previewing" ? t.previewing : t.preview}
         </Button>
       </div>
+      {preview ? (
+        <ImportPreview
+          preview={preview}
+          dryRun={dryRun}
+          state={state}
+          onDryRun={() => {
+            void dryRunImport();
+          }}
+          onApply={() => {
+            void applyImport();
+          }}
+        />
+      ) : null}
+      {dryRun ? <ImportDryRunSummary summary={dryRun} /> : null}
       {summary ? <ImportSummary summary={summary} /> : null}
     </Card>
+  );
+}
+
+function ImportPreview({
+  preview,
+  dryRun,
+  state,
+  onDryRun,
+  onApply,
+}: {
+  preview: EmployeeImportPreview;
+  dryRun?: EmployeeImportDryRun;
+  state: UploadState;
+  onDryRun: () => void;
+  onApply: () => void;
+}) {
+  const t = ko.employees.import.previewPanel;
+  return (
+    <section className="grid gap-3 rounded-lg border border-line bg-muted-panel/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-ink">{t.title}</h3>
+          <p className="text-sm text-steel">
+            {preview.source_filename} · {t.hash}{" "}
+            <code className="font-mono text-xs">{preview.source_sha256.slice(0, 12)}</code>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={state === "dryRunning"}
+            onClick={onDryRun}
+          >
+            {state === "dryRunning" ? t.dryRunning : t.dryRun}
+          </Button>
+          <Button
+            type="button"
+            disabled={!dryRun || state === "applying"}
+            onClick={onApply}
+          >
+            {state === "applying" ? t.applying : t.apply}
+          </Button>
+        </div>
+      </div>
+      <dl className="grid gap-2 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="font-semibold text-steel">{t.inputRows}</dt>
+          <dd className="text-ink">{preview.input_rows}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.candidateRows}</dt>
+          <dd className="text-ink">{preview.candidate_rows}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.preservedRows}</dt>
+          <dd className="text-ink">{preview.preserved_rows}</dd>
+        </div>
+      </dl>
+      <div className="overflow-x-auto rounded-lg border border-line bg-white">
+        <table className="min-w-full divide-y divide-line text-sm">
+          <thead className="bg-muted-panel/60 text-left text-xs font-semibold uppercase tracking-wide text-steel">
+            <tr>
+              <th className="px-3 py-2">{t.sourceColumn}</th>
+              <th className="px-3 py-2">{t.targetField}</th>
+              <th className="px-3 py-2">{t.policy}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {preview.columns.map((column) => (
+              <tr key={column.normalized_header}>
+                <td className="px-3 py-2 font-medium text-ink">
+                  {column.source_header || column.normalized_header}
+                </td>
+                <td className="px-3 py-2 text-steel">
+                  {column.target ?? t.rawOnly}
+                </td>
+                <td className="px-3 py-2 text-steel">
+                  {column.preview_allowed ? t.previewAllowed : t.masked}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-line bg-white">
+        <table className="min-w-full divide-y divide-line text-sm">
+          <thead className="bg-muted-panel/60 text-left text-xs font-semibold uppercase tracking-wide text-steel">
+            <tr>
+              <th className="px-3 py-2">{t.row}</th>
+              <th className="px-3 py-2">{t.status}</th>
+              {preview.columns.slice(0, 8).map((column) => (
+                <th key={column.normalized_header} className="px-3 py-2">
+                  {column.normalized_header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {preview.sample_rows.map((row) => (
+              <tr key={`${row.source_sheet}-${String(row.source_row)}`}>
+                <td className="px-3 py-2 font-medium text-ink">
+                  {row.source_sheet} #{row.source_row}
+                </td>
+                <td className="px-3 py-2 text-steel">{row.row_status}</td>
+                {preview.columns.slice(0, 8).map((column) => (
+                  <td key={column.normalized_header} className="px-3 py-2 text-steel">
+                    {textValue(row.values[column.normalized_header])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ImportDryRunSummary({ summary }: { summary: EmployeeImportDryRun }) {
+  const t = ko.employees.import.dryRun;
+  const rows: Array<[string, number]> = [
+    [t.insertCandidates, summary.insert_candidates],
+    [t.updateCandidates, summary.update_candidates],
+    [t.preservedRows, summary.preserved_rows],
+  ];
+  return (
+    <dl className="grid gap-2 rounded-md border border-line bg-muted-panel p-3 text-sm sm:grid-cols-3">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <dt className="font-semibold text-steel">{label}</dt>
+          <dd className="text-ink">{String(value)}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -619,6 +1323,23 @@ function summarizeOrgChart(orgChart?: HrOrgChartResponse): {
   };
 }
 
+function countEmploymentStatuses(employees: EmployeeDirectoryItem[]): {
+  active: number;
+  exited: number;
+} {
+  return employees.reduce(
+    (counts, employee) => {
+      if (String(employee.status).toUpperCase() === "EXITED") {
+        counts.exited += 1;
+      } else if (String(employee.status).toUpperCase() === "ACTIVE") {
+        counts.active += 1;
+      }
+      return counts;
+    },
+    { active: 0, exited: 0 },
+  );
+}
+
 function employeeName(employee: EmployeeDirectoryItem): string {
   return text(employee.name);
 }
@@ -627,7 +1348,37 @@ function companyName(employee: EmployeeDirectoryItem): string {
   return text(employee.company);
 }
 
+function lifecycleToStatus(
+  eventType: EmployeeLifecycleEventType,
+): "ACTIVE" | "EXITED" {
+  return eventType === "OFFBOARD" || eventType === "TERMINATE"
+    ? "EXITED"
+    : "ACTIVE";
+}
+
+function textValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
 function text(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "-";
   return String(value);
+}
+
+function trimmedOrNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function downloadCsv(csv: string, fileName: string) {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

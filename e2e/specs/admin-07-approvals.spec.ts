@@ -1,4 +1,4 @@
-import { test, expect, sql, TENANT_ORG_ID } from "../fixtures/roles";
+import { test, expect, querySql, sql, TENANT_ORG_ID } from "../fixtures/roles";
 
 /**
  * ADMIN-07 — admin approves and rejects a submitted completion on /approvals.
@@ -95,6 +95,43 @@ test("ADMIN-07 admin approves a submitted completion", async ({
   await expect(page.getByText(/승인을 처리했습니다\./)).toBeVisible({
     timeout: 10_000,
   });
+
+  const approvalState = querySql<{
+    work_order_status: string;
+    admin_step_status: string;
+    admin_decision_comment: string | null;
+    admin_approved_by_id: string | null;
+    executive_step_status: string;
+    executive_approver_id: string | null;
+  }>(
+    `SELECT w.status AS work_order_status,
+            admin_step.status AS admin_step_status,
+            admin_step.decision_comment AS admin_decision_comment,
+            admin_step.approved_by_id::text AS admin_approved_by_id,
+            executive_step.status AS executive_step_status,
+            executive_step.approver_id::text AS executive_approver_id
+       FROM work_orders w
+       JOIN work_order_approval_steps admin_step
+         ON admin_step.work_order_id = w.id
+        AND admin_step.step_order = 2
+       JOIN work_order_approval_steps executive_step
+         ON executive_step.work_order_id = w.id
+        AND executive_step.step_order = 3
+      WHERE w.id = '${WO_APPROVE}'`,
+  )[0];
+  expect(approvalState).toMatchObject({
+    work_order_status: "ADMIN_REVIEW",
+    admin_step_status: "APPROVED",
+    admin_decision_comment: "E2E 승인 의견: 증빙과 조치 내용을 확인했습니다.",
+    admin_approved_by_id: ADMIN_ID,
+    executive_step_status: "PENDING",
+    executive_approver_id: SADMIN_ID,
+  });
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: /-071 승인/ })).not.toBeVisible(
+    { timeout: 8_000 },
+  );
 });
 
 test("ADMIN-07 admin rejects a submitted completion with a memo", async ({
@@ -121,6 +158,33 @@ test("ADMIN-07 admin rejects a submitted completion with a memo", async ({
   await expect(page.getByText(/반려를 처리했습니다\./)).toBeVisible({
     timeout: 10_000,
   });
+  const rejectionState = querySql<{
+    work_order_status: string;
+    step_status: string;
+    decision_comment: string | null;
+    approved_by_id: string | null;
+  }>(
+    `SELECT w.status AS work_order_status,
+            s.status AS step_status,
+            s.decision_comment,
+            s.approved_by_id::text
+       FROM work_orders w
+       JOIN work_order_approval_steps s
+         ON s.work_order_id = w.id
+        AND s.step_order = 2
+      WHERE w.id = '${WO_REJECT}'`,
+  )[0];
+  expect(rejectionState).toMatchObject({
+    work_order_status: "REJECTED",
+    step_status: "REJECTED",
+    decision_comment: "E2E 반려 사유: 추가 점검이 필요합니다.",
+    approved_by_id: ADMIN_ID,
+  });
+
   // A rejected order transitions to REJECTED and leaves the pending queue.
   await expect(rejectBtn).not.toBeVisible({ timeout: 8_000 });
+  await page.reload();
+  await expect(page.getByRole("button", { name: /-072 반려/ })).not.toBeVisible(
+    { timeout: 8_000 },
+  );
 });

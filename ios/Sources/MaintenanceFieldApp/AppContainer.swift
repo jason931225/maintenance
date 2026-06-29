@@ -7,6 +7,7 @@ struct FieldAppContainer {
     let evidenceRepository: EvidenceRepository
     let messengerRepository: MessengerRepository
     let locationConsentRepository: LocationConsentRepository
+    let mobileOperationsRepository: MobileOperationsRepository
 
     /// Suffix of the shared keychain access group (the part after the
     /// AppIdentifierPrefix). Must match the `keychain-access-groups` entitlement
@@ -87,7 +88,8 @@ struct FieldAppContainer {
             workOrderRepository: workOrders,
             evidenceRepository: evidence,
             messengerRepository: messenger,
-            locationConsentRepository: LocationConsentRepository(gateway: gateway)
+            locationConsentRepository: LocationConsentRepository(gateway: gateway),
+            mobileOperationsRepository: MobileOperationsRepository(gateway: gateway)
         )
     }
 

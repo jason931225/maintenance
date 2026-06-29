@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
@@ -272,12 +273,37 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
                     value={formatKoreanDateTime(entry.entry_at)}
                   />
                 </dl>
+                <CostSourceLinks entry={entry} />
               </li>
             ))}
           </ul>
         )
       ) : null}
     </Card>
+  );
+}
+
+function CostSourceLinks({ entry }: { entry: CostLedgerEntrySummary }) {
+  if (!entry.purchase_request_id && !entry.work_order_id) return null;
+  return (
+    <div className="flex flex-wrap gap-2 text-sm">
+      {entry.purchase_request_id ? (
+        <Link
+          className="font-medium text-ink underline-offset-4 hover:underline"
+          to={`/financial?purchase=${entry.purchase_request_id}`}
+        >
+          {ko.financial.ledger.purchaseSource} {entry.purchase_request_id}
+        </Link>
+      ) : null}
+      {entry.work_order_id ? (
+        <Link
+          className="font-medium text-ink underline-offset-4 hover:underline"
+          to={`/work-orders/${entry.work_order_id}`}
+        >
+          {ko.financial.ledger.workOrderSource} {entry.work_order_id}
+        </Link>
+      ) : null}
+    </div>
   );
 }
 

@@ -62,5 +62,12 @@ async fn openapi_yaml_covers_mounted_auth_routes() -> Result<(), Box<dyn std::er
         yaml.contains("/api/v1/ws"),
         "OpenAPI YAML is missing /api/v1/ws"
     );
+    for path in [
+        "/api/v1/collaboration/calendar/events",
+        "/api/v1/collaboration/polls",
+        "/api/v1/collaboration/polls/{id}/vote",
+    ] {
+        assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
+    }
     Ok(())
 }

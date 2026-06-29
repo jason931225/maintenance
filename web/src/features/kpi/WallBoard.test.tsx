@@ -30,6 +30,17 @@ describe("WallBoard", () => {
     expect(screen.getByText("미배정 긴급")).toBeVisible();
     expect(screen.getByText("승인 대기")).toBeVisible();
     expect(screen.getByText("목표 초과")).toBeVisible();
+    expect(
+      screen.getByRole("navigation", { name: "월보드 관련 화면" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "운영 현황" })).toHaveAttribute(
+      "href",
+      "/ops",
+    );
+    expect(screen.getByRole("link", { name: "지원 티켓" })).toHaveAttribute(
+      "href",
+      "/support",
+    );
     expect(screen.getAllByText("1")[0]).toBeVisible();
 
     vi.advanceTimersByTime(5_000);

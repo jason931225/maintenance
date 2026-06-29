@@ -19,6 +19,7 @@ path = "src/lib.rs"
 axum = { workspace = true }
 calamine = { workspace = true }
 http = { workspace = true }
+hex = { workspace = true }
 mnt-comms-adapter-imap = { workspace = true }
 mnt-comms-adapter-postgres = { workspace = true }
 mnt-comms-application = { workspace = true }
@@ -71,6 +72,7 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }

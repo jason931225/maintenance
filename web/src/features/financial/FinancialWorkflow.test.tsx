@@ -87,6 +87,8 @@ const ledgerEntries: components["schemas"]["CostLedgerEntrySummary"][] = [
     id: "dddddddd-4444-4444-8444-dddddddddddd",
     branch_id: branchId,
     equipment_id: equipmentId,
+    work_order_id: "eeeeeeee-5555-4555-8555-eeeeeeeeeeee",
+    purchase_request_id: purchaseId,
     source: "PURCHASE_EXECUTION",
     amount_won: 500_000,
     memo: "정기 부품 교체",
@@ -139,6 +141,7 @@ function session(roles: string[]): AuthSession {
 }
 
 const adminSession = session(["ADMIN"]);
+const superAdminSession = session(["SUPER_ADMIN"]);
 const receptionistSession = session(["RECEPTIONIST"]);
 const mechanicSession = session(["MECHANIC"]);
 
@@ -150,6 +153,38 @@ async function lookupEquipment(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "호기 번호" }));
   await screen.findByText("GTS25DE");
 }
+
+describe("financial command center", () => {
+  it("keeps finance work tied to approvals, workflows, assets, and maturity controls", async () => {
+    const user = userEvent.setup();
+    server.use(lookupHandler());
+
+    renderApp(makeAuthContext(superAdminSession));
+
+    expect(await screen.findByText("재무 운영")).toBeVisible();
+    expect(screen.getByRole("link", { name: "승인센터" })).toHaveAttribute(
+      "href",
+      "/approvals?source=purchase",
+    );
+    expect(screen.getByRole("link", { name: "워크플로" })).toHaveAttribute(
+      "href",
+      "/settings/workflows",
+    );
+    expect(
+      screen
+        .getAllByRole("link", { name: "장비 조회" })
+        .some((link) => link.getAttribute("href") === "/equipment"),
+    ).toBe(true);
+    expect(screen.getByText("정책·권한")).toBeVisible();
+    expect(screen.getByText("감사·패스키")).toBeVisible();
+    expect(screen.getByText("회계 릴리스")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /TCO/ }));
+    expect(
+      screen.getByRole("tab", { name: "자산 비용" }),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+});
 
 describe("financial purchase request workflow", () => {
   it("drives the request -> resolution -> execution chain", async () => {
@@ -218,6 +253,15 @@ describe("financial purchase request workflow", () => {
       );
     });
     expect(await screen.findByText("구매요청서를 작성했습니다.")).toBeVisible();
+    expect(screen.getByText("원천 업무 객체")).toBeVisible();
+    expect(screen.getByRole("link", { name: equipmentId })).toHaveAttribute(
+      "href",
+      `/equipment/${equipmentId}`,
+    );
+    expect(screen.getByText("결재·지출 라인")).toBeVisible();
+    expect(screen.getAllByText("권한 재검증").length).toBeGreaterThan(0);
+    expect(screen.getByText("감사 연결")).toBeVisible();
+    expect(screen.getByText("서명급 보호")).toBeVisible();
 
     // STATEMENT_ATTACHED -> submit
     await user.click(await screen.findByRole("button", { name: "결재 상신" }));
@@ -464,6 +508,14 @@ describe("cost ledger", () => {
 
     expect(await screen.findByText("정기 부품 교체")).toBeVisible();
     expect(screen.getByText("구매 집행")).toBeVisible();
+    expect(screen.getByRole("link", { name: new RegExp(purchaseId) }))
+      .toHaveAttribute("href", `/financial?purchase=${purchaseId}`);
+    expect(
+      screen.getByRole("link", { name: /eeeeeeee-5555-4555-8555-eeeeeeeeeeee/ }),
+    ).toHaveAttribute(
+      "href",
+      "/work-orders/eeeeeeee-5555-4555-8555-eeeeeeeeeeee",
+    );
   });
 
   it("denies cost-ledger access to a role without EquipmentCostLedgerRead", async () => {

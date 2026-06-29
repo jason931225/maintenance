@@ -23,9 +23,19 @@ public enum FieldAccessibilityID {
     public static let todayTab = "shell.todayTab"
     public static let workHubTab = "shell.workHubTab"
     public static let messengerTab = "shell.messengerTab"
+    public static let operationsTab = "shell.operationsTab"
 
     // Work hub
     public static let workHubList = "workHub.list"
+    public static func workHubCollaborationAction(_ kind: String) -> String { "workHub.collaborationAction.\(kind)" }
+
+    // Operations inbox
+    public static let operationsList = "operations.list"
+    public static let operationsRefreshButton = "operations.refresh"
+    public static let operationsApprovalCommentField = "operations.approvalComment"
+    public static func operationsMailThread(_ id: String) -> String { "operations.mailThread.\(id)" }
+    public static func operationsCalendarEvent(_ id: String) -> String { "operations.calendarEvent.\(id)" }
+    public static func operationsPoll(_ id: String) -> String { "operations.poll.\(id)" }
 
     // Today (dispatch) list
     public static let todayList = "today.list"
@@ -88,7 +98,11 @@ public enum FieldAccessibilityID {
         todayTab,
         workHubTab,
         messengerTab,
+        operationsTab,
         workHubList,
+        operationsList,
+        operationsRefreshButton,
+        operationsApprovalCommentField,
         todayList,
         todayEmpty,
         todayRefreshButton,

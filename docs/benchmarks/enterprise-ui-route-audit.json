@@ -1,0 +1,1005 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-06-29",
+  "purpose": "Machine-readable route-to-enterprise-parity coverage for the G023 no-text-wall gate.",
+  "qualityGateSource": "docs/benchmarks/enterprise-parity-matrix.md#quality-gates-for-every-future-slice",
+  "routeCoverage": [
+    {
+      "rawPath": "/",
+      "canonicalPath": "/",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "public storefront visitor/customer entry; G009 public-cx E2E evidence .omx/context/public-cx/g009-completion-evidence-20260629.md",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/home",
+      "canonicalPath": "/home",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "public storefront alias; G009 public-cx E2E evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/landing",
+      "canonicalPath": "/landing",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "landing alias; legal/cookie/footer/semver gate in G009",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/rental",
+      "canonicalPath": "/rental",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "rental marketplace visitor path routed to contact inquiry lifecycle; G009 public sales evidence and G026 sales/CX maturity gate",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/used",
+      "canonicalPath": "/used",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "used asset marketplace visitor path routed to contact inquiry lifecycle; G009 public sales evidence and G026 sales/CX maturity gate",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/maintenance",
+      "canonicalPath": "/maintenance",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "public maintenance-service entry; G009 routing to contact/support evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/about",
+      "canonicalPath": "/about",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "public trust/about content; G009 legal/footer evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/contact",
+      "canonicalPath": "/contact",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "commercial lead capture posts storefront inquiries; G009 browser flow and G026 sales/CX maturity gate",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/privacy",
+      "canonicalPath": "/privacy",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "privacy/cookie/legal notice route; G009 legal/cookie evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/platform-fsm",
+      "canonicalPath": "/platform-fsm",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "public platform FSM explainer tied to workflow roadmap, not an operational dead screen",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/support/new",
+      "canonicalPath": "/support/new",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "public customer support intake; G009 support intake E2E",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/login",
+      "canonicalPath": "/login",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "employee/admin passkey/OTP entry; G003 passkey/policy E2E evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/onboarding",
+      "canonicalPath": "/onboarding",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "initial account/passkey/legal agreement setup; G003 auth/policy E2E",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/pending",
+      "canonicalPath": "/pending",
+      "epRows": [
+        "EP-001"
+      ],
+      "personas": [
+        "visitor",
+        "customer",
+        "employee",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "least-privilege pending member state; G003 signup-state split evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/platform",
+      "canonicalPath": "/platform",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "platform console index; PlatformConsole.test.tsx + G006/G010 platform evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "tenants",
+      "canonicalPath": "/platform/tenants",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "tenant management; PlatformConsole.test.tsx",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "groups",
+      "canonicalPath": "/platform/groups",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "platform-admin",
+        "group-admin"
+      ],
+      "roleStoryEvidence": "group management; PlatformGroupsPage.test/G006 group admin evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "ops",
+      "canonicalPath": "/platform/ops",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "platform ops/logs; PlatformConsole.test.tsx",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "onboard",
+      "canonicalPath": "/platform/onboard",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "tenant onboarding; PlatformConsole.test.tsx",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "account",
+      "canonicalPath": "/platform/account",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "platform account/passkey settings; G003 account lifecycle evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/group",
+      "canonicalPath": "/settings/group",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "group-admin"
+      ],
+      "roleStoryEvidence": "group admin subsidiary/account management; GroupAdminPage.test.tsx + G006 evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/org",
+      "canonicalPath": "/settings/org",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "admin",
+        "group-admin"
+      ],
+      "roleStoryEvidence": "regions/branches org management; G006 HR/org lifecycle evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/sites",
+      "canonicalPath": "/settings/sites",
+      "epRows": [
+        "EP-009"
+      ],
+      "personas": [
+        "admin",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "customer/site/geography management; G007 assets lifecycle evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/work-hub",
+      "canonicalPath": "/work-hub",
+      "epRows": [
+        "EP-002",
+        "EP-013"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "executive",
+        "group-admin"
+      ],
+      "roleStoryEvidence": "role-aware day/week action inbox; WorkHubPage.test.tsx asserts actionable queues and no reported text wall; G015 action inbox evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/approvals",
+      "canonicalPath": "/approvals",
+      "epRows": [
+        "EP-003"
+      ],
+      "personas": [
+        "manager",
+        "admin",
+        "group-admin"
+      ],
+      "roleStoryEvidence": "universal approval center; ApprovalQueue tests + G013/G014 workflow approval evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/policy",
+      "canonicalPath": "/settings/policy",
+      "epRows": [
+        "EP-004"
+      ],
+      "personas": [
+        "platform-admin",
+        "group-admin",
+        "policy-admin"
+      ],
+      "roleStoryEvidence": "PBAC/RBAC/ABAC Policy Studio; PolicyStudioPage.test.tsx + G003 policy evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/workflows",
+      "canonicalPath": "/settings/workflows",
+      "epRows": [
+        "EP-003",
+        "EP-004",
+        "EP-014"
+      ],
+      "personas": [
+        "workflow-admin",
+        "manager"
+      ],
+      "roleStoryEvidence": "no-code Workflow Studio; G014 schema/API/UI/E2E evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/collaboration",
+      "canonicalPath": "/collaboration",
+      "epRows": [
+        "EP-005",
+        "EP-006",
+        "EP-013"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "team-lead"
+      ],
+      "roleStoryEvidence": "collaboration hub API-backed messenger/mail/calendar/poll summaries; G015/G016 evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/messenger",
+      "canonicalPath": "/messenger",
+      "epRows": [
+        "EP-005"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "group-admin"
+      ],
+      "roleStoryEvidence": "messenger read/send/search/mentions/object links; G015 focused web collaboration tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/mail",
+      "canonicalPath": "/mail",
+      "epRows": [
+        "EP-006"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "finance",
+        "hr"
+      ],
+      "roleStoryEvidence": "work mail inbox/thread/reply/forward/read state; G015 web collaboration evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/email",
+      "canonicalPath": "/settings/email",
+      "epRows": [
+        "EP-006",
+        "EP-009"
+      ],
+      "personas": [
+        "admin",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "mail account provisioning setup state with explicit admin next step; EmailSettingsPage tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/support",
+      "canonicalPath": "/support",
+      "epRows": [
+        "EP-007"
+      ],
+      "personas": [
+        "support-agent",
+        "customer-success",
+        "manager"
+      ],
+      "roleStoryEvidence": "internal/customer ticket queue with SLA/search/assignment command center and ticket object rail; SupportPage/SupportTicketDetail tests and G026 CX evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/equipment",
+      "canonicalPath": "/equipment",
+      "epRows": [
+        "EP-011"
+      ],
+      "personas": [
+        "asset-manager",
+        "mechanic",
+        "group-admin",
+        "operator"
+      ],
+      "roleStoryEvidence": "asset browse/search; G007 equipment lifecycle tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/equipment/:id",
+      "canonicalPath": "/equipment/:id",
+      "epRows": [
+        "EP-011"
+      ],
+      "personas": [
+        "asset-manager",
+        "mechanic",
+        "group-admin",
+        "operator"
+      ],
+      "roleStoryEvidence": "asset detail/object rail; G007 equipment lifecycle tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/equipment/manage",
+      "canonicalPath": "/equipment/manage",
+      "epRows": [
+        "EP-011"
+      ],
+      "personas": [
+        "asset-manager",
+        "mechanic",
+        "group-admin",
+        "operator"
+      ],
+      "roleStoryEvidence": "asset management owner/operator/transfer controls; G007 tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/equipment/legacy",
+      "canonicalPath": "/equipment/legacy",
+      "epRows": [
+        "EP-011"
+      ],
+      "personas": [
+        "asset-manager",
+        "mechanic",
+        "group-admin",
+        "operator"
+      ],
+      "roleStoryEvidence": "legacy equipment import/control surface tracked under EP-011 until retired",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/location",
+      "canonicalPath": "/settings/location",
+      "epRows": [
+        "EP-011"
+      ],
+      "personas": [
+        "asset-manager",
+        "mechanic",
+        "group-admin",
+        "operator"
+      ],
+      "roleStoryEvidence": "GPS/location consent self-service; G003/G007 privacy/location evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/wallboard",
+      "canonicalPath": "/wallboard",
+      "epRows": [
+        "EP-013",
+        "EP-015"
+      ],
+      "personas": [
+        "dispatcher",
+        "manager",
+        "executive"
+      ],
+      "roleStoryEvidence": "wallboard operational KPI surface with exception strip and execution navigation; WallBoard tests and G026 CX/BI evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/dispatch",
+      "canonicalPath": "/dispatch",
+      "epRows": [
+        "EP-013",
+        "EP-011"
+      ],
+      "personas": [
+        "dispatcher",
+        "mechanic",
+        "manager"
+      ],
+      "roleStoryEvidence": "dispatch board/work execution; G007/G013 workflow lifecycle evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/work-orders/:id",
+      "canonicalPath": "/work-orders/:id",
+      "epRows": [
+        "EP-013",
+        "EP-003"
+      ],
+      "personas": [
+        "dispatcher",
+        "mechanic",
+        "manager"
+      ],
+      "roleStoryEvidence": "canonical work-order detail/control surface; G013 planned work/source object evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/dispatch-map",
+      "canonicalPath": "/dispatch-map",
+      "epRows": [
+        "EP-013",
+        "EP-011"
+      ],
+      "personas": [
+        "dispatcher",
+        "manager"
+      ],
+      "roleStoryEvidence": "dispatch map/geolocation; DispatchMapPage tests and live-map memory ladder",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/intake",
+      "canonicalPath": "/intake",
+      "epRows": [
+        "EP-013",
+        "EP-011"
+      ],
+      "personas": [
+        "receptionist",
+        "dispatcher"
+      ],
+      "roleStoryEvidence": "work intake tied to customer/site/equipment; G013 planned work evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/daily-plan",
+      "canonicalPath": "/daily-plan",
+      "epRows": [
+        "EP-013",
+        "EP-003"
+      ],
+      "personas": [
+        "mechanic",
+        "manager"
+      ],
+      "roleStoryEvidence": "planned work from source work order and approvals; G013 E2E evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/kpi",
+      "canonicalPath": "/kpi",
+      "epRows": [
+        "EP-013",
+        "EP-015"
+      ],
+      "personas": [
+        "executive",
+        "manager"
+      ],
+      "roleStoryEvidence": "KPI dashboard source metrics with executive insight rail and operational drilldown links; KpiDashboard tests and G026 CX/BI evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/integrity",
+      "canonicalPath": "/integrity",
+      "epRows": [
+        "EP-014",
+        "EP-015"
+      ],
+      "personas": [
+        "executive",
+        "data-steward"
+      ],
+      "roleStoryEvidence": "data quality/integrity triage with restricted role gate; IntegrityPage tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/reporting",
+      "canonicalPath": "/reporting",
+      "epRows": [
+        "EP-013",
+        "EP-015"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "executive"
+      ],
+      "roleStoryEvidence": "standardized workbook export with BI command links and successful session export history; ReportingPage.test.tsx and G026 CX/BI evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/inspection",
+      "canonicalPath": "/inspection",
+      "epRows": [
+        "EP-013",
+        "EP-011"
+      ],
+      "personas": [
+        "maintenance-manager",
+        "mechanic"
+      ],
+      "roleStoryEvidence": "preventive inspection scheduling and findings; InspectionPage tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/intelligence",
+      "canonicalPath": "/intelligence",
+      "epRows": [
+        "EP-015",
+        "EP-017"
+      ],
+      "personas": [
+        "executive",
+        "group-admin",
+        "operations-manager",
+        "finance",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "Story-coverage personas only, not authorization: G012 operations intelligence workbench validates executive and manager workflows with deterministic scenario readiness, source-object links, workflow conversion, MES/AI guardrails, OperationsIntelligencePage tests, and check:operations-intelligence-maturity gate.",
+      "authorizationEvidence": "Actual access is enforced by RequireKpiRoute plus nav role/feature gates: SUPER_ADMIN/ADMIN/EXECUTIVE/KPI_READ. Domain conversion links are further filtered through nav policy so read-only executives do not see admin-only workflow routes.",
+      "accessibilityEvidence": "PageHeader, semantic sections/cards, link buttons, role-gated nav/route coverage, OperationsIntelligencePage.test.tsx, and enterprise UI route audit gate"
+    },
+    {
+      "rawPath": "/ops",
+      "canonicalPath": "/ops",
+      "epRows": [
+        "EP-013",
+        "EP-015"
+      ],
+      "personas": [
+        "admin",
+        "executive"
+      ],
+      "roleStoryEvidence": "ops dashboard/logistics execution overview; OpsDashboard tests plus G026 reporting/BI drilldown path",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/financial",
+      "canonicalPath": "/financial",
+      "epRows": [
+        "EP-012",
+        "EP-011",
+        "EP-015"
+      ],
+      "personas": [
+        "finance",
+        "procurement",
+        "executive",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "finance command center, procurement approval/payment-line, source-object rail, cost ledger, and asset-economics tests; G025 owner goal",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings",
+      "canonicalPath": "/settings",
+      "epRows": [
+        "EP-008",
+        "EP-009"
+      ],
+      "personas": [
+        "employee",
+        "admin"
+      ],
+      "roleStoryEvidence": "settings index/profile/security entry; MemberAccess/AppShell tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/profile",
+      "canonicalPath": "/settings/profile",
+      "epRows": [
+        "EP-008"
+      ],
+      "personas": [
+        "employee"
+      ],
+      "roleStoryEvidence": "profile and passkey/account self-service; ProfilePage/LoginPage tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/employees",
+      "canonicalPath": "/settings/employees",
+      "epRows": [
+        "EP-008",
+        "EP-010"
+      ],
+      "personas": [
+        "hr",
+        "manager",
+        "executive"
+      ],
+      "roleStoryEvidence": "employee directory/lifecycle; G006 HR lifecycle evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/users",
+      "canonicalPath": "/settings/users",
+      "epRows": [
+        "EP-008",
+        "EP-009"
+      ],
+      "personas": [
+        "admin",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "user/account provisioning and lifecycle; UsersPage tests + G003/G006 evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/settings/security",
+      "canonicalPath": "/settings/security",
+      "epRows": [
+        "EP-008",
+        "EP-004"
+      ],
+      "personas": [
+        "admin",
+        "security-admin"
+      ],
+      "roleStoryEvidence": "OTP/security/passkey-sensitive admin actions; AdminSettingsPage tests + G003 evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    },
+    {
+      "rawPath": "/catalog",
+      "canonicalPath": "/catalog",
+      "epRows": [
+        "EP-014",
+        "EP-007",
+        "EP-011"
+      ],
+      "personas": [
+        "sales-admin",
+        "data-steward",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "catalog/listing/inquiry/import management; G005 import/export and G009 CX evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+    }
+  ],
+  "epEvidence": [
+    {
+      "id": "EP-001",
+      "ownerGoalId": "G009-public-landing-cx-sales-rental-marke",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-002",
+      "ownerGoalId": "G023-enterprise-ui-parity-audit-and-no-te",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-003",
+      "ownerGoalId": "G013-workflow-approval-lifecycle-and-acti + G014-workflow-studio-backend-schema-and-n",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-004",
+      "ownerGoalId": "G003-identity-passkey-account-lifecycle-a",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-005",
+      "ownerGoalId": "G015-collaboration-messenger-mail-and-wor",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-006",
+      "ownerGoalId": "G015-collaboration-messenger-mail-and-wor + G016-shared-calendar-and-poll-workflow-fo",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-007",
+      "ownerGoalId": "G009-public-landing-cx-sales-rental-marke + G026-cx-sales-support-reporting-bi-and-ex",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "Support route command center/search/object rail plus SupportTicketDetail tests and G026 CX/reporting evidence.",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-008",
+      "ownerGoalId": "G006-group-org-people-hr-payroll-lifecycl + G027-people-hr-lifecycle-org-scope-ui-mat",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-009",
+      "ownerGoalId": "G006-group-org-people-hr-payroll-lifecycl + G027-people-hr-lifecycle-org-scope-ui-mat",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-010",
+      "ownerGoalId": "G027-people-hr-lifecycle-org-scope-ui-mat + G028-korean-payroll-severance-controls-an",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-011",
+      "ownerGoalId": "G007-assets-equipment-sites-dispatch-life + G025-finance-procurement-accounting-and-a",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-012",
+      "ownerGoalId": "G025-finance-procurement-accounting-and-a",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-013",
+      "ownerGoalId": "G013/G014 workflow + G026-cx-sales-support-reporting-bi-and-ex",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "Reporting/KPI/wallboard execution drilldowns plus routeCoverage rows and G026 tests.",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-014",
+      "ownerGoalId": "G005-import-export-and-data-governance + G014 workflow studio",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-015",
+      "ownerGoalId": "G012-operations-intelligence-mes-optimiza + G026 dashboards + G025-finance-procurement-accounting-and-a",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "Operations intelligence workbench, KPI executive insight rail, wallboard action strip, finance asset-economics signals, CX/BI reporting command center, and docs/specs/session-backlog-2026-06-29.md directives.",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "G012 ships the first governed deterministic scenario workbench; future backend analytics must retain source-object lineage, workflow conversion, policy/passkey gating, and no autonomous write-back."
+    },
+    {
+      "id": "EP-016",
+      "ownerGoalId": "G018/G020/G021/G022 native mobile parity goals",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
+    },
+    {
+      "id": "EP-017",
+      "ownerGoalId": "G012-operations-intelligence-mes-optimiza future MES scope",
+      "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
+      "roleStoryEvidence": "Operations intelligence MES readiness domain card plus docs/specs/mes.md future-scope capability matrix and routeCoverage rows in this file.",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
+      "gapHandling": "MES remains future scope until org/people/assets/inventory/ERP/workflow/policy/import foundations are production-grade; /intelligence shows readiness/guardrails without exposing an isolated MES screen."
+    }
+  ],
+  "trackedGaps": [
+    {
+      "id": "GAP-HR-PAYROLL",
+      "epRows": [
+        "EP-008",
+        "EP-010"
+      ],
+      "ownerGoalId": "G027-people-hr-lifecycle-org-scope-ui-mat + G028-korean-payroll-severance-controls-an",
+      "rule": "May document missing maturity in specs, but product UI must show actionable lifecycle/setup states, not backend-missing dead panels."
+    },
+    {
+      "id": "GAP-FINANCE-ERP",
+      "epRows": [
+        "EP-012",
+        "EP-011"
+      ],
+      "ownerGoalId": "G025-finance-procurement-accounting-and-a",
+      "rule": "Finance/procurement/accounting gaps stay in backlog or guided setup, not demo panels."
+    },
+    {
+      "id": "GAP-CX-BI-DASHBOARDS",
+      "epRows": [
+        "EP-007",
+        "EP-013",
+        "EP-015"
+      ],
+      "ownerGoalId": "G026-cx-sales-support-reporting-bi-and-ex",
+      "rule": "G026 closes the first CX/reporting/BI UI maturity slice; future backend analytics must retain source-object links and role-story tests before exposure."
+    },
+    {
+      "id": "GAP-OPS-INTEL-MES",
+      "epRows": [
+        "EP-015",
+        "EP-017"
+      ],
+      "ownerGoalId": "G012-operations-intelligence-mes-optimiza",
+      "rule": "G012 closes the first governed operations-intelligence UI foundation; AI/MES/optimization stay recommendation/scenario and future-scope only until deterministic data/workflow/observability foundations are verified."
+    }
+  ],
+  "bannedProductCopyPolicy": {
+    "noNonFunctionalTextWalls": [
+      "Workflow + Approval",
+      "업무 객체 중심 실행 흐름",
+      "허브는 메신저·메일·티켓을 별도 데모로 분리하지 않고",
+      "권한·감사 기반"
+    ],
+    "noUnownedBackendDeadCopy": [
+      "백엔드에서 아직 제공되지 않습니다",
+      "미노출",
+      "준비 후 허용"
+    ],
+    "allowedSetupStates": "Configuration-gated states are allowed only when the user has a concrete setup or recovery action, for example mail server settings."
+  }
+}

@@ -70,6 +70,7 @@ jobs:
       - name: Render and scan production manifests
         run: |
           scripts/render-k8s-manifests.sh "${RUNNER_TEMP}/rendered-k8s"
+          npm run check:production-hardening
           trivy config --severity HIGH,CRITICAL --exit-code 1 "${RUNNER_TEMP}/rendered-k8s"
 
   rust-advisories:

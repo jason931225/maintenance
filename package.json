@@ -21,6 +21,7 @@
     "check:swift": "swift build --package-path clients/swift",
     "check:openapi-app": "node scripts/check-openapi-app.mjs",
     "check:dispatch-map": "node scripts/check-dispatch-map.mjs",
+    "check:foundation-gates": "node scripts/check-foundation-gates.mjs",
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
     "test:contract": "tsx scripts/contract-roundtrip.ts",
@@ -31,7 +32,15 @@
     "check:payroll": "node scripts/check-payroll-domain.mjs",
     "check:erp": "node scripts/check-erp-domain.mjs",
     "check:comms-webmail": "node scripts/check-comms-webmail.mjs",
-    "check:dispatch-map": "node scripts/check-dispatch-map.mjs"
+    "check:registry-equipment-rest": "node scripts/check-registry-equipment-rest.mjs",
+    "check:collaboration-app": "node scripts/check-collaboration-app.mjs",
+    "check:production-hardening": "node scripts/check-production-hardening.mjs",
+    "check:enterprise-ux-parity": "node scripts/check-enterprise-ux-parity.mjs",
+    "check:people-hr-maturity": "node scripts/check-people-hr-maturity.mjs",
+    "check:payroll-release-gate": "node scripts/check-payroll-release-gate.mjs",
+    "check:financial-maturity": "node scripts/check-financial-maturity.mjs",
+    "check:cx-reporting-maturity": "node scripts/check-cx-reporting-maturity.mjs",
+    "check:operations-intelligence-maturity": "node scripts/check-operations-intelligence-maturity.mjs"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",

@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import com.maintenance.field.data.api.TechnicianWorkOrder
+import com.maintenance.field.data.collaboration.MobileOperationsSnapshotOrigin
 import com.maintenance.field.ui.theme.FieldTheme
 import java.util.UUID
 import org.junit.Assert.assertEquals
@@ -172,12 +173,18 @@ class FieldScreensTest {
         composeTestRule.onNodeWithText("긴급 작업 1건").assertIsDisplayed()
         composeTestRule.onNodeWithText("목표일 있는 작업 1건").assertIsDisplayed()
         composeTestRule.onNodeWithText("민감한 승인·서명은 패스키 확인 후 처리").assertIsDisplayed()
-        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("메신저 대화방 1개"))
-        composeTestRule.onNodeWithText("메신저 대화방 1개").assertIsDisplayed()
-        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("회사 메일은 MailUse 권한과 기기 보안 상태가 확인된 뒤 모바일 수신함으로 표시합니다."))
-        composeTestRule.onNodeWithText("회사 메일은 MailUse 권한과 기기 보안 상태가 확인된 뒤 모바일 수신함으로 표시합니다.").assertIsDisplayed()
-        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("폴·서베이는 대상 범위, 익명성, 마감, 감사 정책이 정해진 경우에만 발행합니다."))
-        composeTestRule.onNodeWithText("폴·서베이는 대상 범위, 익명성, 마감, 감사 정책이 정해진 경우에만 발행합니다.").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("알림 우선순위"))
+        composeTestRule.onNodeWithText("알림 우선순위").assertIsDisplayed()
+        composeTestRule.onNodeWithText("확인할 신호 2건").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("대화방 1개"))
+        composeTestRule.onNodeWithText("대화방 1개").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("보안 수신함 준비됨"))
+        composeTestRule.onNodeWithText("보안 수신함 준비됨").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("대상·익명성 정책 준비됨"))
+        composeTestRule.onNodeWithText("대상·익명성 정책 준비됨").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction())
+            .performScrollToNode(hasText("모든 항목은 권한 범위와 원천 업무 객체 기준으로 표시합니다."))
+        composeTestRule.onNodeWithText("모든 항목은 권한 범위와 원천 업무 객체 기준으로 표시합니다.").assertIsDisplayed()
     }
 
     @Test
@@ -197,6 +204,68 @@ class FieldScreensTest {
         assertEquals(1, summary.pendingSyncCount)
         assertEquals(1, summary.messengerThreadCount)
         assertEquals(1, summary.targetDueWorkCount)
+        assertEquals(
+            MobileCollaborationKind.entries.toList(),
+            summary.collaborationActions.map { it.kind },
+        )
+        assertEquals(3, summary.collaborationActions.first { it.kind == MobileCollaborationKind.NOTIFICATION }.count)
+        assertEquals(
+            MobileCollaborationStatus.ACTION_REQUIRED,
+            summary.collaborationActions.first { it.kind == MobileCollaborationKind.APPROVAL }.status,
+        )
+        assertEquals(
+            MobileCollaborationStatus.READY,
+            summary.collaborationActions.first { it.kind == MobileCollaborationKind.MAIL }.status,
+        )
+    }
+
+
+
+    // --- OperationsScreen -------------------------------------------------------------
+
+    @Test
+    fun operationsScreen_rendersApprovalMailCalendarPollAndInvokesActions() {
+        composeTestRule.enableAccessibilityChecks()
+        var queuedApproval = false
+        var markedThreadId: UUID? = null
+        var votedPollId: UUID? = null
+        var approvalComment = ""
+        composeTestRule.setContent {
+            FieldTheme {
+                OperationsScreen(
+                    dashboard = FieldFixtures.operationsDashboard(),
+                    origin = MobileOperationsSnapshotOrigin.LIVE,
+                    busy = false,
+                    approvalComment = approvalComment,
+                    onApprovalCommentChange = { approvalComment = it },
+                    onRefresh = {},
+                    onQueueApproval = { queuedApproval = true },
+                    onMarkThreadRead = { markedThreadId = it.id },
+                    onVotePoll = { votedPollId = it.id },
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("업무함").assertIsDisplayed()
+        composeTestRule.onNodeWithText("승인 센터").assertIsDisplayed()
+        composeTestRule.onNodeWithText("승인 대기 0건").assertIsDisplayed()
+        composeTestRule.onNodeWithText("승인/반려 의견").performTextInput("확인 후 승인")
+        composeTestRule.onNodeWithText("패스키 확인 대기열에 추가").performClick()
+        assertEquals(true, queuedApproval)
+
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("급여명세 확인 요청"))
+        composeTestRule.onNodeWithText("급여명세 확인 요청").assertIsDisplayed()
+        composeTestRule.onNodeWithText("읽음 처리").performScrollTo().performClick()
+        assertEquals("00000000-0000-0000-0000-000000000601", markedThreadId.toString())
+
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("정비팀 주간 회의"))
+        composeTestRule.onNodeWithText("정비팀 주간 회의").assertIsDisplayed()
+        composeTestRule.onNodeWithText("팀").assertIsDisplayed()
+
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("오전 정비 우선순위"))
+        composeTestRule.onNodeWithText("오전 정비 우선순위").assertIsDisplayed()
+        composeTestRule.onNodeWithText("찬성 선택").performScrollTo().performClick()
+        assertEquals(FieldFixtures.pollId, votedPollId)
     }
 
     // --- LoginScreen ------------------------------------------------------------------

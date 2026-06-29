@@ -1,4 +1,4 @@
-import { MessageSquarePlus, UserCheck } from "lucide-react";
+import { Link2, MessageSquarePlus, UserCheck } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useState } from "react";
 
@@ -64,7 +64,9 @@ export function SupportTicketDetail({
   // label (a single shared flag made every button show "changing" at once).
   const [pendingTo, setPendingTo] = useState<SupportTicketStatus | null>(null);
   const [transitionFailed, setTransitionFailed] = useState(false);
-  const [assignState, setAssignState] = useState<"idle" | "busy" | "error">("idle");
+  const [assignState, setAssignState] = useState<"idle" | "busy" | "error">(
+    "idle",
+  );
 
   const alreadyMine =
     currentUserId !== undefined && ticket.assignee_user_id === currentUserId;
@@ -109,17 +111,13 @@ export function SupportTicketDetail({
 
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div>
-            <dt className="font-semibold text-steel">
-              {ko.support.requester}
-            </dt>
+            <dt className="font-semibold text-steel">{ko.support.requester}</dt>
             <dd className="text-ink">
               {ticket.requester_name ?? ko.common.unknown}
             </dd>
           </div>
           <div>
-            <dt className="font-semibold text-steel">
-              {ko.support.assignee}
-            </dt>
+            <dt className="font-semibold text-steel">{ko.support.assignee}</dt>
             <dd className="text-ink">
               {ticket.assignee_user_id
                 ? safeLabel(ticket.assignee_name)
@@ -127,65 +125,61 @@ export function SupportTicketDetail({
             </dd>
           </div>
           <div>
-            <dt className="font-semibold text-steel">
-              {ko.support.dueAt}
-            </dt>
+            <dt className="font-semibold text-steel">{ko.support.dueAt}</dt>
             <dd className="text-ink">{formatDateTime(ticket.due_at)}</dd>
           </div>
           <div>
-            <dt className="font-semibold text-steel">
-              {ko.support.createdAt}
-            </dt>
-            <dd className="text-ink">
-              {formatDateTime(ticket.created_at)}
-            </dd>
+            <dt className="font-semibold text-steel">{ko.support.createdAt}</dt>
+            <dd className="text-ink">{formatDateTime(ticket.created_at)}</dd>
           </div>
         </dl>
 
+        <TicketObjectRail ticketId={ticket.id} />
+
         {canAssign ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
-          <span className="text-sm font-semibold text-steel">
-            {ko.support.transition.title}
-          </span>
-          {transitions.length === 0 ? (
-            <span className="text-sm text-steel">
-              {ko.support.transition.none}
+          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+            <span className="text-sm font-semibold text-steel">
+              {ko.support.transition.title}
             </span>
-          ) : (
-            transitions.map((to) => (
+            {transitions.length === 0 ? (
+              <span className="text-sm text-steel">
+                {ko.support.transition.none}
+              </span>
+            ) : (
+              transitions.map((to) => (
+                <Button
+                  key={to}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={pendingTo !== null}
+                  onClick={() => {
+                    void handleTransition(to);
+                  }}
+                >
+                  {pendingTo === to
+                    ? ko.support.transition.changing
+                    : transitionActionLabel(ticket.status, to)}
+                </Button>
+              ))
+            )}
+            {!alreadyMine ? (
               <Button
-                key={to}
                 type="button"
-                variant="secondary"
+                variant="ghost"
                 size="sm"
-                disabled={pendingTo !== null}
+                disabled={assignState === "busy"}
                 onClick={() => {
-                  void handleTransition(to);
+                  void handleAssignSelf();
                 }}
               >
-                {pendingTo === to
-                  ? ko.support.transition.changing
-                  : transitionActionLabel(ticket.status, to)}
+                <UserCheck aria-hidden="true" size={16} />
+                {assignState === "busy"
+                  ? ko.support.assigning
+                  : ko.support.assignSelf}
               </Button>
-            ))
-          )}
-          {!alreadyMine ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={assignState === "busy"}
-              onClick={() => {
-                void handleAssignSelf();
-              }}
-            >
-              <UserCheck aria-hidden="true" size={16} />
-              {assignState === "busy"
-                ? ko.support.assigning
-                : ko.support.assignSelf}
-            </Button>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
         ) : null}
         {transitionFailed ? (
           <p role="alert" className="text-sm font-semibold text-red-700">
@@ -207,6 +201,54 @@ export function SupportTicketDetail({
         {canComment ? <AddCommentForm onAddComment={onAddComment} /> : null}
       </Card>
     </div>
+  );
+}
+
+function TicketObjectRail({ ticketId }: { ticketId: string }) {
+  const links = [
+    {
+      label: ko.support.objectRail.ticket,
+      href: `/support?ticket=${ticketId}`,
+    },
+    {
+      label: ko.support.objectRail.workOrder,
+      href: `/dispatch?source=support&ticket=${ticketId}`,
+    },
+    {
+      label: ko.support.objectRail.messenger,
+      href: `/messenger?source=support&ticket=${ticketId}`,
+    },
+    {
+      label: ko.support.objectRail.mail,
+      href: `/mail?source=support&ticket=${ticketId}`,
+    },
+    {
+      label: ko.support.objectRail.reporting,
+      href: `/reporting?source=support&ticket=${ticketId}`,
+    },
+  ];
+
+  return (
+    <nav
+      aria-label={ko.support.objectRail.title}
+      className="grid gap-2 rounded-md border border-line bg-muted-panel p-3"
+    >
+      <div className="flex items-center gap-2 text-sm font-semibold text-steel">
+        <Link2 aria-hidden="true" size={16} />
+        {ko.support.objectRail.title}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {links.map((link) => (
+          <a
+            key={link.label}
+            className="rounded-md border border-line bg-white px-3 py-1.5 text-sm font-medium text-ink hover:border-ink"
+            href={link.href}
+          >
+            {link.label}
+          </a>
+        ))}
+      </div>
+    </nav>
   );
 }
 
@@ -244,9 +286,7 @@ function CommentThread({ comments }: { comments: SupportTicketComment[] }) {
               {formatDateTime(comment.created_at)}
             </span>
           </div>
-          <p className="whitespace-pre-wrap text-sm text-ink">
-            {comment.body}
-          </p>
+          <p className="whitespace-pre-wrap text-sm text-ink">{comment.body}</p>
         </li>
       ))}
     </ul>

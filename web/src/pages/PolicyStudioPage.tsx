@@ -519,8 +519,8 @@ export function PolicyStudioPage() {
         />
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <section className="grid gap-4">
+      <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <section className="grid min-w-0 gap-4">
           <Card className="p-5">
             <div className="mb-4 flex items-start gap-3">
               <span className="rounded-full bg-brand-teal/10 p-2 text-brand-teal">
@@ -617,8 +617,8 @@ export function PolicyStudioPage() {
           </Card>
         </section>
 
-        <aside>
-          <Card className="sticky top-4 grid gap-4 p-5">
+        <aside className="min-w-0">
+          <Card className="grid gap-4 p-5 2xl:sticky 2xl:top-4">
             <div>
               <h2 className="text-base font-semibold text-ink">
                 {editingRole
@@ -1366,7 +1366,9 @@ function AssignmentPlanner({
     return <PageEmpty message={ko.policyStudio.assignments.noRoles} />;
   }
   const selectedUser = users.find((user) => user.id === selectedUserId);
-  const plannedRoles = customRoles.filter((role) => plannedRoleIds.has(role.id));
+  const plannedRoles = customRoles.filter((role) =>
+    plannedRoleIds.has(role.id),
+  );
 
   return (
     <div className="grid gap-4">
@@ -1790,7 +1792,9 @@ function DecisionPathStep({
         {label}
       </div>
       <div className="mt-1 text-sm font-semibold text-ink">{value}</div>
-      {detail ? <div className="mt-0.5 text-xs text-steel">{detail}</div> : null}
+      {detail ? (
+        <div className="mt-0.5 text-xs text-steel">{detail}</div>
+      ) : null}
     </li>
   );
 }
@@ -1925,7 +1929,10 @@ function previewDecisionLabel(
   return ko.policyStudio.assignments.rollup.decisions[decision];
 }
 
-function sameStringSet(values: readonly string[], expected: ReadonlySet<string>) {
+function sameStringSet(
+  values: readonly string[],
+  expected: ReadonlySet<string>,
+) {
   if (values.length !== expected.size) return false;
   return values.every((value) => expected.has(value));
 }

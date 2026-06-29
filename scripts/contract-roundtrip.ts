@@ -1,5 +1,6 @@
 import { createSign, generateKeyPairSync, randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
+import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import pg from "pg";
@@ -9,7 +10,14 @@ import { createMaintenanceApiClient } from "../clients/ts/src/index.js";
 const { Client: PgClient } = pg;
 const root = resolve(new URL("..", import.meta.url).pathname);
 const databaseUrl = process.env.CONTRACT_DATABASE_URL;
-const port = Number(process.env.CONTRACT_APP_PORT ?? "18081");
+const port = process.env.CONTRACT_APP_PORT
+  ? Number(process.env.CONTRACT_APP_PORT)
+  : await findOpenPort();
+if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  throw new Error(
+    `Invalid CONTRACT_APP_PORT: ${process.env.CONTRACT_APP_PORT}`,
+  );
+}
 const baseUrl = `http://127.0.0.1:${port}`;
 const issuer = "mnt-platform-auth";
 const audience = "mnt-api";
@@ -19,11 +27,17 @@ const audience = "mnt-api";
 const KNL_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
 
 if (!databaseUrl) {
-  throw new Error("CONTRACT_DATABASE_URL is required for the generated-client contract test");
+  throw new Error(
+    "CONTRACT_DATABASE_URL is required for the generated-client contract test",
+  );
 }
 
-const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+const { publicKey, privateKey } = generateKeyPairSync("ec", {
+  namedCurve: "P-256",
+});
+const publicKeyPem = publicKey
+  .export({ type: "spki", format: "pem" })
+  .toString();
 const userId = randomUUID();
 const branchId = randomUUID();
 
@@ -36,19 +50,26 @@ try {
   await seedContractData(db, userId, branchId);
 
   const token = issueAccessToken(userId, branchId);
-  const app = spawn("cargo", ["run", "-p", "mnt-app"], {
-    cwd: resolve(root, "backend"),
-    env: {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-      MNT_APP_ROLE: "api",
-      MNT_HTTP_ADDR: `127.0.0.1:${port}`,
-      MNT_JWT_ISSUER: issuer,
-      MNT_JWT_AUDIENCE: audience,
-      MNT_JWT_PUBLIC_KEY_PEM: publicKeyPem,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const appEnv = {
+    ...process.env,
+    DATABASE_URL: databaseUrl,
+    MNT_APP_ROLE: "api",
+    MNT_HTTP_ADDR: `127.0.0.1:${port}`,
+    MNT_JWT_ISSUER: issuer,
+    MNT_JWT_AUDIENCE: audience,
+    MNT_JWT_PUBLIC_KEY_PEM: publicKeyPem,
+  };
+  const app = process.env.MNT_APP_BIN
+    ? spawn(process.env.MNT_APP_BIN, [], {
+        cwd: root,
+        env: appEnv,
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+    : spawn("cargo", ["run", "-p", "mnt-app"], {
+        cwd: resolve(root, "backend"),
+        env: appEnv,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
 
   // Drain BOTH stdout and stderr. Leaving the stdout pipe unread lets a chatty
   // boot (or a cold `cargo run` recompile) fill the OS pipe buffer and block the
@@ -99,12 +120,17 @@ try {
 
 async function applyMigrations(client: pg.Client) {
   const migrationDir = resolve(root, "backend/crates/platform/db/migrations");
-  for (const file of readdirSync(migrationDir).filter((name) => name.endsWith(".sql")).sort()) {
+  for (const file of readdirSync(migrationDir)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()) {
     await client.query(readFileSync(resolve(migrationDir, file), "utf8"));
   }
 }
 
-async function resetLocalContractDatabase(client: pg.Client, connectionString: string) {
+async function resetLocalContractDatabase(
+  client: pg.Client,
+  connectionString: string,
+) {
   const url = new URL(connectionString);
   const databaseName = decodeURIComponent(url.pathname.replace(/^\//, ""));
   const localHosts = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -121,33 +147,31 @@ async function resetLocalContractDatabase(client: pg.Client, connectionString: s
   await client.query("CREATE SCHEMA public");
 }
 
-async function seedContractData(client: pg.Client, actorId: string, scopedBranchId: string) {
+async function seedContractData(
+  client: pg.Client,
+  actorId: string,
+  scopedBranchId: string,
+) {
   const regionId = randomUUID();
   const customerId = randomUUID();
   const siteId = randomUUID();
 
-  await client.query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)", [
-    regionId,
-    "Contract Region",
-    KNL_ORG_ID,
-  ]);
-  await client.query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)", [
-    scopedBranchId,
-    regionId,
-    "Contract Branch",
-    KNL_ORG_ID,
-  ]);
-  await client.query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)", [
-    actorId,
-    "Contract Admin",
-    ["ADMIN"],
-    KNL_ORG_ID,
-  ]);
-  await client.query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)", [
-    actorId,
-    scopedBranchId,
-    KNL_ORG_ID,
-  ]);
+  await client.query(
+    "INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)",
+    [regionId, "Contract Region", KNL_ORG_ID],
+  );
+  await client.query(
+    "INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)",
+    [scopedBranchId, regionId, "Contract Branch", KNL_ORG_ID],
+  );
+  await client.query(
+    "INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)",
+    [actorId, "Contract Admin", ["ADMIN"], KNL_ORG_ID],
+  );
+  await client.query(
+    "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)",
+    [actorId, scopedBranchId, KNL_ORG_ID],
+  );
   await client.query(
     "INSERT INTO registry_customers (id, branch_id, name, org_id) VALUES ($1, $2, $3, $4)",
     [customerId, scopedBranchId, "Contract Customer", KNL_ORG_ID],
@@ -199,13 +223,18 @@ function base64url(input: string | Buffer) {
     .replaceAll("/", "_");
 }
 
-async function waitForApp(app: ReturnType<typeof spawn>, getStderr: () => string) {
+async function waitForApp(
+  app: ReturnType<typeof spawn>,
+  getStderr: () => string,
+) {
   // Generous: absorbs a cold `cargo run` compile on a cache-miss runner plus
   // boot. The early-exit check below fails fast if the app actually crashes.
   const deadline = Date.now() + 300_000;
   while (Date.now() < deadline) {
     if (app.exitCode !== null) {
-      throw new Error(`mnt-app exited early with ${app.exitCode}\n${getStderr()}`);
+      throw new Error(
+        `mnt-app exited early with ${app.exitCode}\n${getStderr()}`,
+      );
     }
     try {
       const response = await fetch(`${baseUrl}/healthz`);
@@ -218,4 +247,24 @@ async function waitForApp(app: ReturnType<typeof spawn>, getStderr: () => string
     await new Promise((resolveTimer) => setTimeout(resolveTimer, 500));
   }
   throw new Error(`Timed out waiting for mnt-app\n${getStderr()}`);
+}
+
+async function findOpenPort(): Promise<number> {
+  return await new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const portNumber =
+        typeof address === "object" && address ? address.port : 0;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolvePort(portNumber);
+        }
+      });
+    });
+  });
 }

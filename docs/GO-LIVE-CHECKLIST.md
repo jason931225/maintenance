@@ -23,12 +23,17 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
   round-trip, i18n + parity, iOS build + behavior tests. See
   [CI-GATES.md](CI-GATES.md).
 - [x] **Supply-chain CI shipped** — Eng. `image-release.yml` builds the
-  `mnt-app` + `mnt-web` images multi-arch (incl. linux/arm64 for the A1 target),
-  reproducibly (digest-pinned bases, `SOURCE_DATE_EPOCH`), with SBOM + SLSA
-  provenance, a **blocking Trivy HIGH/CRITICAL scan before keyless cosign
-  signing**, pushed to GHCR. `security.yml` (Trivy fs/IaC + cargo-audit + npm
-  audit) runs on a schedule; `release-please.yml` enforces SemVer; Actions are
-  SHA-pinned; Renovate keeps bases/deps current.
+  `mnt-app` + `mnt-web` linux/arm64 images for the OCI A1 target reproducibly
+  (digest-pinned bases, `SOURCE_DATE_EPOCH`), with SBOM + SLSA provenance, a
+  **blocking Trivy HIGH/CRITICAL scan before keyless cosign signing**, then
+  auto-bumps the prod overlay to immutable digests. `security.yml` (Trivy
+  fs/IaC + cargo-audit + npm audit) runs on a schedule; `release-please.yml`
+  enforces SemVer; Actions are SHA-pinned; Renovate keeps bases/deps current.
+- [x] **Admission verification audit path** — Eng. The sigstore
+  policy-controller audit component lives under
+  `deploy/apps/maintenance/components/admission-audit/` and is checked by
+  `npm run check:production-hardening`; hard-fail enforcement waits for ops to
+  install the controller CRDs and complete warning burn-in.
 - [x] **Post-launch security remediation pass complete** — Eng. A repo-wide
   audit (security / quality / performance) was triaged and fixed: the cold-start
   OTP is now a deploy-time secret (no known value in git — see §7), the

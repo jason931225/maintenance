@@ -27,8 +27,9 @@ const TERM_OPTIONS = [
   t.finder.termOptions.over1y,
 ] as const;
 
-// Online intake deep-link with the topic preselected (the dominant CTA target).
-const INTAKE_RENTAL = "/support/new?topic=RENTAL";
+// Sales/rental leads belong in the storefront inquiry inbox, not the maintenance
+// support-ticket queue. Maintenance CTAs still use /support/new.
+const INQUIRY_RENTAL = "/contact?topic=RENTAL";
 
 const SELECT_CLASS =
   "min-h-[54px] w-full rounded border border-line bg-white px-3.5 text-[16px] font-bold text-ink outline-none transition-colors focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink";
@@ -86,7 +87,7 @@ export default function RentalPage() {
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <Link
-              to={INTAKE_RENTAL}
+              to={INQUIRY_RENTAL}
               className="inline-flex min-h-[54px] items-center justify-center gap-2.5 rounded bg-signal px-6 font-black text-ink transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
               {t.hero.primary}
@@ -202,7 +203,7 @@ export default function RentalPage() {
               {recommendation}
             </p>
             <Link
-              to={INTAKE_RENTAL}
+              to={INQUIRY_RENTAL}
               className="mt-3 inline-flex min-h-[48px] items-center justify-center gap-2 rounded bg-signal px-6 font-black text-ink transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
               {t.hero.primary}
@@ -316,7 +317,7 @@ export default function RentalPage() {
             </a>
           </div>
           <Link
-            to={INTAKE_RENTAL}
+            to={INQUIRY_RENTAL}
             className="inline-flex min-h-[52px] items-center justify-center gap-2.5 rounded border border-ink bg-ink px-6 font-black text-white transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink motion-safe:hover:-translate-y-0.5"
           >
             {t.contactBand.cta}

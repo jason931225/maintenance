@@ -102,6 +102,42 @@ describe("SupportTicketDetail", () => {
     expect(screen.queryByText(ME)).not.toBeInTheDocument();
   });
 
+  it("links the ticket to work, messaging, mail, and reporting object paths", () => {
+    render(
+      <SupportTicketDetail
+        detail={detail()}
+        currentUserId={ME}
+        canAssign
+        canComment
+        onTransition={vi.fn()}
+        onAddComment={vi.fn()}
+        onAssignSelf={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("navigation", { name: ko.support.objectRail.title }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: ko.support.objectRail.workOrder }),
+    ).toHaveAttribute(
+      "href",
+      `/dispatch?source=support&ticket=${detail().ticket.id}`,
+    );
+    expect(
+      screen.getByRole("link", { name: ko.support.objectRail.messenger }),
+    ).toHaveAttribute(
+      "href",
+      `/messenger?source=support&ticket=${detail().ticket.id}`,
+    );
+    expect(
+      screen.getByRole("link", { name: ko.support.objectRail.mail }),
+    ).toHaveAttribute(
+      "href",
+      `/mail?source=support&ticket=${detail().ticket.id}`,
+    );
+  });
+
   it("submits a transition through the callback", async () => {
     const user = userEvent.setup();
     const onTransition = vi.fn().mockResolvedValue(undefined);
@@ -254,7 +290,9 @@ describe("SupportTicketDetail", () => {
     );
     // Only the clicked (RESOLVED) button flips to 변경 중; the other keeps its label.
     expect(
-      await screen.findByRole("button", { name: ko.support.transition.changing }),
+      await screen.findByRole("button", {
+        name: ko.support.transition.changing,
+      }),
     ).toBeVisible();
     expect(
       screen.getByRole("button", { name: ko.support.transition.to_ON_HOLD }),

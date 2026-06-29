@@ -22,12 +22,15 @@ use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeySer
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{
-    CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
+    CreateCustomerCommand, CreateEquipmentCommand, CreateEquipmentOwnershipTransferCommand,
+    CreateSiteCommand, CreatedCustomer, CreatedSite, DecideEquipmentOwnershipTransferCommand,
     DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentListItem, EquipmentListQuery,
-    EquipmentReadQuery, EquipmentSortBy, EquipmentTimelineGraph, EquipmentTimelineGraphQuery,
-    RegistryImportReport, SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand,
-    SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand,
-    UpdateEquipmentFields, UpdateSiteCommand, UpdateSiteFields,
+    EquipmentOwnershipTransferDecision, EquipmentOwnershipTransferRequest,
+    EquipmentOwnershipTransferStatus, EquipmentOwnershipTransferStepKey, EquipmentReadQuery,
+    EquipmentSortBy, EquipmentTimelineGraph, EquipmentTimelineGraphQuery, RegistryImportReport,
+    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateEquipmentFields,
+    UpdateSiteCommand, UpdateSiteFields,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use serde::{Deserialize, Serialize};
@@ -45,6 +48,10 @@ pub const EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/su
 pub const EQUIPMENT_SUBSTITUTIONS_PATH: &str = "/api/v1/equipment-substitutions";
 pub const EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE: &str =
     "/api/v1/equipment-substitutions/{id}/return";
+pub const EQUIPMENT_OWNERSHIP_TRANSFERS_PATH_TEMPLATE: &str =
+    "/api/v1/equipment/{id}/ownership-transfer-requests";
+pub const EQUIPMENT_OWNERSHIP_TRANSFER_DECISION_PATH_TEMPLATE: &str =
+    "/api/v1/equipment/ownership-transfer-requests/{id}/decisions";
 pub const EQUIPMENT_BY_LOCATION_PATH: &str = "/api/v1/equipment-by-location";
 pub const OBJECT_ACTION_CATALOG_PATH: &str = "/api/v1/object-actions/catalog";
 pub const OBJECT_ACTION_EXECUTE_PATH: &str = "/api/v1/object-actions/execute";
@@ -60,6 +67,8 @@ pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTIONS_PATH,
     EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
+    EQUIPMENT_OWNERSHIP_TRANSFERS_PATH_TEMPLATE,
+    EQUIPMENT_OWNERSHIP_TRANSFER_DECISION_PATH_TEMPLATE,
     EQUIPMENT_BY_LOCATION_PATH,
     OBJECT_ACTION_CATALOG_PATH,
     OBJECT_ACTION_EXECUTE_PATH,
@@ -113,6 +122,14 @@ pub fn router(state: RegistryRestState) -> Router {
         .route(
             EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
             post(return_equipment_substitute),
+        )
+        .route(
+            EQUIPMENT_OWNERSHIP_TRANSFERS_PATH_TEMPLATE,
+            get(list_equipment_ownership_transfers).post(create_equipment_ownership_transfer),
+        )
+        .route(
+            EQUIPMENT_OWNERSHIP_TRANSFER_DECISION_PATH_TEMPLATE,
+            post(decide_equipment_ownership_transfer),
         )
         .route(EQUIPMENT_LIST_PATH, get(list_equipment))
         .route(EQUIPMENT_PATH, post(create_equipment))
@@ -355,6 +372,7 @@ struct EquipmentListItemResponse {
     ton_text: String,
     customer_name: String,
     site_name: String,
+    asset_owner: Option<String>,
     vin: Option<String>,
     updated_at: OffsetDateTime,
 }
@@ -373,6 +391,7 @@ impl From<EquipmentListItem> for EquipmentListItemResponse {
             ton_text: item.ton_text,
             customer_name: item.customer_name,
             site_name: item.site_name,
+            asset_owner: item.asset_owner,
             vin: item.vin,
             updated_at: item.updated_at,
         }
@@ -497,8 +516,9 @@ impl From<CreatedCustomer> for CreatedCustomerResponse {
 }
 
 /// POST /api/v1/customers — create a customer (고객) directly in the caller's org
-/// on the default HQ branch. Admin-gated (EquipmentManage), the same feature as
-/// the site PATCH. The name is trimmed, required, and bounded; a same-name
+/// on the caller's branch for branch-scoped admins, or default HQ for org-wide
+/// principals. Admin-gated (EquipmentManage), the same feature as the site PATCH.
+/// The name is trimmed, required, and bounded; a same-name
 /// customer already on the branch is a 409 conflict (an explicit create is a
 /// distinct intent from the importer's idempotent upsert, so it is surfaced, not
 /// silently merged). Returns the created customer so the console can show it.
@@ -982,6 +1002,141 @@ async fn return_equipment_substitute(
 }
 
 // ---------------------------------------------------------------------------
+// Equipment legal ownership transfer — request + ordered signoff lifecycle
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct CreateOwnershipTransferRequest {
+    to_owner: String,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DecideOwnershipTransferRequest {
+    decision: EquipmentOwnershipTransferDecision,
+    comment: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OwnershipTransferPage {
+    items: Vec<OwnershipTransferResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct OwnershipTransferResponse {
+    id: Uuid,
+    equipment_id: EquipmentId,
+    branch_id: BranchId,
+    from_owner: String,
+    to_owner: String,
+    reason: String,
+    status: EquipmentOwnershipTransferStatus,
+    current_step: Option<EquipmentOwnershipTransferStepKey>,
+    approval_line: Value,
+    requested_by: Option<UserId>,
+    requested_at: OffsetDateTime,
+    decided_at: Option<OffsetDateTime>,
+    completed_at: Option<OffsetDateTime>,
+}
+
+impl TryFrom<EquipmentOwnershipTransferRequest> for OwnershipTransferResponse {
+    type Error = RestError;
+
+    fn try_from(value: EquipmentOwnershipTransferRequest) -> Result<Self, Self::Error> {
+        let approval_line = serde_json::to_value(&value.approval_line)
+            .map_err(|err| RestError::internal(format!("invalid approval line: {err}")))?;
+        Ok(Self {
+            id: value.id,
+            equipment_id: value.equipment_id,
+            branch_id: value.branch_id,
+            from_owner: value.from_owner,
+            to_owner: value.to_owner,
+            reason: value.reason,
+            status: value.status,
+            current_step: value.current_step,
+            approval_line,
+            requested_by: value.requested_by,
+            requested_at: value.requested_at,
+            decided_at: value.decided_at,
+            completed_at: value.completed_at,
+        })
+    }
+}
+
+async fn list_equipment_ownership_transfers(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<EquipmentId>,
+) -> Result<Json<OwnershipTransferPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let items = state
+        .store
+        .list_equipment_ownership_transfers(equipment_id)
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .map(OwnershipTransferResponse::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(OwnershipTransferPage { items }))
+}
+
+async fn create_equipment_ownership_transfer(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<EquipmentId>,
+    Json(body): Json<CreateOwnershipTransferRequest>,
+) -> Result<(StatusCode, Json<OwnershipTransferResponse>), RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let command = CreateEquipmentOwnershipTransferCommand {
+        actor: principal.user_id,
+        equipment_id,
+        to_owner: require_nonempty(body.to_owner, "to_owner")?,
+        reason: require_nonempty(body.reason, "reason")?,
+        trace: TraceContext::generate(),
+        occurred_at: OffsetDateTime::now_utc(),
+    };
+    let request = state
+        .store
+        .create_equipment_ownership_transfer(command)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok((StatusCode::CREATED, Json(request.try_into()?)))
+}
+
+async fn decide_equipment_ownership_transfer(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(request_id): Path<Uuid>,
+    Json(body): Json<DecideOwnershipTransferRequest>,
+) -> Result<Json<OwnershipTransferResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    // Decision execution is still gated by EquipmentManage; the request itself
+    // carries the ordered sending-org, receiving-org, legal, and accounting
+    // steps. Future custom policy can split those step permissions without
+    // changing the immutable workflow/event contract.
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let command = DecideEquipmentOwnershipTransferCommand {
+        actor: principal.user_id,
+        request_id,
+        decision: body.decision,
+        comment: require_nonempty(body.comment, "comment")?,
+        trace: TraceContext::generate(),
+        occurred_at: OffsetDateTime::now_utc(),
+    };
+    let request = state
+        .store
+        .decide_equipment_ownership_transfer(command)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(request.try_into()?))
+}
+
+// ---------------------------------------------------------------------------
 // Equipment master import (admin-gated multipart upload)
 // ---------------------------------------------------------------------------
 
@@ -1303,6 +1458,7 @@ fn equipment_update_profile_action(item: &EquipmentListItem) -> ObjectActionDesc
             text_action_field("maker", "제조사", item.maker.as_deref()),
             text_action_field("specification", "규격", Some(&item.specification)),
             text_action_field("ton_text", "톤수", Some(&item.ton_text)),
+            text_action_field("asset_owner", "법적 소유자", item.asset_owner.as_deref()),
         ],
     }
 }
@@ -1424,6 +1580,7 @@ async fn create_equipment(
     let equipment_no = EquipmentNo::parse(body.equipment_no).map_err(RestError::from_kernel)?;
     let command = CreateEquipmentCommand {
         actor: principal.user_id,
+        branch_id: principal_create_branch(&principal),
         equipment_no,
         customer_name: require_nonempty(body.customer_name, "customer_name")?,
         site_name: require_nonempty(body.site_name, "site_name")?,
@@ -1663,14 +1820,12 @@ fn require_nonempty(value: String, field: &str) -> Result<String, RestError> {
 /// first, the branch arg is a tautology for a branch-scoped caller — the feature
 /// matrix cell is what actually decides.
 ///
-/// This is correct ONLY because equipment management is org-global by design:
-/// the whole fleet is created on the single HQ branch (`ensure_default_hq_branch`)
-/// and any `EquipmentManage` holder (Admin/Executive/SuperAdmin — denied for
-/// Receptionist/Mechanic) manages all of it. The read path (substitute search)
-/// is branch-scoped; the write path intentionally is not. If equipment ever
-/// becomes genuinely multi-branch, this representative-branch shortcut must be
-/// replaced with a check against each row's real `branch_id` (tracked: app-wide
-/// scoping follow-up) or a branch-scoped role could silently gain global reach.
+/// This is correct only for create-style org surfaces that do not yet have a
+/// concrete row branch. Direct create handlers pass `principal_create_branch()`
+/// into the store so branch-scoped admins write into their own branch; org-wide
+/// principals fall back to the tenant HQ branch. Row-specific reads stay
+/// branch-filtered, and row-specific mutations must keep checking the stored
+/// row branch if equipment becomes fully branch-partitioned for writes.
 fn authorize_equipment_feature(principal: &Principal, feature: Feature) -> Result<(), RestError> {
     let branch = match &principal.branch_scope {
         BranchScope::All => BranchId::new(),

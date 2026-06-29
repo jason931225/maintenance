@@ -16,14 +16,19 @@ on:
       - "android/**"
       - "ios/**"
       - "deploy/**"
+      - "docs/benchmarks/**"
+      - "docs/specs/**"
+      - "docs/ENTERPRISE-READINESS.md"
+      - "docs/GO-LIVE-CHECKLIST.md"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
+      - "ops/**"
       - "scripts/**"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
       - "tsconfig.json"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/*.yml"
   pull_request:
     paths:
       - "backend/**"
@@ -35,14 +40,19 @@ on:
       - "android/**"
       - "ios/**"
       - "deploy/**"
+      - "docs/benchmarks/**"
+      - "docs/specs/**"
+      - "docs/ENTERPRISE-READINESS.md"
+      - "docs/GO-LIVE-CHECKLIST.md"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
+      - "ops/**"
       - "scripts/**"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
       - "tsconfig.json"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/*.yml"
   workflow_dispatch:
 
 permissions:
@@ -203,6 +213,27 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci
 
+      - name: Foundation gate contract
+        run: npm run check:foundation-gates
+
+      - name: Enterprise UX parity / no-text-wall gate
+        run: npm run check:enterprise-ux-parity
+
+      - name: People HR lifecycle maturity gate
+        run: npm run check:people-hr-maturity
+
+      - name: Payroll release-gate contract
+        run: npm run check:payroll-release-gate
+
+      - name: Financial maturity gate
+        run: npm run check:financial-maturity
+
+      - name: CX reporting BI maturity gate
+        run: npm run check:cx-reporting-maturity
+
+      - name: Operations intelligence maturity gate
+        run: npm run check:operations-intelligence-maturity
+
       - name: Lint (eslint + UI-string gate)
         run: npm run lint --workspace @maintenance/web-console
 
@@ -269,7 +300,7 @@ jobs:
         run: npm run test:contract
 
   kubernetes-manifests:
-    name: Kubernetes manifests — render / Argo target guard
+    name: Kubernetes manifests — render / hardening / Argo target guard
     runs-on: ubuntu-latest
 
     steps:
@@ -288,6 +319,9 @@ jobs:
 
       - name: Render production manifests and guard Argo targets
         run: scripts/render-k8s-manifests.sh "${RUNNER_TEMP}/rendered-k8s"
+
+      - name: Production hardening contract
+        run: npm run check:production-hardening
 
   swift-client:
     name: API client — Swift generation and build

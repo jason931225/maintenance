@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
@@ -51,6 +52,77 @@ const mailThreads = [
     unread_count: 1,
     has_attachments: false,
     is_flagged: false,
+  },
+] as const;
+
+const calendarEvents = [
+  {
+    id: "99999999-aaaa-4aaa-8aaa-999999999991",
+    scope_type: "ORG",
+    scope_ref: null,
+    title: "전사 안전 교육",
+    description: "",
+    starts_at: `${currentPlanDate}T04:00:00Z`,
+    ends_at: `${currentPlanDate}T05:00:00Z`,
+    all_day: false,
+    status: "ACTIVE",
+    object_type: "work_order",
+    object_id: workOrderListItems[0].id,
+    created_by: "00000000-0000-4000-8000-000000000002",
+    created_at: "2026-06-26T01:00:00Z",
+    updated_at: "2026-06-26T01:00:00Z",
+    policy: {
+      enforcement: "server",
+      scope_type: "ORG",
+      scope_ref: null,
+      visibility: "org_members",
+    },
+  },
+] as const;
+
+const pollId = "99999999-bbbb-4bbb-8bbb-999999999992";
+const pollOptionApprove = "99999999-bbbb-4bbb-8bbb-999999999993";
+const polls = [
+  {
+    id: pollId,
+    target_scope_type: "TEAM",
+    target_scope_ref: "maintenance",
+    title: "야간 작업 일정 투표",
+    question: "이번 주 야간 작업을 금요일에 진행할까요?",
+    status: "OPEN",
+    anonymity: "ANONYMOUS",
+    allow_multiple: false,
+    closes_at: null,
+    object_type: "work_order",
+    object_id: workOrderListItems[0].id,
+    options: [
+      {
+        id: pollOptionApprove,
+        label: "찬성",
+        position: 0,
+        vote_count: 1,
+      },
+      {
+        id: "99999999-bbbb-4bbb-8bbb-999999999994",
+        label: "반대",
+        position: 1,
+        vote_count: 0,
+      },
+    ],
+    vote_count: 1,
+    my_vote: {
+      submitted: false,
+      selected_option_ids: null,
+    },
+    created_by: "00000000-0000-4000-8000-000000000002",
+    created_at: "2026-06-26T01:00:00Z",
+    updated_at: "2026-06-26T01:00:00Z",
+    policy: {
+      enforcement: "server",
+      scope_type: "TEAM",
+      scope_ref: "maintenance",
+      visibility: "team_target",
+    },
   },
 ] as const;
 
@@ -222,6 +294,73 @@ const server = setupServer(
       ],
     });
   }),
+  http.get("*/api/v1/collaboration/calendar/events", ({ request }) => {
+    apiRequests.push(new URL(request.url));
+    return HttpResponse.json({ items: calendarEvents });
+  }),
+  http.post("*/api/v1/collaboration/calendar/events", async ({ request }) => {
+    apiRequests.push(new URL(request.url));
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({
+      ...calendarEvents[0],
+      id: "99999999-aaaa-4aaa-8aaa-999999999995",
+      scope_type: body.scope_type,
+      title: body.title,
+      starts_at: body.starts_at,
+      ends_at: body.ends_at,
+      object_type: body.object_type ?? null,
+      object_id: body.object_id ?? null,
+      policy: {
+        enforcement: "server",
+        scope_type: body.scope_type,
+        scope_ref: null,
+        visibility: body.scope_type === "PERSONAL" ? "creator_only" : "org_members",
+      },
+    });
+  }),
+  http.get("*/api/v1/collaboration/polls", ({ request }) => {
+    apiRequests.push(new URL(request.url));
+    return HttpResponse.json({ items: polls });
+  }),
+  http.post("*/api/v1/collaboration/polls", async ({ request }) => {
+    apiRequests.push(new URL(request.url));
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({
+      ...polls[0],
+      id: "99999999-bbbb-4bbb-8bbb-999999999996",
+      target_scope_type: body.target_scope_type,
+      title: body.title,
+      question: body.question,
+      anonymity: body.anonymity,
+      options: [
+        { id: "99999999-bbbb-4bbb-8bbb-999999999997", label: "A", position: 0, vote_count: 0 },
+        { id: "99999999-bbbb-4bbb-8bbb-999999999998", label: "B", position: 1, vote_count: 0 },
+      ],
+      vote_count: 0,
+      my_vote: { submitted: false, selected_option_ids: null },
+      policy: {
+        enforcement: "server",
+        scope_type: body.target_scope_type,
+        scope_ref: null,
+        visibility: body.target_scope_type === "TEAM" ? "team_target" : "org_members",
+      },
+    });
+  }),
+  http.post("*/api/v1/collaboration/polls/:id/vote", async ({ params, request }) => {
+    apiRequests.push(new URL(request.url));
+    const body = (await request.json()) as { selected_option_ids: string[] };
+    return HttpResponse.json({
+      ...polls[0],
+      id: params.id,
+      options: polls[0].options.map((option) =>
+        option.id === body.selected_option_ids[0]
+          ? { ...option, vote_count: option.vote_count + 1 }
+          : option,
+      ),
+      vote_count: 2,
+      my_vote: { submitted: true, selected_option_ids: body.selected_option_ids },
+    });
+  }),
   http.get("*/api/v1/support/tickets", ({ request }) => {
     apiRequests.push(new URL(request.url));
     return HttpResponse.json(
@@ -320,9 +459,9 @@ describe("CollaborationPage", () => {
     expect(screen.getByText("출고 일정 확인 요청")).toBeVisible();
     expect(screen.getByText("정비팀 공지")).toBeVisible();
     expect(screen.getByText("급여명세서 발송")).toBeVisible();
-    expect(
-      screen.getByText("발행은 백엔드 폴 엔진 준비 후 허용"),
-    ).toBeVisible();
+    expect(screen.getByText("전사 안전 교육")).toBeVisible();
+    expect(screen.getByText("야간 작업 일정 투표")).toBeVisible();
+    expect(screen.getByText("서버 정책·감사 기반")).toBeVisible();
     expect(screen.getByRole("link", { name: "메신저 열기" })).toHaveAttribute(
       "href",
       "/messenger",
@@ -344,11 +483,61 @@ describe("CollaborationPage", () => {
       expect(approvalItemRequests[0].searchParams.get("limit")).toBe("20");
       expect(
         apiRequests.some(
+          (url) => url.pathname === "/api/v1/collaboration/calendar/events",
+        ),
+      ).toBe(true);
+      expect(
+        apiRequests.some(
+          (url) => url.pathname === "/api/v1/collaboration/polls",
+        ),
+      ).toBe(true);
+      expect(
+        apiRequests.some(
           (url) =>
             url.pathname === "/api/v1/work-orders" &&
             url.search.includes("ADMIN_REVIEW"),
         ),
       ).toBe(false);
+    });
+  });
+
+  it("creates scoped calendar events and polls, then submits a poll vote", async () => {
+    const user = userEvent.setup();
+    renderCollaboration(adminSession);
+
+    await screen.findByText("전사 안전 교육");
+    await user.type(
+      screen.getByLabelText("일정 제목"),
+      "정비팀 주간 회의",
+    );
+    await user.click(screen.getByRole("button", { name: "일정 추가" }));
+
+    expect(await screen.findByText("일정을 추가했습니다.")).toBeVisible();
+    expect(screen.getByText("정비팀 주간 회의")).toBeVisible();
+
+    await user.clear(screen.getByLabelText("폴 제목"));
+    await user.type(screen.getByLabelText("폴 제목"), "부품 재고 기준 투표");
+    await user.type(
+      screen.getByLabelText("질문"),
+      "예비 부품 기준을 상향할까요?",
+    );
+    await user.clear(screen.getByLabelText("선택지 (한 줄에 하나)"));
+    await user.type(screen.getByLabelText("선택지 (한 줄에 하나)"), "A\nB");
+    await user.click(screen.getByRole("button", { name: "폴 발행" }));
+
+    expect(await screen.findByText("폴을 발행했습니다.")).toBeVisible();
+    expect(screen.getByText("부품 재고 기준 투표")).toBeVisible();
+
+    await user.click(screen.getAllByText("찬성")[0]);
+
+    expect(await screen.findByText("투표를 저장했습니다.")).toBeVisible();
+    await waitFor(() => {
+      expect(
+        apiRequests.some(
+          (url) =>
+            url.pathname === `/api/v1/collaboration/polls/${pollId}/vote`,
+        ),
+      ).toBe(true);
     });
   });
 
@@ -377,6 +566,97 @@ describe("CollaborationPage", () => {
 
     expect(maliciousLink).toHaveAttribute("href", "/daily-plan");
     expect(maliciousLink).not.toHaveAttribute("href", "//evil.example/phish");
+  });
+
+  it("keeps resolved or closed support tickets out of collaboration actions", async () => {
+    server.use(
+      http.get("*/api/v1/support/tickets", ({ request }) => {
+        apiRequests.push(new URL(request.url));
+        return HttpResponse.json(
+          supportTicketPage([
+            {
+              id: "44444444-dddd-4ddd-8ddd-444444444444",
+              branch_id: branchId,
+              origin: "CUSTOMER",
+              category: "OPERATIONAL",
+              priority: "URGENT",
+              status: "OPEN",
+              title: "출고 일정 확인 요청",
+              requester_user_id: "00000000-0000-4000-8000-0000000000aa",
+              requester_name: "고객사",
+              assignee_user_id: "00000000-0000-4000-8000-0000000000bb",
+              assignee_name: null,
+              due_at: "2026-06-16T08:00:00Z",
+              created_at: "2026-06-15T09:00:00Z",
+              updated_at: "2026-06-15T09:00:00Z",
+              resolved_at: null,
+              closed_at: null,
+            },
+            {
+              id: "66666666-ffff-4fff-8fff-666666666666",
+              branch_id: branchId,
+              origin: "INTERNAL",
+              category: "OPERATIONAL",
+              priority: "NORMAL",
+              status: "OPEN",
+              title: "이미 처리된 열린 요청",
+              requester_user_id: "00000000-0000-4000-8000-0000000000aa",
+              requester_name: "운영팀",
+              assignee_user_id: null,
+              assignee_name: null,
+              due_at: null,
+              created_at: "2026-06-14T09:00:00Z",
+              updated_at: "2026-06-14T10:00:00Z",
+              resolved_at: "2026-06-14T10:00:00Z",
+              closed_at: null,
+            },
+            {
+              id: "77777777-ffff-4fff-8fff-777777777777",
+              branch_id: branchId,
+              origin: "INTERNAL",
+              category: "OPERATIONAL",
+              priority: "NORMAL",
+              status: "RESOLVED",
+              title: "이미 해결된 요청",
+              requester_user_id: "00000000-0000-4000-8000-0000000000aa",
+              requester_name: "운영팀",
+              assignee_user_id: null,
+              assignee_name: null,
+              due_at: null,
+              created_at: "2026-06-14T09:00:00Z",
+              updated_at: "2026-06-14T10:00:00Z",
+              resolved_at: "2026-06-14T10:00:00Z",
+              closed_at: null,
+            },
+            {
+              id: "88888888-ffff-4fff-8fff-888888888888",
+              branch_id: branchId,
+              origin: "INTERNAL",
+              category: "OPERATIONAL",
+              priority: "NORMAL",
+              status: "CLOSED",
+              title: "이미 닫힌 요청",
+              requester_user_id: "00000000-0000-4000-8000-0000000000aa",
+              requester_name: "운영팀",
+              assignee_user_id: null,
+              assignee_name: null,
+              due_at: null,
+              created_at: "2026-06-14T09:00:00Z",
+              updated_at: "2026-06-14T11:00:00Z",
+              resolved_at: "2026-06-14T10:00:00Z",
+              closed_at: "2026-06-14T11:00:00Z",
+            },
+          ]),
+        );
+      }),
+    );
+
+    renderCollaboration(adminSession);
+
+    expect(await screen.findByText("출고 일정 확인 요청")).toBeVisible();
+    expect(screen.queryByText("이미 처리된 열린 요청")).not.toBeInTheDocument();
+    expect(screen.queryByText("이미 해결된 요청")).not.toBeInTheDocument();
+    expect(screen.queryByText("이미 닫힌 요청")).not.toBeInTheDocument();
   });
 
   it("keeps mechanics in the collaboration hub without leaking mail or approval queues", async () => {

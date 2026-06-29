@@ -222,6 +222,12 @@ export default function ContactPage() {
               }}
               className="grid gap-3.5 rounded-xl border border-line bg-white p-7 sm:grid-cols-2"
             >
+              {listingId ? (
+                <p className="m-0 rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-4 py-3 text-sm font-bold leading-6 text-brand-teal sm:col-span-2">
+                  {t.form.listingContext.replace("{listingId}", listingId)}
+                </p>
+              ) : null}
+
               <label
                 htmlFor={`${fieldId}-name`}
                 className="grid gap-2 text-[12px] font-black uppercase tracking-[0.08em] text-steel"

@@ -35,4 +35,43 @@ describe("DispatchBoard", () => {
       primaryMechanicId,
     );
   });
+
+  it("keeps long work-order labels inside each Kanban card", () => {
+    const longRequestNo = "20260629-001-EXTRA-LONG-DISPATCH-REFERENCE";
+    const longEquipment = "EXP30-20260629-EXTRA-LONG-MANAGEMENT-NUMBER";
+    render(
+      <DispatchBoard
+        workOrders={[
+          {
+            ...workOrderListItems[0],
+            request_no: longRequestNo,
+            equipment: {
+              ...workOrderListItems[0].equipment,
+              equipment_no: longEquipment,
+              management_no: "LONG-MGMT-001",
+            },
+            customer: {
+              ...workOrderListItems[0].customer,
+              name: "아주긴고객명아주긴고객명아주긴고객명",
+            },
+            site: {
+              ...workOrderListItems[0].site,
+              name: "아주긴현장명아주긴현장명아주긴현장명",
+            },
+          },
+        ]}
+        selectedMechanicId={primaryMechanicId}
+        onAssignWorkOrder={vi.fn().mockResolvedValue(true)}
+        onSelectWorkOrder={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByText(longRequestNo).closest("article");
+    expect(card).toHaveClass("min-w-0", "overflow-hidden");
+    expect(screen.getByText(longRequestNo)).toHaveClass("break-all");
+    expect(screen.getByText(/EXP30-20260629/)).toHaveClass("break-words");
+    expect(
+      screen.getByRole("button", { name: `${longRequestNo} 배차 제어` }),
+    ).toHaveClass("whitespace-normal");
+  });
 });
