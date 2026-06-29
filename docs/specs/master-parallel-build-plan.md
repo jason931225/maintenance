@@ -2,8 +2,8 @@
 
 > Output of the oyatie-borrow-scan workflow + planning-and-task-breakdown. Companion to
 > `roadmap-to-production.md` (the WHAT) and `build-strategy.md` (the WHY). This is the HOW: the
-> parallelization architecture, the borrow manifest, the substrate-first sequence, and the 20 disjoint
-> lanes a fleet executes. **Grounding:** maintenance already has 14 bounded-context crates in the
+> parallelization architecture, the borrow manifest, the substrate-first sequence, the 20 immediate
+> disjoint lanes, and a future MES lane the fleet must not fan out prematurely. **Grounding:** maintenance already has 14 bounded-context crates in the
 > `{domain,application,adapter-postgres,rest}` shape, glob workspace members (kills the #1 merge
 > conflict), 6 CI gates, `deny.toml`, `crates/kernel/core`, openapi-first, ultragoal — so the substrate
 > is ~60% in place; S0–S5 closes the gap, then the lanes fan out.
@@ -52,7 +52,8 @@ consumes the generated type. A **route-parity gate** + a **bindings.tsv** keep h
 
 ## 3. Substrate-first sequence (S0–S5 — single-lane, before the fleet)
 
-These touch shared artifacts, so they run **sequentially first** (~one short wave), then 20 lanes fan out.
+These touch shared artifacts, so they run **sequentially first** (~one short wave), then the 20 immediate
+lanes fan out. The future MES lane stays gated until its prerequisites are accepted.
 
 - **S0 — Agent-operating-contract + slice-plan template + PR template.** The rulebook every lane obeys
   (pre-flight Why+Test, done-definition, reviewer-routing, sanctioned-primitives, **mandatory: arm
@@ -95,6 +96,7 @@ Existing contexts → **maturity** lanes (mature + close coverage/#19/#20); new 
 | L18 authz/RBAC | `platform/authz` + `mnt-authz-cedar` 🆕 | — (S3 owns) | console-managed custom roles + approval graph policy |
 | L19 quota/billing-plan 🆕 | `platform/quota` | comms, storage | SaaS tiering |
 | L20 audit-chain 🆕 | `mnt-audit-chain` | — | tamper-evident sealing worker |
+| **L21 MES** 🆕 future | `mes/*` | identity, ontology, erp, registry, hr, financial, audit-chain | Future manufacturing execution: production orders, routings, work centers, quality/NC, material traceability, OEE, labor capture; **do not fan out until org/people/assets/inventory/ERP/workflow/policy/import foundations are accepted** |
 
 **Plus cross-cutting parallel lanes:** L-Q coverage backfill (per-domain mnt_rt/unit, ~80% of the 109
 gaps), L-O ops/infra (log persistence #50, metrics, secrets #28), L-Auth (#19.25 enroll fix #49).
@@ -123,7 +125,7 @@ publishes the attendance event-contract in its first subtask so payroll starts a
 
 1. **S0–S5 substrate** (single-lane, sequential) — land first. *(~1 wave; mostly already-have + the two
    collision-eliminating splits + the kernels.)*
-2. **Fan out the 20 lanes + the 3 cross-cutting lanes** as worktree-isolated agents, each taking a row from
+2. **Fan out the 20 immediate lanes + the 3 cross-cutting lanes** as worktree-isolated agents, each taking a row from
    the bounded-context registry, building its crate family + openapi fragment + ko namespace + the trifecta,
    merging against frozen contracts. Concurrency ≈ disjoint domains (8–16 at a time under the agent cap).
 3. **Integration is continuous** — per-domain fragments merge trivially; the route-parity/cohesion/bindings
@@ -143,7 +145,7 @@ publishes the attendance event-contract in its first subtask so payroll starts a
 ## 8. Pre-fan-out substrate HARDENING (adversarial review: NOT-YET → GO-on-sequencing)
 
 The review verdict: **architecture GO, sequencing NOT-YET** — 14 blockers + 16 highs, all fixable with
-reservation schemes (no redesign), but they must EXIST before 20 agents start writing. These become
+reservation schemes (no redesign), but they must EXIST before the immediate lane fleet starts writing. These become
 binding substrate steps; **no lane spawns until all are green.**
 
 ### ⛔ S‑1 — The precondition: make red actually BLOCK deploy, then get green (THE biggest risk)
@@ -168,7 +170,7 @@ mounts with a small route-guard harness plus direct page renders; the full web s
 deliberately-red change is observed to block deployment.
 
 ### Additional substrate (S6–S12)
-- **S6 Migration numbering** — global `NNNN` seq (at 0059) → 20 lanes collide on `0060` (sqlx dup-version =
+- **S6 Migration numbering** — global `NNNN` seq (at 0059) → immediate lanes collide on `0060` (sqlx dup-version =
   silent DDL loss). Reserve disjoint bands per lane in the registry, frozen at fan-out, + a
   `DuplicateVersion`/`NonContiguous` migration-safety variant; better, switch new migrations to
   timestamp/ULID lexical prefixes so "next number" is no longer a shared write.
@@ -342,4 +344,6 @@ defaults such as manufacturer, specification, and tonnage, but derivation must n
 operator has already typed.
 
 **Bottom line: S‑1 first (prove a red PR blocks deploy), then S6–S12 + freeze the registry/contracts +
-pull L16/L17 out — then the 20 lanes fan out safely.** The architecture stands; only the sequence changes.
+pull L16/L17 out — then the 20 immediate lanes fan out safely. L21 MES is future scope only until
+org/people/assets/inventory/ERP/workflow/policy/import foundations are accepted.** The architecture stands;
+only the sequence changes.
