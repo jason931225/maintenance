@@ -85,7 +85,6 @@ async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
             .start_work(WorkOrderStartCommand {
                 actor: seeded.mechanic,
                 work_order_id: created.id,
-                comment: "검토 의견".to_owned(),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
