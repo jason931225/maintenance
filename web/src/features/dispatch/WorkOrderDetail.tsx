@@ -44,12 +44,24 @@ interface WorkOrderDetailProps {
     diagnosis: string,
     actionTaken: string,
   ) => Promise<boolean>;
+  canEditIntake?: boolean;
+  onUpdateIntake?: (
+    workOrderId: string,
+    symptom: string,
+    customerRequest: string,
+  ) => Promise<boolean>;
+  managerControls?: React.ReactNode;
 }
 
 type ReportFormState = {
   resultType: WorkResultType;
   diagnosis: string;
   actionTaken: string;
+};
+
+type IntakeEditFormState = {
+  symptom: string;
+  customerRequest: string;
 };
 
 /**
@@ -66,6 +78,9 @@ export function WorkOrderDetail({
   canUploadEvidence,
   onStartWork,
   onSubmitReport,
+  canEditIntake = false,
+  onUpdateIntake,
+  managerControls,
 }: WorkOrderDetailProps) {
   const [startPending, setStartPending] = useState(false);
   const [startDone, setStartDone] = useState<string | null>(null);
@@ -78,6 +93,10 @@ export function WorkOrderDetail({
     diagnosis?: string;
     actionTaken?: string;
   }>({});
+  const [editForm, setEditForm] = useState<IntakeEditFormState | null>(null);
+  const [editPending, setEditPending] = useState(false);
+  const [editDone, setEditDone] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // `useAutoDismiss` holds the clear callback in a ref, so a fresh function
   // identity each render is harmless — no useCallback needed (and avoids the
@@ -93,6 +112,13 @@ export function WorkOrderDetail({
     reportDone,
     () => {
       setReportDone(null);
+    },
+    SUCCESS_DISMISS_MS,
+  );
+  useAutoDismiss(
+    editDone ? "done" : null,
+    () => {
+      setEditDone(false);
     },
     SUCCESS_DISMISS_MS,
   );
@@ -137,10 +163,135 @@ export function WorkOrderDetail({
     }
   }
 
+  function openEditForm() {
+    setEditForm({
+      symptom: workOrder.symptom,
+      customerRequest: workOrder.customer_request ?? "",
+    });
+    setEditDone(false);
+    setEditError(null);
+  }
+
+  async function handleUpdateIntake() {
+    if (!editForm || !onUpdateIntake) return;
+    const symptom = editForm.symptom.trim();
+    const customerRequest = editForm.customerRequest.trim();
+    if (!symptom) {
+      setEditError(ko.workOrder.detail.editSymptomRequired);
+      return;
+    }
+    setEditPending(true);
+    setEditError(null);
+    const ok = await onUpdateIntake(workOrder.id, symptom, customerRequest);
+    setEditPending(false);
+    if (ok) {
+      setEditDone(true);
+      setEditForm(null);
+    } else {
+      setEditError(ko.workOrder.detail.editFailed);
+    }
+  }
+
   return (
     <ObjectViewScaffold>
       <WorkOrderIdentityPanel workOrder={workOrder} />
       <WorkOrderNarrativePanel workOrder={workOrder} />
+      {canEditIntake ? (
+        <ObjectViewPanel title={ko.workOrder.detail.editTitle}>
+          {editForm ? (
+            <div className="grid gap-3">
+              <div className="grid gap-1">
+                <label
+                  className="text-sm font-medium text-steel"
+                  htmlFor="work-order-edit-symptom"
+                >
+                  {ko.workOrder.detail.symptom}
+                </label>
+                <textarea
+                  id="work-order-edit-symptom"
+                  rows={3}
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-steel focus:outline-none focus:ring-2 focus:ring-signal"
+                  value={editForm.symptom}
+                  onChange={(event) => {
+                    setEditForm((current) =>
+                      current
+                        ? { ...current, symptom: event.target.value }
+                        : current,
+                    );
+                    setEditError(null);
+                  }}
+                />
+              </div>
+              <div className="grid gap-1">
+                <label
+                  className="text-sm font-medium text-steel"
+                  htmlFor="work-order-edit-customer-request"
+                >
+                  {ko.workOrder.detail.customerRequest}
+                </label>
+                <textarea
+                  id="work-order-edit-customer-request"
+                  rows={2}
+                  className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-steel focus:outline-none focus:ring-2 focus:ring-signal"
+                  value={editForm.customerRequest}
+                  onChange={(event) => {
+                    setEditForm((current) =>
+                      current
+                        ? { ...current, customerRequest: event.target.value }
+                        : current,
+                    );
+                    setEditError(null);
+                  }}
+                />
+              </div>
+              {editError ? (
+                <p role="alert" className="text-sm font-medium text-red-700">
+                  {editError}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  disabled={editPending}
+                  onClick={() => {
+                    void handleUpdateIntake();
+                  }}
+                >
+                  {editPending
+                    ? ko.workOrder.detail.savingEdit
+                    : ko.workOrder.detail.saveEdit}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={editPending}
+                  onClick={() => {
+                    setEditForm(null);
+                    setEditError(null);
+                  }}
+                >
+                  {ko.dispatch.controls.cancel}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-steel">
+                {ko.workOrder.detail.editDescription}
+              </p>
+              <Button type="button" variant="secondary" onClick={openEditForm}>
+                {ko.workOrder.detail.edit}
+              </Button>
+            </div>
+          )}
+          {editDone ? (
+            <p role="status" className="text-sm font-medium text-brand-teal">
+              {ko.workOrder.detail.editDone}
+            </p>
+          ) : null}
+        </ObjectViewPanel>
+      ) : null}
+      {managerControls}
 
       {/* Write controls — only the assigned mechanic. Read-only viewers
           (receptionist, admin) never see these. */}
@@ -493,6 +644,10 @@ function WorkOrderApprovalPanel({
                 {step.step_order}. {roleLabel(step.role)}
               </p>
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-steel">
+                <span>
+                  {t.approvalApprover}:{" "}
+                  {safeLabel(step.approver_name ?? t.unassignedApprover)}
+                </span>
                 {step.requested_at ? (
                   <span>
                     {t.approvalRequestedAt}: {formatKoreanDateTime(step.requested_at)}
@@ -503,7 +658,17 @@ function WorkOrderApprovalPanel({
                     {t.approvalApprovedAt}: {formatKoreanDateTime(step.approved_at)}
                   </span>
                 ) : null}
+                {step.approved_by_name ? (
+                  <span>
+                    {t.approvalApprovedBy}: {safeLabel(step.approved_by_name)}
+                  </span>
+                ) : null}
               </div>
+              {step.decision_comment ? (
+                <p className="whitespace-pre-wrap text-xs text-ink">
+                  {t.approvalDecisionComment}: {step.decision_comment}
+                </p>
+              ) : null}
             </div>
             <Badge>{approvalStatusLabel(step.status)}</Badge>
           </li>

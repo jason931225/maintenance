@@ -45,6 +45,13 @@ struct TokenPairResponse {
     access_token: String,
     /// Present (body transport, mobile) or null (cookie transport, web).
     refresh_token: Option<String>,
+    #[serde(default)]
+    requires_passkey_setup: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceLoginStartResponse {
+    approve_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,6 +208,176 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
 
     assert_audit_count(&pool, "auth.otp.signin", 2).await; // admin + new user
     assert_audit_count(&pool, "auth.login", 1).await; // usernameless login
+}
+
+/// Regression for desktop/phone onboarding: a zero-passkey user can refresh the
+/// OTP-minted session before enrollment completes. Refresh must keep carrying the
+/// setup flag, otherwise a hard reload recreates a normal session and lets the
+/// user into the app without registering a passkey.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn refresh_keeps_zero_passkey_user_in_setup_mode_until_enrolled(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Refresh Setup Region", "Refresh Setup Branch").await;
+    let user_id = seed_user_with_branch(
+        &pool,
+        "Refresh Setup User",
+        "010-4090-0001",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OrgId::knl(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+    let redeem: OtpRedeemResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(redeem.requires_passkey_setup);
+
+    let refresh_token = redeem
+        .refresh_token
+        .clone()
+        .expect("body transport must return refresh token");
+    let refreshed: TokenPairResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/token/refresh",
+        None,
+        json!({ "refresh_token": refresh_token }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(
+        refreshed.requires_passkey_setup,
+        "refresh before enrollment must keep the client locked on passkey setup"
+    );
+
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    enroll_passkey(&service, &mut authenticator, &refreshed.access_token).await;
+    let post_enrollment_refresh = refreshed
+        .refresh_token
+        .clone()
+        .expect("rotated body refresh token must be returned");
+    let refreshed_after_enrollment: TokenPairResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/token/refresh",
+        None,
+        json!({ "refresh_token": post_enrollment_refresh }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(
+        !refreshed_after_enrollment.requires_passkey_setup,
+        "refresh after successful passkey enrollment should clear the setup flag"
+    );
+}
+
+/// `/device-login/approve-session` is only for the first-enrollment QR path,
+/// where the desktop handoff is pinned to the OTP user/org. Generic desktop QR
+/// logins must still require a fresh WebAuthn assertion through
+/// `/device-login/approve`; a normal bearer session is not enough.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn approve_session_rejects_generic_desktop_handoff_without_target(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Device QR Region", "Device QR Branch").await;
+    let user_id = seed_user_with_branch(
+        &pool,
+        "Device QR User",
+        "010-4090-0002",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OrgId::knl(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+    let redeem: OtpRedeemResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+        StatusCode::OK,
+    )
+    .await;
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    enroll_passkey(&service, &mut authenticator, &redeem.access_token).await;
+
+    let handoff: DeviceLoginStartResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/device-login/start",
+        None,
+        json!({}),
+        StatusCode::OK,
+    )
+    .await;
+    let approve_url = Url::parse(&handoff.approve_url).unwrap();
+    let approve_token = approve_url
+        .fragment()
+        .and_then(|fragment| {
+            url::form_urlencoded::parse(fragment.as_bytes())
+                .find(|(key, _)| key == "desktop_approve")
+                .map(|(_, value)| value.into_owned())
+        })
+        .expect("desktop approve token must be in the URL fragment");
+
+    let response = post_raw(
+        service.clone(),
+        "/api/v1/auth/device-login/approve-session",
+        Some(&redeem.access_token),
+        json!({ "approve_token": approve_token }),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "generic desktop QR handoffs require a fresh passkey assertion"
+    );
 }
 
 /// Initial passkey enrollment is gated on separate privacy/data-collection and

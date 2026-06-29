@@ -29,11 +29,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, and enrolls a platform passkey.
+ * The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, enrolls a platform passkey, then approves the paired desktop poll token when `desktop_approve` is present in the URL fragment.
  *
  * @param otp The single-use enrollment handoff code.
  * @param expiresAt
- * @param enrollUrl The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
+ * @param enrollUrl The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>&desktop_approve=<approve-token>`), to be rendered as a QR and scanned on a phone.
+ * @param pollToken Desktop-only poll token paired to the phone enrollment QR. The desktop polls the device-login endpoint with this token and receives its own session once the phone enrollment approves the handoff.
  */
 @Serializable
 
@@ -46,9 +47,13 @@ data class EnrollHandoffResponse (
     @Contextual @SerialName(value = "expires_at")
     val expiresAt: java.time.OffsetDateTime,
 
-    /* The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone. */
+    /* The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>&desktop_approve=<approve-token>`), to be rendered as a QR and scanned on a phone. */
     @SerialName(value = "enroll_url")
-    val enrollUrl: kotlin.String
+    val enrollUrl: kotlin.String,
+
+    /* Desktop-only poll token paired to the phone enrollment QR. The desktop polls the device-login endpoint with this token and receives its own session once the phone enrollment approves the handoff. */
+    @SerialName(value = "poll_token")
+    val pollToken: kotlin.String
 
 ) {
 

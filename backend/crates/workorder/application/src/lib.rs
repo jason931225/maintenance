@@ -119,6 +119,18 @@ pub struct CreateWorkOrderCommand {
     pub occurred_at: Timestamp,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateWorkOrderIntakeCommand {
+    pub actor: UserId,
+    pub work_order_id: WorkOrderId,
+    pub symptom: Option<String>,
+    /// `None` means leave unchanged. `Some("")` clears the optional customer
+    /// request after trimming.
+    pub customer_request: Option<String>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
 pub type WorkOrderCreatedFuture<'a> =
     Pin<Box<dyn Future<Output = Result<(), KernelError>> + Send + 'a>>;
 
@@ -361,6 +373,7 @@ pub struct SubmitReportCommand {
 pub struct WorkOrderApprovalCommand {
     pub actor: UserId,
     pub work_order_id: WorkOrderId,
+    pub comment: String,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -396,7 +409,7 @@ pub struct ReviewTargetChangeCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DailyPlanItemInput {
-    pub work_order_id: Option<WorkOrderId>,
+    pub work_order_id: WorkOrderId,
     pub description: String,
 }
 
@@ -468,6 +481,18 @@ pub struct TargetChangeRequestSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DailyPlanItemSummary {
+    pub work_order_id: Option<WorkOrderId>,
+    pub request_no: Option<String>,
+    pub equipment_no: Option<String>,
+    pub management_no: Option<String>,
+    pub customer_name: Option<String>,
+    pub site_name: Option<String>,
+    pub description: String,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DailyPlanSummary {
     pub id: DailyPlanId,
     pub branch_id: BranchId,
@@ -475,6 +500,7 @@ pub struct DailyPlanSummary {
     #[serde(with = "iso_date")]
     pub plan_date: Date,
     pub status: DailyPlanStatus,
+    pub items: Vec<DailyPlanItemSummary>,
 }
 
 /// Query for the approval-queue list of daily work plans (#19.17). Branch-scoped

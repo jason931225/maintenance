@@ -1,6 +1,6 @@
 import { Monitor, QrCode } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -9,12 +9,20 @@ import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import {
   acceptPrivacyConsent,
+  approveDeviceLoginSession,
   finishPasskeyRegistration,
   getPrivacyConsentStatus,
   startPasskeyRegistration,
 } from "../auth/webauthn";
 
 const FALLBACK_PRIVACY_TERMS_VERSION = "kr-pipa-v1-2026-06-25";
+const DESKTOP_APPROVE_SESSION_KEY = "mnt.desktop_approve";
+
+function safeDeviceApproveToken(raw: string | null): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  return /^mnt_dla_[0-9a-fA-F]{64}$/.test(trimmed) ? trimmed : undefined;
+}
 
 /**
  * Initial-settings passkey enrollment shown after a first OTP sign-in. While the
@@ -31,8 +39,15 @@ const FALLBACK_PRIVACY_TERMS_VERSION = "kr-pipa-v1-2026-06-25";
  *      passkey there. Works with NO Bluetooth.
  */
 export function OnboardingPage() {
-  const { api, logout, clearPasskeySetup } = useAuth();
+  const { api, logout, acceptTokens, clearPasskeySetup } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [desktopApproveToken] = useState(() =>
+    safeDeviceApproveToken(searchParams.get("desktop_approve")) ??
+    safeDeviceApproveToken(
+      window.sessionStorage.getItem(DESKTOP_APPROVE_SESSION_KEY),
+    ),
+  );
   const [consentLoading, setConsentLoading] = useState(true);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [policyVersion, setPolicyVersion] = useState(
@@ -86,6 +101,18 @@ export function OnboardingPage() {
     }
   }
 
+  async function approveDesktopIfNeeded() {
+    if (!desktopApproveToken) return;
+    try {
+      await approveDeviceLoginSession(api, desktopApproveToken);
+    } catch {
+      // Enrollment succeeded; a stale/expired desktop QR must not keep the user
+      // trapped in initial setup. The desktop can start a fresh QR login.
+    } finally {
+      window.sessionStorage.removeItem(DESKTOP_APPROVE_SESSION_KEY);
+    }
+  }
+
   async function enrollThisDevice() {
     setError(undefined);
     setShowQr(false);
@@ -93,6 +120,7 @@ export function OnboardingPage() {
     try {
       const ceremony = await startPasskeyRegistration(api, {}, "platform");
       await finishPasskeyRegistration(api, ceremony);
+      await approveDesktopIfNeeded();
       clearPasskeySetup();
       void navigate("/work-hub", { replace: true });
     } catch (cause) {
@@ -107,10 +135,19 @@ export function OnboardingPage() {
     }
   }
 
-  const handlePhoneQrCompleted = useCallback(() => {
-    clearPasskeySetup();
-    void navigate("/work-hub", { replace: true });
-  }, [clearPasskeySetup, navigate]);
+  const handlePhoneQrCompleted = useCallback(
+    (accessToken?: string) => {
+      if (accessToken) {
+        acceptTokens({
+          access_token: accessToken,
+          requires_passkey_setup: false,
+        });
+      }
+      clearPasskeySetup();
+      void navigate("/work-hub", { replace: true });
+    },
+    [acceptTokens, clearPasskeySetup, navigate],
+  );
 
   const busy = pending || consentLoading || consentPending;
   const canAcceptConsent = privacyChecked && termsChecked && !consentPending;

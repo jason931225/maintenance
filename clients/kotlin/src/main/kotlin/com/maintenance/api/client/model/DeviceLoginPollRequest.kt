@@ -31,18 +31,14 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param workOrderId
- * @param description
+ * @param pollToken
  */
 @Serializable
 
-data class CreateDailyPlanRequestItemsInner (
+data class DeviceLoginPollRequest (
 
-    @Contextual @SerialName(value = "work_order_id")
-    val workOrderId: java.util.UUID,
-
-    @SerialName(value = "description")
-    val description: kotlin.String
+    @SerialName(value = "poll_token")
+    val pollToken: kotlin.String
 
 ) {
 

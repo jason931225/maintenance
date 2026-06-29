@@ -48,6 +48,7 @@ src/main/kotlin/com/maintenance/api/client/model/ApprovalOntologyContext.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalPolicyContext.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalStepSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalWorkflowContext.kt
+src/main/kotlin/com/maintenance/api/client/model/ApproveWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ArrivalEvent.kt
 src/main/kotlin/com/maintenance/api/client/model/ArrivalEventPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AssetLifecycleCostSummary.kt
@@ -91,10 +92,16 @@ src/main/kotlin/com/maintenance/api/client/model/CreatedSite.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerInquiryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerInquiryView.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerIntakeRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/DailyPlanItemSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanListPage.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DepreciationMethod.kt
+src/main/kotlin/com/maintenance/api/client/model/DeviceLoginApproveRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/DeviceLoginApproveSessionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/DeviceLoginPollRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/DeviceLoginPollResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/DeviceLoginStartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DevicePlatform.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
@@ -309,6 +316,7 @@ src/main/kotlin/com/maintenance/api/client/model/UpdateRegionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateSelfProfileRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateSiteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateUserRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderIntakeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UserPage.kt
 src/main/kotlin/com/maintenance/api/client/model/UserSummary.kt

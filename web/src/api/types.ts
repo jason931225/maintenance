@@ -51,6 +51,8 @@ export type WorkOrderNamedBucket =
   components["schemas"]["WorkOrderNamedBucket"];
 export type CreateWorkOrderRequest =
   components["schemas"]["CreateWorkOrderRequest"];
+export type UpdateWorkOrderIntakeRequest =
+  components["schemas"]["UpdateWorkOrderIntakeRequest"];
 export type EquipmentLookupResponse =
   components["schemas"]["EquipmentLookupResponse"];
 export type EquipmentSummary = components["schemas"]["EquipmentSummary"];

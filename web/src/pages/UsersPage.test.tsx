@@ -274,6 +274,55 @@ describe("UsersPage create", () => {
   });
 });
 
+describe("UsersPage edit", () => {
+  it("keeps an existing executive role when granting 관리자", async () => {
+    const user = userEvent.setup();
+    const executive = {
+      ...users[0],
+      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      display_name: "임원",
+      roles: ["EXECUTIVE"],
+      branch_ids: [BRANCH_A],
+    };
+    const patched = vi.fn();
+
+    server.use(
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json(userPage([executive])),
+      ),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+      http.patch("*/api/v1/users/:id", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({
+          ...executive,
+          roles: ["EXECUTIVE", "ADMIN"],
+        });
+      }),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    const table = await screen.findByRole("table");
+    const row = within(table).getAllByRole("row")[1];
+    await user.click(within(row).getByRole("button", { name: "수정" }));
+
+    const drawer = within(await screen.findByRole("dialog"));
+    expect(drawer.getByLabelText("임원")).toBeChecked();
+    await user.click(drawer.getByLabelText("관리자"));
+    await user.click(drawer.getByRole("button", { name: "변경 저장" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({
+        display_name: "임원",
+        phone: "010-1234-5678",
+        team: "MAINTENANCE",
+        roles: ["EXECUTIVE", "ADMIN"],
+        branch_ids: [BRANCH_A],
+      });
+    });
+  });
+});
+
 describe("UsersPage no-credential UX", () => {
   it("shows the no-credential banner and a prominent OTP button after creating a user", async () => {
     const user = userEvent.setup();

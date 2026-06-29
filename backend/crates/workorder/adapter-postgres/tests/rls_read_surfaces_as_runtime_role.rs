@@ -528,8 +528,7 @@ async fn daily_plan_list_surfaces_draft_and_requested_as_runtime_role(owner_pool
     let rt_pool = runtime_role_pool(&owner_pool).await;
     let knl = OrgId::knl();
     let knl_uuid = *knl.as_uuid();
-    seed_org(&owner_pool, knl_uuid, "knl").await;
-    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let (branch, work_order) = seed_work_order(&owner_pool, knl).await;
     let mechanic = seed_user(&owner_pool, knl_uuid, "MECHANIC", branch).await;
     let plan_date = OffsetDateTime::now_utc().date();
 
@@ -544,7 +543,7 @@ async fn daily_plan_list_surfaces_draft_and_requested_as_runtime_role(owner_pool
                 mechanic_id: mechanic,
                 plan_date,
                 items: vec![DailyPlanItemInput {
-                    work_order_id: None,
+                    work_order_id: work_order.id,
                     description: "엔진 오일 교체".to_owned(),
                 }],
                 trace: TraceContext::generate(),
@@ -587,8 +586,7 @@ async fn daily_plan_list_surfaces_draft_and_requested_as_runtime_role(owner_pool
     // Cross-tenant: a SECOND org's plan must NOT appear under KNL's armed GUC.
     let org2 = OrgId::from_uuid(ORG_T2);
     let org2_uuid = *org2.as_uuid();
-    seed_org(&owner_pool, org2_uuid, "t2").await;
-    let branch2 = seed_branch(&owner_pool, org2_uuid).await;
+    let (branch2, work_order2) = seed_work_order(&owner_pool, org2).await;
     let mechanic2 = seed_user(&owner_pool, org2_uuid, "MECHANIC", branch2).await;
     let other = mnt_platform_request_context::scope_org(org2, async {
         let store = PgWorkOrderStore::new(rt_pool.clone());
@@ -599,7 +597,7 @@ async fn daily_plan_list_surfaces_draft_and_requested_as_runtime_role(owner_pool
                 mechanic_id: mechanic2,
                 plan_date,
                 items: vec![DailyPlanItemInput {
-                    work_order_id: None,
+                    work_order_id: work_order2.id,
                     description: "타 테넌트 계획".to_owned(),
                 }],
                 trace: TraceContext::generate(),

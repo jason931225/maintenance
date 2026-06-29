@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +12,10 @@ import type { AuthContextValue, AuthSession } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
 import type { EquipmentLookupResponse } from "../../api/types";
 import { branchId } from "../../test/fixtures";
+import {
+  EquipmentManagementPanel,
+  type EquipmentOwnerOrgOption,
+} from "./EquipmentManagementPanel";
 
 const server = setupServer();
 
@@ -43,6 +48,11 @@ const equipment: EquipmentLookupResponse = {
   site: { id: "s1", name: "본사" },
 };
 
+const ownerOrgOptions: EquipmentOwnerOrgOption[] = [
+  { id: "org-coss", slug: "coss", name: "코스", groupName: "그룹" },
+  { id: "org-knl", slug: "knl", name: "케이앤엘", groupName: "그룹" },
+];
+
 function makeAuthContext(session: AuthSession): AuthContextValue {
   const api = createConsoleApiClient(session.access_token);
   return {
@@ -68,6 +78,27 @@ function renderApp(ctx: AuthContextValue) {
       </MemoryRouter>
     </AuthContext.Provider>,
   );
+}
+
+function renderGroupAdminEquipmentPanel() {
+  function Harness() {
+    const [selectedOwnerOrgId, setSelectedOwnerOrgId] = useState("org-coss");
+    return (
+      <EquipmentManagementPanel
+        api={createConsoleApiClient("coss-source-token")}
+        results={[equipment]}
+        onMutated={() => {}}
+        ownerOrgOptions={ownerOrgOptions}
+        ownerSelectionRequired
+        selectedOwnerOrgId={selectedOwnerOrgId}
+        onSelectedOwnerOrgIdChange={setSelectedOwnerOrgId}
+        activeOrgId="org-coss"
+        groupAdminSourceToken="coss-source-token"
+      />
+    );
+  }
+
+  return render(<Harness />);
 }
 
 const adminSession: AuthSession = {
@@ -143,6 +174,77 @@ describe("EquipmentManagementPanel", () => {
     });
     expect(await screen.findByText("장비를 등록했습니다.")).toBeVisible();
     vi.useRealTimers();
+  });
+
+  it("creates under the selected group subsidiary after legal ownership sign-off", async () => {
+    const user = userEvent.setup();
+    const created = vi.fn();
+    const contextStarted = vi.fn();
+    const contextExited = vi.fn();
+    server.use(
+      http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
+        contextStarted({
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return HttpResponse.json({
+          access_token: "knl-context-token",
+          token_type: "Bearer",
+          acting_org_id: "org-knl",
+          acting_org_name: "케이앤엘",
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2026-06-29T00:00:00Z",
+        });
+      }),
+      http.post("*/api/v1/equipment", async ({ request }) => {
+        created({
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return HttpResponse.json({ id: newEquipmentId }, { status: 201 });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context/exit", async ({ request }) => {
+        contextExited({
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderGroupAdminEquipmentPanel();
+
+    await user.click(screen.getByRole("button", { name: "장비 등록" }));
+    await user.selectOptions(screen.getByLabelText("소유 법인"), "org-knl");
+    await user.click(
+      screen.getByLabelText(/소유 법인, 등록 권한, 회계·계약상 근거/),
+    );
+    await user.type(screen.getByLabelText("호기 번호"), "D-25-300");
+    await user.type(screen.getByLabelText("고객명"), "신규고객");
+    await user.type(screen.getByLabelText("현장명"), "신규현장");
+    await user.type(screen.getByLabelText("규격"), "입식");
+    await user.type(screen.getByLabelText("톤수"), "3.0T");
+
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => {
+      expect(contextStarted).toHaveBeenCalledWith({
+        authorization: "Bearer coss-source-token",
+        body: { org_id: "org-knl" },
+      });
+      expect(created).toHaveBeenCalledWith({
+        authorization: "Bearer knl-context-token",
+        body: expect.objectContaining({
+          equipment_no: "D-25-300",
+          customer_name: "신규고객",
+          site_name: "신규현장",
+        }),
+      });
+      expect(contextExited).toHaveBeenCalledWith({
+        authorization: "Bearer coss-source-token",
+        body: { org_id: "org-knl" },
+      });
+    });
   });
 
   it("edits an existing equipment row", async () => {

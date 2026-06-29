@@ -7,7 +7,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { createConsoleApiClient } from "../api/client";
 import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
+import type {
+  AuthContextValue,
+  AuthSession,
+  ViewAsState,
+} from "../context/auth";
 import { GroupAdminPage } from "./GroupAdminPage";
 
 const server = setupServer();
@@ -34,9 +38,12 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(): AuthContextValue {
+function makeAuthContext(
+  overrides: Partial<AuthContextValue> = {},
+): AuthContextValue {
+  const session = overrides.session ?? groupAdminSession;
   return {
-    session: groupAdminSession,
+    session,
     restoring: false,
     login: async () => {},
     logout: async () => {},
@@ -46,7 +53,8 @@ function makeAuthContext(): AuthContextValue {
     viewAs: undefined,
     enterViewAs,
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(groupAdminSession.access_token),
+    api: createConsoleApiClient(session.access_token),
+    ...overrides,
   };
 }
 
@@ -55,9 +63,9 @@ function LocationProbe() {
   return <p data-testid="location">{location.pathname}</p>;
 }
 
-function renderPage() {
+function renderPage(authOverrides: Partial<AuthContextValue> = {}) {
   return render(
-    <AuthContext.Provider value={makeAuthContext()}>
+    <AuthContext.Provider value={makeAuthContext(authOverrides)}>
       <MemoryRouter initialEntries={["/settings/group"]}>
         <Routes>
           <Route path="/settings/group" element={<GroupAdminPage />} />
@@ -68,10 +76,13 @@ function renderPage() {
   );
 }
 
-function installHandlers() {
+function installHandlers(expectedToken = groupAdminSession.access_token) {
   server.use(
-    http.get("*/api/v1/group-admin/groups", () =>
-      HttpResponse.json({
+    http.get("*/api/v1/group-admin/groups", ({ request }) => {
+      expect(request.headers.get("Authorization")).toBe(
+        `Bearer ${expectedToken}`,
+      );
+      return HttpResponse.json({
         groups: [
           {
             id: "group-1",
@@ -88,9 +99,12 @@ function installHandlers() {
             ],
           },
         ],
-      }),
-    ),
+      });
+    }),
     http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
+      expect(request.headers.get("Authorization")).toBe(
+        `Bearer ${expectedToken}`,
+      );
       expect(await request.json()).toEqual({ org_id: "org-coss" });
       return HttpResponse.json({
         access_token: "tenant-context-token",
@@ -156,7 +170,9 @@ describe("GroupAdminPage", () => {
 
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "그룹 관리", level: 1 })).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "그룹 관리", level: 1 }),
+    ).toBeVisible();
     expect(screen.getByText("그룹 전체 운영 지휘")).toBeVisible();
     expect(screen.getAllByText("코스").length).toBeGreaterThan(0);
 
@@ -172,6 +188,89 @@ describe("GroupAdminPage", () => {
         actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
       });
     });
-    expect(await screen.findByTestId("location")).toHaveTextContent("/approvals");
+    expect(await screen.findByTestId("location")).toHaveTextContent(
+      "/approvals",
+    );
+  });
+
+  it("exposes the tenant admin module launcher for each subsidiary", async () => {
+    const user = userEvent.setup();
+    installHandlers();
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "코스 사용자 관리" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "코스 장비 설정·일괄작업" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "코스 메일함" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "코스 보안 설정" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "코스 권한 정책" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "코스 사용자 관리" }));
+
+    await waitFor(() => {
+      expect(enterViewAs).toHaveBeenCalledWith({
+        token: "tenant-context-token",
+        mode: "MANAGE",
+        source: "GROUP_ADMIN",
+        actingOrgId: "org-coss",
+        actingOrgName: "코스",
+        actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
+      });
+    });
+    expect(await screen.findByTestId("location")).toHaveTextContent(
+      "/settings/users",
+    );
+  });
+
+  it("uses the source group-admin token when the page is opened from a delegated org context", async () => {
+    const user = userEvent.setup();
+    installHandlers(groupAdminSession.access_token);
+    const delegatedSession: AuthSession = {
+      access_token: "active-delegated-tenant-token",
+      user_id: "group-admin-user",
+      roles: ["ADMIN"],
+      group_roles: ["GROUP_ADMIN"],
+      branches: [],
+    };
+    const viewAs: ViewAsState = {
+      token: delegatedSession.access_token,
+      mode: "MANAGE",
+      source: "GROUP_ADMIN",
+      actingOrgId: "org-coss",
+      actingOrgName: "코스",
+      actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
+      platformSession: groupAdminSession,
+    };
+
+    renderPage({
+      session: delegatedSession,
+      viewAs,
+      api: createConsoleApiClient(delegatedSession.access_token),
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "코스 사용자 관리" }),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "코스 사용자 관리" }));
+
+    await waitFor(() => {
+      expect(enterViewAs).toHaveBeenCalledWith({
+        token: "tenant-context-token",
+        mode: "MANAGE",
+        source: "GROUP_ADMIN",
+        actingOrgId: "org-coss",
+        actingOrgName: "코스",
+        actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
+      });
+    });
   });
 });

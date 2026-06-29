@@ -31,6 +31,11 @@ export interface AuthSession {
   /** JWT `email` claim, when present. Display-only fallback for the identity label. */
   email?: string;
   /**
+   * JWT `org` claim. Client-side routing/context hint only; the backend still
+   * enforces tenant scope from the signed bearer token on every request.
+   */
+  org_id?: string;
+  /**
    * JWT `roles` claim, e.g. `["ADMIN"]` / `["SUPER_ADMIN"]`. Canonical role
    * codes match the backend `Role` enum and drive client-side nav gating; the
    * backend re-verifies authorization on every call.
@@ -167,6 +172,7 @@ function decodeAccessClaims(accessToken: string): {
   user_id?: string;
   display_name?: string;
   email?: string;
+  org_id?: string;
   roles?: string[];
   group_roles?: string[];
   feature_grants?: string[];
@@ -191,6 +197,7 @@ function decodeAccessClaims(accessToken: string): {
       sub?: string;
       name?: unknown;
       email?: unknown;
+      org?: unknown;
       roles?: unknown;
       group_roles?: unknown;
       feature_grants?: unknown;
@@ -206,6 +213,10 @@ function decodeAccessClaims(accessToken: string): {
       email:
         typeof claims.email === "string" && claims.email.trim()
           ? claims.email
+          : undefined,
+      org_id:
+        typeof claims.org === "string" && claims.org.trim()
+          ? claims.org
           : undefined,
       roles: Array.isArray(claims.roles)
         ? claims.roles.filter((r): r is string => typeof r === "string")
@@ -295,6 +306,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ? {
                 ...current,
                 access_token: tokens.access_token,
+                requires_passkey_setup:
+                  tokens.requires_passkey_setup,
                 ...decodeAccessClaims(tokens.access_token),
               }
             : current,
@@ -321,7 +334,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const tokens = await refreshTokenFn(bootApi);
         if (!cancelled.current) {
-          setSession(sessionFromAccessToken(tokens.access_token));
+          setSession(
+            sessionFromAccessToken(
+              tokens.access_token,
+              tokens.requires_passkey_setup,
+            ),
+          );
         }
       } catch {
         if (!cancelled.current) setSession(undefined);
@@ -338,7 +356,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function login() {
     const ceremony = await startPasskeyLogin(api);
     const tokens = await finishPasskeyLogin(api, ceremony);
-    setSession(sessionFromAccessToken(tokens.access_token));
+    setSession(
+      sessionFromAccessToken(
+        tokens.access_token,
+        tokens.requires_passkey_setup,
+      ),
+    );
   }
 
   async function logout() {
@@ -362,6 +385,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? {
             ...current,
             access_token: tokens.access_token,
+            requires_passkey_setup: tokens.requires_passkey_setup,
             ...decodeAccessClaims(tokens.access_token),
           }
         : current,

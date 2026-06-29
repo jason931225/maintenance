@@ -79,6 +79,16 @@ function FeatureGrantsProbe() {
   );
 }
 
+function PasskeySetupProbe() {
+  const { session, restoring } = useAuth();
+  if (restoring) return <div data-testid="passkey-setup">restoring</div>;
+  return (
+    <div data-testid="passkey-setup">
+      {`setup:${String(session?.requires_passkey_setup ?? false)}`}
+    </div>
+  );
+}
+
 function renderProvider() {
   return render(
     <AuthProvider>
@@ -142,6 +152,33 @@ describe("AuthProvider boot silent refresh", () => {
       expect(screen.getByTestId("state")).toHaveTextContent("anon");
     });
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it("preserves a zero-passkey setup requirement returned by silent refresh", async () => {
+    const access = fakeAccessToken("00000000-0000-4000-8000-000000000001");
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({
+          access_token: access,
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-19T00:00:00Z",
+          requires_passkey_setup: true,
+        }),
+      ),
+    );
+
+    render(
+      <AuthProvider>
+        <PasskeySetupProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("passkey-setup")).toHaveTextContent(
+        "setup:true",
+      );
+    });
   });
 
   it("decodes the display-name and email claims into the session", async () => {

@@ -31,18 +31,42 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param workOrderId
  * @param description
+ * @param sortOrder
+ * @param workOrderId
+ * @param requestNo
+ * @param equipmentNo
+ * @param managementNo
+ * @param customerName
+ * @param siteName
  */
 @Serializable
 
-data class CreateDailyPlanRequestItemsInner (
-
-    @Contextual @SerialName(value = "work_order_id")
-    val workOrderId: java.util.UUID,
+data class DailyPlanItemSummary (
 
     @SerialName(value = "description")
-    val description: kotlin.String
+    val description: kotlin.String,
+
+    @SerialName(value = "sort_order")
+    val sortOrder: kotlin.Int,
+
+    @Contextual @SerialName(value = "work_order_id")
+    val workOrderId: java.util.UUID? = null,
+
+    @SerialName(value = "request_no")
+    val requestNo: kotlin.String? = null,
+
+    @SerialName(value = "equipment_no")
+    val equipmentNo: kotlin.String? = null,
+
+    @SerialName(value = "management_no")
+    val managementNo: kotlin.String? = null,
+
+    @SerialName(value = "customer_name")
+    val customerName: kotlin.String? = null,
+
+    @SerialName(value = "site_name")
+    val siteName: kotlin.String? = null
 
 ) {
 

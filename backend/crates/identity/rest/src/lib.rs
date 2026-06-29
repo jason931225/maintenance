@@ -13,9 +13,10 @@
 //! active users / non-terminal equipment, is refused with a 409.
 //!
 //! Authorization mirrors the IDOR-hardening in `issue_admin_otp`: creating or
-//! promoting a user into EXECUTIVE/SUPER_ADMIN is restricted to SUPER_ADMIN
-//! callers, and a sub-admin may only create non-privileged users in branches it
-//! controls. Self-profile edits are open to every authenticated user.
+//! newly promoting a user into EXECUTIVE/SUPER_ADMIN is restricted to
+//! SUPER_ADMIN callers, and a sub-admin may only create non-privileged users in
+//! branches it controls. Self-profile edits are open to every authenticated
+//! user.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use std::collections::BTreeSet;
@@ -2385,7 +2386,8 @@ async fn create_user(
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     let roles = parse_roles(&body.roles)?;
-    authorize_user_write(&principal, &roles, &body.branch_ids)?;
+    let elevated_role_changes = elevated_roles_in(&roles);
+    authorize_user_write(&principal, &elevated_role_changes, &body.branch_ids)?;
 
     let summary = state
         .store
@@ -2458,7 +2460,7 @@ async fn update_user(
     // Baseline: caller may manage users in their scope, and may only see/touch a
     // target within that scope (prevents cross-branch enumeration / IDOR).
     authorize_org_manage(&principal, Feature::UserManage)?;
-    state
+    let target = state
         .store
         .get_user(target_id, &principal.branch_scope)
         .await
@@ -2474,9 +2476,13 @@ async fn update_user(
         None => None,
     };
     if roles.is_some() || body.branch_ids.is_some() {
-        let effective_roles = roles.clone().unwrap_or_default();
-        let target_branches = body.branch_ids.clone().unwrap_or_default();
-        authorize_user_write(&principal, &effective_roles, &target_branches)?;
+        let elevated_role_changes =
+            elevated_role_membership_changes(&target.roles, roles.as_ref())?;
+        let target_branches = body
+            .branch_ids
+            .as_deref()
+            .unwrap_or(target.branch_ids.as_slice());
+        authorize_user_write(&principal, &elevated_role_changes, target_branches)?;
     }
 
     let summary = state
@@ -2911,27 +2917,27 @@ fn authorize_org_manage(principal: &Principal, feature: Feature) -> Result<(), R
     authorize(principal, Action::new(feature), branch).map_err(RestError::from_kernel)
 }
 
-/// Authorize a user create/update for a given target role set and target
-/// branches, mirroring the `issue_admin_otp` IDOR hardening:
-///   * Granting EXECUTIVE/SUPER_ADMIN requires `ElevatedRoleGrant` (SUPER_ADMIN).
+/// Authorize a user create/update for elevated-role membership changes and
+/// target branches, mirroring the `issue_admin_otp` IDOR hardening:
+///   * Adding OR removing EXECUTIVE/SUPER_ADMIN requires `ElevatedRoleGrant`
+///     (SUPER_ADMIN). Preserving an existing elevated role while changing other
+///     fields must not block a branch admin from granting ordinary branch
+///     permissions such as ADMIN to an existing executive.
 ///   * Otherwise the caller needs `SubordinateUserCreate` (limited) in EVERY
 ///     target branch, so a branch-scoped admin cannot mint users elsewhere.
 fn authorize_user_write(
     principal: &Principal,
-    roles: &BTreeSet<Role>,
+    elevated_role_changes: &BTreeSet<Role>,
     target_branches: &[BranchId],
 ) -> Result<(), RestError> {
     // Baseline user-management authority.
     authorize_org_manage(principal, Feature::UserManage)?;
 
-    let grants_privileged = roles
-        .iter()
-        .any(|role| matches!(role, Role::Executive | Role::SuperAdmin));
-    if grants_privileged {
+    if !elevated_role_changes.is_empty() {
         // Only SUPER_ADMIN holds ElevatedRoleGrant; checked org-globally.
         let branch = representative_branch(&principal.branch_scope)?;
         return authorize(principal, Action::new(Feature::ElevatedRoleGrant), branch)
-            .map_err(|_| RestError::forbidden("not allowed to grant elevated roles"));
+            .map_err(|_| RestError::forbidden("not allowed to change elevated roles"));
     }
 
     // Non-privileged user: cross-branch principals are already covered by the
@@ -2949,6 +2955,28 @@ fn authorize_user_write(
         .map_err(|_| RestError::forbidden("not allowed to create users in that branch"))?;
     }
     Ok(())
+}
+
+fn elevated_roles_in(roles: &BTreeSet<Role>) -> BTreeSet<Role> {
+    roles
+        .iter()
+        .copied()
+        .filter(|role| matches!(role, Role::Executive | Role::SuperAdmin))
+        .collect()
+}
+
+fn elevated_role_membership_changes(
+    current_roles: &[String],
+    requested_roles: Option<&BTreeSet<Role>>,
+) -> Result<BTreeSet<Role>, RestError> {
+    let Some(requested_roles) = requested_roles else {
+        return Ok(BTreeSet::new());
+    };
+    let current_roles = parse_roles(current_roles)?;
+    Ok(elevated_roles_in(&current_roles)
+        .symmetric_difference(&elevated_roles_in(requested_roles))
+        .copied()
+        .collect())
 }
 
 fn representative_branch(branch_scope: &BranchScope) -> Result<BranchId, RestError> {

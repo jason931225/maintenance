@@ -31,18 +31,24 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param workOrderId
- * @param description
+ * @param pollToken Desktop-only token used to poll for approval.
+ * @param approveUrl Phone QR URL carrying the approve token in the URL fragment.
+ * @param expiresAt
  */
 @Serializable
 
-data class CreateDailyPlanRequestItemsInner (
+data class DeviceLoginStartResponse (
 
-    @Contextual @SerialName(value = "work_order_id")
-    val workOrderId: java.util.UUID,
+    /* Desktop-only token used to poll for approval. */
+    @SerialName(value = "poll_token")
+    val pollToken: kotlin.String,
 
-    @SerialName(value = "description")
-    val description: kotlin.String
+    /* Phone QR URL carrying the approve token in the URL fragment. */
+    @SerialName(value = "approve_url")
+    val approveUrl: kotlin.String,
+
+    @Contextual @SerialName(value = "expires_at")
+    val expiresAt: java.time.OffsetDateTime
 
 ) {
 

@@ -60,6 +60,11 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/work-orders/{workOrderId}`.
     /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/get(getWorkOrder)`.
     func getWorkOrder(_ input: Operations.GetWorkOrder.Input) async throws -> Operations.GetWorkOrder.Output
+    /// Edit work-order intake narrative fields
+    ///
+    /// - Remark: HTTP `PATCH /api/work-orders/{workOrderId}`.
+    /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)`.
+    func updateWorkOrderIntake(_ input: Operations.UpdateWorkOrderIntake.Input) async throws -> Operations.UpdateWorkOrderIntake.Output
     /// Update work-order priority
     ///
     /// - Remark: HTTP `PATCH /api/work-orders/{workOrderId}/priority`.
@@ -441,6 +446,34 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/auth/passkey/login/finish`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/login/finish/post`.
     func postApiV1AuthPasskeyLoginFinish(_ input: Operations.PostApiV1AuthPasskeyLoginFinish.Input) async throws -> Operations.PostApiV1AuthPasskeyLoginFinish.Output
+    /// Start desktop QR login handoff
+    ///
+    /// Creates a short-lived desktop login handoff. The desktop keeps the `poll_token` and renders `approve_url` as a QR. A phone opens the approve URL and proves a passkey; the desktop then polls once for its own token pair. No phone session is minted by this endpoint.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/start`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/start/post(startDeviceLogin)`.
+    func startDeviceLogin(_ input: Operations.StartDeviceLogin.Input) async throws -> Operations.StartDeviceLogin.Output
+    /// Poll a desktop QR login handoff
+    ///
+    /// Desktop-only polling endpoint. Pending/expired responses carry no tokens. Once a phone has approved the paired approve token, this endpoint consumes the poll token exactly once and returns a normal token pair; in web cookie transport the refresh token is set as `mnt_refresh` and is omitted from the JSON body.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/poll`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/poll/post(pollDeviceLogin)`.
+    func pollDeviceLogin(_ input: Operations.PollDeviceLogin.Input) async throws -> Operations.PollDeviceLogin.Output
+    /// Approve a desktop QR login with an existing phone passkey
+    ///
+    /// Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless passkey assertion; the approved user is resolved from that assertion. This endpoint does not mint a phone token.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/approve`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve/post(approveDeviceLogin)`.
+    func approveDeviceLogin(_ input: Operations.ApproveDeviceLogin.Input) async throws -> Operations.ApproveDeviceLogin.Output
+    /// Approve a desktop QR login from an authenticated phone session
+    ///
+    /// Phone-side approval used after first-time QR enrollment. The phone has redeemed the handoff OTP and enrolled a passkey; this authenticated call links that phone-registered passkey back to the waiting desktop poll token.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/approve-session`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)`.
+    func approveDeviceLoginSession(_ input: Operations.ApproveDeviceLoginSession.Input) async throws -> Operations.ApproveDeviceLoginSession.Output
     /// First sign-in by redeeming a one-time code
     ///
     /// First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong or expired code returns a single generic 401. Rate-limited per client (IP and optional device). `requires_passkey_setup` is true when the user has no passkey yet, so the client should force passkey enrollment in initial settings.
@@ -1164,6 +1197,21 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// Edit work-order intake narrative fields
+    ///
+    /// - Remark: HTTP `PATCH /api/work-orders/{workOrderId}`.
+    /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)`.
+    public func updateWorkOrderIntake(
+        path: Operations.UpdateWorkOrderIntake.Input.Path,
+        headers: Operations.UpdateWorkOrderIntake.Input.Headers = .init(),
+        body: Operations.UpdateWorkOrderIntake.Input.Body
+    ) async throws -> Operations.UpdateWorkOrderIntake.Output {
+        try await updateWorkOrderIntake(Operations.UpdateWorkOrderIntake.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
     /// Update work-order priority
     ///
     /// - Remark: HTTP `PATCH /api/work-orders/{workOrderId}/priority`.
@@ -1228,11 +1276,13 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/approve/post(approveWorkOrder)`.
     public func approveWorkOrder(
         path: Operations.ApproveWorkOrder.Input.Path,
-        headers: Operations.ApproveWorkOrder.Input.Headers = .init()
+        headers: Operations.ApproveWorkOrder.Input.Headers = .init(),
+        body: Operations.ApproveWorkOrder.Input.Body
     ) async throws -> Operations.ApproveWorkOrder.Output {
         try await approveWorkOrder(Operations.ApproveWorkOrder.Input(
             path: path,
-            headers: headers
+            headers: headers,
+            body: body
         ))
     }
     /// Request a target due-date change
@@ -2069,6 +2119,60 @@ extension APIProtocol {
         body: Operations.PostApiV1AuthPasskeyLoginFinish.Input.Body
     ) async throws -> Operations.PostApiV1AuthPasskeyLoginFinish.Output {
         try await postApiV1AuthPasskeyLoginFinish(Operations.PostApiV1AuthPasskeyLoginFinish.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Start desktop QR login handoff
+    ///
+    /// Creates a short-lived desktop login handoff. The desktop keeps the `poll_token` and renders `approve_url` as a QR. A phone opens the approve URL and proves a passkey; the desktop then polls once for its own token pair. No phone session is minted by this endpoint.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/start`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/start/post(startDeviceLogin)`.
+    public func startDeviceLogin(headers: Operations.StartDeviceLogin.Input.Headers = .init()) async throws -> Operations.StartDeviceLogin.Output {
+        try await startDeviceLogin(Operations.StartDeviceLogin.Input(headers: headers))
+    }
+    /// Poll a desktop QR login handoff
+    ///
+    /// Desktop-only polling endpoint. Pending/expired responses carry no tokens. Once a phone has approved the paired approve token, this endpoint consumes the poll token exactly once and returns a normal token pair; in web cookie transport the refresh token is set as `mnt_refresh` and is omitted from the JSON body.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/poll`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/poll/post(pollDeviceLogin)`.
+    public func pollDeviceLogin(
+        headers: Operations.PollDeviceLogin.Input.Headers = .init(),
+        body: Operations.PollDeviceLogin.Input.Body
+    ) async throws -> Operations.PollDeviceLogin.Output {
+        try await pollDeviceLogin(Operations.PollDeviceLogin.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Approve a desktop QR login with an existing phone passkey
+    ///
+    /// Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless passkey assertion; the approved user is resolved from that assertion. This endpoint does not mint a phone token.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/approve`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve/post(approveDeviceLogin)`.
+    public func approveDeviceLogin(
+        headers: Operations.ApproveDeviceLogin.Input.Headers = .init(),
+        body: Operations.ApproveDeviceLogin.Input.Body
+    ) async throws -> Operations.ApproveDeviceLogin.Output {
+        try await approveDeviceLogin(Operations.ApproveDeviceLogin.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Approve a desktop QR login from an authenticated phone session
+    ///
+    /// Phone-side approval used after first-time QR enrollment. The phone has redeemed the handoff OTP and enrolled a passkey; this authenticated call links that phone-registered passkey back to the waiting desktop poll token.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/approve-session`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)`.
+    public func approveDeviceLoginSession(
+        headers: Operations.ApproveDeviceLoginSession.Input.Headers = .init(),
+        body: Operations.ApproveDeviceLoginSession.Input.Body
+    ) async throws -> Operations.ApproveDeviceLoginSession.Output {
+        try await approveDeviceLoginSession(Operations.ApproveDeviceLoginSession.Input(
             headers: headers,
             body: body
         ))
@@ -4116,6 +4220,29 @@ public enum Components {
                 case targetDueAt = "target_due_at"
             }
         }
+        /// - Remark: Generated from `#/components/schemas/UpdateWorkOrderIntakeRequest`.
+        public struct UpdateWorkOrderIntakeRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkOrderIntakeRequest/symptom`.
+            public var symptom: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkOrderIntakeRequest/customer_request`.
+            public var customerRequest: Swift.String?
+            /// Creates a new `UpdateWorkOrderIntakeRequest`.
+            ///
+            /// - Parameters:
+            ///   - symptom:
+            ///   - customerRequest:
+            public init(
+                symptom: Swift.String? = nil,
+                customerRequest: Swift.String? = nil
+            ) {
+                self.symptom = symptom
+                self.customerRequest = customerRequest
+            }
+            public enum CodingKeys: String, CodingKey {
+                case symptom
+                case customerRequest = "customer_request"
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AssignWorkOrderRequest`.
         public struct AssignWorkOrderRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AssignWorkOrderRequest/AssignmentsPayload`.
@@ -4256,7 +4383,7 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/CreateDailyPlanRequest/ItemsPayload`.
             public struct ItemsPayloadPayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/CreateDailyPlanRequest/ItemsPayload/work_order_id`.
-                public var workOrderId: Components.Schemas.Uuid?
+                public var workOrderId: Components.Schemas.Uuid
                 /// - Remark: Generated from `#/components/schemas/CreateDailyPlanRequest/ItemsPayload/description`.
                 public var description: Swift.String
                 /// Creates a new `ItemsPayloadPayload`.
@@ -4265,7 +4392,7 @@ public enum Components {
                 ///   - workOrderId:
                 ///   - description:
                 public init(
-                    workOrderId: Components.Schemas.Uuid? = nil,
+                    workOrderId: Components.Schemas.Uuid,
                     description: Swift.String
                 ) {
                     self.workOrderId = workOrderId
@@ -4355,6 +4482,21 @@ public enum Components {
                 case vendorName = "vendor_name"
                 case vendorContact = "vendor_contact"
                 case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ApproveWorkOrderRequest`.
+        public struct ApproveWorkOrderRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApproveWorkOrderRequest/comment`.
+            public var comment: Swift.String
+            /// Creates a new `ApproveWorkOrderRequest`.
+            ///
+            /// - Parameters:
+            ///   - comment:
+            public init(comment: Swift.String) {
+                self.comment = comment
+            }
+            public enum CodingKeys: String, CodingKey {
+                case comment
             }
         }
         /// - Remark: Generated from `#/components/schemas/RejectWorkOrderRequest`.
@@ -6665,6 +6807,8 @@ public enum Components {
             public var role: Swift.String
             /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/approver_id`.
             public var approverId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/approver_name`.
+            public var approverName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/status`.
             public var status: Swift.String
             /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/requested_at`.
@@ -6673,6 +6817,10 @@ public enum Components {
             public var approvedAt: Foundation.Date?
             /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/approved_by_id`.
             public var approvedById: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/approved_by_name`.
+            public var approvedByName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/decision_comment`.
+            public var decisionComment: Swift.String?
             /// Creates a new `ApprovalStepSummary`.
             ///
             /// - Parameters:
@@ -6680,38 +6828,50 @@ public enum Components {
             ///   - stepOrder:
             ///   - role:
             ///   - approverId:
+            ///   - approverName:
             ///   - status:
             ///   - requestedAt:
             ///   - approvedAt:
             ///   - approvedById:
+            ///   - approvedByName:
+            ///   - decisionComment:
             public init(
                 id: Components.Schemas.Uuid,
                 stepOrder: Swift.Int32,
                 role: Swift.String,
                 approverId: Swift.String? = nil,
+                approverName: Swift.String? = nil,
                 status: Swift.String,
                 requestedAt: Foundation.Date? = nil,
                 approvedAt: Foundation.Date? = nil,
-                approvedById: Swift.String? = nil
+                approvedById: Swift.String? = nil,
+                approvedByName: Swift.String? = nil,
+                decisionComment: Swift.String? = nil
             ) {
                 self.id = id
                 self.stepOrder = stepOrder
                 self.role = role
                 self.approverId = approverId
+                self.approverName = approverName
                 self.status = status
                 self.requestedAt = requestedAt
                 self.approvedAt = approvedAt
                 self.approvedById = approvedById
+                self.approvedByName = approvedByName
+                self.decisionComment = decisionComment
             }
             public enum CodingKeys: String, CodingKey {
                 case id
                 case stepOrder = "step_order"
                 case role
                 case approverId = "approver_id"
+                case approverName = "approver_name"
                 case status
                 case requestedAt = "requested_at"
                 case approvedAt = "approved_at"
                 case approvedById = "approved_by_id"
+                case approvedByName = "approved_by_name"
+                case decisionComment = "decision_comment"
             }
         }
         /// - Remark: Generated from `#/components/schemas/StatusHistorySummary`.
@@ -9210,7 +9370,7 @@ public enum Components {
                 case stepUp = "step_up"
             }
         }
-        /// The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, and enrolls a platform passkey.
+        /// The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, enrolls a platform passkey, then approves the paired desktop poll token when `desktop_approve` is present in the URL fragment.
         ///
         /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse`.
         public struct EnrollHandoffResponse: Codable, Hashable, Sendable {
@@ -9220,29 +9380,208 @@ public enum Components {
             public var otp: Swift.String
             /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/expires_at`.
             public var expiresAt: Components.Schemas.Timestamp
-            /// The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
+            /// The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>&desktop_approve=<approve-token>`), to be rendered as a QR and scanned on a phone.
             ///
             /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/enroll_url`.
             public var enrollUrl: Swift.String
+            /// Desktop-only poll token paired to the phone enrollment QR. The desktop polls the device-login endpoint with this token and receives its own session once the phone enrollment approves the handoff.
+            ///
+            /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/poll_token`.
+            public var pollToken: Swift.String
             /// Creates a new `EnrollHandoffResponse`.
             ///
             /// - Parameters:
             ///   - otp: The single-use enrollment handoff code.
             ///   - expiresAt:
-            ///   - enrollUrl: The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
+            ///   - enrollUrl: The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>&desktop_approve=<approve-token>`), to be rendered as a QR and scanned on a phone.
+            ///   - pollToken: Desktop-only poll token paired to the phone enrollment QR. The desktop polls the device-login endpoint with this token and receives its own session once the phone enrollment approves the handoff.
             public init(
                 otp: Swift.String,
                 expiresAt: Components.Schemas.Timestamp,
-                enrollUrl: Swift.String
+                enrollUrl: Swift.String,
+                pollToken: Swift.String
             ) {
                 self.otp = otp
                 self.expiresAt = expiresAt
                 self.enrollUrl = enrollUrl
+                self.pollToken = pollToken
             }
             public enum CodingKeys: String, CodingKey {
                 case otp
                 case expiresAt = "expires_at"
                 case enrollUrl = "enroll_url"
+                case pollToken = "poll_token"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceLoginStartResponse`.
+        public struct DeviceLoginStartResponse: Codable, Hashable, Sendable {
+            /// Desktop-only token used to poll for approval.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginStartResponse/poll_token`.
+            public var pollToken: Swift.String
+            /// Phone QR URL carrying the approve token in the URL fragment.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginStartResponse/approve_url`.
+            public var approveUrl: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginStartResponse/expires_at`.
+            public var expiresAt: Components.Schemas.Timestamp
+            /// Creates a new `DeviceLoginStartResponse`.
+            ///
+            /// - Parameters:
+            ///   - pollToken: Desktop-only token used to poll for approval.
+            ///   - approveUrl: Phone QR URL carrying the approve token in the URL fragment.
+            ///   - expiresAt:
+            public init(
+                pollToken: Swift.String,
+                approveUrl: Swift.String,
+                expiresAt: Components.Schemas.Timestamp
+            ) {
+                self.pollToken = pollToken
+                self.approveUrl = approveUrl
+                self.expiresAt = expiresAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case pollToken = "poll_token"
+                case approveUrl = "approve_url"
+                case expiresAt = "expires_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceLoginPollRequest`.
+        public struct DeviceLoginPollRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollRequest/poll_token`.
+            public var pollToken: Swift.String
+            /// Creates a new `DeviceLoginPollRequest`.
+            ///
+            /// - Parameters:
+            ///   - pollToken:
+            public init(pollToken: Swift.String) {
+                self.pollToken = pollToken
+            }
+            public enum CodingKeys: String, CodingKey {
+                case pollToken = "poll_token"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse`.
+        public struct DeviceLoginPollResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case pending = "pending"
+                case approved = "approved"
+                case expired = "expired"
+            }
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/status`.
+            public var status: Components.Schemas.DeviceLoginPollResponse.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/access_token`.
+            public var accessToken: Swift.String?
+            /// Null in web cookie transport; present in body transport.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/refresh_token`.
+            public var refreshToken: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/token_type`.
+            @frozen public enum TokenTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case bearer = "Bearer"
+            }
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/token_type`.
+            public var tokenType: Components.Schemas.DeviceLoginPollResponse.TokenTypePayload?
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/refresh_expires_at`.
+            public var refreshExpiresAt: Foundation.Date?
+            /// Approved desktop QR sessions are passkey-authenticated and return false.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginPollResponse/requires_passkey_setup`.
+            public var requiresPasskeySetup: Swift.Bool?
+            /// Creates a new `DeviceLoginPollResponse`.
+            ///
+            /// - Parameters:
+            ///   - status:
+            ///   - accessToken:
+            ///   - refreshToken: Null in web cookie transport; present in body transport.
+            ///   - tokenType:
+            ///   - refreshExpiresAt:
+            ///   - requiresPasskeySetup: Approved desktop QR sessions are passkey-authenticated and return false.
+            public init(
+                status: Components.Schemas.DeviceLoginPollResponse.StatusPayload,
+                accessToken: Swift.String? = nil,
+                refreshToken: Swift.String? = nil,
+                tokenType: Components.Schemas.DeviceLoginPollResponse.TokenTypePayload? = nil,
+                refreshExpiresAt: Foundation.Date? = nil,
+                requiresPasskeySetup: Swift.Bool? = nil
+            ) {
+                self.status = status
+                self.accessToken = accessToken
+                self.refreshToken = refreshToken
+                self.tokenType = tokenType
+                self.refreshExpiresAt = refreshExpiresAt
+                self.requiresPasskeySetup = requiresPasskeySetup
+            }
+            public enum CodingKeys: String, CodingKey {
+                case status
+                case accessToken = "access_token"
+                case refreshToken = "refresh_token"
+                case tokenType = "token_type"
+                case refreshExpiresAt = "refresh_expires_at"
+                case requiresPasskeySetup = "requires_passkey_setup"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceLoginApproveRequest`.
+        public struct DeviceLoginApproveRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginApproveRequest/approve_token`.
+            public var approveToken: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginApproveRequest/ceremony_id`.
+            public var ceremonyId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginApproveRequest/credential`.
+            public struct CredentialPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `CredentialPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginApproveRequest/credential`.
+            public var credential: Components.Schemas.DeviceLoginApproveRequest.CredentialPayload
+            /// Creates a new `DeviceLoginApproveRequest`.
+            ///
+            /// - Parameters:
+            ///   - approveToken:
+            ///   - ceremonyId:
+            ///   - credential:
+            public init(
+                approveToken: Swift.String,
+                ceremonyId: Components.Schemas.Uuid,
+                credential: Components.Schemas.DeviceLoginApproveRequest.CredentialPayload
+            ) {
+                self.approveToken = approveToken
+                self.ceremonyId = ceremonyId
+                self.credential = credential
+            }
+            public enum CodingKeys: String, CodingKey {
+                case approveToken = "approve_token"
+                case ceremonyId = "ceremony_id"
+                case credential
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceLoginApproveSessionRequest`.
+        public struct DeviceLoginApproveSessionRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceLoginApproveSessionRequest/approve_token`.
+            public var approveToken: Swift.String
+            /// Creates a new `DeviceLoginApproveSessionRequest`.
+            ///
+            /// - Parameters:
+            ///   - approveToken:
+            public init(approveToken: Swift.String) {
+                self.approveToken = approveToken
+            }
+            public enum CodingKeys: String, CodingKey {
+                case approveToken = "approve_token"
             }
         }
         /// Required initial-login Korean privacy collection/use and service-terms acknowledgement. These required agreements are explicit booleans so the client cannot bundle them into one generic "agree all" flag. Optional marketing consent and GPS/location consent are not collected by this request.
@@ -9442,6 +9781,10 @@ public enum Components {
             public var tokenType: Components.Schemas.TokenPairResponse.TokenTypePayload
             /// - Remark: Generated from `#/components/schemas/TokenPairResponse/refresh_expires_at`.
             public var refreshExpiresAt: Components.Schemas.Timestamp
+            /// True when the refreshed session belongs to an OTP-signed-in user who still has no passkey. Web clients must keep routing this session to initial passkey enrollment after a reload; passkey-authenticated sessions return false.
+            ///
+            /// - Remark: Generated from `#/components/schemas/TokenPairResponse/requires_passkey_setup`.
+            public var requiresPasskeySetup: Swift.Bool
             /// Creates a new `TokenPairResponse`.
             ///
             /// - Parameters:
@@ -9449,22 +9792,26 @@ public enum Components {
             ///   - refreshToken: The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
             ///   - tokenType:
             ///   - refreshExpiresAt:
+            ///   - requiresPasskeySetup: True when the refreshed session belongs to an OTP-signed-in user who still has no passkey. Web clients must keep routing this session to initial passkey enrollment after a reload; passkey-authenticated sessions return false.
             public init(
                 accessToken: Swift.String,
                 refreshToken: Swift.String? = nil,
                 tokenType: Components.Schemas.TokenPairResponse.TokenTypePayload,
-                refreshExpiresAt: Components.Schemas.Timestamp
+                refreshExpiresAt: Components.Schemas.Timestamp,
+                requiresPasskeySetup: Swift.Bool
             ) {
                 self.accessToken = accessToken
                 self.refreshToken = refreshToken
                 self.tokenType = tokenType
                 self.refreshExpiresAt = refreshExpiresAt
+                self.requiresPasskeySetup = requiresPasskeySetup
             }
             public enum CodingKeys: String, CodingKey {
                 case accessToken = "access_token"
                 case refreshToken = "refresh_token"
                 case tokenType = "token_type"
                 case refreshExpiresAt = "refresh_expires_at"
+                case requiresPasskeySetup = "requires_passkey_setup"
             }
         }
         /// - Remark: Generated from `#/components/schemas/WorkOrderSummary`.
@@ -9585,6 +9932,65 @@ public enum Components {
                 case status
             }
         }
+        /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary`.
+        public struct DailyPlanItemSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/request_no`.
+            public var requestNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/equipment_no`.
+            public var equipmentNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/customer_name`.
+            public var customerName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/site_name`.
+            public var siteName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/description`.
+            public var description: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DailyPlanItemSummary/sort_order`.
+            public var sortOrder: Swift.Int32
+            /// Creates a new `DailyPlanItemSummary`.
+            ///
+            /// - Parameters:
+            ///   - workOrderId:
+            ///   - requestNo:
+            ///   - equipmentNo:
+            ///   - managementNo:
+            ///   - customerName:
+            ///   - siteName:
+            ///   - description:
+            ///   - sortOrder:
+            public init(
+                workOrderId: Components.Schemas.Uuid? = nil,
+                requestNo: Swift.String? = nil,
+                equipmentNo: Swift.String? = nil,
+                managementNo: Swift.String? = nil,
+                customerName: Swift.String? = nil,
+                siteName: Swift.String? = nil,
+                description: Swift.String,
+                sortOrder: Swift.Int32
+            ) {
+                self.workOrderId = workOrderId
+                self.requestNo = requestNo
+                self.equipmentNo = equipmentNo
+                self.managementNo = managementNo
+                self.customerName = customerName
+                self.siteName = siteName
+                self.description = description
+                self.sortOrder = sortOrder
+            }
+            public enum CodingKeys: String, CodingKey {
+                case workOrderId = "work_order_id"
+                case requestNo = "request_no"
+                case equipmentNo = "equipment_no"
+                case managementNo = "management_no"
+                case customerName = "customer_name"
+                case siteName = "site_name"
+                case description
+                case sortOrder = "sort_order"
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/DailyPlanSummary`.
         public struct DailyPlanSummary: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/DailyPlanSummary/id`.
@@ -9597,6 +10003,8 @@ public enum Components {
             public var planDate: Components.Schemas.Date?
             /// - Remark: Generated from `#/components/schemas/DailyPlanSummary/status`.
             public var status: Components.Schemas.DailyPlanStatus?
+            /// - Remark: Generated from `#/components/schemas/DailyPlanSummary/items`.
+            public var items: [Components.Schemas.DailyPlanItemSummary]?
             /// Creates a new `DailyPlanSummary`.
             ///
             /// - Parameters:
@@ -9605,18 +10013,21 @@ public enum Components {
             ///   - mechanicId:
             ///   - planDate:
             ///   - status:
+            ///   - items:
             public init(
                 id: Components.Schemas.Uuid? = nil,
                 branchId: Components.Schemas.Uuid? = nil,
                 mechanicId: Components.Schemas.Uuid? = nil,
                 planDate: Components.Schemas.Date? = nil,
-                status: Components.Schemas.DailyPlanStatus? = nil
+                status: Components.Schemas.DailyPlanStatus? = nil,
+                items: [Components.Schemas.DailyPlanItemSummary]? = nil
             ) {
                 self.id = id
                 self.branchId = branchId
                 self.mechanicId = mechanicId
                 self.planDate = planDate
                 self.status = status
+                self.items = items
             }
             public enum CodingKeys: String, CodingKey {
                 case id
@@ -9624,6 +10035,7 @@ public enum Components {
                 case mechanicId = "mechanic_id"
                 case planDate = "plan_date"
                 case status
+                case items
             }
         }
         /// - Remark: Generated from `#/components/schemas/DailyPlanListPage`.
@@ -16863,6 +17275,235 @@ public enum Operations {
             }
         }
     }
+    /// Edit work-order intake narrative fields
+    ///
+    /// - Remark: HTTP `PATCH /api/work-orders/{workOrderId}`.
+    /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)`.
+    public enum UpdateWorkOrderIntake {
+        public static let id: Swift.String = "updateWorkOrderIntake"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/PATCH/path/workOrderId`.
+                public var workOrderId: Components.Parameters.WorkOrderId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - workOrderId:
+                public init(workOrderId: Components.Parameters.WorkOrderId) {
+                    self.workOrderId = workOrderId
+                }
+            }
+            public var path: Operations.UpdateWorkOrderIntake.Input.Path
+            /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkOrderIntake.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkOrderIntake.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateWorkOrderIntake.Input.Headers
+            /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.UpdateWorkOrderIntakeRequest)
+            }
+            public var body: Operations.UpdateWorkOrderIntake.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdateWorkOrderIntake.Input.Path,
+                headers: Operations.UpdateWorkOrderIntake.Input.Headers = .init(),
+                body: Operations.UpdateWorkOrderIntake.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/PATCH/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/PATCH/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkOrderSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkOrderSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateWorkOrderIntake.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateWorkOrderIntake.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Work order updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdateWorkOrderIntake.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdateWorkOrderIntake.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/patch(updateWorkOrderIntake)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// Update work-order priority
     ///
     /// - Remark: HTTP `PATCH /api/work-orders/{workOrderId}/priority`.
@@ -17449,17 +18090,26 @@ public enum Operations {
                 }
             }
             public var headers: Operations.ApproveWorkOrder.Input.Headers
+            /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/approve/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/work-orders/{workOrderId}/approve/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ApproveWorkOrderRequest)
+            }
+            public var body: Operations.ApproveWorkOrder.Input.Body
             /// Creates a new `Input`.
             ///
             /// - Parameters:
             ///   - path:
             ///   - headers:
+            ///   - body:
             public init(
                 path: Operations.ApproveWorkOrder.Input.Path,
-                headers: Operations.ApproveWorkOrder.Input.Headers = .init()
+                headers: Operations.ApproveWorkOrder.Input.Headers = .init(),
+                body: Operations.ApproveWorkOrder.Input.Body
             ) {
                 self.path = path
                 self.headers = headers
+                self.body = body
             }
         }
         @frozen public enum Output: Sendable, Hashable {
@@ -30427,6 +31077,639 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Start desktop QR login handoff
+    ///
+    /// Creates a short-lived desktop login handoff. The desktop keeps the `poll_token` and renders `approve_url` as a QR. A phone opens the approve URL and proves a passkey; the desktop then polls once for its own token pair. No phone session is minted by this endpoint.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/start`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/start/post(startDeviceLogin)`.
+    public enum StartDeviceLogin {
+        public static let id: Swift.String = "startDeviceLogin"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/device-login/start/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartDeviceLogin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartDeviceLogin.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.StartDeviceLogin.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.StartDeviceLogin.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/device-login/start/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/device-login/start/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DeviceLoginStartResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.DeviceLoginStartResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.StartDeviceLogin.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.StartDeviceLogin.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Poll token and phone approval URL for the desktop QR.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/start/post(startDeviceLogin)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.StartDeviceLogin.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.StartDeviceLogin.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/start/post(startDeviceLogin)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Poll a desktop QR login handoff
+    ///
+    /// Desktop-only polling endpoint. Pending/expired responses carry no tokens. Once a phone has approved the paired approve token, this endpoint consumes the poll token exactly once and returns a normal token pair; in web cookie transport the refresh token is set as `mnt_refresh` and is omitted from the JSON body.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/poll`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/poll/post(pollDeviceLogin)`.
+    public enum PollDeviceLogin {
+        public static let id: Swift.String = "pollDeviceLogin"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/device-login/poll/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PollDeviceLogin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PollDeviceLogin.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PollDeviceLogin.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/device-login/poll/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/device-login/poll/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.DeviceLoginPollRequest)
+            }
+            public var body: Operations.PollDeviceLogin.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PollDeviceLogin.Input.Headers = .init(),
+                body: Operations.PollDeviceLogin.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/device-login/poll/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/device-login/poll/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DeviceLoginPollResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.DeviceLoginPollResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PollDeviceLogin.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PollDeviceLogin.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Pending, expired, or approved desktop-login status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/poll/post(pollDeviceLogin)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PollDeviceLogin.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PollDeviceLogin.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/poll/post(pollDeviceLogin)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/poll/post(pollDeviceLogin)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Approve a desktop QR login with an existing phone passkey
+    ///
+    /// Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless passkey assertion; the approved user is resolved from that assertion. This endpoint does not mint a phone token.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/approve`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve/post(approveDeviceLogin)`.
+    public enum ApproveDeviceLogin {
+        public static let id: Swift.String = "approveDeviceLogin"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/device-login/approve/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApproveDeviceLogin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApproveDeviceLogin.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ApproveDeviceLogin.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/device-login/approve/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/device-login/approve/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.DeviceLoginApproveRequest)
+            }
+            public var body: Operations.ApproveDeviceLogin.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ApproveDeviceLogin.Input.Headers = .init(),
+                body: Operations.ApproveDeviceLogin.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// The desktop handoff was approved.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve/post(approveDeviceLogin)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.ApproveDeviceLogin.Output.NoContent)
+            /// The desktop handoff was approved.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve/post(approveDeviceLogin)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.ApproveDeviceLogin.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve/post(approveDeviceLogin)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve/post(approveDeviceLogin)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Approve a desktop QR login from an authenticated phone session
+    ///
+    /// Phone-side approval used after first-time QR enrollment. The phone has redeemed the handoff OTP and enrolled a passkey; this authenticated call links that phone-registered passkey back to the waiting desktop poll token.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/device-login/approve-session`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)`.
+    public enum ApproveDeviceLoginSession {
+        public static let id: Swift.String = "approveDeviceLoginSession"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/device-login/approve-session/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApproveDeviceLoginSession.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApproveDeviceLoginSession.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ApproveDeviceLoginSession.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/device-login/approve-session/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/device-login/approve-session/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.DeviceLoginApproveSessionRequest)
+            }
+            public var body: Operations.ApproveDeviceLoginSession.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ApproveDeviceLoginSession.Input.Headers = .init(),
+                body: Operations.ApproveDeviceLoginSession.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// The desktop handoff was approved from the authenticated phone session.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.ApproveDeviceLoginSession.Output.NoContent)
+            /// The desktop handoff was approved from the authenticated phone session.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.ApproveDeviceLoginSession.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/device-login/approve-session/post(approveDeviceLoginSession)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
                             response: self
                         )
                     }

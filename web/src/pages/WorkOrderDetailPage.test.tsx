@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { components } from "@maintenance/api-client-ts";
 import { AppRouter } from "../AppRouter";
@@ -91,20 +92,26 @@ const workOrderWithApprovalLine: components["schemas"]["WorkOrderDetail"] = {
       step_order: 1,
       role: "MECHANIC",
       approver_id: primaryMechanicId,
+      approver_name: "고민서",
       status: "APPROVED",
       requested_at: "2026-06-12T14:00:00Z",
       approved_at: "2026-06-12T14:05:00Z",
       approved_by_id: primaryMechanicId,
+      approved_by_name: "고민서",
+      decision_comment: "정비 보고 제출",
     },
     {
       id: "ap222222-2222-4222-8222-222222222222",
       step_order: 2,
       role: "ADMIN",
       approver_id: null,
+      approver_name: null,
       status: "PENDING",
       requested_at: "2026-06-12T14:10:00Z",
       approved_at: null,
       approved_by_id: null,
+      approved_by_name: null,
+      decision_comment: null,
     },
   ],
 };
@@ -173,6 +180,13 @@ const mechanicSession: AuthSession = {
   branches: [branchId],
 };
 
+const adminSession: AuthSession = {
+  access_token: "a",
+  user_id: "manager-1",
+  roles: ["ADMIN"],
+  branches: [branchId],
+};
+
 describe("WorkOrderDetailPage", () => {
   it("renders the symptom, customer request, status history and evidence via a deep link", async () => {
     server.use(detailHandler(), evidenceStatusHandler());
@@ -219,6 +233,9 @@ describe("WorkOrderDetailPage", () => {
     expect(screen.getByText("2. 관리자")).toBeVisible();
     expect(screen.getByText("승인")).toBeVisible();
     expect(screen.getByText("대기")).toBeVisible();
+    expect(screen.getByText(/처리자: 고민서/)).toBeVisible();
+    expect(screen.getByText(/의견: 정비 보고 제출/)).toBeVisible();
+    expect(screen.getByText(/지정 결재자: 미지정/)).toBeVisible();
     expect(screen.queryByText("MECHANIC")).not.toBeInTheDocument();
     expect(screen.queryByText("APPROVED")).not.toBeInTheDocument();
     expect(screen.queryByText(primaryMechanicId)).not.toBeInTheDocument();
@@ -261,6 +278,107 @@ describe("WorkOrderDetailPage", () => {
       await screen.findByRole("button", { name: "작업 보고" }),
     ).toBeVisible();
     expect(screen.getByText("증거 사진·영상")).toBeVisible();
+  });
+
+  it("lets a manager control dispatch from the work-order detail page", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    server.use(
+      detailHandler(),
+      evidenceStatusHandler(),
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: primaryMechanicId,
+              display_name: "김정비",
+              phone: null,
+              team: "MAINTENANCE",
+              roles: ["MECHANIC"],
+              branch_ids: [branchId],
+              is_active: true,
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        }),
+      ),
+      http.patch("*/api/work-orders/:id/priority", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({ ...workOrderDetail, priority: "P2" });
+      }),
+    );
+
+    renderApp(`/work-orders/${WORK_ORDER_ID}`, makeAuthContext(adminSession));
+
+    expect(await screen.findByText("배차 제어 · 20260612-001")).toBeVisible();
+    await user.selectOptions(await screen.findByLabelText("중요도"), "P2");
+    await user.click(screen.getByRole("button", { name: "중요도 변경" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({ priority: "P2" });
+    });
+  });
+
+  it("lets a manager edit intake text from the work-order detail page", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    server.use(
+      detailHandler(),
+      evidenceStatusHandler(),
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.patch("*/api/work-orders/:id", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({
+          ...workOrderDetail,
+          symptom: "작동 중 소음과 유압 누유",
+          customer_request: "오후 방문 요청",
+        });
+      }),
+    );
+
+    renderApp(`/work-orders/${WORK_ORDER_ID}`, makeAuthContext(adminSession));
+
+    await user.click(await screen.findByRole("button", { name: "작업지시 수정" }));
+    await user.clear(screen.getByLabelText("고장내용"));
+    await user.type(screen.getByLabelText("고장내용"), "작동 중 소음과 유압 누유");
+    await user.clear(screen.getByLabelText("고객 요청사항"));
+    await user.type(screen.getByLabelText("고객 요청사항"), "오후 방문 요청");
+    await user.click(screen.getByRole("button", { name: "수정 저장" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({
+        symptom: "작동 중 소음과 유압 누유",
+        customer_request: "오후 방문 요청",
+      });
+    });
+  });
+
+  it("shows an edit failure when the intake update is rejected", async () => {
+    const user = userEvent.setup();
+    server.use(
+      detailHandler(),
+      evidenceStatusHandler(),
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.patch("*/api/work-orders/:id", () =>
+        HttpResponse.json({ error: "forbidden" }, { status: 403 }),
+      ),
+    );
+
+    renderApp(`/work-orders/${WORK_ORDER_ID}`, makeAuthContext(adminSession));
+
+    await user.click(await screen.findByRole("button", { name: "작업지시 수정" }));
+    await user.click(screen.getByRole("button", { name: "수정 저장" }));
+
+    expect(
+      await screen.findByText("작업지시를 수정하지 못했습니다. 다시 시도하세요."),
+    ).toBeVisible();
   });
 
   it("shows a forbidden message on a 403 without offering a retry", async () => {

@@ -2,7 +2,11 @@ import { ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import type { ConsoleApiClient } from "../../api/client";
+import { createConsoleApiClient, type ConsoleApiClient } from "../../api/client";
+import {
+  exitGroupTenantContext,
+  startGroupTenantContext,
+} from "../../api/groupAdmin";
 import type {
   CreateEquipmentRequest,
   EquipmentLookupResponse,
@@ -19,12 +23,30 @@ import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
 import { cn } from "../../lib/utils";
 
+export interface EquipmentOwnerOrgOption {
+  id: string;
+  name: string;
+  slug: string;
+  groupName?: string;
+}
+
 interface EquipmentManagementPanelProps {
   api: ConsoleApiClient;
   /** Equipment rows surfaced by the autocomplete search on the page. */
   results: EquipmentLookupResponse[];
   /** Re-runs the page search so the list reflects the latest writes. */
   onMutated: () => void;
+  /**
+   * Group-admin safe write surface. A selected owner org is realized by minting
+   * a short-lived tenant context token for that org, not by trusting an `org_id`
+   * body field on the equipment write request.
+   */
+  ownerOrgOptions?: EquipmentOwnerOrgOption[];
+  ownerSelectionRequired?: boolean;
+  selectedOwnerOrgId?: string;
+  onSelectedOwnerOrgIdChange?: (orgId: string) => void;
+  activeOrgId?: string;
+  groupAdminSourceToken?: string;
 }
 
 type Mode = "idle" | "create" | "edit";
@@ -112,6 +134,10 @@ function onlyValue(values: Array<string | null | undefined>): string | undefined
   return unique.length === 1 ? unique[0] : undefined;
 }
 
+function ownerOrgLabel(option: EquipmentOwnerOrgOption): string {
+  return option.groupName ? `${option.groupName} / ${option.name}` : option.name;
+}
+
 /**
  * Parse an acquisition-cost input. Empty -> `undefined` (omit the key, leaving
  * the column unchanged); a non-negative integer string -> that number. Any other
@@ -128,6 +154,12 @@ export function EquipmentManagementPanel({
   api,
   results,
   onMutated,
+  ownerOrgOptions = [],
+  ownerSelectionRequired = false,
+  selectedOwnerOrgId,
+  onSelectedOwnerOrgIdChange,
+  activeOrgId,
+  groupAdminSourceToken,
 }: EquipmentManagementPanelProps) {
   const [mode, setMode] = useState<Mode>("idle");
   const [editingId, setEditingId] = useState<string>();
@@ -136,6 +168,7 @@ export function EquipmentManagementPanel({
   const [notice, setNotice] = useState<string>();
   const [deleteTarget, setDeleteTarget] = useState<EquipmentLookupResponse>();
   const [deleting, setDeleting] = useState(false);
+  const [ownershipConfirmed, setOwnershipConfirmed] = useState(false);
   const referenceOptions = useMemo(() => {
     const customerMatches = form.customer_name.trim()
       ? results.filter((row) => row.customer.name === form.customer_name.trim())
@@ -164,6 +197,11 @@ export function EquipmentManagementPanel({
       }),
     );
   }, [results]);
+  const selectedOwnerOrg = useMemo(
+    () => ownerOrgOptions.find((option) => option.id === selectedOwnerOrgId),
+    [ownerOrgOptions, selectedOwnerOrgId],
+  );
+  const shouldPromptOwnerSignoff = mode === "create" && ownerSelectionRequired;
 
   function startCreate() {
     setMode("create");
@@ -171,6 +209,7 @@ export function EquipmentManagementPanel({
     setForm(emptyForm());
     setWriteState("idle");
     setNotice(undefined);
+    setOwnershipConfirmed(false);
   }
 
   function startEdit(summary: EquipmentLookupResponse) {
@@ -179,12 +218,14 @@ export function EquipmentManagementPanel({
     setForm(seedFromSummary(summary));
     setWriteState("idle");
     setNotice(undefined);
+    setOwnershipConfirmed(false);
   }
 
   function closeForm() {
     setMode("idle");
     setEditingId(undefined);
     setWriteState("idle");
+    setOwnershipConfirmed(false);
   }
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -214,10 +255,41 @@ export function EquipmentManagementPanel({
     });
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled && mode === "create") setOwnershipConfirmed(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, selectedOwnerOrgId]);
+
   async function handleSubmit() {
     setWriteState("saving");
+    let delegatedOrgId: string | undefined;
     try {
       if (mode === "create") {
+        const targetOwnerOrgId = selectedOwnerOrgId?.trim();
+        let writeApi = api;
+        if (ownerSelectionRequired) {
+          if (!targetOwnerOrgId || !selectedOwnerOrg || !ownershipConfirmed) {
+            throw new Error("equipment owner organization confirmation missing");
+          }
+          const needsDelegatedContext =
+            !activeOrgId || targetOwnerOrgId !== activeOrgId;
+          if (needsDelegatedContext) {
+            if (!groupAdminSourceToken) {
+              throw new Error("group-admin source token missing");
+            }
+            const context = await startGroupTenantContext(
+              groupAdminSourceToken,
+              targetOwnerOrgId,
+            );
+            delegatedOrgId = context.acting_org_id;
+            writeApi = createConsoleApiClient(context.access_token);
+          }
+        }
         const body: CreateEquipmentRequest = {
           equipment_no: form.equipment_no.trim(),
           customer_name: form.customer_name.trim(),
@@ -230,7 +302,7 @@ export function EquipmentManagementPanel({
           maker: nullableTrim(form.maker),
           note: nullableTrim(form.note),
         };
-        const response = await api.POST("/api/v1/equipment", { body });
+        const response = await writeApi.POST("/api/v1/equipment", { body });
         if (!response.data) {
           throw new Error("create equipment response missing data");
         }
@@ -272,6 +344,12 @@ export function EquipmentManagementPanel({
       onMutated();
     } catch {
       setWriteState("error");
+    } finally {
+      if (delegatedOrgId && groupAdminSourceToken) {
+        await exitGroupTenantContext(groupAdminSourceToken, delegatedOrgId).catch(
+          () => {},
+        );
+      }
     }
   }
 
@@ -302,7 +380,11 @@ export function EquipmentManagementPanel({
         !form.customer_name.trim() ||
         !form.site_name.trim() ||
         !form.specification.trim() ||
-        !form.ton_text.trim()));
+        !form.ton_text.trim() ||
+        (ownerSelectionRequired &&
+          (!selectedOwnerOrgId ||
+            ownerOrgOptions.length === 0 ||
+            !ownershipConfirmed))));
 
   return (
     <Card className="grid gap-4">
@@ -339,6 +421,51 @@ export function EquipmentManagementPanel({
             {mode === "create" ? ko.equipment.create : ko.equipment.edit}
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
+            {shouldPromptOwnerSignoff ? (
+              <div className="grid gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 sm:col-span-2">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:items-start">
+                  <div>
+                    <label
+                      className="text-sm font-semibold text-amber-950"
+                      htmlFor="eq-owner-org"
+                    >
+                      {ko.equipment.fields.ownerOrg}
+                    </label>
+                    <p className="mt-1 text-xs leading-5 text-amber-900">
+                      {ko.equipment.ownerOrgHelp}
+                    </p>
+                  </div>
+                  <Select
+                    id="eq-owner-org"
+                    value={selectedOwnerOrgId ?? ""}
+                    disabled={ownerOrgOptions.length === 0}
+                    onChange={(event) => {
+                      onSelectedOwnerOrgIdChange?.(event.currentTarget.value);
+                    }}
+                  >
+                    {ownerOrgOptions.length === 0 ? (
+                      <option value="">{ko.equipment.ownerOrgUnavailable}</option>
+                    ) : null}
+                    {ownerOrgOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {ownerOrgLabel(option)}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <label className="flex items-start gap-2 text-sm font-medium text-amber-950">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-amber-400"
+                    checked={ownershipConfirmed}
+                    onChange={(event) => {
+                      setOwnershipConfirmed(event.currentTarget.checked);
+                    }}
+                  />
+                  <span>{ko.equipment.ownerOrgSignoff}</span>
+                </label>
+              </div>
+            ) : null}
             <Field
               id="eq-equipment-no"
               label={ko.equipment.fields.equipmentNo}

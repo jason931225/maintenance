@@ -184,7 +184,7 @@ describe("ApprovalQueue", () => {
     expect(thumb).toHaveAttribute("src", "https://example.test/after.jpg");
   });
 
-  it("approves the specific order via its own handler", async () => {
+  it("approves the specific order only after a required decision comment", async () => {
     const user = userEvent.setup();
     const approve = vi.fn().mockResolvedValue(true);
     server.use(detailHandler(), evidenceStatusHandler());
@@ -195,7 +195,20 @@ describe("ApprovalQueue", () => {
       screen.getByRole("button", { name: "20260612-009 승인" }),
     );
 
-    expect(approve).toHaveBeenCalledWith(ORDER_B.id);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("20260612-009")).toBeVisible();
+
+    await user.click(within(dialog).getByRole("button", { name: "승인" }));
+    expect(within(dialog).getByText("승인 의견을 입력하세요.")).toBeVisible();
+    expect(approve).not.toHaveBeenCalled();
+
+    await user.type(
+      within(dialog).getByLabelText("승인 의견"),
+      "증빙 확인 후 승인",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "승인" }));
+
+    expect(approve).toHaveBeenCalledWith(ORDER_B.id, "증빙 확인 후 승인");
   });
 
   it("rejects through a per-order dialog carrying the correct workOrderId and its own memo", async () => {

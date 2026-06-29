@@ -36,6 +36,7 @@ import com.maintenance.api.client.model.AndroidAssetLinkStatement
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AppleAppSiteAssociation
 import com.maintenance.api.client.model.ApprovalItemsPage
+import com.maintenance.api.client.model.ApproveWorkOrderRequest
 import com.maintenance.api.client.model.ArrivalEventPage
 import com.maintenance.api.client.model.AssetLifecycleCostSummary
 import com.maintenance.api.client.model.AssignSubstituteRequest
@@ -72,6 +73,11 @@ import com.maintenance.api.client.model.CustomerInquiryPage
 import com.maintenance.api.client.model.CustomerIntakeRequest
 import com.maintenance.api.client.model.DailyPlanListPage
 import com.maintenance.api.client.model.DailyPlanSummary
+import com.maintenance.api.client.model.DeviceLoginApproveRequest
+import com.maintenance.api.client.model.DeviceLoginApproveSessionRequest
+import com.maintenance.api.client.model.DeviceLoginPollRequest
+import com.maintenance.api.client.model.DeviceLoginPollResponse
+import com.maintenance.api.client.model.DeviceLoginStartResponse
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
 import com.maintenance.api.client.model.EmployeeImportReport
@@ -206,6 +212,7 @@ import com.maintenance.api.client.model.UpdateRegionRequest
 import com.maintenance.api.client.model.UpdateSelfProfileRequest
 import com.maintenance.api.client.model.UpdateSiteRequest
 import com.maintenance.api.client.model.UpdateUserRequest
+import com.maintenance.api.client.model.UpdateWorkOrderIntakeRequest
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
 import com.maintenance.api.client.model.UserPage
 import com.maintenance.api.client.model.UserSummary
@@ -1593,6 +1600,150 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/auth/device-login/approve
+     * Approve a desktop QR login with an existing phone passkey
+     * Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless passkey assertion; the approved user is resolved from that assertion. This endpoint does not mint a phone token.
+     * @param deviceLoginApproveRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun approveDeviceLogin(deviceLoginApproveRequest: DeviceLoginApproveRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = approveDeviceLoginWithHttpInfo(deviceLoginApproveRequest = deviceLoginApproveRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/device-login/approve
+     * Approve a desktop QR login with an existing phone passkey
+     * Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless passkey assertion; the approved user is resolved from that assertion. This endpoint does not mint a phone token.
+     * @param deviceLoginApproveRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun approveDeviceLoginWithHttpInfo(deviceLoginApproveRequest: DeviceLoginApproveRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approveDeviceLoginRequestConfig(deviceLoginApproveRequest = deviceLoginApproveRequest)
+
+        return@withContext request<DeviceLoginApproveRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation approveDeviceLogin
+     *
+     * @param deviceLoginApproveRequest
+     * @return RequestConfig
+     */
+    fun approveDeviceLoginRequestConfig(deviceLoginApproveRequest: DeviceLoginApproveRequest) : RequestConfig<DeviceLoginApproveRequest> {
+        val localVariableBody = deviceLoginApproveRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/device-login/approve",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/device-login/approve-session
+     * Approve a desktop QR login from an authenticated phone session
+     * Phone-side approval used after first-time QR enrollment. The phone has redeemed the handoff OTP and enrolled a passkey; this authenticated call links that phone-registered passkey back to the waiting desktop poll token.
+     * @param deviceLoginApproveSessionRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun approveDeviceLoginSession(deviceLoginApproveSessionRequest: DeviceLoginApproveSessionRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = approveDeviceLoginSessionWithHttpInfo(deviceLoginApproveSessionRequest = deviceLoginApproveSessionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/device-login/approve-session
+     * Approve a desktop QR login from an authenticated phone session
+     * Phone-side approval used after first-time QR enrollment. The phone has redeemed the handoff OTP and enrolled a passkey; this authenticated call links that phone-registered passkey back to the waiting desktop poll token.
+     * @param deviceLoginApproveSessionRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun approveDeviceLoginSessionWithHttpInfo(deviceLoginApproveSessionRequest: DeviceLoginApproveSessionRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approveDeviceLoginSessionRequestConfig(deviceLoginApproveSessionRequest = deviceLoginApproveSessionRequest)
+
+        return@withContext request<DeviceLoginApproveSessionRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation approveDeviceLoginSession
+     *
+     * @param deviceLoginApproveSessionRequest
+     * @return RequestConfig
+     */
+    fun approveDeviceLoginSessionRequestConfig(deviceLoginApproveSessionRequest: DeviceLoginApproveSessionRequest) : RequestConfig<DeviceLoginApproveSessionRequest> {
+        val localVariableBody = deviceLoginApproveSessionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/device-login/approve-session",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin
      * Admin approval for a submitted purchase request
      *
@@ -1743,6 +1894,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * Approve the next pending non-mechanic approval step
      *
      * @param workOrderId
+     * @param approveWorkOrderRequest
      * @return WorkOrderSummary
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -1752,8 +1904,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun approveWorkOrder(workOrderId: java.util.UUID) : WorkOrderSummary = withContext(Dispatchers.IO) {
-        val localVarResponse = approveWorkOrderWithHttpInfo(workOrderId = workOrderId)
+    suspend fun approveWorkOrder(workOrderId: java.util.UUID, approveWorkOrderRequest: ApproveWorkOrderRequest) : WorkOrderSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = approveWorkOrderWithHttpInfo(workOrderId = workOrderId, approveWorkOrderRequest = approveWorkOrderRequest)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderSummary
@@ -1775,16 +1927,17 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * Approve the next pending non-mechanic approval step
      *
      * @param workOrderId
+     * @param approveWorkOrderRequest
      * @return ApiResponse<WorkOrderSummary?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun approveWorkOrderWithHttpInfo(workOrderId: java.util.UUID) : ApiResponse<WorkOrderSummary?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = approveWorkOrderRequestConfig(workOrderId = workOrderId)
+    suspend fun approveWorkOrderWithHttpInfo(workOrderId: java.util.UUID, approveWorkOrderRequest: ApproveWorkOrderRequest) : ApiResponse<WorkOrderSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approveWorkOrderRequestConfig(workOrderId = workOrderId, approveWorkOrderRequest = approveWorkOrderRequest)
 
-        return@withContext request<Unit, WorkOrderSummary>(
+        return@withContext request<ApproveWorkOrderRequest, WorkOrderSummary>(
             localVariableConfig
         )
     }
@@ -1793,12 +1946,14 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * To obtain the request config of the operation approveWorkOrder
      *
      * @param workOrderId
+     * @param approveWorkOrderRequest
      * @return RequestConfig
      */
-    fun approveWorkOrderRequestConfig(workOrderId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun approveWorkOrderRequestConfig(workOrderId: java.util.UUID, approveWorkOrderRequest: ApproveWorkOrderRequest) : RequestConfig<ApproveWorkOrderRequest> {
+        val localVariableBody = approveWorkOrderRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
@@ -9663,6 +9818,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/auth/device-login/poll
+     * Poll a desktop QR login handoff
+     * Desktop-only polling endpoint. Pending/expired responses carry no tokens. Once a phone has approved the paired approve token, this endpoint consumes the poll token exactly once and returns a normal token pair; in web cookie transport the refresh token is set as &#x60;mnt_refresh&#x60; and is omitted from the JSON body.
+     * @param deviceLoginPollRequest
+     * @return DeviceLoginPollResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun pollDeviceLogin(deviceLoginPollRequest: DeviceLoginPollRequest) : DeviceLoginPollResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = pollDeviceLoginWithHttpInfo(deviceLoginPollRequest = deviceLoginPollRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DeviceLoginPollResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/device-login/poll
+     * Poll a desktop QR login handoff
+     * Desktop-only polling endpoint. Pending/expired responses carry no tokens. Once a phone has approved the paired approve token, this endpoint consumes the poll token exactly once and returns a normal token pair; in web cookie transport the refresh token is set as &#x60;mnt_refresh&#x60; and is omitted from the JSON body.
+     * @param deviceLoginPollRequest
+     * @return ApiResponse<DeviceLoginPollResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun pollDeviceLoginWithHttpInfo(deviceLoginPollRequest: DeviceLoginPollRequest) : ApiResponse<DeviceLoginPollResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = pollDeviceLoginRequestConfig(deviceLoginPollRequest = deviceLoginPollRequest)
+
+        return@withContext request<DeviceLoginPollRequest, DeviceLoginPollResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation pollDeviceLogin
+     *
+     * @param deviceLoginPollRequest
+     * @return RequestConfig
+     */
+    fun pollDeviceLoginRequestConfig(deviceLoginPollRequest: DeviceLoginPollRequest) : RequestConfig<DeviceLoginPollRequest> {
+        val localVariableBody = deviceLoginPollRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/device-login/poll",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure
      * Record expenditure number and route to execution or executive approval
      *
@@ -11638,6 +11867,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/auth/device-login/start
+     * Start desktop QR login handoff
+     * Creates a short-lived desktop login handoff. The desktop keeps the &#x60;poll_token&#x60; and renders &#x60;approve_url&#x60; as a QR. A phone opens the approve URL and proves a passkey; the desktop then polls once for its own token pair. No phone session is minted by this endpoint.
+     * @return DeviceLoginStartResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun startDeviceLogin() : DeviceLoginStartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = startDeviceLoginWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DeviceLoginStartResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/device-login/start
+     * Start desktop QR login handoff
+     * Creates a short-lived desktop login handoff. The desktop keeps the &#x60;poll_token&#x60; and renders &#x60;approve_url&#x60; as a QR. A phone opens the approve URL and proves a passkey; the desktop then polls once for its own token pair. No phone session is minted by this endpoint.
+     * @return ApiResponse<DeviceLoginStartResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun startDeviceLoginWithHttpInfo() : ApiResponse<DeviceLoginStartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = startDeviceLoginRequestConfig()
+
+        return@withContext request<Unit, DeviceLoginStartResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation startDeviceLogin
+     *
+     * @return RequestConfig
+     */
+    fun startDeviceLoginRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/device-login/start",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/work-orders/{workOrderId}/p1-dispatch
      * Start a P1 emergency dispatch broadcast for a work order
      *
@@ -13466,6 +13765,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PUT,
             path = "/api/v1/reporting/work-diary",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/work-orders/{workOrderId}
+     * Edit work-order intake narrative fields
+     *
+     * @param workOrderId
+     * @param updateWorkOrderIntakeRequest
+     * @return WorkOrderSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateWorkOrderIntake(workOrderId: java.util.UUID, updateWorkOrderIntakeRequest: UpdateWorkOrderIntakeRequest) : WorkOrderSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = updateWorkOrderIntakeWithHttpInfo(workOrderId = workOrderId, updateWorkOrderIntakeRequest = updateWorkOrderIntakeRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/work-orders/{workOrderId}
+     * Edit work-order intake narrative fields
+     *
+     * @param workOrderId
+     * @param updateWorkOrderIntakeRequest
+     * @return ApiResponse<WorkOrderSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateWorkOrderIntakeWithHttpInfo(workOrderId: java.util.UUID, updateWorkOrderIntakeRequest: UpdateWorkOrderIntakeRequest) : ApiResponse<WorkOrderSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateWorkOrderIntakeRequestConfig(workOrderId = workOrderId, updateWorkOrderIntakeRequest = updateWorkOrderIntakeRequest)
+
+        return@withContext request<UpdateWorkOrderIntakeRequest, WorkOrderSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateWorkOrderIntake
+     *
+     * @param workOrderId
+     * @param updateWorkOrderIntakeRequest
+     * @return RequestConfig
+     */
+    fun updateWorkOrderIntakeRequestConfig(workOrderId: java.util.UUID, updateWorkOrderIntakeRequest: UpdateWorkOrderIntakeRequest) : RequestConfig<UpdateWorkOrderIntakeRequest> {
+        val localVariableBody = updateWorkOrderIntakeRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/work-orders/{workOrderId}".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

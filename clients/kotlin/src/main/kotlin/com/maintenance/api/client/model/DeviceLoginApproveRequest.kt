@@ -31,18 +31,22 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param workOrderId
- * @param description
+ * @param approveToken
+ * @param ceremonyId
+ * @param credential
  */
 @Serializable
 
-data class CreateDailyPlanRequestItemsInner (
+data class DeviceLoginApproveRequest (
 
-    @Contextual @SerialName(value = "work_order_id")
-    val workOrderId: java.util.UUID,
+    @SerialName(value = "approve_token")
+    val approveToken: kotlin.String,
 
-    @SerialName(value = "description")
-    val description: kotlin.String
+    @Contextual @SerialName(value = "ceremony_id")
+    val ceremonyId: java.util.UUID,
+
+    @Contextual @SerialName(value = "credential")
+    val credential: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
 
 ) {
 

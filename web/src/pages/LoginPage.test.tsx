@@ -18,6 +18,7 @@ beforeAll(() => {
 afterEach(() => {
   server.resetHandlers();
   window.history.replaceState(null, "", "/");
+  window.sessionStorage.clear();
 });
 afterAll(() => {
   server.close();
@@ -97,6 +98,139 @@ describe("LoginPage sign-in", () => {
     await user.click(screen.getByRole("button", { name: "패스키로 로그인" }));
 
     expect(login).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a desktop QR login and accepts the desktop token after phone approval", async () => {
+    const user = userEvent.setup();
+    const acceptTokens = vi.fn();
+    const pollToken = `mnt_dlp_${"a".repeat(64)}`;
+    const approveToken = `mnt_dla_${"b".repeat(64)}`;
+    let pollCalls = 0;
+    server.use(
+      http.post("*/api/v1/auth/device-login/start", () =>
+        HttpResponse.json({
+          poll_token: pollToken,
+          approve_url: `https://console.knllogistic.com/login#desktop_approve=${approveToken}`,
+          expires_at: "2026-06-14T00:05:00Z",
+        }),
+      ),
+      http.post("*/api/v1/auth/device-login/poll", async ({ request }) => {
+        expect(await request.json()).toEqual({ poll_token: pollToken });
+        pollCalls += 1;
+        if (pollCalls === 1) {
+          return HttpResponse.json({ status: "pending" });
+        }
+        return HttpResponse.json({
+          status: "approved",
+          access_token: "desktop-access",
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-14T12:00:00Z",
+          requires_passkey_setup: false,
+        });
+      }),
+      http.get("*/api/v1/work-orders", () =>
+        HttpResponse.json({ items: [], limit: 8, offset: 0, total: 0 }),
+      ),
+      http.get("*/api/daily-work-plans", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+      http.get("*/api/v1/support/tickets", () =>
+        HttpResponse.json({ items: [], next_cursor: null, total: 0 }),
+      ),
+      http.get("*/api/v1/ops/summary", () =>
+        HttpResponse.json({
+          funnel: { received: 0, assigned: 0, in_progress: 0, completed: 0 },
+          aging_hours: 24,
+          aging_work_orders: 0,
+          sla_breached: 0,
+          sla_at_risk: 0,
+          mechanic_load: [],
+          equipment_status: {
+            rented: 0,
+            spare: 0,
+            scrapped: 0,
+            replacement: 0,
+            sold: 0,
+          },
+          active_substitutions: 0,
+          pending_approvals: 0,
+          open_support_tickets: 0,
+        }),
+      ),
+    );
+
+    renderApp("/login", makeAuthContext({ acceptTokens }));
+
+    await user.click(screen.getByRole("button", { name: "휴대폰으로 PC 로그인" }));
+
+    expect(await screen.findByText("휴대폰 승인을 기다리는 중입니다.")).toBeVisible();
+    await waitFor(
+      () => {
+        expect(acceptTokens).toHaveBeenCalledWith({
+          access_token: "desktop-access",
+          requires_passkey_setup: false,
+        });
+      },
+      { timeout: 3_000 },
+    );
+  });
+
+  it("approves a desktop QR login on the phone without accepting a phone session", async () => {
+    const user = userEvent.setup();
+    const acceptTokens = vi.fn();
+    const approveToken = `mnt_dla_${"c".repeat(64)}`;
+    const approved = vi.fn();
+
+    class FakeAssertionResponse {
+      authenticatorData = Uint8Array.from([1]).buffer;
+      clientDataJSON = Uint8Array.from([2]).buffer;
+      signature = Uint8Array.from([3]).buffer;
+      userHandle = Uint8Array.from([4]).buffer;
+    }
+    class FakeCredential {
+      id = "cred";
+      type = "public-key";
+      rawId = Uint8Array.from([5]).buffer;
+      response = new FakeAssertionResponse();
+    }
+    vi.stubGlobal("PublicKeyCredential", FakeCredential);
+    vi.stubGlobal("AuthenticatorAssertionResponse", FakeAssertionResponse);
+    vi.stubGlobal("AuthenticatorAttestationResponse", class {});
+    vi.stubGlobal("navigator", {
+      credentials: {
+        get: vi.fn().mockResolvedValue(new FakeCredential()),
+        create: vi.fn(),
+      },
+    });
+
+    server.use(
+      http.post("*/api/v1/auth/passkey/login/start", () =>
+        HttpResponse.json({
+          ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          challenge: { challenge: "AQID", allowCredentials: [] },
+          expires_at: "2026-06-14T00:00:00Z",
+        }),
+      ),
+      http.post("*/api/v1/auth/device-login/approve", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        expect(body.approve_token).toBe(approveToken);
+        expect(body.ceremony_id).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        expect(body.credential).toBeTruthy();
+        approved();
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp(`/login#desktop_approve=${approveToken}`, makeAuthContext({ acceptTokens }));
+
+    await user.click(await screen.findByRole("button", { name: "PC 로그인 승인" }));
+
+    await waitFor(() => {
+      expect(approved).toHaveBeenCalledTimes(1);
+    });
+    expect(acceptTokens).not.toHaveBeenCalled();
+    expect(screen.getAllByText("PC 로그인을 승인했습니다.").length).toBeGreaterThan(0);
   });
 
   it("reveals an OTP input and redeems the code via acceptTokens", async () => {
@@ -356,6 +490,82 @@ describe("OnboardingPage enrollment", () => {
     expect(selection?.residentKey).toBe("required");
   });
 
+  it("does not leave setup blocked when desktop QR approval expires after enrollment", async () => {
+    const user = userEvent.setup();
+    const clearPasskeySetup = vi.fn();
+    const approveToken = `mnt_dla_${"f".repeat(64)}`;
+    const approveSession = vi.fn();
+    window.sessionStorage.setItem("mnt.desktop_approve", approveToken);
+    usePrivacyConsentHandlers(true);
+
+    class FakeAttestationResponse {
+      attestationObject = Uint8Array.from([1]).buffer;
+      clientDataJSON = Uint8Array.from([2]).buffer;
+    }
+    class FakeCredential {
+      id = "cred";
+      type = "public-key";
+      rawId = Uint8Array.from([3]).buffer;
+      response = new FakeAttestationResponse();
+    }
+    vi.stubGlobal("PublicKeyCredential", FakeCredential);
+    vi.stubGlobal("AuthenticatorAttestationResponse", FakeAttestationResponse);
+    vi.stubGlobal("AuthenticatorAssertionResponse", class {});
+    vi.stubGlobal("navigator", {
+      credentials: { create: vi.fn().mockResolvedValue(new FakeCredential()), get: vi.fn() },
+    });
+
+    server.use(
+      http.post("*/api/v1/auth/passkey/register/start", () =>
+        HttpResponse.json({
+          ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          challenge: { challenge: "AQID" },
+          expires_at: "2026-06-14T00:00:00Z",
+        }),
+      ),
+      http.post("*/api/v1/auth/passkey/register/finish", () =>
+        HttpResponse.json(
+          {
+            passkey_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            user_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            credential_id: "cred",
+          },
+          { status: 201 },
+        ),
+      ),
+      http.post(
+        "*/api/v1/auth/device-login/approve-session",
+        async ({ request }) => {
+          approveSession(await request.json());
+          return HttpResponse.json(
+            { error: { code: "UNAUTHORIZED", message: "expired" } },
+            { status: 401 },
+          );
+        },
+      ),
+    );
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: { access_token: "a", requires_passkey_setup: true },
+        clearPasskeySetup,
+      }),
+    );
+
+    await user.click(await screen.findByRole("button", { name: /이 기기/ }));
+
+    await waitFor(() => {
+      expect(approveSession).toHaveBeenCalledWith({
+        approve_token: approveToken,
+      });
+    });
+    await waitFor(() => {
+      expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
+    });
+    expect(window.sessionStorage.getItem("mnt.desktop_approve")).toBeNull();
+  });
+
   it("offers exactly the this-device and phone-QR enrollment methods", async () => {
     usePrivacyConsentHandlers(true);
     renderApp(
@@ -384,6 +594,7 @@ describe("OnboardingPage enrollment", () => {
     const user = userEvent.setup();
     let handoffCalls = 0;
     const clearPasskeySetup = vi.fn();
+    const acceptTokens = vi.fn();
     usePrivacyConsentHandlers(true);
     server.use(
       http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
@@ -391,17 +602,21 @@ describe("OnboardingPage enrollment", () => {
         return HttpResponse.json({
           otp: "Abcd1234",
           expires_at: "2026-06-14T00:05:00Z",
-          enroll_url: "https://console.knllogistic.com/login#otp=Abcd1234",
+          enroll_url:
+            "https://console.knllogistic.com/login#otp=Abcd1234&desktop_approve=mnt_dla_" +
+            "d".repeat(64),
+          poll_token: `mnt_dlp_${"e".repeat(64)}`,
         });
       }),
-      http.get("*/api/v1/auth/passkeys", () =>
-        HttpResponse.json([
-          {
-            id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-            created_at: "2026-06-14T00:04:00Z",
-            last_used_at: null,
-          },
-        ]),
+      http.post("*/api/v1/auth/device-login/poll", () =>
+        HttpResponse.json({
+          status: "approved",
+          access_token: "phone-qr-desktop-access",
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-14T12:00:00Z",
+          requires_passkey_setup: false,
+        }),
       ),
     );
 
@@ -409,6 +624,7 @@ describe("OnboardingPage enrollment", () => {
       "/onboarding",
       makeAuthContext({
         session: { access_token: "a", requires_passkey_setup: true },
+        acceptTokens,
         clearPasskeySetup,
       }),
     );
@@ -423,10 +639,15 @@ describe("OnboardingPage enrollment", () => {
       expect(handoffCalls).toBe(1);
     });
     expect(link.getAttribute("href")).toBe(
-      "https://console.knllogistic.com/login#otp=Abcd1234",
+      "https://console.knllogistic.com/login#otp=Abcd1234&desktop_approve=mnt_dla_" +
+        "d".repeat(64),
     );
     await waitFor(() => {
       expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
+    });
+    expect(acceptTokens).toHaveBeenCalledWith({
+      access_token: "phone-qr-desktop-access",
+      requires_passkey_setup: false,
     });
   });
 

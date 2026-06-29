@@ -89,11 +89,12 @@ export function ApprovalsPage() {
     void Promise.resolve().then(loadData);
   }, [loadData]);
 
-  async function approveWorkOrder(workOrderId: string): Promise<boolean> {
+  async function approveWorkOrder(workOrderId: string, comment: string): Promise<boolean> {
     setWriteState("idle");
     try {
       const response = await api.POST("/api/work-orders/{workOrderId}/approve", {
         params: { path: { workOrderId } },
+        body: { comment },
       });
       if (!response.data) {
         setWriteState("error");

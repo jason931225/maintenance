@@ -10,14 +10,15 @@ use mnt_kernel_core::{
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
-    CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand, DailyPlanListPage,
-    DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary, OutsourceWorkStatus,
-    OutsourceWorkSummary, RejectWorkOrderCommand, ReviewDailyPlanCommand,
+    CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
+    DailyPlanItemSummary, DailyPlanListPage, DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary,
+    OutsourceWorkStatus, OutsourceWorkSummary, RejectWorkOrderCommand, ReviewDailyPlanCommand,
     ReviewTargetChangeCommand, SendDailyPlanForReviewCommand, SubmitReportCommand,
     TargetChangeDecision, TargetChangeRequestCommand, TargetChangeRequestSummary,
-    TargetChangeStatus, UpdatePriorityCommand, WorkOrderApprovalCommand,
-    WorkOrderAssignmentCommand, WorkOrderCreatedEvent, WorkOrderCreatedListener,
-    WorkOrderStartCommand, WorkOrderSummary, daily_plan_audit_event, work_order_audit_event,
+    TargetChangeStatus, UpdatePriorityCommand, UpdateWorkOrderIntakeCommand,
+    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderCreatedEvent,
+    WorkOrderCreatedListener, WorkOrderStartCommand, WorkOrderSummary, daily_plan_audit_event,
+    work_order_audit_event,
 };
 use mnt_workorder_domain::{
     ApprovalRole, AssignmentRole, PriorityLevel, TransitionActor, TransitionGuardContext,
@@ -239,6 +240,63 @@ impl PgWorkOrderStore {
                 )
                 .bind(row.id)
                 .bind(priority.as_db_str())
+                .bind(occurred_at)
+                .execute(tx.as_mut())
+                .await?;
+
+                fetch_work_order_summary_tx(tx, work_order_id).await
+            })
+        })
+        .await
+    }
+
+    pub async fn update_work_order_intake(
+        &self,
+        command: UpdateWorkOrderIntakeCommand,
+    ) -> Result<WorkOrderSummary, PgWorkOrderError> {
+        let branch_id = self.branch_for_work_order(command.work_order_id).await?;
+        let work_order_id = command.work_order_id;
+        let actor = command.actor;
+        let occurred_at = command.occurred_at;
+        let symptom = command.symptom.map(|value| value.trim().to_owned());
+        if symptom.as_deref().is_some_and(str::is_empty) {
+            return Err(KernelError::validation("work-order symptom is required").into());
+        }
+        let customer_request_was_set = command.customer_request.is_some();
+        let customer_request = command
+            .customer_request
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if symptom.is_none() && !customer_request_was_set {
+            return Err(
+                KernelError::validation("no work-order intake fields were provided").into(),
+            );
+        }
+        let event = work_order_audit_event(
+            "work_order.update_intake",
+            actor,
+            branch_id,
+            work_order_id,
+            command.trace,
+            occurred_at,
+        )?;
+
+        with_audit::<_, WorkOrderSummary, PgWorkOrderError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let row = lock_work_order(tx, work_order_id).await?;
+                sqlx::query(
+                    r#"
+                    UPDATE work_orders
+                    SET symptom = COALESCE($2, symptom),
+                        customer_request = CASE WHEN $3 THEN $4 ELSE customer_request END,
+                        updated_at = $5
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(row.id)
+                .bind(symptom.as_deref())
+                .bind(customer_request_was_set)
+                .bind(customer_request.as_deref())
                 .bind(occurred_at)
                 .execute(tx.as_mut())
                 .await?;
@@ -536,6 +594,10 @@ impl PgWorkOrderStore {
         let work_order_id = command.work_order_id;
         let actor = command.actor;
         let occurred_at = command.occurred_at;
+        let comment = command.comment.trim().to_owned();
+        if comment.is_empty() {
+            return Err(KernelError::validation("approval comment is required").into());
+        }
         let event = work_order_audit_event(
             "work_order.approve",
             actor,
@@ -544,12 +606,19 @@ impl PgWorkOrderStore {
             command.trace,
             occurred_at,
         )?
-        .with_org(org);
+        .with_org(org)
+        .with_snapshots(None, Some(serde_json::json!({ "comment": comment })));
 
         with_audit::<_, WorkOrderSummary, PgWorkOrderError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 let row = lock_work_order(tx, work_order_id).await?;
                 let pending = pending_non_mechanic_approval_step(tx, work_order_id).await?;
+                if pending.approver_id.is_none() {
+                    return Err(KernelError::conflict(
+                        "pending approval step has no assigned approver",
+                    )
+                    .into());
+                }
                 if let Some(approver_id) = pending.approver_id
                     && approver_id != actor
                 {
@@ -580,12 +649,34 @@ impl PgWorkOrderStore {
                 };
                 validate_status_transition(row.status, to, context)?;
 
+                if pending.role == ApprovalRole::Admin {
+                    let next_approver: Option<uuid::Uuid> = sqlx::query_scalar(
+                        r#"
+                        SELECT approver_id
+                        FROM work_order_approval_steps
+                        WHERE work_order_id = $1
+                          AND role = 'EXECUTIVE'
+                        "#,
+                    )
+                    .bind(row.id)
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                    .flatten();
+                    if next_approver.is_none() {
+                        return Err(KernelError::conflict(
+                            "next approval step has no assigned approver",
+                        )
+                        .into());
+                    }
+                }
+
                 sqlx::query(
                     r#"
                     UPDATE work_order_approval_steps
                     SET status = 'APPROVED',
                         approved_at = $2,
                         approved_by_id = $3,
+                        decision_comment = $4,
                         updated_at = $2
                     WHERE id = $1
                     "#,
@@ -593,6 +684,7 @@ impl PgWorkOrderStore {
                 .bind(pending.id)
                 .bind(occurred_at)
                 .bind(*actor.as_uuid())
+                .bind(&comment)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -670,6 +762,7 @@ impl PgWorkOrderStore {
                     SET status = 'REJECTED',
                         approved_at = $2,
                         approved_by_id = $3,
+                        decision_comment = $4,
                         updated_at = $2
                     WHERE work_order_id = $1
                       AND status = 'PENDING'
@@ -678,6 +771,7 @@ impl PgWorkOrderStore {
                 .bind(row.id)
                 .bind(occurred_at)
                 .bind(*actor.as_uuid())
+                .bind(&memo)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -946,6 +1040,33 @@ impl PgWorkOrderStore {
                         )
                         .into());
                     }
+                    let work_order_branch: Option<uuid::Uuid> = sqlx::query_scalar(
+                        r#"
+                        SELECT branch_id
+                        FROM work_orders
+                        WHERE id = $1 AND org_id = $2
+                        "#,
+                    )
+                    .bind(*item.work_order_id.as_uuid())
+                    .bind(org_uuid)
+                    .fetch_optional(tx.as_mut())
+                    .await?;
+                    match work_order_branch {
+                        Some(found_branch) if found_branch == *branch_id.as_uuid() => {}
+                        Some(_) => {
+                            return Err(KernelError::validation(
+                                "daily plan work order must belong to the selected branch",
+                            )
+                            .into());
+                        }
+                        None => {
+                            return Err(KernelError::not_found(
+                                "daily plan source work order was not found",
+                            )
+                            .into());
+                        }
+                    }
+                    let description = item.description.trim().to_owned();
                     sqlx::query(
                         r#"
                         INSERT INTO daily_work_plan_items (
@@ -955,13 +1076,14 @@ impl PgWorkOrderStore {
                         "#,
                     )
                     .bind(*plan_id.as_uuid())
-                    .bind(item.work_order_id.map(|id| *id.as_uuid()))
-                    .bind(item.description.trim())
+                    .bind(*item.work_order_id.as_uuid())
+                    .bind(&description)
                     .bind(sort_order)
                     .bind(org_uuid)
                     .execute(tx.as_mut())
                     .await?;
                 }
+                let stored_items = daily_plan_items(tx, plan_id).await?;
 
                 Ok(DailyPlanSummary {
                     id: plan_id,
@@ -969,6 +1091,7 @@ impl PgWorkOrderStore {
                     mechanic_id,
                     plan_date,
                     status: DailyPlanStatus::Draft,
+                    items: stored_items,
                 })
             })
         })
@@ -984,7 +1107,7 @@ impl PgWorkOrderStore {
         query: DailyPlanListQuery,
     ) -> Result<DailyPlanListPage, PgWorkOrderError> {
         let org = current_org().map_err(KernelError::from)?;
-        let rows = with_org_conn::<_, _, PgWorkOrderError>(&self.pool, org, move |tx| {
+        let items = with_org_conn::<_, _, PgWorkOrderError>(&self.pool, org, move |tx| {
             Box::pin(async move {
                 let mut builder = QueryBuilder::<Postgres>::new(
                     r#"
@@ -1021,14 +1144,17 @@ impl PgWorkOrderStore {
                 if query.plan_date.is_none() {
                     builder.push(" LIMIT 200");
                 }
-                Ok(builder.build().fetch_all(tx.as_mut()).await?)
+                let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                let mut plans = Vec::with_capacity(rows.len());
+                for row in rows {
+                    let mut plan = daily_plan_summary_from_row(&row)?;
+                    plan.items = daily_plan_items(tx, plan.id).await?;
+                    plans.push(plan);
+                }
+                Ok(plans)
             })
         })
         .await?;
-        let items = rows
-            .iter()
-            .map(daily_plan_summary_from_row)
-            .collect::<Result<Vec<_>, _>>()?;
         Ok(DailyPlanListPage { items })
     }
 
@@ -1340,9 +1466,9 @@ impl PgWorkOrderStore {
         plan_id: DailyPlanId,
     ) -> Result<DailyPlanSummary, PgWorkOrderError> {
         let org = current_org().map_err(KernelError::from)?;
-        let row = with_org_conn::<_, _, PgWorkOrderError>(&self.pool, org, move |tx| {
+        let plan = with_org_conn::<_, _, PgWorkOrderError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                Ok(sqlx::query(
+                let row = sqlx::query(
                     r#"
             SELECT id, branch_id, mechanic_id, plan_date, status
             FROM daily_work_plans
@@ -1351,12 +1477,20 @@ impl PgWorkOrderStore {
                 )
                 .bind(*plan_id.as_uuid())
                 .fetch_optional(tx.as_mut())
-                .await?)
+                .await?;
+                match row {
+                    Some(row) => {
+                        let mut plan = daily_plan_summary_from_row(&row)?;
+                        plan.items = daily_plan_items(tx, plan_id).await?;
+                        Ok(Some(plan))
+                    }
+                    None => Ok(None),
+                }
             })
         })
         .await?
         .ok_or_else(|| KernelError::not_found("daily plan was not found"))?;
-        daily_plan_summary_from_row(&row)
+        Ok(plan)
     }
 }
 
@@ -1894,7 +2028,9 @@ async fn lock_daily_plan(
     .fetch_optional(tx.as_mut())
     .await?
     .ok_or_else(|| KernelError::not_found("daily plan was not found"))?;
-    daily_plan_summary_from_row(&row)
+    let mut plan = daily_plan_summary_from_row(&row)?;
+    plan.items = daily_plan_items(tx, plan_id).await?;
+    Ok(plan)
 }
 
 fn daily_plan_summary_from_row(
@@ -1907,5 +2043,50 @@ fn daily_plan_summary_from_row(
         mechanic_id: UserId::from_uuid(row.try_get("mechanic_id")?),
         plan_date: row.try_get("plan_date")?,
         status: DailyPlanStatus::from_db_str(&status)?,
+        items: Vec::new(),
     })
+}
+
+async fn daily_plan_items(
+    tx: &mut Transaction<'_, Postgres>,
+    plan_id: DailyPlanId,
+) -> Result<Vec<DailyPlanItemSummary>, PgWorkOrderError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            i.work_order_id,
+            w.request_no,
+            e.equipment_no,
+            e.management_no,
+            c.name AS customer_name,
+            s.name AS site_name,
+            i.description,
+            i.sort_order
+        FROM daily_work_plan_items i
+        LEFT JOIN work_orders w ON w.id = i.work_order_id AND w.org_id = i.org_id
+        LEFT JOIN registry_equipment e ON e.id = w.equipment_id AND e.org_id = w.org_id
+        LEFT JOIN registry_customers c ON c.id = w.customer_id AND c.org_id = w.org_id
+        LEFT JOIN registry_sites s ON s.id = w.site_id AND s.org_id = w.org_id
+        WHERE i.plan_id = $1
+        ORDER BY i.sort_order ASC, i.id ASC
+        "#,
+    )
+    .bind(*plan_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let work_order_id: Option<uuid::Uuid> = row.try_get("work_order_id")?;
+            Ok(DailyPlanItemSummary {
+                work_order_id: work_order_id.map(WorkOrderId::from_uuid),
+                request_no: row.try_get("request_no")?,
+                equipment_no: row.try_get("equipment_no")?,
+                management_no: row.try_get("management_no")?,
+                customer_name: row.try_get("customer_name")?,
+                site_name: row.try_get("site_name")?,
+                description: row.try_get("description")?,
+                sort_order: row.try_get("sort_order")?,
+            })
+        })
+        .collect()
 }

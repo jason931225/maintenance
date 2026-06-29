@@ -31,18 +31,18 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param workOrderId
- * @param description
+ * @param symptom
+ * @param customerRequest
  */
 @Serializable
 
-data class CreateDailyPlanRequestItemsInner (
+data class UpdateWorkOrderIntakeRequest (
 
-    @Contextual @SerialName(value = "work_order_id")
-    val workOrderId: java.util.UUID,
+    @SerialName(value = "symptom")
+    val symptom: kotlin.String? = null,
 
-    @SerialName(value = "description")
-    val description: kotlin.String
+    @SerialName(value = "customer_request")
+    val customerRequest: kotlin.String? = null
 
 ) {
 
