@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.25](https://github.com/jason931225/maintenance/compare/v0.1.24...v0.1.25) (2026-06-30)
+
+
+### Features
+
+* **dispatch:** compact dispatch controls ([6686d21](https://github.com/jason931225/maintenance/commit/6686d217b7d41b618fe7f346baf106ccc4471e9b))
+
+
+### Bug Fixes
+
+* link platform users to employee records ([d7f7571](https://github.com/jason931225/maintenance/commit/d7f757180cf0c08f4c4c1c93becb62e00fa4d3a6))
+* make dispatch board scroll region keyboard accessible ([19cd3e7](https://github.com/jason931225/maintenance/commit/19cd3e7268abd1be204c2a9524c6639ebfcfb486))
+
 ## [0.1.24](https://github.com/jason931225/maintenance/compare/v0.1.23...v0.1.24) (2026-06-30)
 
 
