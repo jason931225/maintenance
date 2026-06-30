@@ -4441,6 +4441,20 @@ export interface components {
             leave_accrued?: string | null;
             leave_used?: string | null;
             leave_remaining?: string | null;
+            /**
+             * @description Non-PII strategy used to keep same-name employees from being merged by name alone.
+             * @enum {string}
+             */
+            identity_resolution_strategy: "employee_number" | "legal_identifier_hash" | "birth_hire_fingerprint" | "source_row_fingerprint";
+            /**
+             * @description Confidence derived from the accepted identity strategy; never from user-supplied labels.
+             * @enum {string}
+             */
+            identity_resolution_confidence: "high" | "medium" | "low";
+            /** @description True when HR must manually verify the employee identity before account linkage or duplicate cleanup. */
+            identity_review_required: boolean;
+            /** @description Always false; name-only merging is not allowed because different people can share a name. */
+            identity_name_only_merge: boolean;
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };

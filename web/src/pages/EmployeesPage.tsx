@@ -356,6 +356,7 @@ function PeopleOperationsPanel({
 }) {
   const t = ko.employees.operations;
   const statusCounts = countEmploymentStatuses(visibleEmployees);
+  const identityCounts = countIdentityResolution(visibleEmployees);
   const scopeLabel =
     selectedCompany === "all"
       ? t.groupScope
@@ -380,6 +381,13 @@ function PeopleOperationsPanel({
       title: t.policy.title,
       value: t.policy.value,
       meta: t.policy.meta,
+    },
+    {
+      title: t.identity.title,
+      value: t.identity.value
+        .replace("{review}", formatListCount(identityCounts.reviewRequired))
+        .replace("{high}", formatListCount(identityCounts.highConfidence)),
+      meta: t.identity.meta,
     },
     {
       title: t.importControls.title,
@@ -409,7 +417,7 @@ function PeopleOperationsPanel({
           </Button>
         </div>
       </div>
-      <dl className="grid gap-3 lg:grid-cols-4">
+      <dl className="grid gap-3 lg:grid-cols-5">
         {cards.map((card) => (
           <div
             key={card.title}
@@ -625,6 +633,7 @@ function EmployeeTable({
             <th className="px-4 py-3">{t.columns.company}</th>
             <th className="px-4 py-3">{t.columns.employeeNumber}</th>
             <th className="px-4 py-3">{t.columns.orgUnit}</th>
+            <th className="px-4 py-3">{t.columns.identity}</th>
             <th className="px-4 py-3">{t.columns.worksite}</th>
             <th className="px-4 py-3">{t.columns.job}</th>
             <th className="px-4 py-3">{t.columns.position}</th>
@@ -647,6 +656,9 @@ function EmployeeTable({
               </td>
               <td className="px-4 py-3 text-steel">
                 {text(employee.org_unit)}
+              </td>
+              <td className="px-4 py-3">
+                <IdentityResolutionBadge employee={employee} />
               </td>
               <td className="px-4 py-3 text-steel">
                 {text(employee.worksite_name ?? employee.worksite)}
@@ -680,6 +692,43 @@ function EmployeeTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function IdentityResolutionBadge({
+  employee,
+}: {
+  employee: EmployeeDirectoryItem;
+}) {
+  const t = ko.employees.identity;
+  const reviewRequired = employee.identity_review_required;
+  const confidence = employee.identity_resolution_confidence;
+  const strategy = employee.identity_resolution_strategy;
+  const confidenceLabel =
+    confidence === "high"
+      ? t.highConfidence
+      : confidence === "medium"
+        ? t.mediumConfidence
+        : t.lowConfidence;
+  const strategyLabel = t.strategies[strategy];
+
+  return (
+    <div className="flex min-w-32 flex-col gap-1">
+      <span
+        className={[
+          "inline-flex w-fit rounded-full border px-2 py-0.5 text-xs font-semibold",
+          reviewRequired
+            ? "border-amber-300 bg-amber-50 text-amber-900"
+            : "border-emerald-300 bg-emerald-50 text-emerald-800",
+        ].join(" ")}
+      >
+        {reviewRequired ? t.reviewRequired : confidenceLabel}
+      </span>
+      <span className="text-xs text-steel">{strategyLabel}</span>
+      {employee.identity_name_only_merge ? null : (
+        <span className="text-xs text-steel">{t.nameOnlyBlocked}</span>
+      )}
     </div>
   );
 }
@@ -1428,6 +1477,24 @@ function countEmploymentStatuses(employees: EmployeeDirectoryItem[]): {
       return counts;
     },
     { active: 0, exited: 0 },
+  );
+}
+
+function countIdentityResolution(employees: EmployeeDirectoryItem[]): {
+  reviewRequired: number;
+  highConfidence: number;
+} {
+  return employees.reduce(
+    (counts, employee) => {
+      if (employee.identity_review_required) {
+        counts.reviewRequired += 1;
+      }
+      if (employee.identity_resolution_confidence === "high") {
+        counts.highConfidence += 1;
+      }
+      return counts;
+    },
+    { reviewRequired: 0, highConfidence: 0 },
   );
 }
 

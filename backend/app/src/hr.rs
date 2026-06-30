@@ -124,6 +124,10 @@ struct EmployeeResponse {
     leave_used: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     leave_remaining: Option<String>,
+    identity_resolution_strategy: String,
+    identity_resolution_confidence: String,
+    identity_review_required: bool,
+    identity_name_only_merge: bool,
     created_at: time::OffsetDateTime,
     updated_at: time::OffsetDateTime,
 }
@@ -318,7 +322,7 @@ async fn list_employees(
             let total: i64 = count.build_query_scalar().fetch_one(tx.as_mut()).await?;
 
             let mut rows = QueryBuilder::<Postgres>::new(
-                "SELECT id, company, name, employee_number, org_unit, job, position, worksite_name, worksite_address, hire_date, exit_date, employment_status, leave_accrued::TEXT AS leave_accrued, leave_used::TEXT AS leave_used, leave_remaining::TEXT AS leave_remaining, created_at, updated_at FROM employees WHERE TRUE",
+                "SELECT id, company, name, employee_number, org_unit, job, position, worksite_name, worksite_address, hire_date, exit_date, employment_status, leave_accrued::TEXT AS leave_accrued, leave_used::TEXT AS leave_used, leave_remaining::TEXT AS leave_remaining, identity_resolution_strategy, identity_resolution_confidence, identity_review_required, identity_name_only_merge, created_at, updated_at FROM employees WHERE TRUE",
             );
             if let Some(company) = company.as_deref() {
                 rows.push(" AND company = ");
@@ -2088,6 +2092,7 @@ async fn apply_employee_rows_tx(
                 });
         company_entry.input_rows += 1;
         report.input_rows += 1;
+        let identity = employee_identity_resolution_from_metadata(&row.source_metadata);
 
         let outcome: String = sqlx::query_scalar(
             r#"
@@ -2095,12 +2100,15 @@ async fn apply_employee_rows_tx(
                 org_id, company, name, source_filename, source_sheet, source_row,
                 source_key, raw_row, source_metadata, employee_number, org_unit, job,
                 position, worksite_name, worksite_address, hire_date, exit_date,
-                employment_status, leave_accrued, leave_used, leave_remaining
+                employment_status, leave_accrued, leave_used, leave_remaining,
+                identity_resolution_strategy, identity_resolution_confidence,
+                identity_review_required, identity_name_only_merge
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                 $14, $15, $16, $17, $18, NULLIF($19::TEXT, '')::NUMERIC,
-                NULLIF($20::TEXT, '')::NUMERIC, NULLIF($21::TEXT, '')::NUMERIC
+                NULLIF($20::TEXT, '')::NUMERIC, NULLIF($21::TEXT, '')::NUMERIC,
+                $22, $23, $24, $25
             )
             ON CONFLICT (org_id, source_key) DO UPDATE SET
                 company = EXCLUDED.company,
@@ -2122,6 +2130,10 @@ async fn apply_employee_rows_tx(
                 leave_accrued = EXCLUDED.leave_accrued,
                 leave_used = EXCLUDED.leave_used,
                 leave_remaining = EXCLUDED.leave_remaining,
+                identity_resolution_strategy = EXCLUDED.identity_resolution_strategy,
+                identity_resolution_confidence = EXCLUDED.identity_resolution_confidence,
+                identity_review_required = EXCLUDED.identity_review_required,
+                identity_name_only_merge = EXCLUDED.identity_name_only_merge,
                 updated_at = now()
             RETURNING CASE WHEN xmax = 0 THEN 'inserted' ELSE 'updated' END
             "#,
@@ -2147,6 +2159,10 @@ async fn apply_employee_rows_tx(
         .bind(row.canonical.leave_accrued.as_deref())
         .bind(row.canonical.leave_used.as_deref())
         .bind(row.canonical.leave_remaining.as_deref())
+        .bind(&identity.strategy)
+        .bind(&identity.confidence)
+        .bind(identity.review_required)
+        .bind(identity.name_only_merge)
         .fetch_one(tx.as_mut())
         .await?;
 
@@ -2256,6 +2272,59 @@ fn required_json_i32(value: &Value, key: &'static str) -> Result<i32, HrError> {
         .ok_or_else(|| HrError::validation(format!("stored import row is missing {key}")))?;
     i32::try_from(number)
         .map_err(|_| HrError::validation(format!("stored import row {key} does not fit i32")))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EmployeeIdentityResolution {
+    strategy: String,
+    confidence: String,
+    review_required: bool,
+    name_only_merge: bool,
+}
+
+fn employee_identity_resolution_from_metadata(metadata: &Value) -> EmployeeIdentityResolution {
+    let identity = metadata
+        .get("identity_resolution")
+        .and_then(Value::as_object);
+    let strategy = identity
+        .and_then(|value| value.get("strategy"))
+        .and_then(Value::as_str)
+        .filter(|value| {
+            matches!(
+                *value,
+                "employee_number"
+                    | "legal_identifier_hash"
+                    | "birth_hire_fingerprint"
+                    | "source_row_fingerprint"
+            )
+        })
+        .unwrap_or("source_row_fingerprint")
+        .to_owned();
+    let confidence = match strategy.as_str() {
+        "employee_number" | "legal_identifier_hash" => "high",
+        "birth_hire_fingerprint" => "medium",
+        _ => "low",
+    }
+    .to_owned();
+    let explicit_review_clearance = identity
+        .and_then(|value| value.get("manual_review_required"))
+        .and_then(Value::as_bool)
+        == Some(false);
+    let review_required = !(explicit_review_clearance
+        && matches!(
+            strategy.as_str(),
+            "employee_number" | "legal_identifier_hash"
+        ));
+
+    EmployeeIdentityResolution {
+        strategy,
+        confidence,
+        review_required,
+        // Name-only merging is not a supported identity strategy. Even if stale
+        // or malicious import metadata claims otherwise, keep the public record
+        // non-mergeable until HR performs an explicit reviewed resolution.
+        name_only_merge: false,
+    }
 }
 
 async fn compute_employee_import_dry_run(
@@ -2534,6 +2603,10 @@ fn employee_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeResponse, HrE
         leave_accrued: row.try_get("leave_accrued")?,
         leave_used: row.try_get("leave_used")?,
         leave_remaining: row.try_get("leave_remaining")?,
+        identity_resolution_strategy: row.try_get("identity_resolution_strategy")?,
+        identity_resolution_confidence: row.try_get("identity_resolution_confidence")?,
+        identity_review_required: row.try_get("identity_review_required")?,
+        identity_name_only_merge: row.try_get("identity_name_only_merge")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -3118,6 +3191,10 @@ mod tests {
             leave_accrued: None,
             leave_used: None,
             leave_remaining: None,
+            identity_resolution_strategy: "employee_number".to_owned(),
+            identity_resolution_confidence: "high".to_owned(),
+            identity_review_required: false,
+            identity_name_only_merge: false,
             created_at: time::OffsetDateTime::UNIX_EPOCH,
             updated_at: time::OffsetDateTime::UNIX_EPOCH,
         })
@@ -3135,7 +3212,67 @@ mod tests {
                 "public employee response must not expose {forbidden}",
             );
         }
+        assert_eq!(
+            body["identity_resolution_strategy"],
+            json!("employee_number")
+        );
+        assert_eq!(body["identity_resolution_confidence"], json!("high"));
+        assert_eq!(body["identity_review_required"], json!(false));
+        assert_eq!(body["identity_name_only_merge"], json!(false));
         Ok(())
+    }
+
+    #[test]
+    fn employee_identity_resolution_rejects_name_only_and_untrusted_confidence() {
+        let metadata = json!({
+            "identity_resolution": {
+                "strategy": "source_row_fingerprint",
+                "confidence": "high",
+                "manual_review_required": true,
+                "name_only_merge": true
+            }
+        });
+
+        let identity = employee_identity_resolution_from_metadata(&metadata);
+
+        assert_eq!(identity.strategy, "source_row_fingerprint");
+        assert_eq!(identity.confidence, "low");
+        assert!(identity.review_required);
+        assert!(!identity.name_only_merge);
+    }
+
+    #[test]
+    fn employee_identity_resolution_accepts_high_confidence_trusted_strategies() {
+        let metadata = json!({
+            "identity_resolution": {
+                "strategy": "legal_identifier_hash",
+                "manual_review_required": false
+            }
+        });
+
+        let identity = employee_identity_resolution_from_metadata(&metadata);
+
+        assert_eq!(identity.strategy, "legal_identifier_hash");
+        assert_eq!(identity.confidence, "high");
+        assert!(!identity.review_required);
+        assert!(!identity.name_only_merge);
+    }
+
+    #[test]
+    fn employee_identity_resolution_keeps_weak_strategies_review_required() {
+        let metadata = json!({
+            "identity_resolution": {
+                "strategy": "birth_hire_fingerprint",
+                "manual_review_required": false
+            }
+        });
+
+        let identity = employee_identity_resolution_from_metadata(&metadata);
+
+        assert_eq!(identity.strategy, "birth_hire_fingerprint");
+        assert_eq!(identity.confidence, "medium");
+        assert!(identity.review_required);
+        assert!(!identity.name_only_merge);
     }
 
     #[test]

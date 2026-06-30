@@ -100,7 +100,8 @@ EXIT_DATE_HEADERS = {"퇴사일", "퇴사일자", "보험상실일"}
 LEAVE_ACCRUED_HEADERS = {"발생연차"}
 LEAVE_USED_HEADERS = {"사용연차"}
 LEAVE_REMAINING_HEADERS = {"잔여연차"}
-BIRTH_HEADERS = {"생년월일", "생년월일/주민번호"}
+BIRTH_HEADERS = {"생년월일"}
+LEGAL_IDENTITY_HEADERS = {"주민번호", "주민등록번호", "생년월일/주민번호"}
 
 RESTRICTED_FRAGMENTS = [
     "주민",
@@ -345,6 +346,13 @@ def parse_decimal_text(text: str | None) -> str | None:
     return None
 
 
+def normalized_identity_digits(text: str | None) -> str | None:
+    if not text:
+        return None
+    digits = re.sub(r"\D", "", text)
+    return digits or None
+
+
 def looks_like_person_name(value: str) -> bool:
     text = compact(value)
     if not text or text in NON_PERSON_VALUES:
@@ -358,6 +366,82 @@ def looks_like_person_name(value: str) -> bool:
     if any(word in text for word in ["합계", "총계", "소계", "청구", "공제", "지급", "보험료"]):
         return False
     return bool(re.search(r"[가-힣A-Za-z]", text))
+
+
+def employee_identity_source_key(
+    *,
+    org_slug: str,
+    name: str,
+    employee_number: str | None,
+    legal_identifier: str | None,
+    birth: str | None,
+    hire_date: str | None,
+    worksite_name: str | None,
+    source_filename: str,
+    source_sheet: str,
+    source_row: int,
+) -> tuple[str, dict[str, Any]]:
+    """Return a stable, non-PII source key plus resolution metadata.
+
+    Name-only dedupe is deliberately forbidden. When no trusted key is present,
+    use the source row coordinates and require manual review so two same-name
+    people never silently collapse into one employee record.
+    """
+
+    if employee_number:
+        return (
+            f"coss-group:employee:{org_slug}:empno:{short_hash(employee_number)}",
+            {
+                "strategy": "employee_number",
+                "confidence": "high",
+                "name_only_merge": False,
+                "manual_review_required": False,
+            },
+        )
+
+    legal_digits = normalized_identity_digits(legal_identifier)
+    if legal_digits:
+        return (
+            f"coss-group:employee:{org_slug}:legal-id:{short_hash(compact(name) + '|' + legal_digits)}",
+            {
+                "strategy": "legal_identifier_hash",
+                "confidence": "high",
+                "name_only_merge": False,
+                "manual_review_required": False,
+            },
+        )
+
+    birth_digits = normalized_identity_digits(birth)
+    if birth_digits and hire_date:
+        basis = "|".join([org_slug, compact(name), birth_digits, compact(hire_date)])
+        return (
+            f"coss-group:employee:{org_slug}:birth-hire:{short_hash(basis)}",
+            {
+                "strategy": "birth_hire_fingerprint",
+                "confidence": "medium",
+                "name_only_merge": False,
+                "manual_review_required": True,
+            },
+        )
+
+    source_basis = "|".join(
+        [
+            org_slug,
+            compact(source_filename),
+            compact(source_sheet),
+            str(source_row),
+        ]
+    )
+    return (
+        f"coss-group:employee:{org_slug}:source-row:{short_hash(source_basis)}",
+        {
+            "strategy": "source_row_fingerprint",
+            "confidence": "low",
+            "name_only_merge": False,
+            "manual_review_required": True,
+            "reason": "insufficient_trusted_identifier",
+        },
+    )
 
 
 @dataclass
@@ -399,6 +483,7 @@ def build_rows(root: Path) -> tuple[list[WorkbookImport], list[SourceRow], dict[
         "canonical_employee_keys": set(),
         "rows_by_org_slug": Counter(),
         "candidate_rows_by_org_slug": Counter(),
+        "identity_resolution_strategies": Counter(),
         "errors": [],
         "unknown_or_default_coss_rows": 0,
     }
@@ -520,29 +605,25 @@ def build_rows(root: Path) -> tuple[list[WorkbookImport], list[SourceRow], dict[
                         worksite_address = value_for(raw, WORKSITE_ADDRESS_HEADERS)
                         hire_date = value_for(raw, HIRE_DATE_HEADERS)
                         exit_date = value_for(raw, EXIT_DATE_HEADERS)
+                        legal_identifier = value_for(raw, LEGAL_IDENTITY_HEADERS)
                         birth = value_for(raw, BIRTH_HEADERS)
                         leave_accrued = parse_decimal_text(value_for(raw, LEAVE_ACCRUED_HEADERS))
                         leave_used = parse_decimal_text(value_for(raw, LEAVE_USED_HEADERS))
                         leave_remaining = parse_decimal_text(value_for(raw, LEAVE_REMAINING_HEADERS))
                         company = value_for(raw, {"회사", "법인", "소속회사"}) or org_name
-                        person_basis = "|".join(
-                            [
-                                org_slug,
-                                employee_number or "",
-                                compact(name or ""),
-                                compact(birth or ""),
-                                compact(hire_date or ""),
-                                compact(worksite_name or ""),
-                            ]
+                        employee_key, identity_resolution = employee_identity_source_key(
+                            org_slug=org_slug,
+                            name=name,
+                            employee_number=employee_number,
+                            legal_identifier=legal_identifier,
+                            birth=birth,
+                            hire_date=hire_date,
+                            worksite_name=worksite_name,
+                            source_filename=str(path.relative_to(root)),
+                            source_sheet=sheet_name,
+                            source_row=row_idx,
                         )
-                        if employee_number:
-                            row.employee_source_key = (
-                                f"coss-group:employee:{org_slug}:empno:{short_hash(employee_number)}"
-                            )
-                        else:
-                            row.employee_source_key = (
-                                f"coss-group:employee:{org_slug}:fp:{short_hash(person_basis)}"
-                            )
+                        row.employee_source_key = employee_key
                         row.canonical = {
                             "company": company,
                             "name": name,
@@ -566,11 +647,15 @@ def build_rows(root: Path) -> tuple[list[WorkbookImport], list[SourceRow], dict[
                                 "source_row": row_idx,
                                 "row_source_key": source_key,
                                 "dedupe": "stable_hash_no_pii_in_key",
+                                "identity_resolution": identity_resolution,
                                 "import_profile": "coss_group_profile_v1",
                             },
                         }
                         stats["candidate_rows"] += 1
                         stats["candidate_rows_by_org_slug"][org_slug] += 1
+                        stats["identity_resolution_strategies"][
+                            identity_resolution["strategy"]
+                        ] += 1
                         stats["canonical_employee_keys"].add((org_slug, row.employee_source_key))
                     else:
                         stats["preserved_rows"] += 1
@@ -593,6 +678,7 @@ def build_rows(root: Path) -> tuple[list[WorkbookImport], list[SourceRow], dict[
     stats["canonical_employee_keys"] = stats["canonical_employee_key_count"]
     stats["rows_by_org_slug"] = dict(stats["rows_by_org_slug"])
     stats["candidate_rows_by_org_slug"] = dict(stats["candidate_rows_by_org_slug"])
+    stats["identity_resolution_strategies"] = dict(stats["identity_resolution_strategies"])
     return workbook_imports, import_rows, stats
 
 
@@ -810,6 +896,7 @@ def emit_sql(
             "preserved_rows": stats["preserved_rows"],
             "canonical_employee_keys": stats["canonical_employee_key_count"],
             "rows_by_org_slug": stats["rows_by_org_slug"],
+            "identity_resolution_strategies": stats["identity_resolution_strategies"],
             "pii_values_returned": False,
         }
         out.write(
@@ -877,6 +964,7 @@ def main() -> int:
                 "preserved_rows": stats["preserved_rows"],
                 "canonical_employee_keys": stats["canonical_employee_key_count"],
                 "rows_by_org_slug": stats["rows_by_org_slug"],
+                "identity_resolution_strategies": stats["identity_resolution_strategies"],
                 "errors_count": len(stats["errors"]),
                 "summary_path": str(summary_path),
                 "sql_path": str(sql_path),

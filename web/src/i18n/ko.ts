@@ -815,6 +815,11 @@ export const ko = {
         value: "사용자·정책 연결",
         meta: "직책/역할/소속은 권한 정책과 분리해 검토합니다.",
       },
+      identity: {
+        title: "신원 표준화",
+        value: "검토 {review} · 고신뢰 {high}",
+        meta: "동명이인은 이름만으로 병합하지 않고 검토 대기 상태로 둡니다.",
+      },
       importControls: {
         title: "원장·마스킹",
         adminValue: "가져오기·내보내기 가능",
@@ -858,6 +863,7 @@ export const ko = {
       company: "회사",
       employeeNumber: "사번",
       orgUnit: "소속",
+      identity: "신원 검증",
       sourceRow: "원본 행",
       worksite: "근무지",
       job: "직무",
@@ -867,6 +873,19 @@ export const ko = {
       status: "상태",
       leaveRemaining: "잔여 연차",
       actions: "작업",
+    },
+    identity: {
+      reviewRequired: "검토 필요",
+      highConfidence: "고신뢰",
+      mediumConfidence: "중간",
+      lowConfidence: "낮음",
+      nameOnlyBlocked: "이름 병합 금지",
+      strategies: {
+        employee_number: "사번",
+        legal_identifier_hash: "식별번호 해시",
+        birth_hire_fingerprint: "생년월일+입사일",
+        source_row_fingerprint: "원천 행",
+      },
     },
     lifecycle: {
       title: "근로 생애주기",

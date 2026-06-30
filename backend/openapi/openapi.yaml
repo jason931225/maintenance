@@ -8582,6 +8582,10 @@ components:
         - id
         - company
         - name
+        - identity_resolution_strategy
+        - identity_resolution_confidence
+        - identity_review_required
+        - identity_name_only_merge
         - created_at
         - updated_at
       properties:
@@ -8627,6 +8631,27 @@ components:
         leave_remaining:
           type: string
           nullable: true
+        identity_resolution_strategy:
+          type: string
+          enum:
+            - employee_number
+            - legal_identifier_hash
+            - birth_hire_fingerprint
+            - source_row_fingerprint
+          description: Non-PII strategy used to keep same-name employees from being merged by name alone.
+        identity_resolution_confidence:
+          type: string
+          enum:
+            - high
+            - medium
+            - low
+          description: Confidence derived from the accepted identity strategy; never from user-supplied labels.
+        identity_review_required:
+          type: boolean
+          description: True when HR must manually verify the employee identity before account linkage or duplicate cleanup.
+        identity_name_only_merge:
+          type: boolean
+          description: Always false; name-only merging is not allowed because different people can share a name.
         created_at:
           $ref: "#/components/schemas/Timestamp"
         updated_at:

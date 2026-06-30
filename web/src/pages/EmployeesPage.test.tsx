@@ -25,6 +25,10 @@ const employees = [
     exit_date: null,
     status: "ACTIVE",
     leave_remaining: "7.5",
+    identity_resolution_strategy: "employee_number",
+    identity_resolution_confidence: "high",
+    identity_review_required: false,
+    identity_name_only_merge: false,
   },
   {
     id: "e2",
@@ -40,6 +44,10 @@ const employees = [
     exit_date: "2026-01-31",
     status: "EXITED",
     leave_remaining: "0",
+    identity_resolution_strategy: "source_row_fingerprint",
+    identity_resolution_confidence: "low",
+    identity_review_required: true,
+    identity_name_only_merge: false,
   },
 ];
 
@@ -197,6 +205,8 @@ describe("EmployeesPage", () => {
       screen.getByRole("heading", { name: "피플 운영 관제" }),
     ).toBeVisible();
     expect(screen.getByText("그룹 전체")).toBeVisible();
+    expect(screen.getByText("신원 표준화")).toBeVisible();
+    expect(screen.getByText("검토 1 · 고신뢰 1")).toBeVisible();
     expect(screen.getByRole("link", { name: "사용자 관리" })).toHaveAttribute(
       "href",
       "/settings/users",
@@ -228,6 +238,9 @@ describe("EmployeesPage", () => {
       within(row as HTMLElement).queryByText("12"),
     ).not.toBeInTheDocument();
     expect(within(row as HTMLElement).getByText("인천센터")).toBeVisible();
+    expect(within(row as HTMLElement).getByText("고신뢰")).toBeVisible();
+    expect(within(row as HTMLElement).getByText("사번")).toBeVisible();
+    expect(within(row as HTMLElement).getByText("이름 병합 금지")).toBeVisible();
     expect(within(row as HTMLElement).getByText("정비")).toBeVisible();
     expect(within(row as HTMLElement).getByText("대리")).toBeVisible();
     expect(within(row as HTMLElement).getByText("2024-01-02")).toBeVisible();
@@ -239,6 +252,8 @@ describe("EmployeesPage", () => {
     );
     expect(screen.queryByText("A-001")).not.toBeInTheDocument();
     expect(screen.getByText("이퇴사")).toBeVisible();
+    expect(screen.getByText("검토 필요")).toBeVisible();
+    expect(screen.getByText("원천 행")).toBeVisible();
   });
 
   it("shows governed import controls only to admins and requires preview, dry-run, then apply", async () => {
