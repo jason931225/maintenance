@@ -234,6 +234,8 @@ pub fn router(state: IdentityRestState) -> Router {
 struct CreateUserRequest {
     display_name: String,
     #[serde(default)]
+    employee_id: Option<uuid::Uuid>,
+    #[serde(default)]
     phone: Option<String>,
     #[serde(default)]
     team: Option<Team>,
@@ -247,6 +249,9 @@ struct CreateUserRequest {
 struct UpdateUserRequest {
     #[serde(default)]
     display_name: Option<String>,
+    /// Present key (even `null`) updates the employee link; absent leaves it unchanged.
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    employee_id: Option<Option<uuid::Uuid>>,
     /// Present key (even `null`) updates the phone; absent leaves it unchanged.
     #[serde(default, deserialize_with = "deserialize_optional_field")]
     phone: Option<Option<String>>,
@@ -2394,6 +2399,7 @@ async fn create_user(
         .create_user(CreateUserCommand {
             actor: principal.user_id,
             display_name: body.display_name,
+            employee_id: body.employee_id,
             phone: body.phone,
             team: body.team,
             roles: role_db_strings(&roles),
@@ -2491,6 +2497,7 @@ async fn update_user(
             actor: principal.user_id,
             user_id: target_id,
             display_name: body.display_name,
+            employee_id: body.employee_id,
             phone: body.phone,
             team: body.team,
             roles: roles.as_ref().map(role_db_strings),

@@ -6182,6 +6182,17 @@ export interface components {
         UserSummary: {
             id: components["schemas"]["Uuid"];
             display_name: string;
+            /** Format: uuid */
+            employee_id: string | null;
+            employee_name: string | null;
+            employee_number: string | null;
+            employee_company: string | null;
+            employee_org_unit: string | null;
+            employee_position: string | null;
+            employee_identity_review_required: boolean | null;
+            employee_identity_resolution_confidence: string | null;
+            /** @enum {string} */
+            employee_link_status: "LINKED" | "UNLINKED";
             phone: string | null;
             team: components["schemas"]["Team"];
             roles: string[];
@@ -6231,6 +6242,8 @@ export interface components {
         };
         CreateUserRequest: {
             display_name: string;
+            /** Format: uuid */
+            employee_id?: string | null;
             phone?: string | null;
             team?: components["schemas"]["Team"];
             roles?: string[];
@@ -6238,6 +6251,8 @@ export interface components {
         };
         UpdateUserRequest: {
             display_name?: string;
+            /** Format: uuid */
+            employee_id?: string | null;
             phone?: string | null;
             team?: components["schemas"]["Team"];
             roles?: string[];

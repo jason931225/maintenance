@@ -996,6 +996,7 @@ export const ko = {
     includeInactive: "비활성 포함",
     columns: {
       name: "이름",
+      employee: "직원",
       phone: "연락처",
       team: "팀",
       roles: "역할",
@@ -1008,6 +1009,11 @@ export const ko = {
     pendingSetupHint: "로그인 자격증명(패스키)을 아직 등록하지 않았습니다.",
     noRoles: "역할 없음",
     noBranches: "지점 없음",
+    employeeLink: {
+      linked: "직원 연결됨",
+      unlinked: "직원 미연결",
+      review: "직원 검토 필요",
+    },
     edit: "수정",
     create: "사용자 등록",
     moreActions: "더보기",
@@ -1023,6 +1029,8 @@ export const ko = {
     form: {
       displayName: "이름",
       displayNamePlaceholder: "직원 성함",
+      employee: "직원 연결",
+      employeeOptionsFailed: "직원 목록을 불러오지 못했습니다.",
       phone: "연락처",
       phonePlaceholder: "010-0000-0000",
       team: "팀",

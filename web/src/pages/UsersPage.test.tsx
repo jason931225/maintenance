@@ -53,6 +53,15 @@ const users = [
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     display_name: "제갈태수",
+    employee_id: null,
+    employee_name: null,
+    employee_number: null,
+    employee_company: null,
+    employee_org_unit: null,
+    employee_position: null,
+    employee_identity_review_required: null,
+    employee_identity_resolution_confidence: null,
+    employee_link_status: "UNLINKED",
     phone: "010-1234-5678",
     team: "MAINTENANCE",
     roles: ["MECHANIC"],
@@ -63,6 +72,57 @@ const users = [
     created_at: "2026-01-01T00:00:00Z",
   },
 ];
+
+const employees = [
+  {
+    id: "99999999-9999-4999-8999-999999999999",
+    company: "코스",
+    name: "제갈태수",
+    employee_number: "COSS-1001",
+    org_unit: "정비팀",
+    worksite_name: "본사",
+    job: "정비",
+    position: "팀장",
+    hire_date: "2024-01-01",
+    exit_date: null,
+    status: "ACTIVE",
+    leave_accrued: "15.00",
+    leave_used: "2.00",
+    leave_remaining: "13.00",
+    identity_resolution_strategy: "employee_number",
+    identity_resolution_confidence: "high",
+    identity_review_required: false,
+    identity_name_only_merge: false,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  },
+  {
+    id: "88888888-8888-4888-8888-888888888888",
+    company: "코스",
+    name: "동명이인",
+    employee_number: null,
+    org_unit: "물류팀",
+    worksite_name: "창고",
+    job: "물류",
+    position: "사원",
+    hire_date: null,
+    exit_date: null,
+    status: "ACTIVE",
+    leave_accrued: null,
+    leave_used: null,
+    leave_remaining: null,
+    identity_resolution_strategy: "source_row_fingerprint",
+    identity_resolution_confidence: "low",
+    identity_review_required: true,
+    identity_name_only_merge: false,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  },
+];
+
+function employeePage(items = employees) {
+  return { items, limit: 1000, offset: 0, total: items.length };
+}
 
 function makeAuthContext(session: AuthSession): AuthContextValue {
   const api = createConsoleApiClient(session.access_token);
@@ -127,6 +187,54 @@ describe("UsersPage listing", () => {
     expect(cells.getByText("정비")).toBeVisible();
     expect(cells.getByText("정비사")).toBeVisible();
     expect(cells.getByText("강남지점")).toBeVisible();
+  });
+
+  it("shows whether each platform user is linked to a 직원 record", async () => {
+    const linkedUser = {
+      ...users[0],
+      employee_id: employees[0].id,
+      employee_name: employees[0].name,
+      employee_number: employees[0].employee_number,
+      employee_company: employees[0].company,
+      employee_org_unit: employees[0].org_unit,
+      employee_position: employees[0].position,
+      employee_identity_review_required: false,
+      employee_identity_resolution_confidence: "high",
+      employee_link_status: "LINKED",
+    };
+    const unlinkedUser = {
+      ...users[0],
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      display_name: "동명이인",
+      employee_id: null,
+      employee_name: null,
+      employee_identity_review_required: null,
+      employee_identity_resolution_confidence: null,
+      employee_link_status: "UNLINKED",
+    };
+    server.use(
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json(userPage([linkedUser, unlinkedUser])),
+      ),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    const table = await screen.findByRole("table");
+    const rows = within(table).getAllByRole("row");
+    const linkedRow = rows.find((row) =>
+      within(row).queryByText("직원 연결됨"),
+    );
+    expect(linkedRow).toBeDefined();
+    expect(within(linkedRow as HTMLElement).getByText("직원 연결됨")).toBeVisible();
+    expect(
+      within(linkedRow as HTMLElement).getByText("COSS-1001 · 정비팀 · 팀장"),
+    ).toBeVisible();
+
+    const unlinkedRow = (await screen.findByText("동명이인")).closest("tr");
+    expect(unlinkedRow).not.toBeNull();
+    expect(within(unlinkedRow as HTMLElement).getByText("직원 미연결")).toBeVisible();
   });
 
   it("shows pending setup instead of active for users without a passkey", async () => {
@@ -214,6 +322,15 @@ describe("UsersPage create", () => {
           {
             id: "new",
             display_name: "정민규",
+            employee_id: null,
+            employee_name: null,
+            employee_number: null,
+            employee_company: null,
+            employee_org_unit: null,
+            employee_position: null,
+            employee_identity_review_required: null,
+            employee_identity_resolution_confidence: null,
+            employee_link_status: "UNLINKED",
             phone: null,
             team: "MAINTENANCE",
             roles: ["MECHANIC"],
@@ -249,16 +366,8 @@ describe("UsersPage create", () => {
 
     await user.click(drawer.getByLabelText("정비사"));
     await user.click(drawer.getByLabelText("강남지점"));
-    const policyPreview = drawer.getByRole("region", {
-      name: "직무·책임·범위 정책 미리보기",
-    });
-    expect(within(policyPreview).getByText("정비사")).toBeVisible();
-    expect(within(policyPreview).getByText("강남지점")).toBeVisible();
     expect(
-      within(policyPreview).getByText(/정책은 고정값이 아니라/),
-    ).toBeVisible();
-    expect(
-      within(policyPreview).queryByText(/관리·임원 권한이 포함되어 있습니다/),
+      drawer.queryByText(/정책은 고정값이 아니라/),
     ).not.toBeInTheDocument();
     await user.click(drawer.getByRole("button", { name: "사용자 등록" }));
 
@@ -318,6 +427,113 @@ describe("UsersPage edit", () => {
         team: "MAINTENANCE",
         roles: ["EXECUTIVE", "ADMIN"],
         branch_ids: [BRANCH_A],
+        employee_id: null,
+      });
+    });
+  });
+
+  it("lets an admin explicitly set and clear the linked 직원 record", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    const unlinkedUser = {
+      ...users[0],
+      employee_id: null,
+      employee_name: null,
+      employee_identity_review_required: null,
+      employee_identity_resolution_confidence: null,
+      employee_link_status: "UNLINKED",
+    };
+
+    server.use(
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json(userPage([unlinkedUser])),
+      ),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+      http.get("*/api/v1/employees", () => HttpResponse.json(employeePage())),
+      http.patch("*/api/v1/users/:id", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({
+          ...unlinkedUser,
+          employee_id: employees[0].id,
+          employee_name: employees[0].name,
+          employee_identity_review_required: false,
+          employee_identity_resolution_confidence: "high",
+          employee_link_status: "LINKED",
+        });
+      }),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    const table = await screen.findByRole("table");
+    const row = within(table).getAllByRole("row")[1];
+    await user.click(within(row).getByRole("button", { name: "수정" }));
+
+    const drawer = within(await screen.findByRole("dialog"));
+    await user.selectOptions(
+      await drawer.findByLabelText("직원 연결"),
+      employees[0].id,
+    );
+    await user.click(drawer.getByRole("button", { name: "변경 저장" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({
+        display_name: "제갈태수",
+        phone: "010-1234-5678",
+        team: "MAINTENANCE",
+        roles: ["MECHANIC"],
+        branch_ids: [BRANCH_A],
+        employee_id: employees[0].id,
+      });
+    });
+  });
+
+  it("sends null when an admin clears an existing 직원 link", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    const linkedUser = {
+      ...users[0],
+      employee_id: employees[0].id,
+      employee_name: employees[0].name,
+      employee_number: employees[0].employee_number,
+      employee_company: employees[0].company,
+      employee_org_unit: employees[0].org_unit,
+      employee_position: employees[0].position,
+      employee_identity_review_required: false,
+      employee_identity_resolution_confidence: "high",
+      employee_link_status: "LINKED",
+    };
+
+    server.use(
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json(userPage([linkedUser])),
+      ),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+      http.get("*/api/v1/employees", () => HttpResponse.json(employeePage())),
+      http.patch("*/api/v1/users/:id", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({ ...linkedUser, employee_id: null });
+      }),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    const table = await screen.findByRole("table");
+    const row = within(table).getAllByRole("row")[1];
+    await user.click(within(row).getByRole("button", { name: "수정" }));
+
+    const drawer = within(await screen.findByRole("dialog"));
+    await user.selectOptions(await drawer.findByLabelText("직원 연결"), "");
+    await user.click(drawer.getByRole("button", { name: "변경 저장" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({
+        display_name: "제갈태수",
+        phone: "010-1234-5678",
+        team: "MAINTENANCE",
+        roles: ["MECHANIC"],
+        branch_ids: [BRANCH_A],
+        employee_id: null,
       });
     });
   });
@@ -329,6 +545,15 @@ describe("UsersPage no-credential UX", () => {
     const newUser = {
       id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       display_name: "정민규",
+      employee_id: null,
+      employee_name: null,
+      employee_number: null,
+      employee_company: null,
+      employee_org_unit: null,
+      employee_position: null,
+      employee_identity_review_required: null,
+      employee_identity_resolution_confidence: null,
+      employee_link_status: "UNLINKED",
       phone: null,
       team: "MAINTENANCE",
       roles: ["MECHANIC"],

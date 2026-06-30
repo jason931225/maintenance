@@ -35,6 +35,15 @@ import kotlinx.serialization.Contextual
  *
  * @param id
  * @param displayName
+ * @param employeeId
+ * @param employeeName
+ * @param employeeNumber
+ * @param employeeCompany
+ * @param employeeOrgUnit
+ * @param employeePosition
+ * @param employeeIdentityReviewRequired
+ * @param employeeIdentityResolutionConfidence
+ * @param employeeLinkStatus
  * @param phone
  * @param team
  * @param roles
@@ -53,6 +62,33 @@ data class UserSummary (
 
     @SerialName(value = "display_name")
     val displayName: kotlin.String,
+
+    @Contextual @SerialName(value = "employee_id")
+    val employeeId: java.util.UUID?,
+
+    @SerialName(value = "employee_name")
+    val employeeName: kotlin.String?,
+
+    @SerialName(value = "employee_number")
+    val employeeNumber: kotlin.String?,
+
+    @SerialName(value = "employee_company")
+    val employeeCompany: kotlin.String?,
+
+    @SerialName(value = "employee_org_unit")
+    val employeeOrgUnit: kotlin.String?,
+
+    @SerialName(value = "employee_position")
+    val employeePosition: kotlin.String?,
+
+    @SerialName(value = "employee_identity_review_required")
+    val employeeIdentityReviewRequired: kotlin.Boolean?,
+
+    @SerialName(value = "employee_identity_resolution_confidence")
+    val employeeIdentityResolutionConfidence: kotlin.String?,
+
+    @SerialName(value = "employee_link_status")
+    val employeeLinkStatus: UserSummary.EmployeeLinkStatus,
 
     @SerialName(value = "phone")
     val phone: kotlin.String?,
@@ -81,5 +117,15 @@ data class UserSummary (
 
 ) {
 
+    /**
+     *
+     *
+     * Values: LINKED,UNLINKED
+     */
+    @Serializable
+    enum class EmployeeLinkStatus(val value: kotlin.String) {
+        @SerialName(value = "LINKED") LINKED("LINKED"),
+        @SerialName(value = "UNLINKED") UNLINKED("UNLINKED");
+    }
 
 }

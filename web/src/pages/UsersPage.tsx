@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BranchSummary,
   CreateUserRequest,
+  EmployeeDirectoryItem,
   Team,
   UpdateUserRequest,
   UserSummary,
@@ -63,6 +64,9 @@ export function UsersPage() {
   const [userTotal, setUserTotal] = useState<number>();
   const [loadingMore, setLoadingMore] = useState(false);
   const [branches, setBranches] = useState<BranchSummary[]>([]);
+  const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([]);
+  const [employeeOptionsState, setEmployeeOptionsState] =
+    useState<ReadState>("idle");
   const [listState, setListState] = useState<ReadState>("loading");
   const [includeInactive, setIncludeInactive] = useState(false);
 
@@ -142,6 +146,31 @@ export function UsersPage() {
     if (response?.data) setBranches(response.data);
   }, [api]);
 
+  const loadEmployees = useCallback(async () => {
+    setEmployeeOptionsState("loading");
+    const items: EmployeeDirectoryItem[] = [];
+    let nextOffset = 0;
+
+    for (let page = 0; page < 10; page += 1) {
+      const response = await api
+        .GET("/api/v1/employees", {
+          params: { query: { limit: 1000, offset: nextOffset } },
+        })
+        .catch(() => undefined);
+      const data = response?.data;
+      if (!data) {
+        setEmployeeOptionsState("error");
+        return;
+      }
+      items.push(...data.items);
+      if (items.length >= data.total || data.items.length === 0) break;
+      nextOffset += data.items.length;
+    }
+
+    setEmployees(items);
+    setEmployeeOptionsState("idle");
+  }, [api]);
+
   useEffect(() => {
     void Promise.resolve().then(loadUsers);
   }, [loadUsers]);
@@ -149,6 +178,10 @@ export function UsersPage() {
   useEffect(() => {
     void Promise.resolve().then(loadBranches);
   }, [loadBranches]);
+
+  useEffect(() => {
+    if (editorMode !== "closed") void Promise.resolve().then(loadEmployees);
+  }, [editorMode, loadEmployees]);
 
   const branchName = useCallback(
     // Never surface the raw branch UUID when the branch list is missing the row
@@ -325,6 +358,8 @@ export function UsersPage() {
           key={editing?.id ?? "create"}
           editing={editing}
           branches={branches}
+          employees={employees}
+          employeeOptionsState={employeeOptionsState}
           onSubmit={async (body) => {
             if (editing) {
               await updateUser(editing.id, body);
@@ -403,7 +438,7 @@ function UserTable({
   // Only show the skeleton on the first load; a refetch keeps the existing rows
   // visible (stale-while-revalidate) instead of flashing back to placeholders.
   if (isLoading && users.length === 0) {
-    return <SkeletonTable rows={5} cols={7} />;
+    return <SkeletonTable rows={5} cols={8} />;
   }
 
   if (users.length === 0) {
@@ -412,10 +447,11 @@ function UserTable({
 
   return (
     <Card className="overflow-x-auto p-0">
-      <table className="w-full min-w-[56rem] text-left text-sm">
+      <table className="w-full min-w-[64rem] text-left text-sm">
         <thead>
           <tr className="border-b border-line text-xs font-semibold uppercase tracking-wider text-steel">
             <th className="px-4 py-3">{ko.users.columns.name}</th>
+            <th className="px-4 py-3">{ko.users.columns.employee}</th>
             <th className="px-4 py-3">{ko.users.columns.phone}</th>
             <th className="px-4 py-3">{ko.users.columns.team}</th>
             <th className="px-4 py-3">{ko.users.columns.roles}</th>
@@ -432,6 +468,9 @@ function UserTable({
             >
               <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
                 {user.display_name}
+              </td>
+              <td className="px-4 py-3">
+                <EmployeeLinkCell user={user} />
               </td>
               <td className="whitespace-nowrap px-4 py-3 text-steel">
                 {user.phone ?? ko.common.notSet}
@@ -515,6 +554,33 @@ function UserTable({
         </tbody>
       </table>
     </Card>
+  );
+}
+
+function EmployeeLinkCell({ user }: { user: UserSummary }) {
+  if (user.employee_link_status !== "LINKED" || !user.employee_id) {
+    return (
+      <Badge className="whitespace-nowrap border-amber-300 bg-amber-50 text-amber-800">
+        {ko.users.employeeLink.unlinked}
+      </Badge>
+    );
+  }
+
+  const details = userEmployeeDetails(user);
+  return (
+    <div className="grid gap-1">
+      <div className="flex flex-wrap items-center gap-1">
+        <Badge className="whitespace-nowrap border-brand-teal/30 text-brand-teal">
+          {user.employee_identity_review_required
+            ? ko.users.employeeLink.review
+            : ko.users.employeeLink.linked}
+        </Badge>
+        <span className="font-medium text-ink">
+          {safeLabel(user.employee_name ?? user.display_name)}
+        </span>
+      </div>
+      {details ? <span className="text-xs text-steel">{details}</span> : null}
+    </div>
   );
 }
 
@@ -639,15 +705,20 @@ function RowActionsMenu({
 function UserFormDrawer({
   editing,
   branches,
+  employees,
+  employeeOptionsState,
   onSubmit,
   onClose,
 }: {
   editing: UserSummary | undefined;
   branches: BranchSummary[];
+  employees: EmployeeDirectoryItem[];
+  employeeOptionsState: ReadState;
   onSubmit: (body: CreateUserRequest | UpdateUserRequest) => Promise<void>;
   onClose: () => void;
 }) {
   const [displayName, setDisplayName] = useState(editing?.display_name ?? "");
+  const [employeeId, setEmployeeId] = useState(editing?.employee_id ?? "");
   const [phone, setPhone] = useState(editing?.phone ?? "");
   const [team, setTeam] = useState<Team>(editing?.team ?? "MAINTENANCE");
   const [roles, setRoles] = useState<string[]>(editing?.roles ?? []);
@@ -696,6 +767,9 @@ function UserFormDrawer({
     try {
       await onSubmit({
         display_name: displayName.trim(),
+        ...(editing || employeeId
+          ? { employee_id: employeeId ? employeeId : null }
+          : {}),
         phone: phone.trim() ? phone.trim() : null,
         team,
         roles,
@@ -783,6 +857,35 @@ function UserFormDrawer({
           <div className="grid gap-2">
             <label
               className="text-sm font-medium text-steel"
+              htmlFor="user-employee"
+            >
+              {ko.users.form.employee}
+            </label>
+            <Select
+              id="user-employee"
+              value={employeeId}
+              disabled={employeeOptionsState === "loading"}
+              onChange={(event) => {
+                setEmployeeId(event.currentTarget.value);
+              }}
+            >
+              <option value="">{ko.users.employeeLink.unlinked}</option>
+              {employees.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employeeOptionLabel(employee)}
+                </option>
+              ))}
+            </Select>
+            {employeeOptionsState === "error" ? (
+              <p role="alert" className="text-sm font-medium text-red-700">
+                {ko.users.form.employeeOptionsFailed}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2">
+            <label
+              className="text-sm font-medium text-steel"
               htmlFor="user-team"
             >
               {ko.users.form.team}
@@ -861,22 +964,7 @@ function UserFormDrawer({
             )}
           </fieldset>
 
-          <Card
-            aria-labelledby="user-policy-preview-title"
-            className="grid gap-3 border-brand-teal/20 bg-brand-teal/5"
-            role="region"
-          >
-            <div>
-              <p className="text-sm font-semibold text-brand-teal">
-                {ko.users.form.policyPreview.eyebrow}
-              </p>
-              <h3 id="user-policy-preview-title" className="mt-1 font-semibold text-ink">
-                {ko.users.form.policyPreview.title}
-              </h3>
-              <p className="mt-1 text-sm text-steel">
-                {ko.users.form.policyPreview.description}
-              </p>
-            </div>
+          <Card className="grid gap-2 border-line bg-muted-panel">
             <div className="grid gap-2 rounded-lg border border-line bg-white p-3 text-sm text-steel">
               <p>
                 <span className="font-semibold text-ink">
@@ -900,13 +988,6 @@ function UserFormDrawer({
                   ? selectedBranchLabels.join(", ")
                   : ko.users.form.policyPreview.none}
               </p>
-              <p>
-                <span className="font-semibold text-ink">
-                  {ko.users.form.policyPreview.futureLabel}
-                </span>{" "}
-                {ko.users.form.policyPreview.futureValue}
-              </p>
-              <p>{ko.users.form.policyPreview.configurable}</p>
               {hasElevatedRole ? (
                 <p className="rounded-md border border-signal/30 bg-signal/10 p-2 font-medium text-ink">
                   {ko.users.form.policyPreview.elevated}
@@ -951,6 +1032,26 @@ function UserFormDrawer({
       </div>
     </div>
   );
+}
+
+function userEmployeeDetails(user: UserSummary): string {
+  return [user.employee_number, user.employee_org_unit, user.employee_position]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function employeeOptionLabel(employee: EmployeeDirectoryItem): string {
+  return [
+    employee.name,
+    employee.employee_number,
+    employee.org_unit,
+    employee.position,
+    employee.company,
+  ]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function IssueOtpDialog({

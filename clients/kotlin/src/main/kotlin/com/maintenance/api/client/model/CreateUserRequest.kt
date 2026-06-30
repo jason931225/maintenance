@@ -33,6 +33,7 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param displayName
+ * @param employeeId
  * @param phone
  * @param team
  * @param roles
@@ -44,6 +45,9 @@ data class CreateUserRequest (
 
     @SerialName(value = "display_name")
     val displayName: kotlin.String,
+
+    @Contextual @SerialName(value = "employee_id")
+    val employeeId: java.util.UUID? = null,
 
     @SerialName(value = "phone")
     val phone: kotlin.String? = null,

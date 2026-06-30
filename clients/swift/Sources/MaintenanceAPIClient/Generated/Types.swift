@@ -16509,6 +16509,29 @@ public enum Components {
             public var id: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/UserSummary/display_name`.
             public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_id`.
+            public var employeeId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_name`.
+            public var employeeName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_number`.
+            public var employeeNumber: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_company`.
+            public var employeeCompany: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_org_unit`.
+            public var employeeOrgUnit: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_position`.
+            public var employeePosition: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_identity_review_required`.
+            public var employeeIdentityReviewRequired: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_identity_resolution_confidence`.
+            public var employeeIdentityResolutionConfidence: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_link_status`.
+            @frozen public enum EmployeeLinkStatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case linked = "LINKED"
+                case unlinked = "UNLINKED"
+            }
+            /// - Remark: Generated from `#/components/schemas/UserSummary/employee_link_status`.
+            public var employeeLinkStatus: Components.Schemas.UserSummary.EmployeeLinkStatusPayload
             /// - Remark: Generated from `#/components/schemas/UserSummary/phone`.
             public var phone: Swift.String?
             /// - Remark: Generated from `#/components/schemas/UserSummary/team`.
@@ -16532,6 +16555,15 @@ public enum Components {
             /// - Parameters:
             ///   - id:
             ///   - displayName:
+            ///   - employeeId:
+            ///   - employeeName:
+            ///   - employeeNumber:
+            ///   - employeeCompany:
+            ///   - employeeOrgUnit:
+            ///   - employeePosition:
+            ///   - employeeIdentityReviewRequired:
+            ///   - employeeIdentityResolutionConfidence:
+            ///   - employeeLinkStatus:
             ///   - phone:
             ///   - team:
             ///   - roles:
@@ -16543,6 +16575,15 @@ public enum Components {
             public init(
                 id: Components.Schemas.Uuid,
                 displayName: Swift.String,
+                employeeId: Swift.String? = nil,
+                employeeName: Swift.String? = nil,
+                employeeNumber: Swift.String? = nil,
+                employeeCompany: Swift.String? = nil,
+                employeeOrgUnit: Swift.String? = nil,
+                employeePosition: Swift.String? = nil,
+                employeeIdentityReviewRequired: Swift.Bool? = nil,
+                employeeIdentityResolutionConfidence: Swift.String? = nil,
+                employeeLinkStatus: Components.Schemas.UserSummary.EmployeeLinkStatusPayload,
                 phone: Swift.String? = nil,
                 team: Components.Schemas.Team,
                 roles: [Swift.String],
@@ -16554,6 +16595,15 @@ public enum Components {
             ) {
                 self.id = id
                 self.displayName = displayName
+                self.employeeId = employeeId
+                self.employeeName = employeeName
+                self.employeeNumber = employeeNumber
+                self.employeeCompany = employeeCompany
+                self.employeeOrgUnit = employeeOrgUnit
+                self.employeePosition = employeePosition
+                self.employeeIdentityReviewRequired = employeeIdentityReviewRequired
+                self.employeeIdentityResolutionConfidence = employeeIdentityResolutionConfidence
+                self.employeeLinkStatus = employeeLinkStatus
                 self.phone = phone
                 self.team = team
                 self.roles = roles
@@ -16566,6 +16616,15 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case id
                 case displayName = "display_name"
+                case employeeId = "employee_id"
+                case employeeName = "employee_name"
+                case employeeNumber = "employee_number"
+                case employeeCompany = "employee_company"
+                case employeeOrgUnit = "employee_org_unit"
+                case employeePosition = "employee_position"
+                case employeeIdentityReviewRequired = "employee_identity_review_required"
+                case employeeIdentityResolutionConfidence = "employee_identity_resolution_confidence"
+                case employeeLinkStatus = "employee_link_status"
                 case phone
                 case team
                 case roles
@@ -16726,6 +16785,8 @@ public enum Components {
         public struct CreateUserRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CreateUserRequest/display_name`.
             public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateUserRequest/employee_id`.
+            public var employeeId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateUserRequest/phone`.
             public var phone: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateUserRequest/team`.
@@ -16738,18 +16799,21 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - displayName:
+            ///   - employeeId:
             ///   - phone:
             ///   - team:
             ///   - roles:
             ///   - branchIds:
             public init(
                 displayName: Swift.String,
+                employeeId: Swift.String? = nil,
                 phone: Swift.String? = nil,
                 team: Components.Schemas.Team? = nil,
                 roles: [Swift.String]? = nil,
                 branchIds: [Components.Schemas.Uuid]? = nil
             ) {
                 self.displayName = displayName
+                self.employeeId = employeeId
                 self.phone = phone
                 self.team = team
                 self.roles = roles
@@ -16757,6 +16821,7 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case displayName = "display_name"
+                case employeeId = "employee_id"
                 case phone
                 case team
                 case roles
@@ -16767,6 +16832,8 @@ public enum Components {
         public struct UpdateUserRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/UpdateUserRequest/display_name`.
             public var displayName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateUserRequest/employee_id`.
+            public var employeeId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/UpdateUserRequest/phone`.
             public var phone: Swift.String?
             /// - Remark: Generated from `#/components/schemas/UpdateUserRequest/team`.
@@ -16779,18 +16846,21 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - displayName:
+            ///   - employeeId:
             ///   - phone:
             ///   - team:
             ///   - roles:
             ///   - branchIds:
             public init(
                 displayName: Swift.String? = nil,
+                employeeId: Swift.String? = nil,
                 phone: Swift.String? = nil,
                 team: Components.Schemas.Team? = nil,
                 roles: [Swift.String]? = nil,
                 branchIds: [Components.Schemas.Uuid]? = nil
             ) {
                 self.displayName = displayName
+                self.employeeId = employeeId
                 self.phone = phone
                 self.team = team
                 self.roles = roles
@@ -16798,6 +16868,7 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case displayName = "display_name"
+                case employeeId = "employee_id"
                 case phone
                 case team
                 case roles
