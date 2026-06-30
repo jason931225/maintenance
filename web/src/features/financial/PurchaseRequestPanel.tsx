@@ -1181,6 +1181,13 @@ function PurchaseDetail({
           {request.policy.quote_update_required ? <span>{PURCHASE_TEXT.quoteUpdateRequired}</span> : null}
         </div>
       ) : null}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <PurchaseApprovalLine request={request} />
+        <FinanceControlBadges request={request} />
+      </div>
+
+      <SourceObjectRail request={request} />
+
 
       <dl className="grid gap-2 text-sm md:grid-cols-3">
         <Row label={ko.financial.purchase.vendor} value={request.vendor_name} />
@@ -1288,6 +1295,144 @@ function PurchaseDetail({
   );
 }
 
+function purchaseApprovalStageIndex(status: PurchaseStatus): number {
+  switch (status) {
+    case "STATEMENT_ATTACHED":
+      return 0;
+    case "REQUEST_SUBMITTED":
+      return 1;
+    case "ADMIN_APPROVED":
+      return 2;
+    case "EXECUTIVE_PENDING":
+      return 4;
+    case "READY_TO_EXECUTE":
+      return 5;
+    case "EXECUTED":
+      return 6;
+    case "REJECTED":
+    default:
+      return 0;
+  }
+}
+
+function PurchaseApprovalLine({ request }: { request: PurchaseRequestSummary }) {
+  const currentStage = purchaseApprovalStageIndex(request.status);
+  const stages = [
+    PURCHASE_TEXT.approvalStageCreate,
+    PURCHASE_TEXT.approvalStageSubmit,
+    PURCHASE_TEXT.approvalStageAdmin,
+    PURCHASE_TEXT.approvalStageExpenditure,
+    PURCHASE_TEXT.approvalStageExecutive,
+    PURCHASE_TEXT.approvalStageExecute,
+  ];
+
+  return (
+    <section aria-label={PURCHASE_TEXT.approvalLineAria} className="grid gap-2 rounded-md border border-line bg-white p-3">
+      <h4 className="text-sm font-semibold text-ink">{PURCHASE_TEXT.approvalLineTitle}</h4>
+      <ol className="grid gap-1 sm:grid-cols-3 xl:grid-cols-6">
+        {stages.map((label, index) => {
+          const state =
+            index < currentStage
+              ? PURCHASE_TEXT.approvalStageDone
+              : index === currentStage
+                ? PURCHASE_TEXT.approvalStageCurrent
+                : PURCHASE_TEXT.approvalStagePending;
+          return (
+            <li key={label} className="rounded bg-muted-panel px-2 py-1 text-xs text-steel">
+              <span className="block font-semibold text-ink">{label}</span>
+              <span>{state}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function FinanceControlBadges({ request }: { request: PurchaseRequestSummary }) {
+  const controls = [
+    PURCHASE_TEXT.controlPolicy,
+    PURCHASE_TEXT.controlAudit,
+    PURCHASE_TEXT.controlPasskey,
+    request.policy.quote_update_required
+      ? PURCHASE_TEXT.controlQuoteBlocked
+      : PURCHASE_TEXT.controlQuoteReady,
+  ];
+
+  return (
+    <section aria-label={PURCHASE_TEXT.controlBadgesAria} className="grid gap-2 rounded-md border border-line bg-white p-3">
+      <h4 className="text-sm font-semibold text-ink">{PURCHASE_TEXT.controlBadgesTitle}</h4>
+      <div className="flex flex-wrap gap-1">
+        {controls.map((control) => (
+          <Badge key={control}>{control}</Badge>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SourceObjectRail({ request }: { request: PurchaseRequestSummary }) {
+  const sources: Array<{ key: string; label: string; value: string; href?: string }> = [
+    { key: "purchase", label: PURCHASE_TEXT.sourcePurchase, value: request.id },
+  ];
+  if (request.work_order_id) {
+    sources.push({
+      key: "workOrder",
+      label: PURCHASE_TEXT.sourceWorkOrder,
+      value: request.work_order_id,
+      href: `/work-orders/${request.work_order_id}`,
+    });
+  }
+  if (request.equipment_id) {
+    sources.push({
+      key: "equipment",
+      label: PURCHASE_TEXT.sourceEquipment,
+      value: request.equipment_id,
+    });
+  }
+  if (request.statement_evidence_id) {
+    sources.push({
+      key: "evidence",
+      label: PURCHASE_TEXT.sourceEvidence,
+      value: request.statement_evidence_id,
+    });
+  }
+
+  return (
+    <section aria-label={PURCHASE_TEXT.sourceRailAria} className="grid gap-2 rounded-md border border-line bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-ink">{PURCHASE_TEXT.sourceRailTitle}</h4>
+        <Badge>{PURCHASE_TEXT.sourceCount(sources.length)}</Badge>
+      </div>
+      <div className="grid gap-1 md:grid-cols-2">
+        {sources.map((source) => {
+          const content = (
+            <>
+              <span className="font-semibold text-ink">{source.label}</span>
+              <span className="break-all text-steel">{source.value}</span>
+              <span className="text-xs text-steel">
+                {source.href ? PURCHASE_TEXT.sourceOpen : PURCHASE_TEXT.sourceLinked}
+              </span>
+            </>
+          );
+          return source.href ? (
+            <a
+              key={source.key}
+              href={source.href}
+              className="grid gap-1 rounded bg-muted-panel px-2 py-1 text-sm underline-offset-2 hover:underline"
+            >
+              {content}
+            </a>
+          ) : (
+            <div key={source.key} className="grid gap-1 rounded bg-muted-panel px-2 py-1 text-sm">
+              {content}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 function StatementEvidencePreview({
   api,
   evidenceId,

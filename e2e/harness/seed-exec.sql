@@ -32,8 +32,7 @@ INSERT INTO financial_purchase_requests (
   depreciation_method, useful_life_months, residual_rate_bps,
   declining_balance_rate_bps, management_fee_rate_bps, profit_rate_bps,
   floor_negative_quote_residual, executive_threshold_won,
-  created_at, updated_at, org_id, purchase_type,
-  subtotal_won, vat_won, total_won
+  created_at, updated_at, org_id, purchase_type
 )
 VALUES (
   '00000000-0000-0000-0000-000000f10001',
@@ -43,9 +42,20 @@ VALUES (
   'STRAIGHT_LINE', 60, 1000,
   2000, 1000, 500,
   true, 2000000,
-  now(), now(), :'org_id', 'EQUIPMENT',
-  3000000, 0, 3000000
+  now(), now(), :'org_id', 'ONE_OFF'
 )
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO financial_purchase_request_lines (
+  purchase_request_id, line_no, item, quantity,
+  unit_supply_price_won, vat_won, vat_overridden,
+  line_total_won, org_id
+)
+VALUES (
+  '00000000-0000-0000-0000-000000f10001', 1, 'E2E 임원 최종 승인 대상', 1,
+  3000000, 0, false,
+  3000000, :'org_id'
+)
+ON CONFLICT (purchase_request_id, line_no) DO NOTHING;
 
 COMMIT;

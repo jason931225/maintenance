@@ -502,13 +502,15 @@ impl PgFinancialStore {
                 {
                     upsert_regular_purchase_prices_tx(
                         tx,
-                        purchase_request_id,
-                        command.branch_id,
-                        &command.vendor_name,
-                        &computed_lines,
-                        command.quote_attachment_ids.first().copied(),
-                        command.occurred_at,
-                        org_uuid,
+                        RegularPurchasePriceUpsert {
+                            purchase_request_id,
+                            branch_id: command.branch_id,
+                            vendor_name: &command.vendor_name,
+                            lines: &computed_lines,
+                            quote_attachment_id: command.quote_attachment_ids.first().copied(),
+                            updated_at: command.occurred_at,
+                            org_uuid,
+                        },
                     )
                     .await?;
                 }
@@ -748,13 +750,15 @@ impl PgFinancialStore {
                 {
                     upsert_regular_purchase_prices_tx(
                         tx,
-                        command.purchase_request_id,
-                        row.branch_id,
-                        &row.vendor_name,
-                        &computed_lines,
-                        command.quote_attachment_ids.first().copied(),
-                        command.occurred_at,
-                        org_uuid,
+                        RegularPurchasePriceUpsert {
+                            purchase_request_id: command.purchase_request_id,
+                            branch_id: row.branch_id,
+                            vendor_name: &row.vendor_name,
+                            lines: &computed_lines,
+                            quote_attachment_id: command.quote_attachment_ids.first().copied(),
+                            updated_at: command.occurred_at,
+                            org_uuid,
+                        },
                     )
                     .await?;
                 }
@@ -855,14 +859,16 @@ impl PgFinancialStore {
                 } else {
                     let expense_event = insert_expense_ledger_tx(
                         tx,
-                        command.purchase_request_id,
-                        command.actor,
-                        row.branch_id,
-                        &row.vendor_name,
-                        row.amount_won,
-                        row.expenditure_no.as_deref(),
-                        command.occurred_at,
-                        org_uuid,
+                        ExpenseLedgerInsert {
+                            purchase_request_id: command.purchase_request_id,
+                            actor: command.actor,
+                            branch_id: row.branch_id,
+                            vendor_name: &row.vendor_name,
+                            amount_won: row.amount_won,
+                            expenditure_no: row.expenditure_no.as_deref(),
+                            occurred_at: command.occurred_at,
+                            org_uuid,
+                        },
                     )
                     .await?;
                     Ok((purchase, vec![purchase_event, expense_event]))
@@ -1673,13 +1679,13 @@ fn compute_purchase_lines(
     }
 
     let total = purchase_total(&lines)?;
-    if let Some(client_total) = client_amount_won {
-        if client_total != total {
-            return Err(KernelError::validation(
-                "purchase amount must equal the server-calculated line total",
-            )
-            .into());
-        }
+    if let Some(client_total) = client_amount_won
+        && client_total != total
+    {
+        return Err(KernelError::validation(
+            "purchase amount must equal the server-calculated line total",
+        )
+        .into());
     }
     Ok(lines)
 }
@@ -1931,18 +1937,22 @@ async fn purchase_policy_flags_tx(
     })
 }
 
-async fn upsert_regular_purchase_prices_tx(
-    tx: &mut Transaction<'_, Postgres>,
+struct RegularPurchasePriceUpsert<'a> {
     purchase_request_id: PurchaseRequestId,
     branch_id: BranchId,
-    vendor_name: &str,
-    lines: &[ComputedPurchaseLine],
+    vendor_name: &'a str,
+    lines: &'a [ComputedPurchaseLine],
     quote_attachment_id: Option<uuid::Uuid>,
     updated_at: OffsetDateTime,
     org_uuid: uuid::Uuid,
+}
+
+async fn upsert_regular_purchase_prices_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    input: RegularPurchasePriceUpsert<'_>,
 ) -> Result<(), PgFinancialError> {
-    let vendor = normalize_purchase_key(vendor_name);
-    for line in lines {
+    let vendor = normalize_purchase_key(input.vendor_name);
+    for line in input.lines {
         let item = normalize_purchase_key(&line.item);
         sqlx::query(
             r#"
@@ -1959,30 +1969,34 @@ async fn upsert_regular_purchase_prices_tx(
                 updated_at = EXCLUDED.updated_at
             "#,
         )
-        .bind(*branch_id.as_uuid())
+        .bind(*input.branch_id.as_uuid())
         .bind(&vendor)
         .bind(&item)
         .bind(line.unit_supply_price_won)
-        .bind(quote_attachment_id)
-        .bind(*purchase_request_id.as_uuid())
-        .bind(updated_at)
-        .bind(org_uuid)
+        .bind(input.quote_attachment_id)
+        .bind(*input.purchase_request_id.as_uuid())
+        .bind(input.updated_at)
+        .bind(input.org_uuid)
         .execute(tx.as_mut())
         .await?;
     }
     Ok(())
 }
 
-async fn insert_expense_ledger_tx(
-    tx: &mut Transaction<'_, Postgres>,
+struct ExpenseLedgerInsert<'a> {
     purchase_request_id: PurchaseRequestId,
     actor: UserId,
     branch_id: BranchId,
-    vendor_name: &str,
+    vendor_name: &'a str,
     amount_won: i64,
-    expenditure_no: Option<&str>,
+    expenditure_no: Option<&'a str>,
     occurred_at: OffsetDateTime,
     org_uuid: uuid::Uuid,
+}
+
+async fn insert_expense_ledger_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    input: ExpenseLedgerInsert<'_>,
 ) -> Result<AuditEvent, PgFinancialError> {
     sqlx::query(
         r#"
@@ -1993,26 +2007,29 @@ async fn insert_expense_ledger_tx(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
-    .bind(*branch_id.as_uuid())
-    .bind(*purchase_request_id.as_uuid())
-    .bind(vendor_name.trim())
-    .bind(amount_won)
-    .bind(format!("purchase expense execution {purchase_request_id}"))
-    .bind(expenditure_no)
-    .bind(*actor.as_uuid())
-    .bind(occurred_at)
-    .bind(org_uuid)
+    .bind(*input.branch_id.as_uuid())
+    .bind(*input.purchase_request_id.as_uuid())
+    .bind(input.vendor_name.trim())
+    .bind(input.amount_won)
+    .bind(format!(
+        "purchase expense execution {}",
+        input.purchase_request_id
+    ))
+    .bind(input.expenditure_no)
+    .bind(*input.actor.as_uuid())
+    .bind(input.occurred_at)
+    .bind(input.org_uuid)
     .execute(tx.as_mut())
     .await?;
 
     financial_audit_event(
         "financial.expense.execute",
-        actor,
-        branch_id,
+        input.actor,
+        input.branch_id,
         "financial_expense_ledger",
-        purchase_request_id,
+        input.purchase_request_id,
         TraceContext::generate(),
-        occurred_at,
+        input.occurred_at,
     )
     .map_err(PgFinancialError::from)
 }

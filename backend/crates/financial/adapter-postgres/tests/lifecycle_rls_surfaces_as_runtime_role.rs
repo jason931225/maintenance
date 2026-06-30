@@ -27,7 +27,7 @@
 use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_application::{
     AppendCostLedgerEntryCommand, CostLedgerSource, CreatePurchaseRequestCommand,
-    FinancialConfigSnapshot, PurchaseSubmitCommand,
+    FinancialConfigSnapshot, PurchaseRequestLineInput, PurchaseSubmitCommand, PurchaseType,
 };
 use mnt_financial_domain::{AcquisitionBasis, DepreciationMethod, PurchaseStatus};
 use mnt_kernel_core::{
@@ -81,6 +81,15 @@ fn financial_config() -> FinancialConfigSnapshot {
         profit_rate_bps: 500,
         floor_negative_quote_residual: true,
         executive_approval_threshold_won: 2_000_000,
+    }
+}
+
+fn purchase_line(item: &str, amount_won: i64) -> PurchaseRequestLineInput {
+    PurchaseRequestLineInput {
+        item: item.to_owned(),
+        quantity: 1,
+        unit_supply_price_won: amount_won,
+        vat_won: None,
     }
 }
 
@@ -761,11 +770,14 @@ async fn purchase_request_create_and_submit_as_runtime_role(owner_pool: PgPool) 
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: fx.admin,
                 branch_id: fx.branch_id,
-                equipment_id: fx.equipment_id,
+                equipment_id: Some(fx.equipment_id),
                 work_order_id: Some(fx.work_order_id),
-                statement_evidence_id: evidence,
+                statement_evidence_id: Some(evidence),
+                purchase_type: PurchaseType::LegacyManual,
                 vendor_name: "한빛부품".to_owned(),
-                amount_won: 500_000,
+                amount_won: Some(500_000),
+                lines: vec![purchase_line("정기 부품 교체", 500_000)],
+                quote_attachment_ids: Vec::new(),
                 memo: "정기 부품 교체".to_owned(),
                 config: financial_config(),
                 trace: TraceContext::generate(),
@@ -852,11 +864,14 @@ async fn cross_tenant_purchase_request_is_invisible_as_runtime_role(owner_pool: 
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: fx_b.admin,
                 branch_id: fx_b.branch_id,
-                equipment_id: fx_b.equipment_id,
+                equipment_id: Some(fx_b.equipment_id),
                 work_order_id: Some(fx_b.work_order_id),
-                statement_evidence_id: evidence_b,
+                statement_evidence_id: Some(evidence_b),
+                purchase_type: PurchaseType::LegacyManual,
                 vendor_name: "Org B Vendor".to_owned(),
-                amount_won: 500_000,
+                amount_won: Some(500_000),
+                lines: vec![purchase_line("org-b purchase", 500_000)],
+                quote_attachment_ids: Vec::new(),
                 memo: "org-b purchase".to_owned(),
                 config: financial_config(),
                 trace: TraceContext::generate(),
