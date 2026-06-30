@@ -440,7 +440,7 @@ describe("MailPage", () => {
     expect(await screen.findByText("메일을 전달했습니다.")).toBeVisible();
   });
 
-  it("shows setup guidance instead of a broken mailbox when mail is unavailable", async () => {
+  it("shows platform readiness instead of a server-configuration link when mail is unavailable", async () => {
     server.use(
       http.get("*/api/v1/mail/account", () =>
         HttpResponse.json({ error: { code: "email_not_configured" } }, { status: 503 }),
@@ -458,14 +458,14 @@ describe("MailPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("메일 기능이 아직 구성되지 않았습니다.")).toBeVisible();
-    expect(screen.getByRole("link", { name: "메일 서버 설정" })).toHaveAttribute(
-      "href",
-      "/settings/email",
-    );
+    expect(await screen.findByText("회사 메일함 준비 중")).toBeVisible();
+    expect(
+      screen.getByText(/SMTP\/IMAP 서버 설정은 사용자가 입력하지 않습니다/),
+    ).toBeVisible();
+    expect(screen.queryByRole("link", { name: "메일 서버 설정" })).not.toBeInTheDocument();
   });
 
-  it("shows admin readiness instead of compose when no mailbox account is configured", async () => {
+  it("shows automatic provisioning readiness instead of compose when no mailbox account exists", async () => {
     server.use(
       http.get(
         "*/api/v1/mail/account",
@@ -480,12 +480,14 @@ describe("MailPage", () => {
 
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "메일 계정 설정 필요" })).toBeVisible();
-    expect(screen.getByText("관리자가 SMTP/IMAP 서버와 발신 이름을 저장합니다.")).toBeVisible();
-    expect(screen.getByRole("link", { name: "메일 서버 설정" })).toHaveAttribute(
-      "href",
-      "/settings/email",
-    );
+    expect(await screen.findByRole("heading", { name: "메일함 자동 프로비저닝 대기" })).toBeVisible();
+    expect(
+      screen.getByText(/사용자는 SMTP\/IMAP 서버 정보를 직접 설정하지 않습니다/),
+    ).toBeVisible();
+    expect(
+      screen.getByText("직원·역할·조직 정보에 맞춰 메일함과 별칭을 자동 생성합니다."),
+    ).toBeVisible();
+    expect(screen.queryByRole("link", { name: "메일 서버 설정" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "새 메일" })).not.toBeInTheDocument();
   });
 

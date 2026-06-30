@@ -2481,6 +2481,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-comms-mailbox"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "mnt-comms-rest"
 version = "0.1.0"
 dependencies = [

@@ -105,7 +105,7 @@ if (matrix) {
     "G007 matrix records live-evidence non-claim policy",
     `${matrixPath}: nonClaimPolicy must reserve live rollout/screenshot claims for G009`,
   );
-  assert(Array.isArray(matrix.routePaths) && matrix.routePaths.length >= 4, "G007 matrix routePaths", `${matrixPath}: routePaths must cover collaboration routes`);
+  assert(Array.isArray(matrix.routePaths) && matrix.routePaths.length >= 3, "G007 matrix routePaths", `${matrixPath}: routePaths must cover collaboration routes`);
   assert(Array.isArray(matrix.dependencyRoutes) && matrix.dependencyRoutes.length >= 2, "G007 matrix dependency routePaths", `${matrixPath}: dependencyRoutes must cover Work Hub/Approvals dependencies`);
   requireArrayOfStrings(matrix.requiredE2eSpecs, matrixPath, "requiredE2eSpecs");
   requireArrayOfStrings(matrix.requiredWebTests, matrixPath, "requiredWebTests");
@@ -113,7 +113,7 @@ if (matrix) {
   requireArrayOfStrings(matrix.requiredMobileTests, matrixPath, "requiredMobileTests");
   assert(Array.isArray(matrix.safetyAssertions) && matrix.safetyAssertions.length >= 12, "G007 safety assertions", `${matrixPath}: safetyAssertions must capture collaboration/mail/mobile guardrails`);
 
-  const requiredRouteGroups = new Set(["collaboration-hub", "messenger", "mailbox", "mail-admin"]);
+  const requiredRouteGroups = new Set(["collaboration-hub", "messenger", "mailbox"]);
   const matrixRoutes = new Map();
   for (const row of matrix.routePaths ?? []) {
     assert(typeof row.path === "string" && row.path.startsWith("/"), `G007 route ${row.path ?? "<missing>"}: path`, `${matrixPath}: route row missing path`);
@@ -128,7 +128,7 @@ if (matrix) {
   if (routeAudit?.routeCoverage) {
     const auditByPath = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
     const ownedRows = routeAudit.routeCoverage.filter((row) => String(row.ownerLane ?? "").startsWith("G007"));
-    assert(ownedRows.length >= 4, "enterprise route audit has G007-owned rows", `${auditPath}: expected G007-owned route rows`);
+    assert(ownedRows.length >= 3, "enterprise route audit has G007-owned rows", `${auditPath}: expected G007-owned route rows`);
     for (const auditRow of ownedRows) {
       assert(matrixRoutes.has(auditRow.canonicalPath), `route audit ${auditRow.canonicalPath}: represented in G007 matrix`, `${matrixPath}: missing routePaths row for G007-owned route ${auditRow.canonicalPath}`);
     }
@@ -182,7 +182,6 @@ if (matrix) {
     "web/src/pages/MessengerPage.tsx",
     "web/src/features/messenger/MessengerPanel.tsx",
     "web/src/pages/MailPage.tsx",
-    "web/src/pages/EmailSettingsPage.tsx",
     "web/src/pages/WorkHubPage.tsx",
     "ios/Sources/MaintenanceFieldApp/FieldViews.swift",
     "android/app/src/main/kotlin/com/maintenance/field/ui/FieldApp.kt",

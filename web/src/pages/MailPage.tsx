@@ -228,9 +228,9 @@ export function MailPage() {
   const [inquiryLoadState, setInquiryLoadState] = useState<InquiryLoadState>("idle");
   const [inquiryBusyId, setInquiryBusyId] = useState<string>();
 
-  const canUseAdminSettings =
+  const canCheckMailboxReadiness =
     session?.roles?.some((role) => role === "ADMIN" || role === "SUPER_ADMIN") ?? false;
-  const canManageInquiries = canUseAdminSettings;
+  const canManageInquiries = canCheckMailboxReadiness;
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.id === selectedThreadId),
@@ -256,7 +256,7 @@ export function MailPage() {
     if (query.trim()) queryParams.q = query.trim();
 
     try {
-      const accountRequest = canUseAdminSettings
+      const accountRequest = canCheckMailboxReadiness
         ? api.GET("/api/v1/mail/account").catch(() => undefined)
         : Promise.resolve(undefined);
       const [accountRes, folderRes, threadRes] = await Promise.all([
@@ -301,7 +301,7 @@ export function MailPage() {
     } catch {
       setLoadState("error");
     }
-  }, [api, canUseAdminSettings, folderId, query, unreadOnly]);
+  }, [api, canCheckMailboxReadiness, folderId, query, unreadOnly]);
 
   const loadInquiries = useCallback(async () => {
     if (!canManageInquiries) {
@@ -600,9 +600,6 @@ export function MailPage() {
                   <li key={step}>{step}</li>
                 ))}
               </ol>
-              <Button asChild type="button" variant="secondary" className="mt-4">
-                <Link to="/settings/email">{c.configureServer}</Link>
-              </Button>
             </div>
           </div>
         </Card>
@@ -615,11 +612,6 @@ export function MailPage() {
             <div>
               <h2 className="text-lg font-semibold text-ink">{c.unavailableTitle}</h2>
               <p className="mt-1 text-sm text-steel">{c.unavailableBody}</p>
-              {canUseAdminSettings ? (
-                <Button asChild type="button" variant="secondary" className="mt-4">
-                  <Link to="/settings/email">{c.configureServer}</Link>
-                </Button>
-              ) : null}
             </div>
           </div>
         </Card>

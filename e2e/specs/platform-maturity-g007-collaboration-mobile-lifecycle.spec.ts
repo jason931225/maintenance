@@ -14,7 +14,8 @@ test.describe("G007 collaboration/mail/calendar/poll/mobile lifecycle contract",
     const auditRows = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
     const g007AuditRows = routeAudit.routeCoverage.filter((row) => row.ownerLane.startsWith("G007"));
 
-    expect(g007AuditRows.length).toBeGreaterThanOrEqual(4);
+    expect(g007AuditRows.length).toBe(collaborationMatrix.routePaths.length);
+    expect(g007AuditRows.length).toBeGreaterThanOrEqual(3);
     for (const auditRow of g007AuditRows) {
       expect(matrixRoutes.has(auditRow.canonicalPath), `${auditRow.canonicalPath} must be in G007 matrix`).toBeTruthy();
     }

@@ -22,7 +22,12 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
-import { hasAnyRole, ROLES } from "../components/shell/nav";
+import {
+  FEATURES,
+  hasAnyFeatureGrant,
+  hasAnyRole,
+  ROLES,
+} from "../components/shell/nav";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
@@ -34,6 +39,13 @@ import { cn, priorityClass, priorityLabel, safeLabel } from "../lib/utils";
 
 const ADMIN_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 const DAILY_PLAN_ROLES = [ROLES.MECHANIC, ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
+const MAIL_USE_ROLES = [
+  ROLES.RECEPTIONIST,
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.SUPER_ADMIN,
+] as const;
+const MAIL_USE_FEATURES = [FEATURES.MAIL_USE] as const;
 const TEAM_QUEUE_ROLES = [
   ROLES.ADMIN,
   ROLES.SUPER_ADMIN,
@@ -339,7 +351,9 @@ export function WorkHubPage() {
   const canApprove = hasAnyRole(session?.roles, ADMIN_ROLES);
   const canUseDailyPlan = hasAnyRole(session?.roles, DAILY_PLAN_ROLES);
   const canSeeTeamQueue = hasAnyRole(session?.roles, TEAM_QUEUE_ROLES);
-  const canManageMail = hasAnyRole(session?.roles, ADMIN_ROLES);
+  const canUseMail =
+    hasAnyRole(session?.roles, MAIL_USE_ROLES) ||
+    hasAnyFeatureGrant(session?.feature_grants, MAIL_USE_FEATURES);
 
   const loadData = useCallback(async () => {
     setReadState("loading");
@@ -437,13 +451,13 @@ export function WorkHubPage() {
       {
         key: "mail" as const,
         label: ko.workHub.stats.mail,
-        value: canManageMail ? 1 : 0,
-        href: "/settings/email",
+        value: 0,
+        href: "/mail",
         Icon: Mail,
-        disabled: !canManageMail,
+        disabled: !canUseMail,
       },
     ],
-    [canApprove, canManageMail, canUseDailyPlan, data],
+    [canApprove, canUseDailyPlan, canUseMail, data],
   );
   const priorityCards = useMemo(
     () => [

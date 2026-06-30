@@ -210,8 +210,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // intake (WorkOrderCreate/EditIntake): the five operational roles, not MEMBER.
   ["intake", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
-  // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied;
-  // mail server configuration remains the separate admin-only `email` item.
+  // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied.
+  // The platform operates the mail server out of the box; there is no
+  // tenant-visible SMTP/IMAP server configuration nav item.
   ["mail", MAIL_USE_ROLES],
   ["support", OPERATIONAL_ROLES],
   ["reporting", OPERATIONAL_ROLES],
@@ -240,10 +241,10 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["sites", ADMIN_ROLES],
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
   ["security", ADMIN_ROLES],
-  // email (MailAccountManage): the tenant corporate mail-account config. The
-  // backend matrix grants MailAccountManage to ADMIN/SUPER_ADMIN only, matching
-  // the `RequireAdminRoute` guard on `/settings/email`.
-  ["email", ADMIN_ROLES],
+  // Legacy external-account configuration is intentionally hidden. Corporate
+  // mailbox hosting is platform-operated; admins manage domains/mailboxes, not
+  // SMTP/IMAP host/port/password settings.
+  ["email", []],
   // inspection (InspectionScheduleManage): ADMIN/SUPER_ADMIN only, matching the
   // backend matrix row [D, D, A, D, A] and the list-schedules read gate.
   ["inspection", ADMIN_ROLES],
@@ -518,15 +519,6 @@ export const NAV_GROUPS = [
         href: "/settings/workflows",
         labelKey: "nav.workflows",
         Icon: ShieldCheck,
-      },
-      // email (MailAccountManage): tenant corporate mail-account config. ADMIN/
-      // SUPER_ADMIN only — gated by ITEM_ROLE_GATES("email") and the
-      // RequireAdminRoute guard on /settings/email.
-      {
-        key: "email",
-        href: "/settings/email",
-        labelKey: "nav.email",
-        Icon: Mail,
       },
       {
         key: "security",
