@@ -32,7 +32,7 @@ INSERT INTO financial_purchase_requests (
   depreciation_method, useful_life_months, residual_rate_bps,
   declining_balance_rate_bps, management_fee_rate_bps, profit_rate_bps,
   floor_negative_quote_residual, executive_threshold_won,
-  created_at, updated_at, org_id
+  created_at, updated_at, org_id, purchase_type
 )
 VALUES (
   '00000000-0000-0000-0000-000000f10001',
@@ -42,7 +42,7 @@ VALUES (
   'STRAIGHT_LINE', 60, 1000,
   2000, 1000, 500,
   true, 2000000,
-  now(), now(), :'org_id'
+  now(), now(), :'org_id', 'ONE_OFF'
 )
 ON CONFLICT (id) DO NOTHING;
 
