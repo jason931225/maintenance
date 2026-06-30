@@ -22,11 +22,15 @@ This backlog captures the current session scope and acceptance criteria. Items h
 ## P0 — Approval/workflow lifecycle defects
 
 - [ ] **Slack Workflow Builder-level workflow authoring**
-  - Managers with policy rights can create versioned workflow definitions without developer involvement: trigger, form, source business object, steps/actions, approval/payment line, conditional branches, notifications, messenger/mail updates, evidence requirements, and audit events.
-  - Builder UX supports draft, simulate/test, publish, pause, rollback, clone, and change-history review before the workflow affects live operations.
+  - Managers with policy rights can create versioned workflow definitions without developer involvement: trigger, form, source business object, steps/actions, approval/payment line, conditional branches, notifications, messenger/mail/calendar/poll updates, evidence requirements, documents, and audit events.
+  - The target is a visual no-code canvas, not a JSON form: searchable node palette, drag/connect typed nodes, typed input/output ports, branch labels, inline validation, selected-node inspector, execution preview, zoom/pan/minimap, keyboard accessibility, and production-grade error states.
+  - Builder UX supports draft, manual simulation, partial node simulation where safe, publish, pause, rollback, clone, retire, and change-history review before the workflow affects live operations.
+  - n8n Community Edition is a valid benchmark for canvas mechanics, node/connection mental model, manual/production executions, queue/worker execution, concurrency, and execution history; it is not a permissive source dependency. Follow ADR-0018 for clean-room Rust reimplementation boundaries.
+  - The workflow engine must support all corporate workflow classes, not only maintenance: 기안/품의, 전자결재, 휴가신청, 병가, overtime, 연차 사용 촉진 공지, 구매/정산, HR onboarding/offboarding/transfer, payroll-adjacent review, asset/equipment ownership/operator lifecycle, operational automation, mail/messenger/calendar/poll automations, support-ticket routing, imports, and future recommendations.
   - Workflow actions are permissioned through PBAC/ABAC/RBAC and an allow-listed connector/action catalog; risky connectors/actions require admin approval.
   - Approval steps support required approvers, role/position/department/group scoped approver resolution, custom approve/reject responses, decision comments, attachments/evidence, delegation/escalation, SLA reminders, and passkey confirmation for signing-equivalent decisions.
   - Benchmark references: Slack Workflow Builder for trigger/step/branch/connector UX, Power Automate approvals for approval action semantics and attachments, SAP Build Process Automation/Task Center for enterprise inbox forms and task context.
+  - Acceptance: browser E2E proves a manager builds a leave-request workflow on the canvas, simulates it, publishes with passkey step-up, an employee submits the request, the manager approves/rejects with comment/evidence, mail/notification/audit/work-hub states update, and terminal items disappear from action inbox.
 - [ ] **Approved items leave approval queues immediately**
   - After manager approval, the item disappears from approval inbox/action inbox without manual refresh.
   - Closed tickets/workflows do not remain in action inbox.
