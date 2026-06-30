@@ -194,6 +194,7 @@ mnt-comms-application = { path = "crates/comms/application" }
 mnt-comms-adapter-postgres = { path = "crates/comms/adapter-postgres" }
 mnt-comms-adapter-smtp = { path = "crates/comms/adapter-smtp" }
 mnt-comms-adapter-imap = { path = "crates/comms/adapter-imap" }
+mnt-comms-mailbox = { path = "crates/comms/mailbox" }
 mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-payroll-domain = { path = "crates/payroll/domain" }
 mnt-erp-domain = { path = "crates/erp/domain" }

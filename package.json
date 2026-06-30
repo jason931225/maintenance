@@ -47,7 +47,8 @@
     "check:g006-asset-dispatch-lifecycle": "node scripts/check-g006-asset-dispatch-lifecycle.mjs",
     "check:g007-collaboration-mobile-lifecycle": "node scripts/check-g007-collaboration-mobile-lifecycle.mjs",
     "check:g008-payroll-readiness": "node scripts/check-g008-payroll-readiness.mjs",
-    "check:workflow-runtime-spine": "node scripts/check-workflow-runtime-spine.mjs"
+    "check:workflow-runtime-spine": "node scripts/check-workflow-runtime-spine.mjs",
+    "check:mailbox-core": "node scripts/check-mailbox-core.mjs"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",
