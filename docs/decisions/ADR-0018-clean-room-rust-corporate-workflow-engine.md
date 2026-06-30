@@ -154,8 +154,10 @@ The engine model is:
 
 - Workflow Studio becomes a platform foundation, not a module page.
 - We need a clean workflow IR/schema that both canvas and Rust runtime understand.
-- Existing workflow definition tables are a useful start but need execution/runtime tables,
-  typed node schemas, object binding, and policy-aware connector catalogs.
+- Existing workflow definition tables are a useful start; execution/runtime persistence is now
+  anchored by migration `0077_create_workflow_runtime_spine.sql` and guarded by
+  `npm run check:workflow-runtime-spine`. Remaining backend gaps are typed node schemas,
+  policy-aware connector catalogs, runtime workers, and observability/replay controls.
 - UI work must be measured against n8n/Slack Workflow Builder-level ergonomics: searchable node
   palette, typed edges, simulation, publish review, execution history, inline errors, and fast
   iteration.
@@ -176,11 +178,14 @@ The engine model is:
      unknown connector/action, missing approval/payment line, unsafe data-class exposure, and
      missing step-up requirement.
 
-2. **Execution persistence**
-   - Add `workflow_runs`, `workflow_node_runs`, `workflow_waiting_tasks`, `workflow_outbox_events`,
-     and `workflow_execution_locks`.
-   - Persist redacted input/output snapshots and full sensitive payloads only in domain-owned
-     tables or sealed storage when legally allowed.
+2. **Execution persistence** — implemented foundation
+   - `0077_create_workflow_runtime_spine.sql` adds `workflow_runs`, `workflow_node_runs`,
+     `workflow_waiting_tasks`, `workflow_outbox_events`, and `workflow_execution_locks`.
+   - Each table is tenant-scoped with RLS/FORCE, same-org foreign keys, idempotency keys,
+     no-delete durability guards, and object/task/outbox fields needed to integrate approvals,
+     mail, messenger, calendar, audit, HR/payroll, asset/equipment, and future ERP/MES/CX flows.
+   - Full sensitive payloads still belong in domain-owned tables or sealed storage when legally
+     allowed; runtime snapshots must remain redacted/minimized.
 
 3. **Canvas MVP**
    - Replace raw JSON-first authoring with a two-pane canvas: node palette + graph canvas + selected

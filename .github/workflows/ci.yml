@@ -228,6 +228,9 @@ jobs:
       - name: G005 workflow approval Work Hub lifecycle gate
         run: npm run check:g005-workflow-lifecycle
 
+      - name: Workflow runtime spine gate
+        run: npm run check:workflow-runtime-spine
+
       - name: G006 asset equipment dispatch lifecycle gate
         run: npm run check:g006-asset-dispatch-lifecycle
 
