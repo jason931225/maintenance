@@ -155,7 +155,8 @@ The engine model is:
 - Workflow Studio becomes a platform foundation, not a module page.
 - We need a clean workflow IR/schema that both canvas and Rust runtime understand.
 - Existing workflow definition tables are a useful start; execution/runtime persistence is now
-  anchored by migration `0077_create_workflow_runtime_spine.sql` and guarded by
+  anchored by migrations `0077_create_workflow_runtime_spine.sql` and
+  `0078_harden_workflow_runtime_integrity.sql`, guarded by
   `npm run check:workflow-runtime-spine`. Remaining backend gaps are typed node schemas,
   policy-aware connector catalogs, runtime workers, and observability/replay controls.
 - UI work must be measured against n8n/Slack Workflow Builder-level ergonomics: searchable node
@@ -184,6 +185,9 @@ The engine model is:
    - Each table is tenant-scoped with RLS/FORCE, same-org foreign keys, idempotency keys,
      no-delete durability guards, and object/task/outbox fields needed to integrate approvals,
      mail, messenger, calendar, audit, HR/payroll, asset/equipment, and future ERP/MES/CX flows.
+   - `0078_harden_workflow_runtime_integrity.sql` closes the run/node traceability invariant:
+     waiting tasks and outbox rows may only reference node runs that belong to the same
+     `(org_id, run_id)` parent run, and terminal outbox states must carry timestamp/error evidence.
    - Full sensitive payloads still belong in domain-owned tables or sealed storage when legally
      allowed; runtime snapshots must remain redacted/minimized.
 
@@ -207,3 +211,13 @@ The engine model is:
 5. **Runtime workers and observability**
    - Queue-backed Rust worker with concurrency limits, retry/dead-letter, idempotency, traces,
      metrics, execution history, and admin replay/recover controls.
+
+## Boundary Notes for Future Expansion
+
+- The current runtime spine is deliberately **org-local**. Group-wide workflows should be modeled as
+  a parent orchestration envelope that spawns auditable child runs inside each participating org,
+  rather than bypassing tenant/RLS boundaries with shared mutable rows.
+- The current `trigger_type` and outbox `channel` values are a closed allowlist. Before adding broad
+  external connector families, introduce a server-owned connector/action registry with typed ports,
+  versioned schemas, policy requirements, secret scopes, and redaction rules. Do not turn workflow
+  nodes into arbitrary browser-defined code or direct table access.
