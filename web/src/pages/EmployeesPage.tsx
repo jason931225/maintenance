@@ -1328,8 +1328,8 @@ type EmployeeImportColumn = EmployeeImportPreview["columns"][number];
 function employeeImportMappingCounts(columns: EmployeeImportColumn[]) {
   return columns.reduce(
     (counts, column) => {
-      const classification = column.classification as keyof typeof counts;
-      if (classification in counts) counts[classification] += 1;
+      const { classification } = column;
+      counts[classification] += 1;
       return counts;
     },
     { canonical: 0, restricted: 0, location: 0, retained: 0 },
@@ -1340,25 +1340,8 @@ function employeeImportTargetLabel(
   target: EmployeeImportColumn["target"],
 ): string {
   if (!target) return ko.employees.import.previewPanel.rawOnly;
-  return (
-    (
-      {
-        name: "성명",
-        employee_number: "사번",
-        org_unit: "부서/팀",
-        job: "업무/직무",
-        position: "직책/직급",
-        worksite_name: "근무지",
-        worksite_address: "근무지 주소",
-        hire_date: "입사일",
-        exit_date: "퇴사일",
-        leave_accrued: "발생연차",
-        leave_used: "사용연차",
-        leave_remaining: "잔여연차",
-        company: "회사/법인",
-      } as Record<string, string>
-    )[target] ?? target
-  );
+  const { targetLabels } = ko.employees.import.previewPanel;
+  return targetLabels[target];
 }
 
 function employeeImportPolicyLabel(classification: string): string {
