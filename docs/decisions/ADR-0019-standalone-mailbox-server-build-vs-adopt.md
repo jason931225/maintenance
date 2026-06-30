@@ -17,7 +17,7 @@ Use Stalwart as a feature benchmark only. Do not embed, fork, copy source, copy 
 Default path: build a clean-room Rust-native mailbox foundation inside the platform and keep public MX disabled until production gates pass. The console must expose domain/DNS readiness, mailbox lifecycle, aliases, delegation, retention, and policy; it must not expose a generic mail-server configuration form to tenants. The first accepted slice is:
 
 - `mnt-comms-mailbox`: pure Rust value objects and SMTP transaction state machine that enforces local-domain recipient resolution, no-open-relay behavior, command ordering, message-size bounds, recipient limits, DATA dot handling, and reset semantics.
-- `0079_create_mailbox_server_spine.sql`: group/org-aware domain, mailbox, alias, message, and delivery/queue metadata with RLS and immutable-org triggers.
+- `0082_create_mailbox_server_spine.sql`: group/org-aware domain, mailbox, alias, message, and delivery/queue metadata with RLS and immutable-org triggers.
 - `docs/specs/standalone-corporate-mailbox-server.md`: Stalwart parity matrix, adoption-candidate matrix, target architecture, phases, and production gates.
 
 Run a bounded adoption spike for Apache James only if we need an off-the-shelf full-protocol server sooner than the native implementation can mature. Apache James is Apache-2.0 and supports SMTP, IMAP, JMAP, POP3, and distributed deployment options, but it may be too heavy for the OCI A1/free-tier posture and would still need identity/policy/audit integration work. Any adopted server remains an internal platform component, not something tenants configure through host/port/password forms.
