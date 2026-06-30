@@ -153,9 +153,10 @@ export function DispatchBoard({
         )
       ) : null}
       <div
-        className="flex gap-3 overflow-x-auto pb-2"
+        className="flex gap-3 overflow-x-auto pb-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal focus-visible:ring-offset-2"
         role="list"
         aria-label={ko.dispatch.boardTitle}
+        tabIndex={0}
       >
         {groups.map((group) => {
           const items = groupItems(workOrders, group.statuses);
