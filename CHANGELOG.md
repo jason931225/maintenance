@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/jason931225/maintenance/compare/v0.1.22...v0.1.23) (2026-06-29)
+
+
+### Features
+
+* complete enterprise operations ultragoal ([#87](https://github.com/jason931225/maintenance/issues/87)) ([d5e9958](https://github.com/jason931225/maintenance/commit/d5e995856163a8fb1f0234bd7eb3074bd764785c))
+
 ## [0.1.22](https://github.com/jason931225/maintenance/compare/v0.1.21...v0.1.22) (2026-06-29)
 
 
