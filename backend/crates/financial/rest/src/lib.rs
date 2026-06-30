@@ -1,6 +1,10 @@
 //! Financial REST API.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -13,7 +17,7 @@ use mnt_financial_application::{
     PrepareExpenditureCommand, PurchaseApprovalCommand, PurchaseRestartCommand,
     PurchaseSubmitCommand, RejectPurchaseCommand,
 };
-use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
+use mnt_financial_domain::{MoneyInput, PurchaseType, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
     BranchId, EquipmentId, ErrorKind, EvidenceId, KernelError, PurchaseRequestId, QuoteId,
     TraceContext, WorkOrderId,
@@ -21,12 +25,33 @@ use mnt_kernel_core::{
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use mnt_platform_db::DbError;
+use mnt_platform_storage::{EvidenceService, S3ObjectStore, StorageError};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+type AttachmentDownloadFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<String, StorageError>> + Send + 'a>>;
+
+pub trait PurchaseAttachmentStore: Send + Sync {
+    fn presign_evidence<'a>(&'a self, evidence_id: EvidenceId) -> AttachmentDownloadFuture<'a>;
+}
+
+impl<S> PurchaseAttachmentStore for EvidenceService<S>
+where
+    S: S3ObjectStore + Send + Sync,
+{
+    fn presign_evidence<'a>(&'a self, evidence_id: EvidenceId) -> AttachmentDownloadFuture<'a> {
+        Box::pin(async move {
+            let media = self.evidence_media(evidence_id).await?;
+            self.presigned_media_url(&media).await
+        })
+    }
+}
+
+#[derive(Clone)]
 pub struct FinancialRestState {
     store: PgFinancialStore,
     jwt_verifier: Option<JwtVerifier>,
+    attachment_store: Option<Arc<dyn PurchaseAttachmentStore>>,
 }
 
 impl FinancialRestState {
@@ -35,7 +60,18 @@ impl FinancialRestState {
         Self {
             store,
             jwt_verifier,
+            attachment_store: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_attachment_store<T>(mut self, store: Option<T>) -> Self
+    where
+        T: PurchaseAttachmentStore + 'static,
+    {
+        self.attachment_store =
+            store.map(|store| Arc::new(store) as Arc<dyn PurchaseAttachmentStore>);
+        self
     }
 }
 
@@ -71,6 +107,10 @@ pub fn router(state: FinancialRestState) -> Router {
         .route(
             "/api/v1/financial/purchase-requests/{purchase_request_id}",
             get(get_purchase_request),
+        )
+        .route(
+            "/api/v1/financial/purchase-requests/{purchase_request_id}/attachments/{attachment_id}/download",
+            get(download_purchase_attachment),
         )
         .route(
             "/api/v1/financial/purchase-requests/{purchase_request_id}/submit",
@@ -132,13 +172,31 @@ struct AppendManualCostLedgerRequest {
 #[derive(Debug, Deserialize)]
 struct CreatePurchaseRequest {
     branch_id: BranchId,
-    equipment_id: EquipmentId,
+    #[serde(default = "default_purchase_type")]
+    purchase_type: PurchaseType,
+    #[serde(default)]
+    equipment_id: Option<EquipmentId>,
+    #[serde(default)]
     work_order_id: Option<WorkOrderId>,
-    statement_evidence_id: EvidenceId,
+    #[serde(default)]
+    statement_evidence_id: Option<EvidenceId>,
     vendor_name: String,
-    amount_won: i64,
+    #[serde(default)]
+    amount_won: Option<i64>,
     memo: String,
+    #[serde(default)]
+    lines: Vec<mnt_financial_application::PurchaseRequestLineInput>,
+    #[serde(default)]
+    exceptions: Vec<mnt_financial_application::PurchaseRequestExceptionInput>,
+    #[serde(default)]
+    shipping_won: i64,
+    #[serde(default)]
+    discount_won: i64,
     config: FinancialConfigSnapshot,
+}
+
+fn default_purchase_type() -> PurchaseType {
+    PurchaseType::Equipment
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +214,11 @@ struct RestartPurchaseRequest {
     statement_evidence_id: EvidenceId,
     amount_won: i64,
     memo: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PurchaseAttachmentDownload {
+    url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -339,12 +402,17 @@ async fn create_purchase_request(
         .create_purchase_request(CreatePurchaseRequestCommand {
             actor: principal.user_id,
             branch_id: body.branch_id,
+            purchase_type: body.purchase_type,
             equipment_id: body.equipment_id,
             work_order_id: body.work_order_id,
             statement_evidence_id: body.statement_evidence_id,
             vendor_name: body.vendor_name,
             amount_won: body.amount_won,
             memo: body.memo,
+            lines: body.lines,
+            exceptions: body.exceptions,
+            shipping_won: body.shipping_won,
+            discount_won: body.discount_won,
             config: body.config,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
@@ -360,14 +428,32 @@ async fn get_purchase_request(
     Path(purchase_request_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
     let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
-    let (purchase, _) = authorize_for_purchase(
-        &state,
-        &headers,
-        purchase_request_id,
-        Action::limited(Feature::PurchaseRequestRead),
-    )
-    .await?;
+    let (purchase, _) = authorize_for_purchase_read(&state, &headers, purchase_request_id).await?;
     Ok(Json(purchase))
+}
+
+async fn download_purchase_attachment(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Path((purchase_request_id, attachment_id)): Path<(uuid::Uuid, uuid::Uuid)>,
+) -> Result<impl IntoResponse, RestError> {
+    let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
+    let (purchase, _) = authorize_for_purchase_read(&state, &headers, purchase_request_id).await?;
+    let attachment = purchase
+        .attachments
+        .iter()
+        .find(|attachment| attachment.id == attachment_id)
+        .ok_or_else(|| {
+            RestError::from_kernel(KernelError::not_found("purchase attachment was not found"))
+        })?;
+    let store = state.attachment_store.as_ref().ok_or_else(|| {
+        RestError::unavailable("evidence storage is not configured for purchase attachments")
+    })?;
+    let url = store
+        .presign_evidence(attachment.evidence_id)
+        .await
+        .map_err(RestError::from_storage)?;
+    Ok(Json(PurchaseAttachmentDownload { url }))
 }
 
 async fn submit_purchase_request(
@@ -586,13 +672,20 @@ async fn authorize_for_purchase_read(
         .purchase_request(purchase_request_id)
         .await
         .map_err(RestError::from_store)?;
-    authorize(
+    match authorize(
         &principal,
         Action::limited(Feature::PurchaseRequestRead),
         purchase.branch_id,
-    )
-    .map_err(RestError::from_kernel)?;
-    Ok((purchase, principal))
+    ) {
+        Ok(()) => Ok((purchase, principal)),
+        Err(_)
+            if purchase.requested_by == principal.user_id
+                && principal.branch_scope.allows(purchase.branch_id) =>
+        {
+            Ok((purchase, principal))
+        }
+        Err(error) => Err(RestError::from_kernel(error)),
+    }
 }
 
 fn authorize_any(
@@ -702,6 +795,20 @@ impl RestError {
         match error {
             PgFinancialError::Domain(error) => Self::from_kernel(error),
             PgFinancialError::Db(error) => Self::from_db(error),
+        }
+    }
+
+    fn from_storage(error: StorageError) -> Self {
+        match error {
+            StorageError::Domain(error) => Self::from_kernel(error),
+            StorageError::Db(error) => Self::from_db(error),
+            StorageError::S3(error)
+            | StorageError::Presign(error)
+            | StorageError::Verification(error)
+            | StorageError::Processing(error) => {
+                tracing::error!(error = %error, "evidence storage error");
+                Self::internal("evidence storage error")
+            }
         }
     }
 

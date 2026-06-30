@@ -1324,10 +1324,10 @@ pub fn build_router(state: AppState) -> Router {
                     state.dispatch_job_queue.clone(),
                     state.push_notifier.clone(),
                 )))
-                .merge(mnt_financial_rest::router(FinancialRestState::new(
-                    financial_store,
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_financial_rest::router(
+                    FinancialRestState::new(financial_store, state.jwt_verifier.clone())
+                        .with_attachment_store(state.evidence_storage.clone()),
+                ))
                 .merge(mnt_inspection_rest::router(InspectionRestState::new(
                     inspection_store,
                     state.jwt_verifier.clone(),

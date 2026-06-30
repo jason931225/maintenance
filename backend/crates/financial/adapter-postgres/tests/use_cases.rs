@@ -7,10 +7,10 @@ use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_application::{
     AppendCostLedgerEntryCommand, CostLedgerSource, CreatePurchaseRequestCommand,
     CreateRentalQuoteCommand, ExecutePurchaseCommand, FinancialConfigSnapshot,
-    PrepareExpenditureCommand, PurchaseApprovalCommand, PurchaseRestartCommand,
-    PurchaseSubmitCommand, RejectPurchaseCommand,
+    PrepareExpenditureCommand, PurchaseApprovalCommand, PurchaseRequestExceptionInput,
+    PurchaseRequestLineInput, PurchaseRestartCommand, PurchaseSubmitCommand, RejectPurchaseCommand,
 };
-use mnt_financial_domain::{DepreciationMethod, PurchaseStatus};
+use mnt_financial_domain::{DepreciationMethod, PurchaseStatus, PurchaseType};
 use mnt_kernel_core::{
     BranchId, EquipmentId, EvidenceId, OrgId, TraceContext, UserId, WorkOrderId,
 };
@@ -62,12 +62,17 @@ async fn quote_ledger_and_purchase_chain_are_audited_and_feed_residuals(pool: Pg
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: seeded.mechanic,
                 branch_id: seeded.branch_id,
-                equipment_id: seeded.normal_equipment,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
                 work_order_id: Some(seeded.work_order_id),
-                statement_evidence_id: seeded.statement_evidence_id,
+                statement_evidence_id: Some(seeded.statement_evidence_id),
                 vendor_name: "Parts Supplier".to_owned(),
-                amount_won: 3_000_000,
+                amount_won: Some(3_000_000),
                 memo: "Pump assembly".to_owned(),
+                lines: Vec::new(),
+                exceptions: Vec::new(),
+                shipping_won: 0,
+                discount_won: 0,
                 config: config.clone(),
                 trace: TraceContext::generate(),
                 occurred_at,
@@ -278,12 +283,17 @@ async fn financial_inputs_reject_cross_scope_evidence_and_work_orders(pool: PgPo
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: seeded.mechanic,
                 branch_id: seeded.branch_id,
-                equipment_id: seeded.normal_equipment,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
                 work_order_id: Some(seeded.work_order_id),
-                statement_evidence_id: other_statement,
+                statement_evidence_id: Some(other_statement),
                 vendor_name: "Wrong Scope Vendor".to_owned(),
-                amount_won: 500_000,
+                amount_won: Some(500_000),
                 memo: "wrong evidence".to_owned(),
+                lines: Vec::new(),
+                exceptions: Vec::new(),
+                shipping_won: 0,
+                discount_won: 0,
                 config: financial_config(),
                 trace: TraceContext::generate(),
                 occurred_at,
@@ -302,12 +312,17 @@ async fn financial_inputs_reject_cross_scope_evidence_and_work_orders(pool: PgPo
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: seeded.mechanic,
                 branch_id: seeded.branch_id,
-                equipment_id: seeded.normal_equipment,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
                 work_order_id: Some(seeded.work_order_id),
-                statement_evidence_id: pending_statement,
+                statement_evidence_id: Some(pending_statement),
                 vendor_name: "Pending Vendor".to_owned(),
-                amount_won: 500_000,
+                amount_won: Some(500_000),
                 memo: "pending evidence".to_owned(),
+                lines: Vec::new(),
+                exceptions: Vec::new(),
+                shipping_won: 0,
+                discount_won: 0,
                 config: financial_config(),
                 trace: TraceContext::generate(),
                 occurred_at,
@@ -450,12 +465,17 @@ async fn purchase_execute_rolls_back_if_ledger_update_fails(pool: PgPool) {
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: seeded.mechanic,
                 branch_id: seeded.branch_id,
-                equipment_id: seeded.normal_equipment,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
                 work_order_id: Some(seeded.work_order_id),
-                statement_evidence_id: seeded.statement_evidence_id,
+                statement_evidence_id: Some(seeded.statement_evidence_id),
                 vendor_name: "Rollback Parts".to_owned(),
-                amount_won: 1_000_000,
+                amount_won: Some(1_000_000),
                 memo: "rollback fixture".to_owned(),
+                lines: Vec::new(),
+                exceptions: Vec::new(),
+                shipping_won: 0,
+                discount_won: 0,
                 config: financial_config(),
                 trace: TraceContext::generate(),
                 occurred_at,
@@ -539,6 +559,204 @@ async fn purchase_execute_rolls_back_if_ledger_update_fails(pool: PgPool) {
     .await;
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn option_a_non_equipment_uses_ap_path_without_equipment_ledger(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = datetime!(2026-06-30 09:00 UTC);
+
+        let purchase = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                purchase_type: PurchaseType::NonEquipment,
+                equipment_id: None,
+                work_order_id: Some(seeded.work_order_id),
+                statement_evidence_id: Some(seeded.statement_evidence_id),
+                vendor_name: "Office Vendor".to_owned(),
+                amount_won: None,
+                memo: "Office supplies and AP invoice".to_owned(),
+                lines: vec![
+                    purchase_line("Printer toner", 2, 100_000, "office-supplies"),
+                    purchase_line("Safety signage", 1, 50_000, "safety"),
+                ],
+                exceptions: Vec::new(),
+                shipping_won: 5_000,
+                discount_won: 1_000,
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(purchase.purchase_type, PurchaseType::NonEquipment);
+        assert_eq!(purchase.equipment_id, None);
+        assert_eq!(purchase.subtotal_won, 250_000);
+        assert_eq!(purchase.vat_won, 25_000);
+        assert_eq!(purchase.shipping_won, 5_000);
+        assert_eq!(purchase.discount_won, 1_000);
+        assert_eq!(purchase.total_won, 279_000);
+        assert_eq!(purchase.amount_won, 279_000);
+        assert_eq!(purchase.lines.len(), 2);
+        assert_eq!(purchase.attachments.len(), 1);
+
+        store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        store
+            .approve_purchase_admin(PurchaseApprovalCommand {
+                actor: seeded.admin,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        let ready = store
+            .prepare_expenditure(PrepareExpenditureCommand {
+                actor: seeded.admin,
+                purchase_request_id: purchase.id,
+                expenditure_no: "AP-20260630-001".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(ready.status, PurchaseStatus::ReadyToExecute);
+
+        let executed = store
+            .execute_purchase(ExecutePurchaseCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(executed.status, PurchaseStatus::Executed);
+
+        let ledger_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::BIGINT FROM equipment_cost_ledger WHERE purchase_request_id = $1",
+        )
+        .bind(*purchase.id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ledger_rows, 0);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn option_a_price_anomaly_requires_structured_exception(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = datetime!(2026-06-30 10:00 UTC);
+
+        let anomalous = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
+                work_order_id: Some(seeded.work_order_id),
+                statement_evidence_id: Some(seeded.statement_evidence_id),
+                vendor_name: "High Value Parts".to_owned(),
+                amount_won: None,
+                memo: "Hydraulic control module".to_owned(),
+                lines: vec![purchase_line(
+                    "Hydraulic control module",
+                    1,
+                    5_000_000,
+                    "hydraulics",
+                )],
+                exceptions: Vec::new(),
+                shipping_won: 0,
+                discount_won: 0,
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        let blocked = store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: anomalous.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            blocked
+                .to_string()
+                .contains("price anomaly requires a structured exception")
+        );
+
+        let with_exception = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
+                work_order_id: Some(seeded.work_order_id),
+                statement_evidence_id: Some(seeded.statement_evidence_id),
+                vendor_name: "High Value Parts".to_owned(),
+                amount_won: None,
+                memo: "Hydraulic control module with comparison quote".to_owned(),
+                lines: vec![purchase_line(
+                    "Hydraulic control module",
+                    1,
+                    5_000_000,
+                    "hydraulics",
+                )],
+                exceptions: vec![PurchaseRequestExceptionInput {
+                    exception_type: "PRICE_ANOMALY".to_owned(),
+                    reason: "긴급 조달이며 비교 견적을 첨부했습니다.".to_owned(),
+                    attachment_evidence_id: Some(seeded.statement_evidence_id),
+                    escalation_approver: None,
+                }],
+                shipping_won: 0,
+                discount_won: 0,
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        let submitted = store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: with_exception.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(submitted.status, PurchaseStatus::RequestSubmitted);
+        assert_eq!(submitted.exceptions.len(), 1);
+        assert!(
+            submitted
+                .policy_gates
+                .iter()
+                .any(|gate| gate.code == "price_anomaly" && gate.status == "PASS")
+        );
+    })
+    .await;
+}
+
 struct SeededFinancialContext {
     branch_id: BranchId,
     receptionist: UserId,
@@ -601,6 +819,28 @@ fn financial_config_no_floor() -> FinancialConfigSnapshot {
     FinancialConfigSnapshot {
         floor_negative_quote_residual: false,
         ..financial_config()
+    }
+}
+
+fn purchase_line(
+    description: &str,
+    quantity: i32,
+    unit_price_won: i64,
+    category: &str,
+) -> PurchaseRequestLineInput {
+    PurchaseRequestLineInput {
+        description: description.to_owned(),
+        quantity,
+        unit: "EA".to_owned(),
+        unit_price_won,
+        category: category.to_owned(),
+        department: None,
+        cost_center: None,
+        project: None,
+        sku: None,
+        tax_rate_bps: 1_000,
+        quote_evidence_id: None,
+        needed_by: None,
     }
 }
 
@@ -821,12 +1061,17 @@ async fn self_approval_blocked_for_normal_admin(pool: PgPool) {
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: seeded.admin, // admin creates → admin is requested_by
                 branch_id: seeded.branch_id,
-                equipment_id: seeded.normal_equipment,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
                 work_order_id: None,
-                statement_evidence_id: seeded.statement_evidence_id,
+                statement_evidence_id: Some(seeded.statement_evidence_id),
                 vendor_name: "Self Test Vendor".to_owned(),
-                amount_won: 500_000,
+                amount_won: Some(500_000),
                 memo: "Self-approval test".to_owned(),
+                lines: Vec::new(),
+                exceptions: Vec::new(),
+                shipping_won: 0,
+                discount_won: 0,
                 config: config.clone(),
                 trace: TraceContext::generate(),
                 occurred_at,
@@ -896,12 +1141,17 @@ async fn org_lead_self_approval_allowed_and_writes_finding(pool: PgPool) {
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: org_lead,
                 branch_id: seeded.branch_id,
-                equipment_id: seeded.normal_equipment,
+                purchase_type: PurchaseType::Equipment,
+                equipment_id: Some(seeded.normal_equipment),
                 work_order_id: None,
-                statement_evidence_id: seeded.statement_evidence_id,
+                statement_evidence_id: Some(seeded.statement_evidence_id),
                 vendor_name: "Lead Vendor".to_owned(),
-                amount_won: 300_000,
+                amount_won: Some(300_000),
                 memo: "Org lead purchase".to_owned(),
+                lines: Vec::new(),
+                exceptions: Vec::new(),
+                shipping_won: 0,
+                discount_won: 0,
                 config: config.clone(),
                 trace: TraceContext::generate(),
                 occurred_at,

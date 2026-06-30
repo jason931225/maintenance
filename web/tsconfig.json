@@ -19,6 +19,12 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
+      "@maintenance/api-client-ts": [
+        "../clients/ts/src/index.ts"
+      ],
+      "@maintenance/api-client-ts/*": [
+        "../clients/ts/src/*"
+      ],
       // react-leaflet 5's bundled .d.ts files deep-import
       // `@react-leaflet/core/lib/*`, a subpath the core package's `exports` map
       // does not expose, so `moduleResolution: Bundler` (with skipLibCheck off)
@@ -29,7 +35,7 @@
       ]
     }
   },
-  "include": ["src", "vite.config.ts"],
+  "include": ["src", "vite.config.ts", "../clients/ts/src/**/*.ts", "../clients/ts/src/**/*.d.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test"],
   "references": []
 }

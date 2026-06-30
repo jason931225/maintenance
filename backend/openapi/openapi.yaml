@@ -3558,6 +3558,34 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download:
+    get:
+      operationId: downloadPurchaseRequestAttachment
+      summary: Issue a short-lived download URL for a purchase request attachment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+        - $ref: "#/components/parameters/PurchaseAttachmentId"
+      responses:
+        "200":
+          description: Short-lived attachment download URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseAttachmentDownload"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Evidence storage is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /api/v1/financial/purchase-requests/{purchaseRequestId}/submit:
     post:
       operationId: submitPurchaseRequest
@@ -6416,6 +6444,13 @@ components:
         format: uuid
     PurchaseRequestId:
       name: purchaseRequestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PurchaseAttachmentId:
+      name: attachmentId
       in: path
       required: true
       schema:
@@ -12105,6 +12140,11 @@ components:
         - READY_TO_EXECUTE
         - EXECUTED
         - REJECTED
+    PurchaseType:
+      type: string
+      enum:
+        - EQUIPMENT
+        - NON_EQUIPMENT
     FinancialConfigSnapshot:
       type: object
       required:
@@ -12427,50 +12467,327 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CostLedgerEntrySummary"
+    PurchaseRequestLineInput:
+      type: object
+      required:
+        - description
+        - quantity
+        - unit
+        - unit_price_won
+        - category
+      properties:
+        description:
+          type: string
+          minLength: 1
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        unit:
+          type: string
+          minLength: 1
+        unit_price_won:
+          type: integer
+          format: int64
+          minimum: 0
+        category:
+          type: string
+          minLength: 1
+        department:
+          type:
+            - string
+            - "null"
+        cost_center:
+          type:
+            - string
+            - "null"
+        project:
+          type:
+            - string
+            - "null"
+        sku:
+          type:
+            - string
+            - "null"
+        tax_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+          default: 0
+        quote_evidence_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        needed_by:
+          type:
+            - string
+            - "null"
+          format: date
+    PurchaseRequestExceptionInput:
+      type: object
+      required:
+        - exception_type
+        - reason
+      properties:
+        exception_type:
+          type: string
+          enum:
+            - PRICE_ANOMALY
+            - MISSING_QUOTE
+            - POLICY_OVERRIDE
+            - BUDGET_OVERRIDE
+        reason:
+          type: string
+          minLength: 1
+        attachment_evidence_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        escalation_approver:
+          type:
+            - string
+            - "null"
+          format: uuid
     CreatePurchaseRequest:
       type: object
       required:
         - branch_id
-        - equipment_id
-        - statement_evidence_id
         - vendor_name
-        - amount_won
         - memo
         - config
       properties:
         branch_id:
           $ref: "#/components/schemas/Uuid"
+        purchase_type:
+          $ref: "#/components/schemas/PurchaseType"
         equipment_id:
-          $ref: "#/components/schemas/Uuid"
+          type:
+            - string
+            - "null"
+          format: uuid
         work_order_id:
           type:
             - string
             - "null"
           format: uuid
         statement_evidence_id:
-          $ref: "#/components/schemas/Uuid"
+          type:
+            - string
+            - "null"
+          format: uuid
         vendor_name:
           type: string
           minLength: 1
         amount_won:
-          type: integer
+          type:
+            - integer
+            - "null"
           format: int64
           minimum: 1
         memo:
           type: string
           minLength: 1
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseRequestLineInput"
+          default: []
+        exceptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseRequestExceptionInput"
+          default: []
+        shipping_won:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+        discount_won:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
         config:
           $ref: "#/components/schemas/FinancialConfigSnapshot"
+    PurchaseRequestLineSummary:
+      type: object
+      required:
+        - id
+        - line_order
+        - description
+        - quantity
+        - unit
+        - unit_price_won
+        - subtotal_won
+        - tax_rate_bps
+        - vat_won
+        - total_won
+        - category
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        line_order:
+          type: integer
+          format: int32
+        description:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+        unit:
+          type: string
+        unit_price_won:
+          type: integer
+          format: int64
+        subtotal_won:
+          type: integer
+          format: int64
+        tax_rate_bps:
+          type: integer
+          format: int32
+        vat_won:
+          type: integer
+          format: int64
+        total_won:
+          type: integer
+          format: int64
+        category:
+          type: string
+        department:
+          type:
+            - string
+            - "null"
+        cost_center:
+          type:
+            - string
+            - "null"
+        project:
+          type:
+            - string
+            - "null"
+        sku:
+          type:
+            - string
+            - "null"
+        quote_evidence_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        needed_by:
+          type:
+            - string
+            - "null"
+          format: date
+    PurchaseRequestAttachmentSummary:
+      type: object
+      required:
+        - id
+        - evidence_id
+        - attachment_type
+        - preferred_quote
+        - created_by
+        - created_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        evidence_id:
+          $ref: "#/components/schemas/Uuid"
+        line_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        attachment_type:
+          type: string
+        preferred_quote:
+          type: boolean
+        created_by:
+          $ref: "#/components/schemas/Uuid"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    PurchaseAttachmentDownload:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+    PurchaseRequestExceptionSummary:
+      type: object
+      required:
+        - id
+        - exception_type
+        - reason
+        - status
+        - created_by
+        - created_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        exception_type:
+          type: string
+        reason:
+          type: string
+        attachment_evidence_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        escalation_approver:
+          type:
+            - string
+            - "null"
+          format: uuid
+        status:
+          type: string
+        created_by:
+          $ref: "#/components/schemas/Uuid"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    PurchasePolicyGateSummary:
+      type: object
+      required:
+        - code
+        - label
+        - status
+        - message
+        - blocking
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+        blocking:
+          type: boolean
     PurchaseRequestSummary:
       type: object
       required:
         - id
         - branch_id
-        - equipment_id
-        - statement_evidence_id
+        - purchase_type
         - vendor_name
         - amount_won
+        - subtotal_won
+        - vat_won
+        - shipping_won
+        - discount_won
+        - total_won
+        - memo
         - status
+        - requested_by
+        - lines
+        - attachments
+        - exceptions
+        - policy_gates
         - created_at
         - updated_at
       properties:
@@ -12478,22 +12795,49 @@ components:
           $ref: "#/components/schemas/Uuid"
         branch_id:
           $ref: "#/components/schemas/Uuid"
+        purchase_type:
+          $ref: "#/components/schemas/PurchaseType"
         equipment_id:
-          $ref: "#/components/schemas/Uuid"
+          type:
+            - string
+            - "null"
+          format: uuid
         work_order_id:
           type:
             - string
             - "null"
           format: uuid
         statement_evidence_id:
-          $ref: "#/components/schemas/Uuid"
+          type:
+            - string
+            - "null"
+          format: uuid
         vendor_name:
           type: string
         amount_won:
           type: integer
           format: int64
+        subtotal_won:
+          type: integer
+          format: int64
+        vat_won:
+          type: integer
+          format: int64
+        shipping_won:
+          type: integer
+          format: int64
+        discount_won:
+          type: integer
+          format: int64
+        total_won:
+          type: integer
+          format: int64
+        memo:
+          type: string
         status:
           $ref: "#/components/schemas/PurchaseStatus"
+        requested_by:
+          $ref: "#/components/schemas/Uuid"
         expenditure_no:
           type:
             - string
@@ -12502,6 +12846,22 @@ components:
           type:
             - string
             - "null"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseRequestLineSummary"
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseRequestAttachmentSummary"
+        exceptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseRequestExceptionSummary"
+        policy_gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchasePolicyGateSummary"
         created_at:
           $ref: "#/components/schemas/Timestamp"
         updated_at:

@@ -146,6 +146,37 @@ impl PurchaseStatus {
         }
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PurchaseType {
+    Equipment,
+    NonEquipment,
+}
+
+impl PurchaseType {
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Equipment => "EQUIPMENT",
+            Self::NonEquipment => "NON_EQUIPMENT",
+        }
+    }
+
+    pub fn from_db_str(value: &str) -> Result<Self, KernelError> {
+        match value {
+            "EQUIPMENT" => Ok(Self::Equipment),
+            "NON_EQUIPMENT" => Ok(Self::NonEquipment),
+            other => Err(KernelError::validation(format!(
+                "unknown purchase type {other:?}"
+            ))),
+        }
+    }
+
+    #[must_use]
+    pub const fn requires_equipment(self) -> bool {
+        matches!(self, Self::Equipment)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PurchaseActor {

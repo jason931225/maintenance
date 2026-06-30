@@ -1316,6 +1316,19 @@ where
         evidence_media_by_id(&self.pool, media_id).await
     }
 
+    /// Issue a short-lived presigned GET URL for an evidence row's primary object.
+    /// The raw S3 key stays server-side; callers must perform their own domain
+    /// authorization before handing this URL to a browser.
+    pub async fn presigned_media_url(&self, media: &EvidenceMedia) -> Result<String, StorageError> {
+        self.object_store
+            .presign_get(PresignGetRequest {
+                bucket: self.primary_bucket.clone(),
+                key: media.s3_key.clone(),
+                expires_in: self.presign_expires_in,
+            })
+            .await
+    }
+
     /// Issue a short-lived presigned GET URL for an evidence row's generated
     /// thumbnail, served from the PRIMARY bucket. Returns `None` when the row has
     /// no thumbnail yet (still PROCESSING / FAILED). The raw object key is never

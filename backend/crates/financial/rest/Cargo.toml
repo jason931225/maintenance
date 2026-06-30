@@ -15,6 +15,7 @@ mnt-platform-auth = { path = "../../platform/auth" }
 mnt-platform-authz.workspace = true
 mnt-platform-db.workspace = true
 mnt-platform-request-context = { workspace = true }
+mnt-platform-storage.workspace = true
 serde.workspace = true
 sqlx.workspace = true
 time.workspace = true

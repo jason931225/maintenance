@@ -23,7 +23,12 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.PurchasePolicyGateSummary
+import com.maintenance.api.client.model.PurchaseRequestAttachmentSummary
+import com.maintenance.api.client.model.PurchaseRequestExceptionSummary
+import com.maintenance.api.client.model.PurchaseRequestLineSummary
 import com.maintenance.api.client.model.PurchaseStatus
+import com.maintenance.api.client.model.PurchaseType
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -34,14 +39,26 @@ import kotlinx.serialization.Contextual
  *
  * @param id
  * @param branchId
- * @param equipmentId
- * @param statementEvidenceId
+ * @param purchaseType
  * @param vendorName
  * @param amountWon
+ * @param subtotalWon
+ * @param vatWon
+ * @param shippingWon
+ * @param discountWon
+ * @param totalWon
+ * @param memo
  * @param status
+ * @param requestedBy
+ * @param lines
+ * @param attachments
+ * @param exceptions
+ * @param policyGates
  * @param createdAt
  * @param updatedAt
+ * @param equipmentId
  * @param workOrderId
+ * @param statementEvidenceId
  * @param expenditureNo
  * @param rejectionMemo
  */
@@ -55,11 +72,8 @@ data class PurchaseRequestSummary (
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID,
 
-    @Contextual @SerialName(value = "equipment_id")
-    val equipmentId: java.util.UUID,
-
-    @Contextual @SerialName(value = "statement_evidence_id")
-    val statementEvidenceId: java.util.UUID,
+    @Contextual @SerialName(value = "purchase_type")
+    val purchaseType: PurchaseType,
 
     @SerialName(value = "vendor_name")
     val vendorName: kotlin.String,
@@ -67,8 +81,41 @@ data class PurchaseRequestSummary (
     @SerialName(value = "amount_won")
     val amountWon: kotlin.Long,
 
+    @SerialName(value = "subtotal_won")
+    val subtotalWon: kotlin.Long,
+
+    @SerialName(value = "vat_won")
+    val vatWon: kotlin.Long,
+
+    @SerialName(value = "shipping_won")
+    val shippingWon: kotlin.Long,
+
+    @SerialName(value = "discount_won")
+    val discountWon: kotlin.Long,
+
+    @SerialName(value = "total_won")
+    val totalWon: kotlin.Long,
+
+    @SerialName(value = "memo")
+    val memo: kotlin.String,
+
     @Contextual @SerialName(value = "status")
     val status: PurchaseStatus,
+
+    @Contextual @SerialName(value = "requested_by")
+    val requestedBy: java.util.UUID,
+
+    @SerialName(value = "lines")
+    val lines: kotlin.collections.List<PurchaseRequestLineSummary>,
+
+    @SerialName(value = "attachments")
+    val attachments: kotlin.collections.List<PurchaseRequestAttachmentSummary>,
+
+    @SerialName(value = "exceptions")
+    val exceptions: kotlin.collections.List<PurchaseRequestExceptionSummary>,
+
+    @SerialName(value = "policy_gates")
+    val policyGates: kotlin.collections.List<PurchasePolicyGateSummary>,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,
@@ -76,8 +123,14 @@ data class PurchaseRequestSummary (
     @Contextual @SerialName(value = "updated_at")
     val updatedAt: java.time.OffsetDateTime,
 
+    @Contextual @SerialName(value = "equipment_id")
+    val equipmentId: java.util.UUID? = null,
+
     @Contextual @SerialName(value = "work_order_id")
     val workOrderId: java.util.UUID? = null,
+
+    @Contextual @SerialName(value = "statement_evidence_id")
+    val statementEvidenceId: java.util.UUID? = null,
 
     @SerialName(value = "expenditure_no")
     val expenditureNo: kotlin.String? = null,

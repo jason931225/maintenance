@@ -2348,6 +2348,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Issue a short-lived download URL for a purchase request attachment */
+        get: operations["downloadPurchaseRequestAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/purchase-requests/{purchaseRequestId}/submit": {
         parameters: {
             query?: never;
@@ -5735,6 +5752,8 @@ export interface components {
         CostLedgerSource: "MANUAL_ADMIN" | "PURCHASE_EXECUTION";
         /** @enum {string} */
         PurchaseStatus: "STATEMENT_ATTACHED" | "REQUEST_SUBMITTED" | "ADMIN_APPROVED" | "EXECUTIVE_PENDING" | "READY_TO_EXECUTE" | "EXECUTED" | "REJECTED";
+        /** @enum {string} */
+        PurchaseType: "EQUIPMENT" | "NON_EQUIPMENT";
         FinancialConfigSnapshot: {
             depreciation_method: components["schemas"]["DepreciationMethod"];
             /** Format: int32 */
@@ -5866,31 +5885,159 @@ export interface components {
             cost_per_hour_won?: number | null;
             timeline: components["schemas"]["CostLedgerEntrySummary"][];
         };
+        PurchaseRequestLineInput: {
+            description: string;
+            /** Format: int32 */
+            quantity: number;
+            unit: string;
+            /** Format: int64 */
+            unit_price_won: number;
+            category: string;
+            department?: string | null;
+            cost_center?: string | null;
+            project?: string | null;
+            sku?: string | null;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            tax_rate_bps: number;
+            /** Format: uuid */
+            quote_evidence_id?: string | null;
+            /** Format: date */
+            needed_by?: string | null;
+        };
+        PurchaseRequestExceptionInput: {
+            /** @enum {string} */
+            exception_type: "PRICE_ANOMALY" | "MISSING_QUOTE" | "POLICY_OVERRIDE" | "BUDGET_OVERRIDE";
+            reason: string;
+            /** Format: uuid */
+            attachment_evidence_id?: string | null;
+            /** Format: uuid */
+            escalation_approver?: string | null;
+        };
         CreatePurchaseRequest: {
             branch_id: components["schemas"]["Uuid"];
-            equipment_id: components["schemas"]["Uuid"];
+            purchase_type?: components["schemas"]["PurchaseType"];
+            /** Format: uuid */
+            equipment_id?: string | null;
             /** Format: uuid */
             work_order_id?: string | null;
-            statement_evidence_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            statement_evidence_id?: string | null;
             vendor_name: string;
             /** Format: int64 */
-            amount_won: number;
+            amount_won?: number | null;
             memo: string;
+            /** @default [] */
+            lines: components["schemas"]["PurchaseRequestLineInput"][];
+            /** @default [] */
+            exceptions: components["schemas"]["PurchaseRequestExceptionInput"][];
+            /**
+             * Format: int64
+             * @default 0
+             */
+            shipping_won: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            discount_won: number;
             config: components["schemas"]["FinancialConfigSnapshot"];
+        };
+        PurchaseRequestLineSummary: {
+            id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            line_order: number;
+            description: string;
+            /** Format: int32 */
+            quantity: number;
+            unit: string;
+            /** Format: int64 */
+            unit_price_won: number;
+            /** Format: int64 */
+            subtotal_won: number;
+            /** Format: int32 */
+            tax_rate_bps: number;
+            /** Format: int64 */
+            vat_won: number;
+            /** Format: int64 */
+            total_won: number;
+            category: string;
+            department?: string | null;
+            cost_center?: string | null;
+            project?: string | null;
+            sku?: string | null;
+            /** Format: uuid */
+            quote_evidence_id?: string | null;
+            /** Format: date */
+            needed_by?: string | null;
+        };
+        PurchaseRequestAttachmentSummary: {
+            id: components["schemas"]["Uuid"];
+            evidence_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            line_id?: string | null;
+            attachment_type: string;
+            preferred_quote: boolean;
+            created_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        PurchaseAttachmentDownload: {
+            /** Format: uri */
+            url: string;
+        };
+        PurchaseRequestExceptionSummary: {
+            id: components["schemas"]["Uuid"];
+            exception_type: string;
+            reason: string;
+            /** Format: uuid */
+            attachment_evidence_id?: string | null;
+            /** Format: uuid */
+            escalation_approver?: string | null;
+            status: string;
+            created_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        PurchasePolicyGateSummary: {
+            code: string;
+            label: string;
+            status: string;
+            message: string;
+            blocking: boolean;
         };
         PurchaseRequestSummary: {
             id: components["schemas"]["Uuid"];
             branch_id: components["schemas"]["Uuid"];
-            equipment_id: components["schemas"]["Uuid"];
+            purchase_type: components["schemas"]["PurchaseType"];
+            /** Format: uuid */
+            equipment_id?: string | null;
             /** Format: uuid */
             work_order_id?: string | null;
-            statement_evidence_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            statement_evidence_id?: string | null;
             vendor_name: string;
             /** Format: int64 */
             amount_won: number;
+            /** Format: int64 */
+            subtotal_won: number;
+            /** Format: int64 */
+            vat_won: number;
+            /** Format: int64 */
+            shipping_won: number;
+            /** Format: int64 */
+            discount_won: number;
+            /** Format: int64 */
+            total_won: number;
+            memo: string;
             status: components["schemas"]["PurchaseStatus"];
+            requested_by: components["schemas"]["Uuid"];
             expenditure_no?: string | null;
             rejection_memo?: string | null;
+            lines: components["schemas"]["PurchaseRequestLineSummary"][];
+            attachments: components["schemas"]["PurchaseRequestAttachmentSummary"][];
+            exceptions: components["schemas"]["PurchaseRequestExceptionSummary"][];
+            policy_gates: components["schemas"]["PurchasePolicyGateSummary"][];
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };
@@ -6738,6 +6885,7 @@ export interface components {
         SiteId: string;
         EquipmentIdV2: string;
         PurchaseRequestId: string;
+        PurchaseAttachmentId: string;
         DispatchId: string;
         /** @description Report date in YYYY-MM-DD format. */
         ReportDate: components["schemas"]["Date"];
@@ -9866,6 +10014,41 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    downloadPurchaseRequestAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+                attachmentId: components["parameters"]["PurchaseAttachmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Short-lived attachment download URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseAttachmentDownload"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Evidence storage is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     submitPurchaseRequest: {

@@ -56,9 +56,44 @@ function purchase(
     branch_id: branchId,
     equipment_id: equipmentId,
     statement_evidence_id: evidenceId,
+    purchase_type: "EQUIPMENT",
     vendor_name: "한빛부품",
     amount_won: 500_000,
+    subtotal_won: 500_000,
+    vat_won: 0,
+    shipping_won: 0,
+    discount_won: 0,
+    total_won: 500_000,
+    memo: "정기 부품 교체",
     status,
+    requested_by: "user-1",
+    lines: [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        line_order: 1,
+        description: "정기 부품",
+        quantity: 1,
+        unit: "EA",
+        unit_price_won: 500_000,
+        subtotal_won: 500_000,
+        tax_rate_bps: 0,
+        vat_won: 0,
+        total_won: 500_000,
+        category: "parts",
+      },
+    ],
+    attachments: [
+      {
+        id: "12121212-1212-4212-8212-121212121212",
+        evidence_id: evidenceId,
+        attachment_type: "STATEMENT",
+        preferred_quote: true,
+        created_by: "user-1",
+        created_at: "2026-06-16T00:00:00Z",
+      },
+    ],
+    exceptions: [],
+    policy_gates: [],
     created_at: "2026-06-16T00:00:00Z",
     updated_at: "2026-06-16T00:00:00Z",
     ...extra,
@@ -154,6 +189,18 @@ async function lookupEquipment(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByText("GTS25DE");
 }
 
+async function fillPurchaseDraft(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText("거래처명"), "한빛부품");
+  await user.type(screen.getByLabelText("품목 1"), "정기 부품");
+  await user.type(screen.getByLabelText("단가 1"), "500000");
+  await user.type(screen.getByLabelText("분류 1"), "parts");
+  await user.type(
+    screen.getByLabelText("거래명세표 증빙 번호"),
+    evidenceId,
+  );
+  await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+}
+
 describe("financial command center", () => {
   it("keeps finance work tied to approvals, workflows, assets, and maturity controls", async () => {
     const user = userEvent.setup();
@@ -233,22 +280,25 @@ describe("financial purchase request workflow", () => {
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
 
-    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
-    await user.type(screen.getByLabelText("금액 (원)"), "500000");
-    await user.type(
-      screen.getByLabelText("거래명세표 증빙 번호"),
-      evidenceId,
-    );
-    await user.click(screen.getByRole("button", { name: "작성" }));
+    await fillPurchaseDraft(user);
+    await user.click(screen.getAllByRole("button", { name: "작성" })[0]);
 
     await waitFor(() => {
       expect(created).toHaveBeenCalledWith(
         expect.objectContaining({
           equipment_id: equipmentId,
           branch_id: branchId,
+          purchase_type: "EQUIPMENT",
           vendor_name: "한빛부품",
-          amount_won: 500000,
           statement_evidence_id: evidenceId,
+          memo: "정기 부품 교체",
+          lines: [
+            expect.objectContaining({
+              description: "정기 부품",
+              unit_price_won: 500000,
+              category: "parts",
+            }),
+          ],
         }),
       );
     });
@@ -394,13 +444,8 @@ describe("financial purchase request workflow", () => {
 
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
-    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
-    await user.type(screen.getByLabelText("금액 (원)"), "500000");
-    await user.type(
-      screen.getByLabelText("거래명세표 증빙 번호"),
-      evidenceId,
-    );
-    await user.click(screen.getByRole("button", { name: "작성" }));
+    await fillPurchaseDraft(user);
+    await user.click(screen.getAllByRole("button", { name: "작성" })[0]);
 
     // The server's actual reason renders in an alert, not a generic failure.
     const alert = await screen.findByRole("alert");
@@ -439,13 +484,8 @@ describe("financial purchase request workflow", () => {
     // Create a request first so the submit button appears.
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
-    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
-    await user.type(screen.getByLabelText("금액 (원)"), "500000");
-    await user.type(
-      screen.getByLabelText("거래명세표 증빙 번호"),
-      evidenceId,
-    );
-    await user.click(screen.getByRole("button", { name: "작성" }));
+    await fillPurchaseDraft(user);
+    await user.click(screen.getAllByRole("button", { name: "작성" })[0]);
 
     // Submit the request.
     await user.click(await screen.findByRole("button", { name: "결재 상신" }));

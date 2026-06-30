@@ -5,7 +5,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_financial_domain::{
-    AcquisitionBasis, DepreciationMethod, FinancialConfig, MoneyInput, PurchaseStatus, QuoteLine,
+    AcquisitionBasis, DepreciationMethod, FinancialConfig, MoneyInput, PurchaseStatus,
+    PurchaseType, QuoteLine,
 };
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, EquipmentId, EvidenceId, KernelError, PurchaseRequestId,
@@ -130,15 +131,56 @@ pub struct AppendCostLedgerEntryCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchaseRequestLineInput {
+    pub description: String,
+    pub quantity: i32,
+    pub unit: String,
+    pub unit_price_won: i64,
+    pub category: String,
+    #[serde(default)]
+    pub department: Option<String>,
+    #[serde(default)]
+    pub cost_center: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub sku: Option<String>,
+    #[serde(default)]
+    pub tax_rate_bps: i32,
+    #[serde(default)]
+    pub quote_evidence_id: Option<EvidenceId>,
+    #[serde(default, with = "iso_date_opt")]
+    pub needed_by: Option<Date>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchaseRequestExceptionInput {
+    pub exception_type: String,
+    pub reason: String,
+    #[serde(default)]
+    pub attachment_evidence_id: Option<EvidenceId>,
+    #[serde(default)]
+    pub escalation_approver: Option<UserId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreatePurchaseRequestCommand {
     pub actor: UserId,
     pub branch_id: BranchId,
-    pub equipment_id: EquipmentId,
+    pub purchase_type: PurchaseType,
+    pub equipment_id: Option<EquipmentId>,
     pub work_order_id: Option<WorkOrderId>,
-    pub statement_evidence_id: EvidenceId,
+    pub statement_evidence_id: Option<EvidenceId>,
     pub vendor_name: String,
-    pub amount_won: i64,
+    pub amount_won: Option<i64>,
     pub memo: String,
+    pub lines: Vec<PurchaseRequestLineInput>,
+    #[serde(default)]
+    pub exceptions: Vec<PurchaseRequestExceptionInput>,
+    #[serde(default)]
+    pub shipping_won: i64,
+    #[serde(default)]
+    pub discount_won: i64,
     pub config: FinancialConfigSnapshot,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
@@ -273,17 +315,85 @@ pub struct AssetLifecycleCostSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchaseRequestLineSummary {
+    pub id: uuid::Uuid,
+    pub line_order: i16,
+    pub description: String,
+    pub quantity: i32,
+    pub unit: String,
+    pub unit_price_won: i64,
+    pub subtotal_won: i64,
+    pub tax_rate_bps: i32,
+    pub vat_won: i64,
+    pub total_won: i64,
+    pub category: String,
+    pub department: Option<String>,
+    pub cost_center: Option<String>,
+    pub project: Option<String>,
+    pub sku: Option<String>,
+    pub quote_evidence_id: Option<EvidenceId>,
+    #[serde(with = "iso_date_opt")]
+    pub needed_by: Option<Date>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchaseRequestAttachmentSummary {
+    pub id: uuid::Uuid,
+    pub evidence_id: EvidenceId,
+    pub line_id: Option<uuid::Uuid>,
+    pub attachment_type: String,
+    pub preferred_quote: bool,
+    pub created_by: UserId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchaseRequestExceptionSummary {
+    pub id: uuid::Uuid,
+    pub exception_type: String,
+    pub reason: String,
+    pub attachment_evidence_id: Option<EvidenceId>,
+    pub escalation_approver: Option<UserId>,
+    pub status: String,
+    pub created_by: UserId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchasePolicyGateSummary {
+    pub code: String,
+    pub label: String,
+    pub status: String,
+    pub message: String,
+    pub blocking: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PurchaseRequestSummary {
     pub id: PurchaseRequestId,
     pub branch_id: BranchId,
-    pub equipment_id: EquipmentId,
+    pub purchase_type: PurchaseType,
+    pub equipment_id: Option<EquipmentId>,
     pub work_order_id: Option<WorkOrderId>,
-    pub statement_evidence_id: EvidenceId,
+    pub statement_evidence_id: Option<EvidenceId>,
     pub vendor_name: String,
     pub amount_won: i64,
+    pub subtotal_won: i64,
+    pub vat_won: i64,
+    pub shipping_won: i64,
+    pub discount_won: i64,
+    pub total_won: i64,
+    pub memo: String,
     pub status: PurchaseStatus,
+    pub requested_by: UserId,
     pub expenditure_no: Option<String>,
     pub rejection_memo: Option<String>,
+    pub lines: Vec<PurchaseRequestLineSummary>,
+    pub attachments: Vec<PurchaseRequestAttachmentSummary>,
+    pub exceptions: Vec<PurchaseRequestExceptionSummary>,
+    pub policy_gates: Vec<PurchasePolicyGateSummary>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
     #[serde(with = "time::serde::rfc3339")]

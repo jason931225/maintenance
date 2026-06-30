@@ -273,8 +273,16 @@ src/main/kotlin/com/maintenance/api/client/model/PriorityLevel.kt
 src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentAcceptRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentStatusResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ProcessingStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseAttachmentDownload.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchasePolicyGateSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestAttachmentSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestExceptionInput.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestExceptionSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestLineInput.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestLineSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/PurchaseType.kt
 src/main/kotlin/com/maintenance/api/client/model/QuoteLine.kt
 src/main/kotlin/com/maintenance/api/client/model/RefreshTokenRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RegionSummary.kt
