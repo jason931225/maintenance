@@ -89,7 +89,7 @@ fn purchase_line(item: &str, amount_won: i64) -> PurchaseRequestLineInput {
         item: item.to_owned(),
         quantity: 1,
         unit_supply_price_won: amount_won,
-        vat_won: None,
+        vat_won: Some(0),
     }
 }
 
