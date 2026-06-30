@@ -1,162 +1,147 @@
--- Purchase request Option A production model: normalized lines, server-owned totals,
--- structured exceptions, and quote attachment references.
+-- Purchase request Option A: normalized lines, quote attachments, AP expense execution,
+-- regular-price anomaly gates, and DB-backed personal presentation preferences.
+-- Existing rows remain readable as LEGACY_MANUAL single-amount requests; no data
+-- backfill is performed in this migration.
 
 ALTER TABLE financial_purchase_requests
     ALTER COLUMN equipment_id DROP NOT NULL,
     ALTER COLUMN statement_evidence_id DROP NOT NULL;
 
 ALTER TABLE financial_purchase_requests
-    ADD COLUMN purchase_type TEXT,
-    ADD COLUMN subtotal_won BIGINT,
-    ADD COLUMN vat_won BIGINT,
-    ADD COLUMN shipping_won BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN discount_won BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN total_won BIGINT;
+    ADD COLUMN purchase_type TEXT NOT NULL DEFAULT 'LEGACY_MANUAL'
+        CHECK (purchase_type IN ('REGULAR', 'ONE_OFF', 'OTHER', 'LEGACY_MANUAL')),
+    ADD COLUMN price_anomaly BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN quote_update_required BOOLEAN NOT NULL DEFAULT false;
 
-UPDATE financial_purchase_requests
-SET purchase_type = 'EQUIPMENT',
-    subtotal_won = amount_won,
-    vat_won = 0,
-    total_won = amount_won
-WHERE purchase_type IS NULL;
+CREATE INDEX idx_financial_purchase_requests_quote_gate
+    ON financial_purchase_requests (org_id, branch_id, quote_update_required, status)
+    WHERE quote_update_required;
 
-ALTER TABLE financial_purchase_requests
-    ALTER COLUMN purchase_type SET NOT NULL,
-    ALTER COLUMN subtotal_won SET NOT NULL,
-    ALTER COLUMN vat_won SET NOT NULL,
-    ALTER COLUMN total_won SET NOT NULL,
-    ADD CONSTRAINT financial_purchase_requests_purchase_type_check
-        CHECK (purchase_type IN ('EQUIPMENT', 'NON_EQUIPMENT')),
-    ADD CONSTRAINT financial_purchase_requests_totals_check
-        CHECK (
-            subtotal_won >= 0
-            AND vat_won >= 0
-            AND shipping_won >= 0
-            AND discount_won >= 0
-            AND total_won > 0
-            AND amount_won = total_won
-        ),
-    ADD CONSTRAINT financial_purchase_requests_equipment_type_scope_check
-        CHECK (
-            (purchase_type = 'EQUIPMENT' AND equipment_id IS NOT NULL AND statement_evidence_id IS NOT NULL)
-            OR purchase_type = 'NON_EQUIPMENT'
-        );
-
--- mnt-gate: audited-table financial_purchase_request_lines
 CREATE TABLE financial_purchase_request_lines (
-    id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    purchase_request_id  UUID        NOT NULL,
-    line_order           SMALLINT    NOT NULL CHECK (line_order > 0),
-    description          TEXT        NOT NULL CHECK (description <> ''),
-    quantity             INTEGER     NOT NULL CHECK (quantity > 0),
-    unit                 TEXT        NOT NULL CHECK (unit <> ''),
-    unit_price_won       BIGINT      NOT NULL CHECK (unit_price_won >= 0),
-    subtotal_won         BIGINT      NOT NULL CHECK (subtotal_won >= 0),
-    tax_rate_bps         INTEGER     NOT NULL CHECK (tax_rate_bps BETWEEN 0 AND 10000),
-    vat_won              BIGINT      NOT NULL CHECK (vat_won >= 0),
-    total_won            BIGINT      NOT NULL CHECK (total_won >= 0),
-    category             TEXT        NOT NULL CHECK (category <> ''),
-    department           TEXT,
-    cost_center          TEXT,
-    project              TEXT,
-    sku                  TEXT,
-    quote_evidence_id    UUID,
-    needed_by            DATE,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    org_id               UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    id                         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    purchase_request_id        UUID        NOT NULL REFERENCES financial_purchase_requests(id) ON DELETE CASCADE,
+    line_no                    INTEGER     NOT NULL CHECK (line_no > 0),
+    item                       TEXT        NOT NULL CHECK (btrim(item) <> ''),
+    quantity                   INTEGER     NOT NULL CHECK (quantity > 0),
+    unit_supply_price_won      BIGINT      NOT NULL CHECK (unit_supply_price_won >= 0),
+    vat_won                    BIGINT      NOT NULL CHECK (vat_won >= 0),
+    vat_overridden             BOOLEAN     NOT NULL DEFAULT false,
+    line_total_won             BIGINT      NOT NULL CHECK (line_total_won > 0),
+    created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+    org_id                     UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    UNIQUE (purchase_request_id, line_no),
     CONSTRAINT financial_purchase_request_lines_request_same_org_fk
         FOREIGN KEY (purchase_request_id, org_id)
-        REFERENCES financial_purchase_requests(id, org_id)
-        ON DELETE CASCADE,
-    CONSTRAINT financial_purchase_request_lines_quote_same_org_fk
-        FOREIGN KEY (quote_evidence_id, org_id)
-        REFERENCES evidence_media(id, org_id)
-        ON DELETE RESTRICT,
-    UNIQUE (purchase_request_id, line_order),
-    UNIQUE (id, org_id)
+        REFERENCES financial_purchase_requests(id, org_id) ON DELETE CASCADE
 );
 
-INSERT INTO financial_purchase_request_lines (
-    purchase_request_id, line_order, description, quantity, unit,
-    unit_price_won, subtotal_won, tax_rate_bps, vat_won, total_won,
-    category, org_id
-)
-SELECT id, 1, memo, 1, 'EA', amount_won, amount_won, 0, 0, amount_won, 'legacy', org_id
-FROM financial_purchase_requests;
+CREATE INDEX idx_financial_purchase_request_lines_org
+    ON financial_purchase_request_lines (org_id, purchase_request_id, line_no);
 
--- mnt-gate: audited-table financial_purchase_request_attachments
-CREATE TABLE financial_purchase_request_attachments (
+CREATE TABLE financial_purchase_attachments (
+    id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    branch_id             UUID        NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    purchase_request_id   UUID        REFERENCES financial_purchase_requests(id) ON DELETE SET NULL,
+    uploaded_by           UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    role                  TEXT        NOT NULL CHECK (role IN ('QUOTE', 'INVOICE', 'OTHER')),
+    file_name             TEXT        NOT NULL CHECK (btrim(file_name) <> ''),
+    content_type          TEXT        NOT NULL CHECK (btrim(content_type) <> ''),
+    size_bytes            BIGINT      NOT NULL CHECK (size_bytes > 0),
+    s3_bucket             TEXT        NOT NULL CHECK (btrim(s3_bucket) <> ''),
+    s3_key                TEXT        NOT NULL CHECK (btrim(s3_key) <> ''),
+    checksum_sha256       TEXT,
+    upload_state          TEXT        NOT NULL DEFAULT 'PENDING'
+        CHECK (upload_state IN ('PENDING', 'CONFIRMED', 'FAILED')),
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    org_id                UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    CONSTRAINT financial_purchase_attachments_branch_same_org_fk
+        FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id) ON DELETE RESTRICT,
+    CONSTRAINT financial_purchase_attachments_request_same_org_fk
+        FOREIGN KEY (purchase_request_id, org_id)
+        REFERENCES financial_purchase_requests(id, org_id) ON DELETE SET NULL,
+    CONSTRAINT financial_purchase_attachments_user_same_org_fk
+        FOREIGN KEY (uploaded_by, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT,
+    CONSTRAINT financial_purchase_attachments_id_org_key UNIQUE (id, org_id)
+);
+
+CREATE INDEX idx_financial_purchase_attachments_org_request
+    ON financial_purchase_attachments (org_id, purchase_request_id, created_at DESC);
+CREATE INDEX idx_financial_purchase_attachments_org_branch
+    ON financial_purchase_attachments (org_id, branch_id, created_at DESC);
+
+CREATE TABLE financial_regular_purchase_prices (
+    id                                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    branch_id                           UUID        NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    vendor_name_norm                    TEXT        NOT NULL CHECK (vendor_name_norm <> ''),
+    item_norm                           TEXT        NOT NULL CHECK (item_norm <> ''),
+    last_unit_supply_price_won          BIGINT      NOT NULL CHECK (last_unit_supply_price_won >= 0),
+    quote_attachment_id                 UUID        REFERENCES financial_purchase_attachments(id) ON DELETE SET NULL,
+    updated_from_purchase_request_id    UUID        REFERENCES financial_purchase_requests(id) ON DELETE SET NULL,
+    updated_at                          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    org_id                              UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    UNIQUE (org_id, branch_id, vendor_name_norm, item_norm),
+    CONSTRAINT financial_regular_prices_branch_same_org_fk
+        FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id) ON DELETE RESTRICT,
+    CONSTRAINT financial_regular_prices_quote_same_org_fk
+        FOREIGN KEY (quote_attachment_id, org_id) REFERENCES financial_purchase_attachments(id, org_id) ON DELETE SET NULL,
+    CONSTRAINT financial_regular_prices_request_same_org_fk
+        FOREIGN KEY (updated_from_purchase_request_id, org_id)
+        REFERENCES financial_purchase_requests(id, org_id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_financial_regular_purchase_prices_org_branch
+    ON financial_regular_purchase_prices (org_id, branch_id, vendor_name_norm, item_norm);
+
+CREATE TABLE financial_expense_ledger (
     id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    purchase_request_id  UUID        NOT NULL,
-    line_id              UUID,
-    evidence_id          UUID        NOT NULL,
-    attachment_type      TEXT        NOT NULL CHECK (attachment_type IN ('QUOTE', 'INVOICE', 'STATEMENT', 'OTHER')),
-    preferred_quote      BOOLEAN     NOT NULL DEFAULT false,
-    created_by           UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    branch_id            UUID        NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    purchase_request_id  UUID        NOT NULL UNIQUE REFERENCES financial_purchase_requests(id) ON DELETE RESTRICT,
+    vendor_name          TEXT        NOT NULL CHECK (btrim(vendor_name) <> ''),
+    amount_won           BIGINT      NOT NULL CHECK (amount_won > 0),
+    memo                 TEXT        NOT NULL CHECK (btrim(memo) <> ''),
+    expenditure_no       TEXT,
+    executed_by          UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    executed_at          TIMESTAMPTZ NOT NULL,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     org_id               UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
-    CONSTRAINT financial_purchase_request_attachments_request_same_org_fk
+    CONSTRAINT financial_expense_ledger_branch_same_org_fk
+        FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id) ON DELETE RESTRICT,
+    CONSTRAINT financial_expense_ledger_request_same_org_fk
         FOREIGN KEY (purchase_request_id, org_id)
-        REFERENCES financial_purchase_requests(id, org_id)
-        ON DELETE CASCADE,
-    CONSTRAINT financial_purchase_request_attachments_line_same_org_fk
-        FOREIGN KEY (line_id, org_id)
-        REFERENCES financial_purchase_request_lines(id, org_id)
-        ON DELETE CASCADE,
-    CONSTRAINT financial_purchase_request_attachments_evidence_same_org_fk
-        FOREIGN KEY (evidence_id, org_id)
-        REFERENCES evidence_media(id, org_id)
-        ON DELETE RESTRICT,
-    UNIQUE (purchase_request_id, evidence_id)
+        REFERENCES financial_purchase_requests(id, org_id) ON DELETE RESTRICT,
+    CONSTRAINT financial_expense_ledger_user_same_org_fk
+        FOREIGN KEY (executed_by, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT
 );
 
-INSERT INTO financial_purchase_request_attachments (
-    purchase_request_id, evidence_id, attachment_type, preferred_quote, created_by, org_id
-)
-SELECT id, statement_evidence_id, 'STATEMENT', true, requested_by, org_id
-FROM financial_purchase_requests
-WHERE statement_evidence_id IS NOT NULL;
+CREATE INDEX idx_financial_expense_ledger_org_branch
+    ON financial_expense_ledger (org_id, branch_id, executed_at DESC);
 
--- mnt-gate: audited-table financial_purchase_request_exceptions
-CREATE TABLE financial_purchase_request_exceptions (
-    id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    purchase_request_id  UUID        NOT NULL,
-    exception_type       TEXT        NOT NULL CHECK (exception_type IN ('PRICE_ANOMALY', 'MISSING_QUOTE', 'POLICY_OVERRIDE', 'BUDGET_OVERRIDE')),
-    reason               TEXT        NOT NULL CHECK (reason <> ''),
-    attachment_evidence_id UUID,
-    escalation_approver  UUID        REFERENCES users(id) ON DELETE RESTRICT,
-    status               TEXT        NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'NEEDS_CHANGES')) DEFAULT 'PENDING',
-    created_by           UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    org_id               UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
-    CONSTRAINT financial_purchase_request_exceptions_request_same_org_fk
-        FOREIGN KEY (purchase_request_id, org_id)
-        REFERENCES financial_purchase_requests(id, org_id)
-        ON DELETE CASCADE,
-    CONSTRAINT financial_purchase_request_exceptions_evidence_same_org_fk
-        FOREIGN KEY (attachment_evidence_id, org_id)
-        REFERENCES evidence_media(id, org_id)
-        ON DELETE RESTRICT
+CREATE TABLE user_feature_preferences (
+    user_id          UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    feature_key      TEXT        NOT NULL CHECK (feature_key <> ''),
+    preferences_json JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    schema_version   INTEGER     NOT NULL CHECK (schema_version > 0),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    org_id           UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    PRIMARY KEY (org_id, user_id, feature_key),
+    CONSTRAINT user_feature_preferences_user_same_org_fk
+        FOREIGN KEY (user_id, org_id) REFERENCES users(id, org_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_financial_purchase_request_lines_request
-    ON financial_purchase_request_lines (org_id, purchase_request_id, line_order);
-CREATE INDEX idx_financial_purchase_request_attachments_request
-    ON financial_purchase_request_attachments (org_id, purchase_request_id, created_at DESC);
-CREATE INDEX idx_financial_purchase_request_exceptions_request
-    ON financial_purchase_request_exceptions (org_id, purchase_request_id, created_at DESC);
-CREATE INDEX idx_financial_purchase_requests_requester
-    ON financial_purchase_requests (org_id, requested_by, updated_at DESC);
+CREATE INDEX idx_user_feature_preferences_org_user
+    ON user_feature_preferences (org_id, user_id, feature_key);
 
 DO $$
 DECLARE
-    t TEXT;
     tenant_tables TEXT[] := ARRAY[
         'financial_purchase_request_lines',
-        'financial_purchase_request_attachments',
-        'financial_purchase_request_exceptions'
+        'financial_purchase_attachments',
+        'financial_regular_purchase_prices',
+        'financial_expense_ledger',
+        'user_feature_preferences'
     ];
+    t TEXT;
 BEGIN
     FOREACH t IN ARRAY tenant_tables LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -169,10 +154,9 @@ BEGIN
         );
         EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO mnt_rt', t);
         EXECUTE format(
-            'CREATE TRIGGER trg_%s_org_immutable BEFORE UPDATE ON %I '
+            'CREATE TRIGGER trg_%I_org_immutable BEFORE UPDATE ON %I '
             || 'FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable()',
-            t,
-            t
+            t, t
         );
     END LOOP;
 END

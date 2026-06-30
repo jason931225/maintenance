@@ -2348,23 +2348,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Issue a short-lived download URL for a purchase request attachment */
-        get: operations["downloadPurchaseRequestAttachment"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/financial/purchase-requests/{purchaseRequestId}/submit": {
         parameters: {
             query?: never;
@@ -3688,6 +3671,75 @@ export interface paths {
          * @description Upserts the caller's vote after validating poll lifecycle, option ownership, single-vs-multiple selection policy, tenant RLS, and audit/lifecycle evidence.
          */
         post: operations["voteCollaborationPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch the current user's purchase request workspace preferences */
+        get: operations["getPurchaseRequestPreferences"];
+        /** Save the current user's purchase request workspace preferences */
+        put: operations["savePurchaseRequestPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/attachments/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a purchase attachment record and return a presigned upload URL */
+        post: operations["presignPurchaseRequestAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/attachments/{attachmentId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm a completed direct purchase attachment upload */
+        post: operations["confirmPurchaseRequestAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return a short-lived download URL for a confirmed purchase attachment */
+        get: operations["downloadPurchaseRequestAttachment"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5752,8 +5804,6 @@ export interface components {
         CostLedgerSource: "MANUAL_ADMIN" | "PURCHASE_EXECUTION";
         /** @enum {string} */
         PurchaseStatus: "STATEMENT_ATTACHED" | "REQUEST_SUBMITTED" | "ADMIN_APPROVED" | "EXECUTIVE_PENDING" | "READY_TO_EXECUTE" | "EXECUTED" | "REJECTED";
-        /** @enum {string} */
-        PurchaseType: "EQUIPMENT" | "NON_EQUIPMENT";
         FinancialConfigSnapshot: {
             depreciation_method: components["schemas"]["DepreciationMethod"];
             /** Format: int32 */
@@ -5885,159 +5935,43 @@ export interface components {
             cost_per_hour_won?: number | null;
             timeline: components["schemas"]["CostLedgerEntrySummary"][];
         };
-        PurchaseRequestLineInput: {
-            description: string;
-            /** Format: int32 */
-            quantity: number;
-            unit: string;
-            /** Format: int64 */
-            unit_price_won: number;
-            category: string;
-            department?: string | null;
-            cost_center?: string | null;
-            project?: string | null;
-            sku?: string | null;
-            /**
-             * Format: int32
-             * @default 0
-             */
-            tax_rate_bps: number;
-            /** Format: uuid */
-            quote_evidence_id?: string | null;
-            /** Format: date */
-            needed_by?: string | null;
-        };
-        PurchaseRequestExceptionInput: {
-            /** @enum {string} */
-            exception_type: "PRICE_ANOMALY" | "MISSING_QUOTE" | "POLICY_OVERRIDE" | "BUDGET_OVERRIDE";
-            reason: string;
-            /** Format: uuid */
-            attachment_evidence_id?: string | null;
-            /** Format: uuid */
-            escalation_approver?: string | null;
-        };
         CreatePurchaseRequest: {
             branch_id: components["schemas"]["Uuid"];
-            purchase_type?: components["schemas"]["PurchaseType"];
             /** Format: uuid */
             equipment_id?: string | null;
             /** Format: uuid */
             work_order_id?: string | null;
             /** Format: uuid */
             statement_evidence_id?: string | null;
+            purchase_type: components["schemas"]["PurchaseType"];
             vendor_name: string;
             /** Format: int64 */
             amount_won?: number | null;
-            memo: string;
-            /** @default [] */
             lines: components["schemas"]["PurchaseRequestLineInput"][];
-            /** @default [] */
-            exceptions: components["schemas"]["PurchaseRequestExceptionInput"][];
-            /**
-             * Format: int64
-             * @default 0
-             */
-            shipping_won: number;
-            /**
-             * Format: int64
-             * @default 0
-             */
-            discount_won: number;
+            quote_attachment_ids: components["schemas"]["Uuid"][];
+            memo: string;
             config: components["schemas"]["FinancialConfigSnapshot"];
-        };
-        PurchaseRequestLineSummary: {
-            id: components["schemas"]["Uuid"];
-            /** Format: int32 */
-            line_order: number;
-            description: string;
-            /** Format: int32 */
-            quantity: number;
-            unit: string;
-            /** Format: int64 */
-            unit_price_won: number;
-            /** Format: int64 */
-            subtotal_won: number;
-            /** Format: int32 */
-            tax_rate_bps: number;
-            /** Format: int64 */
-            vat_won: number;
-            /** Format: int64 */
-            total_won: number;
-            category: string;
-            department?: string | null;
-            cost_center?: string | null;
-            project?: string | null;
-            sku?: string | null;
-            /** Format: uuid */
-            quote_evidence_id?: string | null;
-            /** Format: date */
-            needed_by?: string | null;
-        };
-        PurchaseRequestAttachmentSummary: {
-            id: components["schemas"]["Uuid"];
-            evidence_id: components["schemas"]["Uuid"];
-            /** Format: uuid */
-            line_id?: string | null;
-            attachment_type: string;
-            preferred_quote: boolean;
-            created_by: components["schemas"]["Uuid"];
-            created_at: components["schemas"]["Timestamp"];
-        };
-        PurchaseAttachmentDownload: {
-            /** Format: uri */
-            url: string;
-        };
-        PurchaseRequestExceptionSummary: {
-            id: components["schemas"]["Uuid"];
-            exception_type: string;
-            reason: string;
-            /** Format: uuid */
-            attachment_evidence_id?: string | null;
-            /** Format: uuid */
-            escalation_approver?: string | null;
-            status: string;
-            created_by: components["schemas"]["Uuid"];
-            created_at: components["schemas"]["Timestamp"];
-        };
-        PurchasePolicyGateSummary: {
-            code: string;
-            label: string;
-            status: string;
-            message: string;
-            blocking: boolean;
         };
         PurchaseRequestSummary: {
             id: components["schemas"]["Uuid"];
             branch_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            equipment_id: string | null;
+            /** Format: uuid */
+            work_order_id: string | null;
+            /** Format: uuid */
+            statement_evidence_id: string | null;
             purchase_type: components["schemas"]["PurchaseType"];
-            /** Format: uuid */
-            equipment_id?: string | null;
-            /** Format: uuid */
-            work_order_id?: string | null;
-            /** Format: uuid */
-            statement_evidence_id?: string | null;
             vendor_name: string;
             /** Format: int64 */
             amount_won: number;
-            /** Format: int64 */
-            subtotal_won: number;
-            /** Format: int64 */
-            vat_won: number;
-            /** Format: int64 */
-            shipping_won: number;
-            /** Format: int64 */
-            discount_won: number;
-            /** Format: int64 */
-            total_won: number;
-            memo: string;
             status: components["schemas"]["PurchaseStatus"];
-            requested_by: components["schemas"]["Uuid"];
-            expenditure_no?: string | null;
-            rejection_memo?: string | null;
+            requester: components["schemas"]["PurchaseRequesterSummary"];
             lines: components["schemas"]["PurchaseRequestLineSummary"][];
-            attachments: components["schemas"]["PurchaseRequestAttachmentSummary"][];
-            exceptions: components["schemas"]["PurchaseRequestExceptionSummary"][];
-            policy_gates: components["schemas"]["PurchasePolicyGateSummary"][];
+            quote_attachments: components["schemas"]["PurchaseAttachmentSummary"][];
+            policy: components["schemas"]["PurchasePolicySummary"];
+            expenditure_no: string | null;
+            rejection_memo: string | null;
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };
@@ -6048,9 +5982,12 @@ export interface components {
             memo: string;
         };
         RestartPurchaseRequest: {
-            statement_evidence_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            statement_evidence_id?: string | null;
             /** Format: int64 */
-            amount_won: number;
+            amount_won?: number | null;
+            lines: components["schemas"]["PurchaseRequestLineInput"][];
+            quote_attachment_ids: components["schemas"]["Uuid"][];
             memo: string;
         };
         /** @enum {string} */
@@ -6796,6 +6733,102 @@ export interface components {
             /** @description A short-lived presigned GET URL for the attachment bytes. */
             url: string;
         };
+        /** @enum {string} */
+        PurchaseType: "REGULAR" | "ONE_OFF" | "OTHER" | "LEGACY_MANUAL";
+        PurchaseRequestLineInput: {
+            item: string;
+            /** Format: int32 */
+            quantity: number;
+            /** Format: int64 */
+            unit_supply_price_won: number;
+            /** Format: int64 */
+            vat_won?: number | null;
+        };
+        PurchaseRequestLineSummary: {
+            id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            line_no: number;
+            item: string;
+            /** Format: int32 */
+            quantity: number;
+            /** Format: int64 */
+            unit_supply_price_won: number;
+            /** Format: int64 */
+            vat_won: number;
+            vat_overridden: boolean;
+            /** Format: int64 */
+            line_total_won: number;
+        };
+        PurchaseRequesterSummary: {
+            user_id: components["schemas"]["Uuid"];
+            display_name: string;
+        };
+        PurchaseAttachmentSummary: {
+            id: components["schemas"]["Uuid"];
+            file_name: string;
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            role: string;
+            download_url: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        PurchasePolicySummary: {
+            equipment_required: boolean;
+            statement_evidence_required: boolean;
+            price_anomaly: boolean;
+            quote_update_required: boolean;
+            submit_blocked: boolean;
+            messages: string[];
+        };
+        PurchaseAttachmentPresignRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            file_name: string;
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            checksum_sha256?: string | null;
+            role?: string | null;
+        };
+        PurchaseAttachmentPresignResponse: {
+            attachment_id: components["schemas"]["Uuid"];
+            upload: components["schemas"]["PresignedUpload"];
+            file_name: string;
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            role: string;
+            upload_state: string;
+        };
+        PurchaseAttachmentUploadRecord: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            file_name: string;
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            role: string;
+            upload_state: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        PurchaseAttachmentDownloadResponse: {
+            url: string;
+        };
+        PurchaseFeaturePreferences: {
+            feature_key: string;
+            /** Format: int32 */
+            schema_version: number;
+            preferences: {
+                [key: string]: unknown;
+            };
+        };
+        SavePurchasePreferencesRequest: {
+            /** Format: int32 */
+            schema_version: number;
+            preferences: {
+                [key: string]: unknown;
+            };
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -6870,6 +6903,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorBody"];
             };
         };
+        /** @description Required storage or platform dependency is not configured. */
+        ServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
     };
     parameters: {
         WorkOrderId: string;
@@ -6885,7 +6927,6 @@ export interface components {
         SiteId: string;
         EquipmentIdV2: string;
         PurchaseRequestId: string;
-        PurchaseAttachmentId: string;
         DispatchId: string;
         /** @description Report date in YYYY-MM-DD format. */
         ReportDate: components["schemas"]["Date"];
@@ -10016,41 +10057,6 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
-    downloadPurchaseRequestAttachment: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
-                attachmentId: components["parameters"]["PurchaseAttachmentId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Short-lived attachment download URL. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PurchaseAttachmentDownload"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /** @description Evidence storage is not configured. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     submitPurchaseRequest: {
         parameters: {
             query?: never;
@@ -12633,6 +12639,133 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getPurchaseRequestPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Purchase request workspace preferences. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseFeaturePreferences"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    savePurchaseRequestPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePurchasePreferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved purchase request workspace preferences. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseFeaturePreferences"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    presignPurchaseRequestAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseAttachmentPresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Purchase attachment upload ticket. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseAttachmentPresignResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    confirmPurchaseRequestAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attachmentId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Confirmed purchase attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseAttachmentUploadRecord"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadPurchaseRequestAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+                attachmentId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Purchase attachment download URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseAttachmentDownloadResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
 }

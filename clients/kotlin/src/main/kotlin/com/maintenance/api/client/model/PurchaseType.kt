@@ -31,16 +31,22 @@ import kotlinx.serialization.Serializable
 /**
  *
  *
- * Values: EQUIPMENT,NON_EQUIPMENT
+ * Values: REGULAR,ONE_OFF,OTHER,LEGACY_MANUAL
  */
 @Serializable
 enum class PurchaseType(val value: kotlin.String) {
 
-    @SerialName(value = "EQUIPMENT")
-    EQUIPMENT("EQUIPMENT"),
+    @SerialName(value = "REGULAR")
+    REGULAR("REGULAR"),
 
-    @SerialName(value = "NON_EQUIPMENT")
-    NON_EQUIPMENT("NON_EQUIPMENT");
+    @SerialName(value = "ONE_OFF")
+    ONE_OFF("ONE_OFF"),
+
+    @SerialName(value = "OTHER")
+    OTHER("OTHER"),
+
+    @SerialName(value = "LEGACY_MANUAL")
+    LEGACY_MANUAL("LEGACY_MANUAL");
 
     /**
      * Override [toString()] to avoid using the enum variable name as the value, and instead use

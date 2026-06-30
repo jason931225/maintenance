@@ -24,7 +24,6 @@
 package com.maintenance.api.client.model
 
 import com.maintenance.api.client.model.FinancialConfigSnapshot
-import com.maintenance.api.client.model.PurchaseRequestExceptionInput
 import com.maintenance.api.client.model.PurchaseRequestLineInput
 import com.maintenance.api.client.model.PurchaseType
 
@@ -36,18 +35,16 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param branchId
+ * @param purchaseType
  * @param vendorName
+ * @param lines
+ * @param quoteAttachmentIds
  * @param memo
  * @param config
- * @param purchaseType
  * @param equipmentId
  * @param workOrderId
  * @param statementEvidenceId
  * @param amountWon
- * @param lines
- * @param exceptions
- * @param shippingWon
- * @param discountWon
  */
 @Serializable
 
@@ -56,17 +53,23 @@ data class CreatePurchaseRequest (
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID,
 
+    @Contextual @SerialName(value = "purchase_type")
+    val purchaseType: PurchaseType,
+
     @SerialName(value = "vendor_name")
     val vendorName: kotlin.String,
+
+    @SerialName(value = "lines")
+    val lines: kotlin.collections.List<PurchaseRequestLineInput>,
+
+    @SerialName(value = "quote_attachment_ids")
+    val quoteAttachmentIds: kotlin.collections.List<@Contextual java.util.UUID>,
 
     @SerialName(value = "memo")
     val memo: kotlin.String,
 
     @SerialName(value = "config")
     val config: FinancialConfigSnapshot,
-
-    @Contextual @SerialName(value = "purchase_type")
-    val purchaseType: PurchaseType? = null,
 
     @Contextual @SerialName(value = "equipment_id")
     val equipmentId: java.util.UUID? = null,
@@ -78,19 +81,7 @@ data class CreatePurchaseRequest (
     val statementEvidenceId: java.util.UUID? = null,
 
     @SerialName(value = "amount_won")
-    val amountWon: kotlin.Long? = null,
-
-    @SerialName(value = "lines")
-    val lines: kotlin.collections.List<PurchaseRequestLineInput>? = null,
-
-    @SerialName(value = "exceptions")
-    val exceptions: kotlin.collections.List<PurchaseRequestExceptionInput>? = null,
-
-    @SerialName(value = "shipping_won")
-    val shippingWon: kotlin.Long? = 0L,
-
-    @SerialName(value = "discount_won")
-    val discountWon: kotlin.Long? = 0L
+    val amountWon: kotlin.Long? = null
 
 ) {
 

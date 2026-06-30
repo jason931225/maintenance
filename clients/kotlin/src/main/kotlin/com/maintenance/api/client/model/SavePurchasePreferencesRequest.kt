@@ -31,30 +31,18 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param code
- * @param label
- * @param status
- * @param message
- * @param blocking
+ * @param schemaVersion
+ * @param preferences
  */
 @Serializable
 
-data class PurchasePolicyGateSummary (
+data class SavePurchasePreferencesRequest (
 
-    @SerialName(value = "code")
-    val code: kotlin.String,
+    @SerialName(value = "schema_version")
+    val schemaVersion: kotlin.Int,
 
-    @SerialName(value = "label")
-    val label: kotlin.String,
-
-    @SerialName(value = "status")
-    val status: kotlin.String,
-
-    @SerialName(value = "message")
-    val message: kotlin.String,
-
-    @SerialName(value = "blocking")
-    val blocking: kotlin.Boolean
+    @Contextual @SerialName(value = "preferences")
+    val preferences: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
 
 ) {
 

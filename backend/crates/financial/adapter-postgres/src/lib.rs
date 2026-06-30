@@ -2,23 +2,25 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_financial_application::{
-    AppendCostLedgerEntryCommand, AssetLifecycleCostSummary, CostLedgerEntrySummary,
-    CostLedgerSource, CreatePurchaseRequestCommand, CreateRentalQuoteCommand,
-    ExecutePurchaseCommand, FinancialConfigSnapshot, PrepareExpenditureCommand,
-    PurchaseApprovalCommand, PurchasePolicyGateSummary, PurchaseRequestAttachmentSummary,
-    PurchaseRequestExceptionSummary, PurchaseRequestLineInput, PurchaseRequestLineSummary,
-    PurchaseRequestSummary, PurchaseRestartCommand, PurchaseSubmitCommand, RejectPurchaseCommand,
-    RentalQuoteSummary, financial_audit_event,
+    AppendCostLedgerEntryCommand, AssetLifecycleCostSummary,
+    ConfirmPurchaseAttachmentUploadCommand, CostLedgerEntrySummary, CostLedgerSource,
+    CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
+    FinancialConfigSnapshot, PrepareExpenditureCommand, PreparePurchaseAttachmentUploadCommand,
+    PurchaseApprovalCommand, PurchaseAttachmentDownload, PurchaseAttachmentSummary,
+    PurchaseAttachmentUploadRecord, PurchaseFeaturePreferences, PurchasePolicySummary,
+    PurchaseRequestLineInput, PurchaseRequestLineSummary, PurchaseRequestSummary,
+    PurchaseRequesterSummary, PurchaseRestartCommand, PurchaseSubmitCommand, PurchaseType,
+    RejectPurchaseCommand, RentalQuoteSummary, financial_audit_event,
 };
 use mnt_financial_domain::{
-    AcquisitionAnchor, MoneyInput, PurchaseActor, PurchaseStatus, PurchaseTransition, PurchaseType,
+    AcquisitionAnchor, MoneyInput, PurchaseActor, PurchaseStatus, PurchaseTransition,
     RentalQuoteInput, ResidualRecomputeInput, compute_rental_quote, cost_per_hour_won,
     cost_per_month_won, gross_margin_won, recompute_residual_value, tco_won,
     validate_purchase_transition,
 };
 use mnt_kernel_core::{
-    AuditEvent, BranchId, EquipmentId, KernelError, PurchaseRequestId, QuoteId, UserId,
-    WorkOrderId, compute_price_intel,
+    AuditEvent, BranchId, EquipmentId, KernelError, OrgId, PurchaseRequestId, QuoteId,
+    TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
@@ -54,6 +56,235 @@ impl PgFinancialStore {
     #[must_use]
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    pub async fn prepare_purchase_attachment_upload(
+        &self,
+        command: PreparePurchaseAttachmentUploadCommand,
+    ) -> Result<PurchaseAttachmentUploadRecord, PgFinancialError> {
+        validate_required(&command.file_name, "attachment file name")?;
+        validate_required(&command.content_type, "attachment content type")?;
+        validate_required(&command.role, "attachment role")?;
+        validate_required(&command.s3_bucket, "attachment bucket")?;
+        validate_required(&command.s3_key, "attachment storage key")?;
+        if command.size_bytes <= 0 {
+            return Err(KernelError::validation("attachment size must be positive").into());
+        }
+        if command.size_bytes > 25 * 1024 * 1024 {
+            return Err(KernelError::validation("purchase attachment exceeds 25 MiB").into());
+        }
+        if !matches!(command.role.as_str(), "QUOTE" | "INVOICE" | "OTHER") {
+            return Err(KernelError::validation("unsupported purchase attachment role").into());
+        }
+
+        let attachment_id = uuid::Uuid::new_v4();
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let event = financial_audit_event(
+            "purchase.attachment.presign",
+            command.actor,
+            command.branch_id,
+            "financial_purchase_attachment",
+            attachment_id,
+            command.trace,
+            command.occurred_at,
+        )?
+        .with_org(org);
+
+        with_audit::<_, PurchaseAttachmentUploadRecord, PgFinancialError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                ensure_branch_exists_tx(tx, command.branch_id).await?;
+                sqlx::query(
+                    r#"
+                        INSERT INTO financial_purchase_attachments (
+                            id, branch_id, uploaded_by, role, file_name, content_type,
+                            size_bytes, s3_bucket, s3_key, checksum_sha256, upload_state,
+                            created_at, org_id
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12)
+                        "#,
+                )
+                .bind(attachment_id)
+                .bind(*command.branch_id.as_uuid())
+                .bind(*command.actor.as_uuid())
+                .bind(command.role.trim())
+                .bind(command.file_name.trim())
+                .bind(command.content_type.trim())
+                .bind(command.size_bytes)
+                .bind(command.s3_bucket.trim())
+                .bind(command.s3_key.trim())
+                .bind(command.checksum_sha256.as_deref())
+                .bind(command.occurred_at)
+                .bind(org_uuid)
+                .execute(tx.as_mut())
+                .await?;
+                purchase_attachment_upload_record_tx(tx, attachment_id).await
+            })
+        })
+        .await
+    }
+
+    pub async fn confirm_purchase_attachment_upload(
+        &self,
+        command: ConfirmPurchaseAttachmentUploadCommand,
+    ) -> Result<PurchaseAttachmentUploadRecord, PgFinancialError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_audits::<_, PurchaseAttachmentUploadRecord, PgFinancialError>(&self.pool, org, |tx| {
+            Box::pin(async move {
+                let record =
+                    purchase_attachment_upload_record_tx(tx, command.attachment_id).await?;
+                let result = sqlx::query(
+                    r#"
+                    UPDATE financial_purchase_attachments
+                    SET upload_state = 'CONFIRMED'
+                    WHERE id = $1
+                      AND uploaded_by = $2
+                      AND upload_state IN ('PENDING', 'CONFIRMED')
+                    "#,
+                )
+                .bind(command.attachment_id)
+                .bind(*command.actor.as_uuid())
+                .execute(tx.as_mut())
+                .await?;
+                if result.rows_affected() != 1 {
+                    return Err(KernelError::forbidden(
+                        "purchase attachment is not owned by this user or cannot be confirmed",
+                    )
+                    .into());
+                }
+                let updated =
+                    purchase_attachment_upload_record_tx(tx, command.attachment_id).await?;
+                let event = financial_audit_event(
+                    "purchase.attachment.confirm",
+                    command.actor,
+                    record.branch_id,
+                    "financial_purchase_attachment",
+                    command.attachment_id,
+                    command.trace,
+                    command.occurred_at,
+                )?
+                .with_org(org);
+                Ok((updated, vec![event]))
+            })
+        })
+        .await
+    }
+
+    pub async fn purchase_attachment_download(
+        &self,
+        purchase_request_id: PurchaseRequestId,
+        attachment_id: uuid::Uuid,
+    ) -> Result<PurchaseAttachmentDownload, PgFinancialError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, PurchaseAttachmentDownload, PgFinancialError>(&self.pool, org, |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                    SELECT file_name, content_type, s3_bucket, s3_key
+                    FROM financial_purchase_attachments
+                    WHERE id = $1
+                      AND purchase_request_id = $2
+                      AND upload_state = 'CONFIRMED'
+                    "#,
+                )
+                .bind(attachment_id)
+                .bind(*purchase_request_id.as_uuid())
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("purchase attachment not found"))?;
+                Ok(PurchaseAttachmentDownload {
+                    file_name: row.try_get("file_name")?,
+                    content_type: row.try_get("content_type")?,
+                    s3_bucket: row.try_get("s3_bucket")?,
+                    s3_key: row.try_get("s3_key")?,
+                })
+            })
+        })
+        .await
+    }
+
+    pub async fn purchase_feature_preferences(
+        &self,
+        user_id: UserId,
+        feature_key: &str,
+    ) -> Result<PurchaseFeaturePreferences, PgFinancialError> {
+        validate_feature_key(feature_key)?;
+        let feature_key = feature_key.to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, PurchaseFeaturePreferences, PgFinancialError>(&self.pool, org, |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                    SELECT schema_version, preferences_json
+                    FROM user_feature_preferences
+                    WHERE user_id = $1 AND feature_key = $2
+                    "#,
+                )
+                .bind(*user_id.as_uuid())
+                .bind(&feature_key)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                if let Some(row) = row {
+                    Ok(PurchaseFeaturePreferences {
+                        feature_key,
+                        schema_version: row.try_get("schema_version")?,
+                        preferences: row.try_get("preferences_json")?,
+                    })
+                } else {
+                    Ok(PurchaseFeaturePreferences {
+                        feature_key,
+                        schema_version: 1,
+                        preferences: serde_json::json!({}),
+                    })
+                }
+            })
+        })
+        .await
+    }
+
+    pub async fn save_purchase_feature_preferences(
+        &self,
+        user_id: UserId,
+        feature_key: &str,
+        schema_version: i32,
+        preferences: serde_json::Value,
+    ) -> Result<PurchaseFeaturePreferences, PgFinancialError> {
+        validate_feature_key(feature_key)?;
+        validate_purchase_preferences(schema_version, &preferences)?;
+        let feature_key = feature_key.to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_org_conn::<_, PurchaseFeaturePreferences, PgFinancialError>(&self.pool, org, |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
+                    INSERT INTO user_feature_preferences (
+                        user_id, feature_key, preferences_json, schema_version,
+                        created_at, updated_at, org_id
+                    )
+                    VALUES ($1, $2, $3, $4, now(), now(), $5)
+                    ON CONFLICT (org_id, user_id, feature_key)
+                    DO UPDATE SET
+                        preferences_json = EXCLUDED.preferences_json,
+                        schema_version = EXCLUDED.schema_version,
+                        updated_at = now()
+                    "#,
+                )
+                .bind(*user_id.as_uuid())
+                .bind(&feature_key)
+                .bind(&preferences)
+                .bind(schema_version)
+                .bind(org_uuid)
+                .execute(tx.as_mut())
+                .await?;
+                Ok(PurchaseFeaturePreferences {
+                    feature_key,
+                    schema_version,
+                    preferences,
+                })
+            })
+        })
+        .await
     }
 
     pub async fn create_rental_quote(
@@ -123,18 +354,14 @@ impl PgFinancialStore {
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
         validate_required(&command.vendor_name, "vendor name")?;
         validate_required(&command.memo, "purchase memo")?;
-        if command.shipping_won < 0 || command.discount_won < 0 {
-            return Err(
-                KernelError::validation("purchase adjustments must be non-negative").into(),
-            );
-        }
+        let computed_lines = compute_purchase_lines(command.amount_won, &command.lines)?;
+        let amount_won = purchase_total(&computed_lines)?;
 
-        let normalized = normalize_purchase_lines(&command)?;
         let purchase_request_id = PurchaseRequestId::new();
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
         let event = financial_audit_event(
-            "purchase.statement.attach",
+            "purchase.request.create",
             command.actor,
             command.branch_id,
             "financial_purchase_request",
@@ -146,77 +373,98 @@ impl PgFinancialStore {
 
         with_audit::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, event, |tx| {
             Box::pin(async move {
-                let equipment_id = if command.purchase_type.requires_equipment() {
-                    let equipment_id = command.equipment_id.ok_or_else(|| {
-                        KernelError::validation(
-                            "equipment purchase requests must be tied to K&L equipment",
-                        )
-                    })?;
+                ensure_branch_exists_tx(tx, command.branch_id).await?;
+                let equipment_required = purchase_equipment_required(org_uuid);
+                if equipment_required && command.equipment_id.is_none() {
+                    return Err(KernelError::validation(
+                        "equipment is required for KNL maintenance purchases",
+                    )
+                    .into());
+                }
+
+                if let Some(equipment_id) = command.equipment_id {
                     let equipment = equipment_economics_tx(tx, equipment_id).await?;
                     ensure_branch(equipment.branch_id, command.branch_id)?;
-                    Some(equipment_id)
-                } else {
-                    ensure_branch_exists_tx(tx, command.branch_id).await?;
-                    command.equipment_id
-                };
+                    if let Some(work_order_id) = command.work_order_id {
+                        ensure_work_order_matches_tx(
+                            tx,
+                            work_order_id,
+                            command.branch_id,
+                            equipment_id,
+                        )
+                        .await?;
+                    }
+                }
 
-                let statement = match command.statement_evidence_id {
-                    Some(evidence_id) => Some(
+                let statement = if let Some(statement_evidence_id) = command.statement_evidence_id {
+                    let equipment_id = command.equipment_id.ok_or_else(|| {
+                        KernelError::validation(
+                            "statement evidence requires an equipment-scoped purchase",
+                        )
+                    })?;
+                    Some(
                         ensure_statement_evidence_tx(
                             tx,
-                            evidence_id,
+                            statement_evidence_id,
                             command.branch_id,
                             equipment_id,
                             command.work_order_id,
                         )
                         .await?,
-                    ),
-                    None => None,
+                    )
+                } else {
+                    None
                 };
 
-                if command.purchase_type.requires_equipment() && statement.is_none() {
+                if command.equipment_id.is_some() && command.statement_evidence_id.is_none() {
                     return Err(KernelError::validation(
-                        "equipment purchase requests require a quote or statement attachment",
+                        "statement evidence is required for equipment purchases",
                     )
                     .into());
                 }
 
                 let work_order_id = statement
+                    .as_ref()
                     .map(|link| link.work_order_id)
                     .or(command.work_order_id);
+
+                let policy = purchase_policy_flags_tx(
+                    tx,
+                    command.branch_id,
+                    command.purchase_type,
+                    &command.vendor_name,
+                    &computed_lines,
+                    !command.quote_attachment_ids.is_empty(),
+                )
+                .await?;
 
                 sqlx::query(
                     r#"
                     INSERT INTO financial_purchase_requests (
                         id, branch_id, equipment_id, work_order_id, statement_evidence_id,
-                        purchase_type, vendor_name, amount_won, subtotal_won, vat_won,
-                        shipping_won, discount_won, total_won, memo, status, requested_by,
+                        purchase_type, vendor_name, amount_won, memo, status, requested_by,
                         depreciation_method, useful_life_months, residual_rate_bps,
                         declining_balance_rate_bps, management_fee_rate_bps,
                         profit_rate_bps, floor_negative_quote_residual,
-                        executive_threshold_won, created_at, updated_at, org_id
+                        executive_threshold_won, price_anomaly, quote_update_required,
+                        created_at, updated_at, org_id
                     )
                     VALUES (
                         $1, $2, $3, $4, $5,
-                        $6, $7, $8, $9, $10,
-                        $11, $12, $13, $14, $15, $16,
-                        $17, $18, $19, $20, $21, $22, $23, $24, $25, $25, $26
+                        $6, $7, $8, $9, $10, $11,
+                        $12, $13, $14, $15, $16, $17, $18,
+                        $19, $20, $21, $22, $22, $23
                     )
                     "#,
                 )
                 .bind(*purchase_request_id.as_uuid())
                 .bind(*command.branch_id.as_uuid())
-                .bind(equipment_id.map(|id| *id.as_uuid()))
+                .bind(command.equipment_id.map(|id| *id.as_uuid()))
                 .bind(work_order_id.map(|id| *id.as_uuid()))
                 .bind(command.statement_evidence_id.map(|id| *id.as_uuid()))
                 .bind(command.purchase_type.as_db_str())
                 .bind(command.vendor_name.trim())
-                .bind(normalized.total_won)
-                .bind(normalized.subtotal_won)
-                .bind(normalized.vat_won)
-                .bind(command.shipping_won)
-                .bind(command.discount_won)
-                .bind(normalized.total_won)
+                .bind(amount_won)
                 .bind(command.memo.trim())
                 .bind(PurchaseStatus::StatementAttached.as_db_str())
                 .bind(*command.actor.as_uuid())
@@ -232,35 +480,44 @@ impl PgFinancialStore {
                 .bind(command.config.profit_rate_bps)
                 .bind(command.config.floor_negative_quote_residual)
                 .bind(command.config.executive_approval_threshold_won)
+                .bind(policy.price_anomaly)
+                .bind(policy.quote_update_required)
                 .bind(command.occurred_at)
                 .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
-                insert_purchase_lines_tx(
+                insert_purchase_lines_tx(tx, purchase_request_id, &computed_lines, org_uuid)
+                    .await?;
+                attach_purchase_attachments_tx(
                     tx,
                     purchase_request_id,
-                    command.actor,
-                    command.statement_evidence_id,
-                    &normalized.lines,
-                    command.occurred_at,
-                    org_uuid,
+                    command.branch_id,
+                    &command.quote_attachment_ids,
                 )
                 .await?;
-                insert_purchase_exceptions_tx(
-                    tx,
-                    purchase_request_id,
-                    command.actor,
-                    &command.exceptions,
-                    command.occurred_at,
-                    org_uuid,
-                )
-                .await?;
+                if command.purchase_type == PurchaseType::Regular
+                    && !policy.quote_update_required
+                    && !command.quote_attachment_ids.is_empty()
+                {
+                    upsert_regular_purchase_prices_tx(
+                        tx,
+                        purchase_request_id,
+                        command.branch_id,
+                        &command.vendor_name,
+                        &computed_lines,
+                        command.quote_attachment_ids.first().copied(),
+                        command.occurred_at,
+                        org_uuid,
+                    )
+                    .await?;
+                }
+
                 insert_purchase_history_tx(
                     tx,
                     purchase_request_id,
                     command.actor,
-                    "purchase.statement.attach",
+                    "purchase.request.create",
                     None,
                     PurchaseStatus::StatementAttached,
                     Some(command.memo.trim()),
@@ -371,9 +628,8 @@ impl PgFinancialStore {
         command: PurchaseRestartCommand,
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
         validate_required(&command.memo, "restart memo")?;
-        if command.amount_won <= 0 {
-            return Err(KernelError::validation("purchase amount must be positive").into());
-        }
+        let computed_lines = compute_purchase_lines(command.amount_won, &command.lines)?;
+        let amount_won = purchase_total(&computed_lines)?;
         let event_purchase = self.purchase_request(command.purchase_request_id).await?;
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
@@ -396,43 +652,60 @@ impl PgFinancialStore {
                     from,
                     to: PurchaseStatus::StatementAttached,
                     actor: purchase_actor_for_user_tx(tx, command.actor).await?,
-                    amount_won: command.amount_won,
+                    amount_won,
                     executive_threshold_won: row.executive_threshold_won,
                 })?;
-                let statement = ensure_statement_evidence_tx(
+
+                let statement = if let Some(statement_evidence_id) = command.statement_evidence_id {
+                    let equipment_id = row.equipment_id.ok_or_else(|| {
+                        KernelError::validation(
+                            "statement evidence requires an equipment-scoped purchase",
+                        )
+                    })?;
+                    Some(
+                        ensure_statement_evidence_tx(
+                            tx,
+                            statement_evidence_id,
+                            row.branch_id,
+                            equipment_id,
+                            row.work_order_id,
+                        )
+                        .await?,
+                    )
+                } else {
+                    None
+                };
+                if row.equipment_id.is_some() && command.statement_evidence_id.is_none() {
+                    return Err(KernelError::validation(
+                        "statement evidence is required for equipment purchases",
+                    )
+                    .into());
+                }
+                let work_order_id = statement
+                    .as_ref()
+                    .map(|link| link.work_order_id)
+                    .or(row.work_order_id);
+
+                let policy = purchase_policy_flags_tx(
                     tx,
-                    command.statement_evidence_id,
                     row.branch_id,
-                    row.equipment_id,
-                    row.work_order_id,
+                    event_purchase.purchase_type,
+                    &row.vendor_name,
+                    &computed_lines,
+                    !command.quote_attachment_ids.is_empty(),
                 )
                 .await?;
 
-                sqlx::query("DELETE FROM financial_purchase_request_exceptions WHERE purchase_request_id = $1")
-                    .bind(*command.purchase_request_id.as_uuid())
-                    .execute(tx.as_mut())
-                    .await?;
-                sqlx::query("DELETE FROM financial_purchase_request_attachments WHERE purchase_request_id = $1")
-                    .bind(*command.purchase_request_id.as_uuid())
-                    .execute(tx.as_mut())
-                    .await?;
-                sqlx::query("DELETE FROM financial_purchase_request_lines WHERE purchase_request_id = $1")
-                    .bind(*command.purchase_request_id.as_uuid())
-                    .execute(tx.as_mut())
-                    .await?;
                 sqlx::query(
                     r#"
                     UPDATE financial_purchase_requests
                     SET status = 'STATEMENT_ATTACHED',
                         statement_evidence_id = $2,
                         amount_won = $3,
-                        subtotal_won = $3,
-                        vat_won = 0,
-                        shipping_won = 0,
-                        discount_won = 0,
-                        total_won = $3,
                         memo = $4,
                         work_order_id = $6,
+                        price_anomaly = $7,
+                        quote_update_required = $8,
                         expenditure_no = NULL,
                         submitted_by = NULL,
                         admin_approved_by = NULL,
@@ -445,46 +718,46 @@ impl PgFinancialStore {
                     "#,
                 )
                 .bind(*command.purchase_request_id.as_uuid())
-                .bind(*command.statement_evidence_id.as_uuid())
-                .bind(command.amount_won)
+                .bind(command.statement_evidence_id.map(|id| *id.as_uuid()))
+                .bind(amount_won)
                 .bind(command.memo.trim())
                 .bind(command.occurred_at)
-                .bind(*statement.work_order_id.as_uuid())
+                .bind(work_order_id.map(|id| *id.as_uuid()))
+                .bind(policy.price_anomaly)
+                .bind(policy.quote_update_required)
                 .execute(tx.as_mut())
                 .await?;
-                sqlx::query(
-                    r#"
-                    INSERT INTO financial_purchase_request_lines (
-                        purchase_request_id, line_order, description, quantity, unit,
-                        unit_price_won, subtotal_won, tax_rate_bps, vat_won, total_won,
-                        category, quote_evidence_id, org_id
-                    )
-                    VALUES ($1, 1, $2, 1, 'EA', $3, $3, 0, 0, $3, 'legacy', $4, $5)
-                    "#,
+
+                replace_purchase_lines_tx(
+                    tx,
+                    command.purchase_request_id,
+                    &computed_lines,
+                    org_uuid,
                 )
-                .bind(*command.purchase_request_id.as_uuid())
-                .bind(command.memo.trim())
-                .bind(command.amount_won)
-                .bind(*command.statement_evidence_id.as_uuid())
-                .bind(org_uuid)
-                .execute(tx.as_mut())
                 .await?;
-                sqlx::query(
-                    r#"
-                    INSERT INTO financial_purchase_request_attachments (
-                        purchase_request_id, evidence_id, attachment_type,
-                        preferred_quote, created_by, org_id
-                    )
-                    VALUES ($1, $2, 'STATEMENT', true, $3, $4)
-                    ON CONFLICT (purchase_request_id, evidence_id) DO NOTHING
-                    "#,
+                attach_purchase_attachments_tx(
+                    tx,
+                    command.purchase_request_id,
+                    row.branch_id,
+                    &command.quote_attachment_ids,
                 )
-                .bind(*command.purchase_request_id.as_uuid())
-                .bind(*command.statement_evidence_id.as_uuid())
-                .bind(*command.actor.as_uuid())
-                .bind(org_uuid)
-                .execute(tx.as_mut())
                 .await?;
+                if event_purchase.purchase_type == PurchaseType::Regular
+                    && !policy.quote_update_required
+                    && !command.quote_attachment_ids.is_empty()
+                {
+                    upsert_regular_purchase_prices_tx(
+                        tx,
+                        command.purchase_request_id,
+                        row.branch_id,
+                        &row.vendor_name,
+                        &computed_lines,
+                        command.quote_attachment_ids.first().copied(),
+                        command.occurred_at,
+                        org_uuid,
+                    )
+                    .await?;
+                }
                 insert_purchase_history_tx(
                     tx,
                     command.purchase_request_id,
@@ -558,10 +831,7 @@ impl PgFinancialStore {
                     command.occurred_at,
                 )?;
 
-                if row.purchase_type == PurchaseType::Equipment {
-                    let equipment_id = row.equipment_id.ok_or_else(|| {
-                        KernelError::validation("equipment purchase is missing equipment")
-                    })?;
+                if let Some(equipment_id) = row.equipment_id {
                     let ledger_command = AppendCostLedgerEntryCommand {
                         actor: command.actor,
                         branch_id: row.branch_id,
@@ -583,7 +853,19 @@ impl PgFinancialStore {
                     .await?;
                     Ok((purchase, vec![purchase_event, residual_event]))
                 } else {
-                    Ok((purchase, vec![purchase_event]))
+                    let expense_event = insert_expense_ledger_tx(
+                        tx,
+                        command.purchase_request_id,
+                        command.actor,
+                        row.branch_id,
+                        &row.vendor_name,
+                        row.amount_won,
+                        row.expenditure_no.as_deref(),
+                        command.occurred_at,
+                        org_uuid,
+                    )
+                    .await?;
+                    Ok((purchase, vec![purchase_event, expense_event]))
                 }
             })
         })
@@ -706,7 +988,12 @@ impl PgFinancialStore {
                 // Guarded strictly on the submit target so the check never leaks
                 // into approve/execute/reject, which share this method.
                 if to == PurchaseStatus::RequestSubmitted {
-                    ensure_submit_policy_gates_tx(tx, purchase_request_id).await?;
+                    if row.quote_update_required {
+                        return Err(KernelError::validation(
+                            "quote update required before submitting this purchase request",
+                        )
+                        .into());
+                    }
                     if let Some(statement_evidence_id) = row.statement_evidence_id {
                         ensure_statement_evidence_verified_tx(tx, statement_evidence_id).await?;
                     }
@@ -807,7 +1094,6 @@ impl EquipmentEconomics {
 #[derive(Debug, Clone)]
 struct LockedPurchase {
     branch_id: BranchId,
-    purchase_type: PurchaseType,
     equipment_id: Option<EquipmentId>,
     work_order_id: Option<WorkOrderId>,
     statement_evidence_id: Option<mnt_kernel_core::EvidenceId>,
@@ -815,124 +1101,31 @@ struct LockedPurchase {
     amount_won: i64,
     executive_threshold_won: i64,
     config: FinancialConfigSnapshot,
+    quote_update_required: bool,
+    vendor_name: String,
+    expenditure_no: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ComputedPurchaseLine {
+    line_no: i32,
+    item: String,
+    quantity: i32,
+    unit_supply_price_won: i64,
+    vat_won: i64,
+    vat_overridden: bool,
+    line_total_won: i64,
+}
+
+#[derive(Debug, Clone)]
+struct PurchasePolicyFlags {
+    price_anomaly: bool,
+    quote_update_required: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct StatementEvidenceLink {
     work_order_id: WorkOrderId,
-}
-
-#[derive(Debug, Clone)]
-struct NormalizedPurchaseLine {
-    input: PurchaseRequestLineInput,
-    line_order: i16,
-    subtotal_won: i64,
-    vat_won: i64,
-    total_won: i64,
-}
-
-#[derive(Debug, Clone)]
-struct NormalizedPurchase {
-    lines: Vec<NormalizedPurchaseLine>,
-    subtotal_won: i64,
-    vat_won: i64,
-    total_won: i64,
-}
-
-fn normalize_purchase_lines(
-    command: &CreatePurchaseRequestCommand,
-) -> Result<NormalizedPurchase, PgFinancialError> {
-    let inputs = if command.lines.is_empty() {
-        let amount = command
-            .amount_won
-            .ok_or_else(|| KernelError::validation("purchase amount is required"))?;
-        if amount <= 0 {
-            return Err(KernelError::validation("purchase amount must be positive").into());
-        }
-        vec![PurchaseRequestLineInput {
-            description: command.memo.trim().to_owned(),
-            quantity: 1,
-            unit: "EA".to_owned(),
-            unit_price_won: amount,
-            category: "legacy".to_owned(),
-            department: None,
-            cost_center: None,
-            project: None,
-            sku: None,
-            tax_rate_bps: 0,
-            quote_evidence_id: command.statement_evidence_id,
-            needed_by: None,
-        }]
-    } else {
-        command.lines.clone()
-    };
-
-    let mut lines = Vec::with_capacity(inputs.len());
-    let mut subtotal_won = 0_i64;
-    let mut vat_won = 0_i64;
-    for (index, input) in inputs.into_iter().enumerate() {
-        validate_required(&input.description, "line description")?;
-        validate_required(&input.unit, "line unit")?;
-        validate_required(&input.category, "line category")?;
-        if input.quantity <= 0 {
-            return Err(KernelError::validation("line quantity must be positive").into());
-        }
-        if input.unit_price_won < 0 {
-            return Err(KernelError::validation("line unit price must be non-negative").into());
-        }
-        if !(0..=10_000).contains(&input.tax_rate_bps) {
-            return Err(
-                KernelError::validation("line tax rate must be between 0 and 10000 bps").into(),
-            );
-        }
-        let line_order = i16::try_from(index + 1)
-            .map_err(|_| KernelError::validation("purchase line order overflowed i16"))?;
-        let line_subtotal = input
-            .unit_price_won
-            .checked_mul(i64::from(input.quantity))
-            .ok_or_else(|| KernelError::validation("line subtotal overflowed i64"))?;
-        let line_vat = line_subtotal
-            .checked_mul(i64::from(input.tax_rate_bps))
-            .and_then(|value| value.checked_div(10_000))
-            .ok_or_else(|| KernelError::validation("line VAT overflowed i64"))?;
-        let line_total = line_subtotal
-            .checked_add(line_vat)
-            .ok_or_else(|| KernelError::validation("line total overflowed i64"))?;
-        subtotal_won = subtotal_won
-            .checked_add(line_subtotal)
-            .ok_or_else(|| KernelError::validation("purchase subtotal overflowed i64"))?;
-        vat_won = vat_won
-            .checked_add(line_vat)
-            .ok_or_else(|| KernelError::validation("purchase VAT overflowed i64"))?;
-        lines.push(NormalizedPurchaseLine {
-            input,
-            line_order,
-            subtotal_won: line_subtotal,
-            vat_won: line_vat,
-            total_won: line_total,
-        });
-    }
-
-    let gross = subtotal_won
-        .checked_add(vat_won)
-        .and_then(|value| value.checked_add(command.shipping_won))
-        .ok_or_else(|| KernelError::validation("purchase total overflowed i64"))?;
-    if command.discount_won > gross {
-        return Err(KernelError::validation("purchase discount exceeds gross total").into());
-    }
-    let total_won = gross
-        .checked_sub(command.discount_won)
-        .ok_or_else(|| KernelError::validation("purchase total overflowed i64"))?;
-    if total_won <= 0 {
-        return Err(KernelError::validation("purchase total must be positive").into());
-    }
-
-    Ok(NormalizedPurchase {
-        lines,
-        subtotal_won,
-        vat_won,
-        total_won,
-    })
 }
 
 async fn equipment_economics(
@@ -976,20 +1169,6 @@ async fn equipment_economics_tx(
     .await?
     .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
     equipment_economics_from_row(&row)
-}
-
-async fn ensure_branch_exists_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    branch_id: BranchId,
-) -> Result<(), PgFinancialError> {
-    let exists: Option<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM branches WHERE id = $1")
-        .bind(*branch_id.as_uuid())
-        .fetch_optional(tx.as_mut())
-        .await?;
-    if exists.is_none() {
-        return Err(KernelError::not_found("branch was not found").into());
-    }
-    Ok(())
 }
 
 fn equipment_economics_from_row(
@@ -1156,7 +1335,7 @@ async fn ensure_statement_evidence_tx(
     tx: &mut Transaction<'_, Postgres>,
     evidence_id: mnt_kernel_core::EvidenceId,
     branch_id: BranchId,
-    equipment_id: Option<EquipmentId>,
+    equipment_id: EquipmentId,
     expected_work_order_id: Option<WorkOrderId>,
 ) -> Result<StatementEvidenceLink, PgFinancialError> {
     let row = sqlx::query(
@@ -1176,11 +1355,9 @@ async fn ensure_statement_evidence_tx(
     let work_order_id = WorkOrderId::from_uuid(row.try_get("work_order_id")?);
     let actual_branch = BranchId::from_uuid(row.try_get("branch_id")?);
     let actual_equipment = EquipmentId::from_uuid(row.try_get("equipment_id")?);
-    if actual_branch != branch_id
-        || equipment_id.is_some_and(|expected| expected != actual_equipment)
-    {
+    if actual_branch != branch_id || actual_equipment != equipment_id {
         return Err(KernelError::forbidden(
-            "statement evidence is outside the purchase financial scope",
+            "statement evidence is outside the equipment financial scope",
         )
         .into());
     }
@@ -1227,282 +1404,6 @@ async fn ensure_statement_evidence_verified_tx(
         .into());
     }
     Ok(())
-}
-
-async fn insert_purchase_lines_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-    actor: UserId,
-    statement_evidence_id: Option<mnt_kernel_core::EvidenceId>,
-    lines: &[NormalizedPurchaseLine],
-    occurred_at: OffsetDateTime,
-    org_uuid: uuid::Uuid,
-) -> Result<(), PgFinancialError> {
-    for line in lines {
-        let line_id = uuid::Uuid::new_v4();
-        sqlx::query(
-            r#"
-            INSERT INTO financial_purchase_request_lines (
-                id, purchase_request_id, line_order, description, quantity, unit,
-                unit_price_won, subtotal_won, tax_rate_bps, vat_won, total_won,
-                category, department, cost_center, project, sku, quote_evidence_id,
-                needed_by, created_at, updated_at, org_id
-            )
-            VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                $12, $13, $14, $15, $16, $17, $18, $19, $19, $20
-            )
-            "#,
-        )
-        .bind(line_id)
-        .bind(*purchase_request_id.as_uuid())
-        .bind(line.line_order)
-        .bind(line.input.description.trim())
-        .bind(line.input.quantity)
-        .bind(line.input.unit.trim())
-        .bind(line.input.unit_price_won)
-        .bind(line.subtotal_won)
-        .bind(line.input.tax_rate_bps)
-        .bind(line.vat_won)
-        .bind(line.total_won)
-        .bind(line.input.category.trim())
-        .bind(trimmed_optional(line.input.department.as_deref()))
-        .bind(trimmed_optional(line.input.cost_center.as_deref()))
-        .bind(trimmed_optional(line.input.project.as_deref()))
-        .bind(trimmed_optional(line.input.sku.as_deref()))
-        .bind(line.input.quote_evidence_id.map(|id| *id.as_uuid()))
-        .bind(line.input.needed_by)
-        .bind(occurred_at)
-        .bind(org_uuid)
-        .execute(tx.as_mut())
-        .await?;
-
-        if let Some(evidence_id) = line.input.quote_evidence_id {
-            insert_purchase_attachment_tx(
-                tx,
-                PurchaseAttachmentInsert {
-                    purchase_request_id,
-                    line_id: Some(line_id),
-                    evidence_id,
-                    attachment_type: "QUOTE",
-                    preferred_quote: true,
-                    actor,
-                    org_uuid,
-                },
-            )
-            .await?;
-        }
-    }
-
-    if let Some(evidence_id) = statement_evidence_id {
-        insert_purchase_attachment_tx(
-            tx,
-            PurchaseAttachmentInsert {
-                purchase_request_id,
-                line_id: None,
-                evidence_id,
-                attachment_type: "STATEMENT",
-                preferred_quote: true,
-                actor,
-                org_uuid,
-            },
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-struct PurchaseAttachmentInsert {
-    purchase_request_id: PurchaseRequestId,
-    line_id: Option<uuid::Uuid>,
-    evidence_id: mnt_kernel_core::EvidenceId,
-    attachment_type: &'static str,
-    preferred_quote: bool,
-    actor: UserId,
-    org_uuid: uuid::Uuid,
-}
-
-async fn insert_purchase_attachment_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    attachment: PurchaseAttachmentInsert,
-) -> Result<(), PgFinancialError> {
-    sqlx::query(
-        r#"
-        INSERT INTO financial_purchase_request_attachments (
-            purchase_request_id, line_id, evidence_id, attachment_type,
-            preferred_quote, created_by, org_id
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (purchase_request_id, evidence_id) DO NOTHING
-        "#,
-    )
-    .bind(*attachment.purchase_request_id.as_uuid())
-    .bind(attachment.line_id)
-    .bind(*attachment.evidence_id.as_uuid())
-    .bind(attachment.attachment_type)
-    .bind(attachment.preferred_quote)
-    .bind(*attachment.actor.as_uuid())
-    .bind(attachment.org_uuid)
-    .execute(tx.as_mut())
-    .await?;
-    Ok(())
-}
-
-async fn insert_purchase_exceptions_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-    actor: UserId,
-    exceptions: &[mnt_financial_application::PurchaseRequestExceptionInput],
-    occurred_at: OffsetDateTime,
-    org_uuid: uuid::Uuid,
-) -> Result<(), PgFinancialError> {
-    for exception in exceptions {
-        validate_required(&exception.exception_type, "exception type")?;
-        validate_required(&exception.reason, "exception reason")?;
-        sqlx::query(
-            r#"
-            INSERT INTO financial_purchase_request_exceptions (
-                purchase_request_id, exception_type, reason, attachment_evidence_id,
-                escalation_approver, status, created_by, created_at, org_id
-            )
-            VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8)
-            "#,
-        )
-        .bind(*purchase_request_id.as_uuid())
-        .bind(exception.exception_type.trim())
-        .bind(exception.reason.trim())
-        .bind(exception.attachment_evidence_id.map(|id| *id.as_uuid()))
-        .bind(exception.escalation_approver.map(|id| *id.as_uuid()))
-        .bind(*actor.as_uuid())
-        .bind(occurred_at)
-        .bind(org_uuid)
-        .execute(tx.as_mut())
-        .await?;
-    }
-    Ok(())
-}
-
-async fn ensure_submit_policy_gates_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-) -> Result<(), PgFinancialError> {
-    let attachment_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::BIGINT FROM financial_purchase_request_attachments WHERE purchase_request_id = $1",
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .fetch_one(tx.as_mut())
-    .await?;
-    if attachment_count == 0 {
-        return Err(KernelError::validation(
-            "quote attachment is required before submitting a purchase request",
-        )
-        .into());
-    }
-
-    if purchase_has_price_anomaly_tx(tx, purchase_request_id).await?
-        && !purchase_has_exception_tx(tx, purchase_request_id, "PRICE_ANOMALY").await?
-    {
-        return Err(KernelError::validation(
-            "price anomaly requires a structured exception before submit",
-        )
-        .into());
-    }
-
-    Ok(())
-}
-
-async fn purchase_has_price_anomaly_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-) -> Result<bool, PgFinancialError> {
-    const HIGH_VALUE_LINE_WON: i64 = 5_000_000;
-    const HIGH_VALUE_TOTAL_WON: i64 = 10_000_000;
-    const PRICE_INTEL_BLOCK_SCORE: f64 = 0.65;
-
-    let total_won: i64 =
-        sqlx::query_scalar("SELECT total_won FROM financial_purchase_requests WHERE id = $1")
-            .bind(*purchase_request_id.as_uuid())
-            .fetch_one(tx.as_mut())
-            .await?;
-    if total_won >= HIGH_VALUE_TOTAL_WON {
-        return Ok(true);
-    }
-
-    let line_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::BIGINT FROM financial_purchase_request_lines WHERE purchase_request_id = $1 AND unit_price_won >= $2",
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .bind(HIGH_VALUE_LINE_WON)
-    .fetch_one(tx.as_mut())
-    .await?;
-    if line_count > 0 {
-        return Ok(true);
-    }
-
-    let current_lines = sqlx::query(
-        r#"
-        SELECT id, unit_price_won
-        FROM financial_purchase_request_lines
-        WHERE purchase_request_id = $1
-        "#,
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .fetch_all(tx.as_mut())
-    .await?;
-
-    for line in current_lines {
-        let line_id: uuid::Uuid = line.try_get("id")?;
-        let unit_price_won: i64 = line.try_get("unit_price_won")?;
-        let peers: Vec<i64> = sqlx::query_scalar(
-            r#"
-            SELECT peer_line.unit_price_won
-            FROM financial_purchase_requests current_request
-            JOIN financial_purchase_request_lines current_line
-              ON current_line.purchase_request_id = current_request.id
-            JOIN financial_purchase_requests peer_request
-              ON lower(trim(peer_request.vendor_name)) = lower(trim(current_request.vendor_name))
-             AND peer_request.status <> 'REJECTED'
-            JOIN financial_purchase_request_lines peer_line
-              ON peer_line.purchase_request_id = peer_request.id
-             AND lower(trim(peer_line.category)) = lower(trim(current_line.category))
-            WHERE current_request.id = $1
-              AND current_line.id = $2
-            "#,
-        )
-        .bind(*purchase_request_id.as_uuid())
-        .bind(line_id)
-        .fetch_all(tx.as_mut())
-        .await?;
-
-        let intel = compute_price_intel(unit_price_won, &peers);
-        if intel
-            .suspicion_score()
-            .is_some_and(|score| score >= PRICE_INTEL_BLOCK_SCORE)
-        {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
-async fn purchase_has_exception_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-    exception_type: &str,
-) -> Result<bool, PgFinancialError> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::BIGINT FROM financial_purchase_request_exceptions WHERE purchase_request_id = $1 AND exception_type = $2 AND status IN ('PENDING', 'APPROVED')",
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .bind(exception_type)
-    .fetch_one(tx.as_mut())
-    .await?;
-    Ok(count > 0)
-}
-
-fn trimmed_optional(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1685,18 +1586,463 @@ async fn quote_lines_tx(
         .collect()
 }
 
+fn purchase_equipment_required(org_uuid: uuid::Uuid) -> bool {
+    org_uuid == *OrgId::knl().as_uuid()
+}
+
+fn normalize_purchase_key(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn purchase_policy_messages(price_anomaly: bool, quote_update_required: bool) -> Vec<String> {
+    let mut messages = Vec::new();
+    if price_anomaly {
+        messages.push("기존 정기구매 단가와 1원 이상 차이가 있습니다.".to_owned());
+    }
+    if quote_update_required {
+        messages.push("견적서 업데이트가 필요합니다. 견적서를 첨부한 뒤 상신하세요.".to_owned());
+    }
+    messages
+}
+
+fn compute_purchase_lines(
+    client_amount_won: Option<i64>,
+    inputs: &[PurchaseRequestLineInput],
+) -> Result<Vec<ComputedPurchaseLine>, PgFinancialError> {
+    if inputs.is_empty() {
+        let amount = client_amount_won
+            .filter(|amount| *amount > 0)
+            .ok_or_else(|| KernelError::validation("at least one purchase line is required"))?;
+        return Ok(vec![ComputedPurchaseLine {
+            line_no: 1,
+            item: "LEGACY_MANUAL".to_owned(),
+            quantity: 1,
+            unit_supply_price_won: amount,
+            vat_won: 0,
+            vat_overridden: true,
+            line_total_won: amount,
+        }]);
+    }
+
+    let mut lines = Vec::with_capacity(inputs.len());
+    for (index, input) in inputs.iter().enumerate() {
+        validate_required(&input.item, "purchase line item")?;
+        if input.quantity <= 0 {
+            return Err(KernelError::validation("purchase line quantity must be positive").into());
+        }
+        if input.unit_supply_price_won < 0 {
+            return Err(
+                KernelError::validation("purchase line unit price must be non-negative").into(),
+            );
+        }
+        let supply_total = input
+            .unit_supply_price_won
+            .checked_mul(i64::from(input.quantity))
+            .ok_or_else(|| KernelError::validation("purchase line supply total overflowed"))?;
+        let auto_vat = supply_total / 10;
+        let (vat_won, vat_overridden) = match input.vat_won {
+            Some(vat) if vat >= 0 => (vat, true),
+            Some(_) => {
+                return Err(
+                    KernelError::validation("purchase line VAT must be non-negative").into(),
+                );
+            }
+            None => (auto_vat, false),
+        };
+        let line_total_won = supply_total
+            .checked_add(vat_won)
+            .ok_or_else(|| KernelError::validation("purchase line total overflowed"))?;
+        if line_total_won <= 0 {
+            return Err(KernelError::validation("purchase line total must be positive").into());
+        }
+        let line_no = i32::try_from(index + 1)
+            .map_err(|_| KernelError::validation("purchase line count overflowed"))?;
+        lines.push(ComputedPurchaseLine {
+            line_no,
+            item: input.item.trim().to_owned(),
+            quantity: input.quantity,
+            unit_supply_price_won: input.unit_supply_price_won,
+            vat_won,
+            vat_overridden,
+            line_total_won,
+        });
+    }
+
+    let total = purchase_total(&lines)?;
+    if let Some(client_total) = client_amount_won {
+        if client_total != total {
+            return Err(KernelError::validation(
+                "purchase amount must equal the server-calculated line total",
+            )
+            .into());
+        }
+    }
+    Ok(lines)
+}
+
+fn purchase_total(lines: &[ComputedPurchaseLine]) -> Result<i64, PgFinancialError> {
+    let mut total = 0_i64;
+    for line in lines {
+        total = total
+            .checked_add(line.line_total_won)
+            .ok_or_else(|| KernelError::validation("purchase total overflowed"))?;
+    }
+    if total <= 0 {
+        return Err(KernelError::validation("purchase amount must be positive").into());
+    }
+    Ok(total)
+}
+
+async fn insert_purchase_lines_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_request_id: PurchaseRequestId,
+    lines: &[ComputedPurchaseLine],
+    org_uuid: uuid::Uuid,
+) -> Result<(), PgFinancialError> {
+    for line in lines {
+        sqlx::query(
+            r#"
+            INSERT INTO financial_purchase_request_lines (
+                purchase_request_id, line_no, item, quantity, unit_supply_price_won,
+                vat_won, vat_overridden, line_total_won, org_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+        )
+        .bind(*purchase_request_id.as_uuid())
+        .bind(line.line_no)
+        .bind(&line.item)
+        .bind(line.quantity)
+        .bind(line.unit_supply_price_won)
+        .bind(line.vat_won)
+        .bind(line.vat_overridden)
+        .bind(line.line_total_won)
+        .bind(org_uuid)
+        .execute(tx.as_mut())
+        .await?;
+    }
+    Ok(())
+}
+
+async fn replace_purchase_lines_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_request_id: PurchaseRequestId,
+    lines: &[ComputedPurchaseLine],
+    org_uuid: uuid::Uuid,
+) -> Result<(), PgFinancialError> {
+    sqlx::query("DELETE FROM financial_purchase_request_lines WHERE purchase_request_id = $1")
+        .bind(*purchase_request_id.as_uuid())
+        .execute(tx.as_mut())
+        .await?;
+    insert_purchase_lines_tx(tx, purchase_request_id, lines, org_uuid).await
+}
+
+async fn purchase_lines_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_request_id: PurchaseRequestId,
+) -> Result<Vec<PurchaseRequestLineSummary>, PgFinancialError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, line_no, item, quantity, unit_supply_price_won,
+               vat_won, vat_overridden, line_total_won
+        FROM financial_purchase_request_lines
+        WHERE purchase_request_id = $1
+        ORDER BY line_no
+        "#,
+    )
+    .bind(*purchase_request_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    if rows.is_empty() {
+        let amount: i64 =
+            sqlx::query_scalar("SELECT amount_won FROM financial_purchase_requests WHERE id = $1")
+                .bind(*purchase_request_id.as_uuid())
+                .fetch_one(tx.as_mut())
+                .await?;
+        return Ok(vec![PurchaseRequestLineSummary {
+            id: uuid::Uuid::nil(),
+            line_no: 1,
+            item: "LEGACY_MANUAL".to_owned(),
+            quantity: 1,
+            unit_supply_price_won: amount,
+            vat_won: 0,
+            vat_overridden: true,
+            line_total_won: amount,
+        }]);
+    }
+
+    rows.into_iter()
+        .map(|row| {
+            Ok(PurchaseRequestLineSummary {
+                id: row.try_get("id")?,
+                line_no: row.try_get("line_no")?,
+                item: row.try_get("item")?,
+                quantity: row.try_get("quantity")?,
+                unit_supply_price_won: row.try_get("unit_supply_price_won")?,
+                vat_won: row.try_get("vat_won")?,
+                vat_overridden: row.try_get("vat_overridden")?,
+                line_total_won: row.try_get("line_total_won")?,
+            })
+        })
+        .collect()
+}
+
+async fn purchase_attachments_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_request_id: PurchaseRequestId,
+) -> Result<Vec<PurchaseAttachmentSummary>, PgFinancialError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, file_name, content_type, size_bytes, role, created_at
+        FROM financial_purchase_attachments
+        WHERE purchase_request_id = $1
+          AND upload_state = 'CONFIRMED'
+        ORDER BY created_at DESC, id DESC
+        "#,
+    )
+    .bind(*purchase_request_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            let id: uuid::Uuid = row.try_get("id")?;
+            Ok(PurchaseAttachmentSummary {
+                id,
+                file_name: row.try_get("file_name")?,
+                content_type: row.try_get("content_type")?,
+                size_bytes: row.try_get("size_bytes")?,
+                role: row.try_get("role")?,
+                download_url: format!(
+                    "/api/v1/financial/purchase-requests/{}/attachments/{}/download",
+                    purchase_request_id, id
+                ),
+                created_at: row.try_get("created_at")?,
+            })
+        })
+        .collect()
+}
+
+async fn attach_purchase_attachments_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_request_id: PurchaseRequestId,
+    branch_id: BranchId,
+    attachment_ids: &[uuid::Uuid],
+) -> Result<(), PgFinancialError> {
+    for attachment_id in attachment_ids {
+        let result = sqlx::query(
+            r#"
+            UPDATE financial_purchase_attachments
+            SET purchase_request_id = $1
+            WHERE id = $2
+              AND branch_id = $3
+              AND role = 'QUOTE'
+              AND upload_state = 'CONFIRMED'
+              AND (purchase_request_id IS NULL OR purchase_request_id = $1)
+            "#,
+        )
+        .bind(*purchase_request_id.as_uuid())
+        .bind(*attachment_id)
+        .bind(*branch_id.as_uuid())
+        .execute(tx.as_mut())
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err(KernelError::validation(
+                "quote attachment is not available for this purchase request",
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+async fn purchase_attachment_upload_record_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    attachment_id: uuid::Uuid,
+) -> Result<PurchaseAttachmentUploadRecord, PgFinancialError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, branch_id, file_name, content_type, size_bytes, role,
+               upload_state, created_at
+        FROM financial_purchase_attachments
+        WHERE id = $1
+        "#,
+    )
+    .bind(attachment_id)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| KernelError::not_found("purchase attachment not found"))?;
+
+    Ok(PurchaseAttachmentUploadRecord {
+        id: row.try_get("id")?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        file_name: row.try_get("file_name")?,
+        content_type: row.try_get("content_type")?,
+        size_bytes: row.try_get("size_bytes")?,
+        role: row.try_get("role")?,
+        upload_state: row.try_get("upload_state")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+async fn purchase_policy_flags_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    branch_id: BranchId,
+    purchase_type: PurchaseType,
+    vendor_name: &str,
+    lines: &[ComputedPurchaseLine],
+    has_quote_attachment: bool,
+) -> Result<PurchasePolicyFlags, PgFinancialError> {
+    let mut price_anomaly = false;
+
+    if purchase_type == PurchaseType::Regular {
+        let vendor = normalize_purchase_key(vendor_name);
+        for line in lines {
+            let item = normalize_purchase_key(&line.item);
+            let previous: Option<i64> = sqlx::query_scalar(
+                r#"
+                SELECT last_unit_supply_price_won
+                FROM financial_regular_purchase_prices
+                WHERE branch_id = $1
+                  AND vendor_name_norm = $2
+                  AND item_norm = $3
+                "#,
+            )
+            .bind(*branch_id.as_uuid())
+            .bind(&vendor)
+            .bind(&item)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            if previous.is_some_and(|stored| stored != line.unit_supply_price_won) {
+                price_anomaly = true;
+            }
+        }
+    }
+
+    let quote_update_required = price_anomaly && !has_quote_attachment;
+    Ok(PurchasePolicyFlags {
+        price_anomaly,
+        quote_update_required,
+    })
+}
+
+async fn upsert_regular_purchase_prices_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_request_id: PurchaseRequestId,
+    branch_id: BranchId,
+    vendor_name: &str,
+    lines: &[ComputedPurchaseLine],
+    quote_attachment_id: Option<uuid::Uuid>,
+    updated_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
+) -> Result<(), PgFinancialError> {
+    let vendor = normalize_purchase_key(vendor_name);
+    for line in lines {
+        let item = normalize_purchase_key(&line.item);
+        sqlx::query(
+            r#"
+            INSERT INTO financial_regular_purchase_prices (
+                branch_id, vendor_name_norm, item_norm, last_unit_supply_price_won,
+                quote_attachment_id, updated_from_purchase_request_id, updated_at, org_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (org_id, branch_id, vendor_name_norm, item_norm)
+            DO UPDATE SET
+                last_unit_supply_price_won = EXCLUDED.last_unit_supply_price_won,
+                quote_attachment_id = EXCLUDED.quote_attachment_id,
+                updated_from_purchase_request_id = EXCLUDED.updated_from_purchase_request_id,
+                updated_at = EXCLUDED.updated_at
+            "#,
+        )
+        .bind(*branch_id.as_uuid())
+        .bind(&vendor)
+        .bind(&item)
+        .bind(line.unit_supply_price_won)
+        .bind(quote_attachment_id)
+        .bind(*purchase_request_id.as_uuid())
+        .bind(updated_at)
+        .bind(org_uuid)
+        .execute(tx.as_mut())
+        .await?;
+    }
+    Ok(())
+}
+
+async fn insert_expense_ledger_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_request_id: PurchaseRequestId,
+    actor: UserId,
+    branch_id: BranchId,
+    vendor_name: &str,
+    amount_won: i64,
+    expenditure_no: Option<&str>,
+    occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
+) -> Result<AuditEvent, PgFinancialError> {
+    sqlx::query(
+        r#"
+        INSERT INTO financial_expense_ledger (
+            branch_id, purchase_request_id, vendor_name, amount_won, memo,
+            expenditure_no, executed_by, executed_at, org_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(*purchase_request_id.as_uuid())
+    .bind(vendor_name.trim())
+    .bind(amount_won)
+    .bind(format!("purchase expense execution {purchase_request_id}"))
+    .bind(expenditure_no)
+    .bind(*actor.as_uuid())
+    .bind(occurred_at)
+    .bind(org_uuid)
+    .execute(tx.as_mut())
+    .await?;
+
+    financial_audit_event(
+        "financial.expense.execute",
+        actor,
+        branch_id,
+        "financial_expense_ledger",
+        purchase_request_id,
+        TraceContext::generate(),
+        occurred_at,
+    )
+    .map_err(PgFinancialError::from)
+}
+
+async fn ensure_branch_exists_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    branch_id: BranchId,
+) -> Result<(), PgFinancialError> {
+    let exists: Option<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM branches WHERE id = $1")
+        .bind(*branch_id.as_uuid())
+        .fetch_optional(tx.as_mut())
+        .await?;
+    if exists.is_none() {
+        return Err(KernelError::not_found("branch was not found").into());
+    }
+    Ok(())
+}
+
 async fn lock_purchase_tx(
     tx: &mut Transaction<'_, Postgres>,
     purchase_request_id: PurchaseRequestId,
 ) -> Result<LockedPurchase, PgFinancialError> {
     let row = sqlx::query(
         r#"
-        SELECT branch_id, purchase_type, equipment_id, work_order_id, statement_evidence_id,
-               status, amount_won,
+        SELECT branch_id, equipment_id, work_order_id, statement_evidence_id,
+               status, amount_won, vendor_name, expenditure_no,
                executive_threshold_won, depreciation_method, useful_life_months,
                residual_rate_bps, declining_balance_rate_bps,
                management_fee_rate_bps, profit_rate_bps,
-               floor_negative_quote_residual
+               floor_negative_quote_residual, quote_update_required
         FROM financial_purchase_requests
         WHERE id = $1
         FOR UPDATE
@@ -1707,7 +2053,6 @@ async fn lock_purchase_tx(
     .await?
     .ok_or_else(|| KernelError::not_found("purchase request was not found"))?;
     let status: String = row.try_get("status")?;
-    let purchase_type: String = row.try_get("purchase_type")?;
     let method: String = row.try_get("depreciation_method")?;
     let equipment_id: Option<uuid::Uuid> = row.try_get("equipment_id")?;
     let work_order_id: Option<uuid::Uuid> = row.try_get("work_order_id")?;
@@ -1716,7 +2061,6 @@ async fn lock_purchase_tx(
     let executive_threshold_won = row.try_get("executive_threshold_won")?;
     Ok(LockedPurchase {
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
-        purchase_type: PurchaseType::from_db_str(&purchase_type)?,
         equipment_id: equipment_id.map(EquipmentId::from_uuid),
         work_order_id: work_order_id.map(WorkOrderId::from_uuid),
         statement_evidence_id: statement_evidence_id.map(mnt_kernel_core::EvidenceId::from_uuid),
@@ -1734,6 +2078,9 @@ async fn lock_purchase_tx(
             floor_negative_quote_residual: row.try_get("floor_negative_quote_residual")?,
             executive_approval_threshold_won: executive_threshold_won,
         },
+        quote_update_required: row.try_get("quote_update_required")?,
+        vendor_name: row.try_get("vendor_name")?,
+        expenditure_no: row.try_get("expenditure_no")?,
     })
 }
 
@@ -1743,7 +2090,14 @@ async fn purchase_by_id(
 ) -> Result<PurchaseRequestSummary, PgFinancialError> {
     let org = current_org().map_err(KernelError::from)?;
     with_org_conn::<_, _, PgFinancialError>(pool, org, move |tx| {
-        Box::pin(async move { purchase_by_id_tx(tx, purchase_request_id).await })
+        Box::pin(async move {
+            let row = sqlx::query(purchase_select_sql())
+                .bind(*purchase_request_id.as_uuid())
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("purchase request was not found"))?;
+            purchase_from_row_tx(tx, &row).await
+        })
     })
     .await
 }
@@ -1754,226 +2108,70 @@ async fn purchase_by_id_tx(
 ) -> Result<PurchaseRequestSummary, PgFinancialError> {
     let row = sqlx::query(purchase_select_sql())
         .bind(*purchase_request_id.as_uuid())
-        .fetch_optional(tx.as_mut())
-        .await?
-        .ok_or_else(|| KernelError::not_found("purchase request was not found"))?;
-    let lines = purchase_lines_tx(tx, purchase_request_id).await?;
-    let attachments = purchase_attachments_tx(tx, purchase_request_id).await?;
-    let exceptions = purchase_exceptions_tx(tx, purchase_request_id).await?;
-    purchase_from_row(&row, lines, attachments, exceptions)
+        .fetch_one(tx.as_mut())
+        .await?;
+    purchase_from_row_tx(tx, &row).await
 }
 
 fn purchase_select_sql() -> &'static str {
     r#"
-    SELECT id, branch_id, purchase_type, equipment_id, work_order_id, statement_evidence_id,
-           vendor_name, amount_won, subtotal_won, vat_won, shipping_won, discount_won,
-           total_won, memo, status, requested_by, expenditure_no, rejection_memo,
-           created_at, updated_at
-    FROM financial_purchase_requests
-    WHERE id = $1
+    SELECT p.id, p.branch_id, p.equipment_id, p.work_order_id, p.statement_evidence_id,
+           p.purchase_type, p.vendor_name, p.amount_won, p.status,
+           p.requested_by, u.display_name AS requester_display_name,
+           p.price_anomaly, p.quote_update_required,
+           p.expenditure_no, p.rejection_memo, p.created_at, p.updated_at
+    FROM financial_purchase_requests p
+    JOIN users u ON u.id = p.requested_by
+    WHERE p.id = $1
     "#
 }
 
-fn purchase_from_row(
+async fn purchase_from_row_tx(
+    tx: &mut Transaction<'_, Postgres>,
     row: &sqlx::postgres::PgRow,
-    lines: Vec<PurchaseRequestLineSummary>,
-    attachments: Vec<PurchaseRequestAttachmentSummary>,
-    exceptions: Vec<PurchaseRequestExceptionSummary>,
 ) -> Result<PurchaseRequestSummary, PgFinancialError> {
     let status: String = row.try_get("status")?;
-    let purchase_type: String = row.try_get("purchase_type")?;
+    let purchase_type_raw: String = row.try_get("purchase_type")?;
     let equipment_id: Option<uuid::Uuid> = row.try_get("equipment_id")?;
     let work_order_id: Option<uuid::Uuid> = row.try_get("work_order_id")?;
     let statement_evidence_id: Option<uuid::Uuid> = row.try_get("statement_evidence_id")?;
-    let summary = PurchaseRequestSummary {
-        id: PurchaseRequestId::from_uuid(row.try_get("id")?),
+    let purchase_id = PurchaseRequestId::from_uuid(row.try_get("id")?);
+    let price_anomaly: bool = row.try_get("price_anomaly")?;
+    let quote_update_required: bool = row.try_get("quote_update_required")?;
+    let lines = purchase_lines_tx(tx, purchase_id).await?;
+    let attachments = purchase_attachments_tx(tx, purchase_id).await?;
+    let org = current_org().map_err(KernelError::from)?;
+    let equipment_required = purchase_equipment_required(*org.as_uuid());
+    let policy = PurchasePolicySummary {
+        equipment_required,
+        statement_evidence_required: equipment_id.is_some(),
+        price_anomaly,
+        quote_update_required,
+        submit_blocked: quote_update_required,
+        messages: purchase_policy_messages(price_anomaly, quote_update_required),
+    };
+    Ok(PurchaseRequestSummary {
+        id: purchase_id,
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
-        purchase_type: PurchaseType::from_db_str(&purchase_type)?,
         equipment_id: equipment_id.map(EquipmentId::from_uuid),
         work_order_id: work_order_id.map(WorkOrderId::from_uuid),
         statement_evidence_id: statement_evidence_id.map(mnt_kernel_core::EvidenceId::from_uuid),
+        purchase_type: PurchaseType::from_db_str(&purchase_type_raw)?,
         vendor_name: row.try_get("vendor_name")?,
         amount_won: row.try_get("amount_won")?,
-        subtotal_won: row.try_get("subtotal_won")?,
-        vat_won: row.try_get("vat_won")?,
-        shipping_won: row.try_get("shipping_won")?,
-        discount_won: row.try_get("discount_won")?,
-        total_won: row.try_get("total_won")?,
-        memo: row.try_get("memo")?,
         status: PurchaseStatus::from_db_str(&status)?,
-        requested_by: UserId::from_uuid(row.try_get("requested_by")?),
+        requester: PurchaseRequesterSummary {
+            user_id: UserId::from_uuid(row.try_get("requested_by")?),
+            display_name: row.try_get("requester_display_name")?,
+        },
+        lines,
+        quote_attachments: attachments,
+        policy,
         expenditure_no: row.try_get("expenditure_no")?,
         rejection_memo: row.try_get("rejection_memo")?,
-        policy_gates: purchase_policy_gates(
-            &lines,
-            &attachments,
-            &exceptions,
-            row.try_get("total_won")?,
-        ),
-        lines,
-        attachments,
-        exceptions,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
-    };
-    Ok(summary)
-}
-
-async fn purchase_lines_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-) -> Result<Vec<PurchaseRequestLineSummary>, PgFinancialError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, line_order, description, quantity, unit, unit_price_won,
-               subtotal_won, tax_rate_bps, vat_won, total_won, category,
-               department, cost_center, project, sku, quote_evidence_id, needed_by
-        FROM financial_purchase_request_lines
-        WHERE purchase_request_id = $1
-        ORDER BY line_order
-        "#,
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .fetch_all(tx.as_mut())
-    .await?;
-
-    rows.into_iter()
-        .map(|row| {
-            let quote_evidence_id: Option<uuid::Uuid> = row.try_get("quote_evidence_id")?;
-            Ok(PurchaseRequestLineSummary {
-                id: row.try_get("id")?,
-                line_order: row.try_get("line_order")?,
-                description: row.try_get("description")?,
-                quantity: row.try_get("quantity")?,
-                unit: row.try_get("unit")?,
-                unit_price_won: row.try_get("unit_price_won")?,
-                subtotal_won: row.try_get("subtotal_won")?,
-                tax_rate_bps: row.try_get("tax_rate_bps")?,
-                vat_won: row.try_get("vat_won")?,
-                total_won: row.try_get("total_won")?,
-                category: row.try_get("category")?,
-                department: row.try_get("department")?,
-                cost_center: row.try_get("cost_center")?,
-                project: row.try_get("project")?,
-                sku: row.try_get("sku")?,
-                quote_evidence_id: quote_evidence_id.map(mnt_kernel_core::EvidenceId::from_uuid),
-                needed_by: row.try_get("needed_by")?,
-            })
-        })
-        .collect()
-}
-
-async fn purchase_attachments_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-) -> Result<Vec<PurchaseRequestAttachmentSummary>, PgFinancialError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, line_id, evidence_id, attachment_type, preferred_quote, created_by, created_at
-        FROM financial_purchase_request_attachments
-        WHERE purchase_request_id = $1
-        ORDER BY created_at DESC, id DESC
-        "#,
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .fetch_all(tx.as_mut())
-    .await?;
-
-    rows.into_iter()
-        .map(|row| {
-            let line_id: Option<uuid::Uuid> = row.try_get("line_id")?;
-            Ok(PurchaseRequestAttachmentSummary {
-                id: row.try_get("id")?,
-                evidence_id: mnt_kernel_core::EvidenceId::from_uuid(row.try_get("evidence_id")?),
-                line_id,
-                attachment_type: row.try_get("attachment_type")?,
-                preferred_quote: row.try_get("preferred_quote")?,
-                created_by: UserId::from_uuid(row.try_get("created_by")?),
-                created_at: row.try_get("created_at")?,
-            })
-        })
-        .collect()
-}
-
-async fn purchase_exceptions_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    purchase_request_id: PurchaseRequestId,
-) -> Result<Vec<PurchaseRequestExceptionSummary>, PgFinancialError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, exception_type, reason, attachment_evidence_id, escalation_approver,
-               status, created_by, created_at
-        FROM financial_purchase_request_exceptions
-        WHERE purchase_request_id = $1
-        ORDER BY created_at DESC, id DESC
-        "#,
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .fetch_all(tx.as_mut())
-    .await?;
-
-    rows.into_iter()
-        .map(|row| {
-            let attachment_evidence_id: Option<uuid::Uuid> =
-                row.try_get("attachment_evidence_id")?;
-            let escalation_approver: Option<uuid::Uuid> = row.try_get("escalation_approver")?;
-            Ok(PurchaseRequestExceptionSummary {
-                id: row.try_get("id")?,
-                exception_type: row.try_get("exception_type")?,
-                reason: row.try_get("reason")?,
-                attachment_evidence_id: attachment_evidence_id
-                    .map(mnt_kernel_core::EvidenceId::from_uuid),
-                escalation_approver: escalation_approver.map(UserId::from_uuid),
-                status: row.try_get("status")?,
-                created_by: UserId::from_uuid(row.try_get("created_by")?),
-                created_at: row.try_get("created_at")?,
-            })
-        })
-        .collect()
-}
-
-fn purchase_policy_gates(
-    lines: &[PurchaseRequestLineSummary],
-    attachments: &[PurchaseRequestAttachmentSummary],
-    exceptions: &[PurchaseRequestExceptionSummary],
-    total_won: i64,
-) -> Vec<PurchasePolicyGateSummary> {
-    let has_attachment = !attachments.is_empty();
-    let has_price_exception = exceptions
-        .iter()
-        .any(|exception| exception.exception_type == "PRICE_ANOMALY");
-    let has_price_anomaly =
-        total_won >= 10_000_000 || lines.iter().any(|line| line.unit_price_won >= 5_000_000);
-
-    vec![
-        PurchasePolicyGateSummary {
-            code: "quote_required".to_owned(),
-            label: "Quote attachment".to_owned(),
-            status: if has_attachment { "PASS" } else { "BLOCK" }.to_owned(),
-            message: if has_attachment {
-                "At least one quote or statement is attached.".to_owned()
-            } else {
-                "Attach a quote or statement before submit.".to_owned()
-            },
-            blocking: !has_attachment,
-        },
-        PurchasePolicyGateSummary {
-            code: "price_anomaly".to_owned(),
-            label: "Price anomaly".to_owned(),
-            status: if !has_price_anomaly || has_price_exception {
-                "PASS"
-            } else {
-                "BLOCK"
-            }
-            .to_owned(),
-            message: if has_price_anomaly {
-                "High-value purchase requires a structured price exception.".to_owned()
-            } else {
-                "No high-value price anomaly detected.".to_owned()
-            },
-            blocking: has_price_anomaly && !has_price_exception,
-        },
-    ]
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2307,6 +2505,52 @@ fn validate_required(value: &str, field: &str) -> Result<(), PgFinancialError> {
     } else {
         Ok(())
     }
+}
+
+fn validate_feature_key(feature_key: &str) -> Result<(), PgFinancialError> {
+    if feature_key == "purchase_requests" {
+        Ok(())
+    } else {
+        Err(KernelError::validation("unsupported feature preference key").into())
+    }
+}
+
+fn validate_purchase_preferences(
+    schema_version: i32,
+    preferences: &serde_json::Value,
+) -> Result<(), PgFinancialError> {
+    if schema_version != 1 {
+        return Err(
+            KernelError::validation("unsupported purchase preference schema version").into(),
+        );
+    }
+    let serde_json::Value::Object(map) = preferences else {
+        return Err(KernelError::validation("purchase preferences must be a JSON object").into());
+    };
+    let raw = serde_json::to_string(preferences)
+        .map_err(|err| KernelError::validation(format!("invalid purchase preferences: {err}")))?;
+    if raw.len() > 16 * 1024 {
+        return Err(KernelError::validation("purchase preferences exceed 16 KiB").into());
+    }
+    const ALLOWED: &[&str] = &[
+        "density",
+        "sidebar_collapsed",
+        "sidebar_width",
+        "line_columns",
+        "line_column_order",
+        "default_purchase_type",
+        "quote_panel",
+        "collapsed_sections",
+    ];
+    for key in map.keys() {
+        if !ALLOWED.iter().any(|allowed| allowed == key) {
+            return Err(KernelError::validation(format!(
+                "unsupported purchase preference field {key}"
+            ))
+            .into());
+        }
+    }
+    Ok(())
 }
 
 fn months_elapsed(from: Option<Date>, to: Date) -> u32 {

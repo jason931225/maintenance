@@ -95,10 +95,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-mod collaboration;
 mod hr;
 mod mail_sync;
-mod workflow_studio;
 
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
 const DEFAULT_SERVICE_NAME: &str = "mnt-app";
@@ -1326,7 +1324,7 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_financial_rest::router(
                     FinancialRestState::new(financial_store, state.jwt_verifier.clone())
-                        .with_attachment_store(state.evidence_storage.clone()),
+                        .with_purchase_attachment_storage(state.sales_media_storage.clone()),
                 ))
                 .merge(mnt_inspection_rest::router(InspectionRestState::new(
                     inspection_store,
@@ -1360,19 +1358,6 @@ pub fn build_router(state: AppState) -> Router {
                     pool.clone(),
                     state.jwt_verifier.clone(),
                 )))
-                .merge(workflow_studio::router(
-                    workflow_studio::WorkflowStudioState::new(
-                        pool.clone(),
-                        state.jwt_verifier.clone(),
-                    )
-                    .with_passkey_step_up(state.policy_step_up.clone()),
-                ))
-                .merge(collaboration::router(
-                    collaboration::CollaborationState::new(
-                        pool.clone(),
-                        state.jwt_verifier.clone(),
-                    ),
-                ))
                 .merge(mnt_sales_rest::router({
                     let mut sales_state =
                         SalesRestState::new(sales_store, state.jwt_verifier.clone())

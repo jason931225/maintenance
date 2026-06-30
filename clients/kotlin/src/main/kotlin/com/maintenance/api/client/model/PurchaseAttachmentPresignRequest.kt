@@ -31,26 +31,34 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param item
- * @param quantity
- * @param unitSupplyPriceWon
- * @param vatWon
+ * @param branchId
+ * @param fileName
+ * @param contentType
+ * @param sizeBytes
+ * @param checksumSha256
+ * @param role
  */
 @Serializable
 
-data class PurchaseRequestLineInput (
+data class PurchaseAttachmentPresignRequest (
 
-    @SerialName(value = "item")
-    val item: kotlin.String,
+    @Contextual @SerialName(value = "branch_id")
+    val branchId: java.util.UUID,
 
-    @SerialName(value = "quantity")
-    val quantity: kotlin.Int,
+    @SerialName(value = "file_name")
+    val fileName: kotlin.String,
 
-    @SerialName(value = "unit_supply_price_won")
-    val unitSupplyPriceWon: kotlin.Long,
+    @SerialName(value = "content_type")
+    val contentType: kotlin.String,
 
-    @SerialName(value = "vat_won")
-    val vatWon: kotlin.Long? = null
+    @SerialName(value = "size_bytes")
+    val sizeBytes: kotlin.Long,
+
+    @SerialName(value = "checksum_sha256")
+    val checksumSha256: kotlin.String? = null,
+
+    @SerialName(value = "role")
+    val role: kotlin.String? = null
 
 ) {
 

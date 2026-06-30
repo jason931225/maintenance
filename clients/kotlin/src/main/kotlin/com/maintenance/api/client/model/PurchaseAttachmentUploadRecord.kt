@@ -32,37 +32,41 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param evidenceId
- * @param attachmentType
- * @param preferredQuote
- * @param createdBy
+ * @param branchId
+ * @param fileName
+ * @param contentType
+ * @param sizeBytes
+ * @param role
+ * @param uploadState
  * @param createdAt
- * @param lineId
  */
 @Serializable
 
-data class PurchaseRequestAttachmentSummary (
+data class PurchaseAttachmentUploadRecord (
 
     @Contextual @SerialName(value = "id")
     val id: java.util.UUID,
 
-    @Contextual @SerialName(value = "evidence_id")
-    val evidenceId: java.util.UUID,
+    @Contextual @SerialName(value = "branch_id")
+    val branchId: java.util.UUID,
 
-    @SerialName(value = "attachment_type")
-    val attachmentType: kotlin.String,
+    @SerialName(value = "file_name")
+    val fileName: kotlin.String,
 
-    @SerialName(value = "preferred_quote")
-    val preferredQuote: kotlin.Boolean,
+    @SerialName(value = "content_type")
+    val contentType: kotlin.String,
 
-    @Contextual @SerialName(value = "created_by")
-    val createdBy: java.util.UUID,
+    @SerialName(value = "size_bytes")
+    val sizeBytes: kotlin.Long,
+
+    @SerialName(value = "role")
+    val role: kotlin.String,
+
+    @SerialName(value = "upload_state")
+    val uploadState: kotlin.String,
 
     @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime,
-
-    @Contextual @SerialName(value = "line_id")
-    val lineId: java.util.UUID? = null
+    val createdAt: java.time.OffsetDateTime
 
 ) {
 

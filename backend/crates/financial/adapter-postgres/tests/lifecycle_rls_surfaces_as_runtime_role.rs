@@ -29,7 +29,7 @@ use mnt_financial_application::{
     AppendCostLedgerEntryCommand, CostLedgerSource, CreatePurchaseRequestCommand,
     FinancialConfigSnapshot, PurchaseSubmitCommand,
 };
-use mnt_financial_domain::{AcquisitionBasis, DepreciationMethod, PurchaseStatus, PurchaseType};
+use mnt_financial_domain::{AcquisitionBasis, DepreciationMethod, PurchaseStatus};
 use mnt_kernel_core::{
     BranchId, EquipmentId, EvidenceId, OrgId, TraceContext, UserId, WorkOrderId,
 };
@@ -761,17 +761,12 @@ async fn purchase_request_create_and_submit_as_runtime_role(owner_pool: PgPool) 
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: fx.admin,
                 branch_id: fx.branch_id,
-                purchase_type: PurchaseType::Equipment,
-                equipment_id: Some(fx.equipment_id),
+                equipment_id: fx.equipment_id,
                 work_order_id: Some(fx.work_order_id),
-                statement_evidence_id: Some(evidence),
+                statement_evidence_id: evidence,
                 vendor_name: "한빛부품".to_owned(),
-                amount_won: Some(500_000),
+                amount_won: 500_000,
                 memo: "정기 부품 교체".to_owned(),
-                lines: Vec::new(),
-                exceptions: Vec::new(),
-                shipping_won: 0,
-                discount_won: 0,
                 config: financial_config(),
                 trace: TraceContext::generate(),
                 occurred_at,
@@ -857,17 +852,12 @@ async fn cross_tenant_purchase_request_is_invisible_as_runtime_role(owner_pool: 
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: fx_b.admin,
                 branch_id: fx_b.branch_id,
-                purchase_type: PurchaseType::Equipment,
-                equipment_id: Some(fx_b.equipment_id),
+                equipment_id: fx_b.equipment_id,
                 work_order_id: Some(fx_b.work_order_id),
-                statement_evidence_id: Some(evidence_b),
+                statement_evidence_id: evidence_b,
                 vendor_name: "Org B Vendor".to_owned(),
-                amount_won: Some(500_000),
+                amount_won: 500_000,
                 memo: "org-b purchase".to_owned(),
-                lines: Vec::new(),
-                exceptions: Vec::new(),
-                shipping_won: 0,
-                discount_won: 0,
                 config: financial_config(),
                 trace: TraceContext::generate(),
                 occurred_at,

@@ -31,14 +31,38 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param url
+ * @param id
+ * @param fileName
+ * @param contentType
+ * @param sizeBytes
+ * @param role
+ * @param downloadUrl
+ * @param createdAt
  */
 @Serializable
 
-data class PurchaseAttachmentDownload (
+data class PurchaseAttachmentSummary (
 
-    @Contextual @SerialName(value = "url")
-    val url: java.net.URI
+    @Contextual @SerialName(value = "id")
+    val id: java.util.UUID,
+
+    @SerialName(value = "file_name")
+    val fileName: kotlin.String,
+
+    @SerialName(value = "content_type")
+    val contentType: kotlin.String,
+
+    @SerialName(value = "size_bytes")
+    val sizeBytes: kotlin.Long,
+
+    @SerialName(value = "role")
+    val role: kotlin.String,
+
+    @SerialName(value = "download_url")
+    val downloadUrl: kotlin.String,
+
+    @Contextual @SerialName(value = "created_at")
+    val createdAt: java.time.OffsetDateTime
 
 ) {
 

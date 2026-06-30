@@ -31,26 +31,22 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param item
- * @param quantity
- * @param unitSupplyPriceWon
- * @param vatWon
+ * @param featureKey
+ * @param schemaVersion
+ * @param preferences
  */
 @Serializable
 
-data class PurchaseRequestLineInput (
+data class PurchaseFeaturePreferences (
 
-    @SerialName(value = "item")
-    val item: kotlin.String,
+    @SerialName(value = "feature_key")
+    val featureKey: kotlin.String,
 
-    @SerialName(value = "quantity")
-    val quantity: kotlin.Int,
+    @SerialName(value = "schema_version")
+    val schemaVersion: kotlin.Int,
 
-    @SerialName(value = "unit_supply_price_won")
-    val unitSupplyPriceWon: kotlin.Long,
-
-    @SerialName(value = "vat_won")
-    val vatWon: kotlin.Long? = null
+    @Contextual @SerialName(value = "preferences")
+    val preferences: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
 
 ) {
 

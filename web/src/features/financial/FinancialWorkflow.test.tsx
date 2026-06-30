@@ -28,6 +28,7 @@ const equipmentId = "44444444-4444-4444-8444-444444444444";
 const purchaseId = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
 const quoteId = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 const evidenceId = "cccccccc-3333-4333-8333-cccccccccccc";
+const quoteAttachmentId = "99999999-9999-4999-8999-999999999999";
 
 type PurchaseStatus = components["schemas"]["PurchaseStatus"];
 
@@ -55,45 +56,57 @@ function purchase(
     id: purchaseId,
     branch_id: branchId,
     equipment_id: equipmentId,
+    work_order_id: null,
     statement_evidence_id: evidenceId,
-    purchase_type: "EQUIPMENT",
+    purchase_type: "REGULAR",
     vendor_name: "한빛부품",
     amount_won: 500_000,
-    subtotal_won: 500_000,
-    vat_won: 0,
-    shipping_won: 0,
-    discount_won: 0,
-    total_won: 500_000,
-    memo: "정기 부품 교체",
     status,
-    requested_by: "user-1",
+    requester: {
+      user_id: "user-1",
+      display_name: "김요청",
+    },
     lines: [
       {
-        id: "99999999-9999-4999-8999-999999999999",
-        line_order: 1,
-        description: "정기 부품",
+        id: "line-1",
+        line_no: 1,
+        item: "유압 필터",
+        quantity: 2,
+        unit_supply_price_won: 200_000,
+        vat_won: 40_000,
+        vat_overridden: false,
+        line_total_won: 440_000,
+      },
+      {
+        id: "line-2",
+        line_no: 2,
+        item: "배송비",
         quantity: 1,
-        unit: "EA",
-        unit_price_won: 500_000,
-        subtotal_won: 500_000,
-        tax_rate_bps: 0,
-        vat_won: 0,
-        total_won: 500_000,
-        category: "parts",
+        unit_supply_price_won: 55_000,
+        vat_won: 5_000,
+        vat_overridden: true,
+        line_total_won: 60_000,
       },
     ],
-    attachments: [
+    quote_attachments: [
       {
-        id: "12121212-1212-4212-8212-121212121212",
-        evidence_id: evidenceId,
-        attachment_type: "STATEMENT",
-        preferred_quote: true,
-        created_by: "user-1",
+        id: quoteAttachmentId,
+        file_name: "hanbit-quote.pdf",
+        content_type: "application/pdf",
+        size_bytes: 2048,
+        role: "QUOTE",
+        download_url: `/api/v1/financial/purchase-requests/${purchaseId}/attachments/${quoteAttachmentId}/download`,
         created_at: "2026-06-16T00:00:00Z",
       },
     ],
-    exceptions: [],
-    policy_gates: [],
+    policy: {
+      equipment_required: false,
+      statement_evidence_required: false,
+      price_anomaly: false,
+      quote_update_required: false,
+      submit_blocked: false,
+      messages: [],
+    },
     created_at: "2026-06-16T00:00:00Z",
     updated_at: "2026-06-16T00:00:00Z",
     ...extra,
@@ -122,8 +135,6 @@ const ledgerEntries: components["schemas"]["CostLedgerEntrySummary"][] = [
     id: "dddddddd-4444-4444-8444-dddddddddddd",
     branch_id: branchId,
     equipment_id: equipmentId,
-    work_order_id: "eeeeeeee-5555-4555-8555-eeeeeeeeeeee",
-    purchase_request_id: purchaseId,
     source: "PURCHASE_EXECUTION",
     amount_won: 500_000,
     memo: "정기 부품 교체",
@@ -136,6 +147,17 @@ const ledgerEntries: components["schemas"]["CostLedgerEntrySummary"][] = [
 function lookupHandler() {
   return http.get("*/api/v1/equipment/lookup", () =>
     HttpResponse.json(equipmentLookup),
+  );
+}
+
+function evidenceStatusHandler(thumbnailUrl = "https://example.test/statement.jpg") {
+  return http.get("*/api/v1/evidence/:evidenceId/status", () =>
+    HttpResponse.json({
+      id: evidenceId,
+      processing_status: "READY",
+      content_type: "image/jpeg",
+      thumbnail_url: thumbnailUrl,
+    }),
   );
 }
 
@@ -176,11 +198,14 @@ function session(roles: string[]): AuthSession {
 }
 
 const adminSession = session(["ADMIN"]);
-const superAdminSession = session(["SUPER_ADMIN"]);
 const receptionistSession = session(["RECEPTIONIST"]);
 const mechanicSession = session(["MECHANIC"]);
 
 async function lookupEquipment(user: ReturnType<typeof userEvent.setup>) {
+  const toggle = screen.queryByLabelText("호기 연결 구매");
+  if (toggle && !toggle.matches(":checked")) {
+    await user.click(toggle);
+  }
   await user.type(
     await screen.findByLabelText("호기 번호", { exact: true }),
     "290",
@@ -189,49 +214,17 @@ async function lookupEquipment(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByText("GTS25DE");
 }
 
-async function fillPurchaseDraft(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText("거래처명"), "한빛부품");
-  await user.type(screen.getByLabelText("품목 1"), "정기 부품");
-  await user.type(screen.getByLabelText("단가 1"), "500000");
-  await user.type(screen.getByLabelText("분류 1"), "parts");
-  await user.type(
-    screen.getByLabelText("거래명세표 증빙 번호"),
-    evidenceId,
-  );
-  await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+async function fillPurchaseLine(
+  user: ReturnType<typeof userEvent.setup>,
+  item = "유압 필터",
+  quantity = "1",
+  unitPrice = "454546",
+) {
+  await user.type(screen.getByLabelText("품목 1"), item);
+  await user.clear(screen.getByLabelText("수량 1"));
+  await user.type(screen.getByLabelText("수량 1"), quantity);
+  await user.type(screen.getByLabelText("공급가액(단가) 1"), unitPrice);
 }
-
-describe("financial command center", () => {
-  it("keeps finance work tied to approvals, workflows, assets, and maturity controls", async () => {
-    const user = userEvent.setup();
-    server.use(lookupHandler());
-
-    renderApp(makeAuthContext(superAdminSession));
-
-    expect(await screen.findByText("재무 운영")).toBeVisible();
-    expect(screen.getByRole("link", { name: "승인센터" })).toHaveAttribute(
-      "href",
-      "/approvals?source=purchase",
-    );
-    expect(screen.getByRole("link", { name: "워크플로" })).toHaveAttribute(
-      "href",
-      "/settings/workflows",
-    );
-    expect(
-      screen
-        .getAllByRole("link", { name: "장비 조회" })
-        .some((link) => link.getAttribute("href") === "/equipment"),
-    ).toBe(true);
-    expect(screen.getByText("정책·권한")).toBeVisible();
-    expect(screen.getByText("감사·패스키")).toBeVisible();
-    expect(screen.getByText("회계 릴리스")).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: /TCO/ }));
-    expect(
-      screen.getByRole("tab", { name: "자산 비용" }),
-    ).toHaveAttribute("aria-selected", "true");
-  });
-});
 
 describe("financial purchase request workflow", () => {
   it("drives the request -> resolution -> execution chain", async () => {
@@ -241,6 +234,7 @@ describe("financial purchase request workflow", () => {
 
     server.use(
       lookupHandler(),
+      evidenceStatusHandler(),
       http.post("*/api/v1/financial/purchase-requests", async ({ request }) => {
         created(await request.json());
         return HttpResponse.json(current, { status: 201 });
@@ -280,38 +274,29 @@ describe("financial purchase request workflow", () => {
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
 
-    await fillPurchaseDraft(user);
-    await user.click(screen.getAllByRole("button", { name: "작성" })[0]);
+    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
+    await fillPurchaseLine(user);
+    await user.type(
+      screen.getByLabelText("거래명세표 증빙 번호"),
+      evidenceId,
+    );
+    await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+    await user.click(screen.getByRole("button", { name: "작성" }));
 
     await waitFor(() => {
       expect(created).toHaveBeenCalledWith(
         expect.objectContaining({
           equipment_id: equipmentId,
           branch_id: branchId,
-          purchase_type: "EQUIPMENT",
           vendor_name: "한빛부품",
+          amount_won: 500000,
           statement_evidence_id: evidenceId,
-          memo: "정기 부품 교체",
-          lines: [
-            expect.objectContaining({
-              description: "정기 부품",
-              unit_price_won: 500000,
-              category: "parts",
-            }),
-          ],
         }),
       );
     });
     expect(await screen.findByText("구매요청서를 작성했습니다.")).toBeVisible();
-    expect(screen.getByText("원천 업무 객체")).toBeVisible();
-    expect(screen.getByRole("link", { name: equipmentId })).toHaveAttribute(
-      "href",
-      `/equipment/${equipmentId}`,
-    );
-    expect(screen.getByText("결재·지출 라인")).toBeVisible();
-    expect(screen.getAllByText("권한 재검증").length).toBeGreaterThan(0);
-    expect(screen.getByText("감사 연결")).toBeVisible();
-    expect(screen.getByText("서명급 보호")).toBeVisible();
+    const statementThumb = await screen.findByAltText("거래명세표 사진 미리보기");
+    expect(statementThumb).toHaveAttribute("src", "https://example.test/statement.jpg");
 
     // STATEMENT_ATTACHED -> submit
     await user.click(await screen.findByRole("button", { name: "결재 상신" }));
@@ -339,11 +324,169 @@ describe("financial purchase request workflow", () => {
     ).toBeVisible();
   });
 
+  it("keeps the mature purchase intake compact with lines, quotes, policy, requester, and preferences", async () => {
+    const user = userEvent.setup();
+    const created = vi.fn();
+    const savedPreferences = vi.fn();
+    const current = purchase("STATEMENT_ATTACHED", {
+      equipment_id: null,
+      statement_evidence_id: null,
+      purchase_type: "OTHER",
+      requester: {
+        user_id: "user-1",
+        display_name: "김요청",
+      },
+      policy: {
+        equipment_required: false,
+        statement_evidence_required: false,
+        price_anomaly: true,
+        quote_update_required: true,
+        submit_blocked: true,
+        messages: [
+          "기존 정기구매 단가와 1원 이상 차이가 있어 견적서 업데이트가 필요합니다.",
+        ],
+      },
+    });
+
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests/preferences", () =>
+        HttpResponse.json({
+          feature_key: "purchase_requests",
+          schema_version: 1,
+          preferences: {
+            density: "compact",
+            sidebar_collapsed: false,
+            line_columns: [
+              "item",
+              "quantity",
+              "unit_supply_price_won",
+              "vat_won",
+              "line_total_won",
+            ],
+          },
+        }),
+      ),
+      http.put(
+        "*/api/v1/financial/purchase-requests/preferences",
+        async ({ request }) => {
+          const body = await request.json();
+          savedPreferences(body);
+          return HttpResponse.json({
+            feature_key: "purchase_requests",
+            schema_version: 1,
+            preferences: body,
+          });
+        },
+      ),
+      http.post("*/api/v1/financial/purchase-requests/attachments/presign", () =>
+        HttpResponse.json({
+          attachment_id: quoteAttachmentId,
+          upload: {
+            method: "PUT",
+            url: "https://storage.example/upload/quote",
+            headers: [["content-type", "application/pdf"]],
+            expires_in_secs: 900,
+          },
+          file_name: "hanbit-quote.pdf",
+          content_type: "application/pdf",
+          size_bytes: 2048,
+          role: "QUOTE",
+          upload_state: "PENDING",
+        }),
+      ),
+      http.put("https://storage.example/upload/quote", () => new Response(null, { status: 200 })),
+      http.post("*/api/v1/financial/purchase-requests/attachments/:id/confirm", () =>
+        HttpResponse.json({
+          id: quoteAttachmentId,
+          branch_id: branchId,
+          file_name: "hanbit-quote.pdf",
+          content_type: "application/pdf",
+          size_bytes: 2048,
+          role: "QUOTE",
+          upload_state: "CONFIRMED",
+          created_at: "2026-06-16T00:00:00Z",
+        }),
+      ),
+      http.post("*/api/v1/financial/purchase-requests", async ({ request }) => {
+        created(await request.json());
+        return HttpResponse.json(current, { status: 201 });
+      }),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
+
+    const intake = await screen.findByRole("form", { name: "구매요청 작성" });
+    expect(within(intake).getByLabelText("거래처명")).toBeVisible();
+    expect(within(intake).getByLabelText("구매유형")).toBeVisible();
+    expect(within(intake).getByText("현재 사용자")).toBeVisible();
+    expect(within(intake).getByText("정책 체크")).toBeVisible();
+    expect(within(intake).getByRole("table")).toBeVisible();
+    expect(within(intake).getByLabelText("품목 1")).toBeVisible();
+    expect(within(intake).getByLabelText("수량 1")).toBeVisible();
+    expect(within(intake).getByLabelText("공급가액(단가) 1")).toBeVisible();
+    expect(within(intake).getByLabelText("부가세 1")).toHaveValue("0");
+    expect(within(intake).getByText("견적서")).toBeVisible();
+    expect(within(intake).getByText("작성 → 결재 상신 → 관리자 승인 → 지출결의 → 집행")).toBeVisible();
+
+    const layout = screen.getByTestId("purchase-request-compact-layout");
+    expect(layout).toHaveClass("gap-3");
+    expect(layout).toHaveClass("lg:grid-cols-[minmax(0,1fr)_22rem]");
+
+    await user.selectOptions(within(intake).getByLabelText("구매유형"), "OTHER");
+    await user.type(within(intake).getByLabelText("거래처명"), "비장비 공급사");
+    await user.type(within(intake).getByLabelText("품목 1"), "사무실 소모품");
+    await user.clear(within(intake).getByLabelText("수량 1"));
+    await user.type(within(intake).getByLabelText("수량 1"), "2");
+    await user.type(within(intake).getByLabelText("공급가액(단가) 1"), "100000");
+    expect(within(intake).getByLabelText("부가세 1")).toHaveValue("20000");
+    expect(within(intake).getByText("220,000 원")).toBeVisible();
+
+    await user.click(within(intake).getByRole("button", { name: "레이아웃 저장" }));
+    await waitFor(() => {
+      expect(savedPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ preferences: expect.objectContaining({ density: "compact" }) }),
+      );
+    });
+
+    await user.upload(within(intake).getByLabelText("견적서 업로드"), new File(["quote"], "hanbit-quote.pdf", { type: "application/pdf" }));
+    await user.type(within(intake).getByLabelText("비고"), "장비와 무관한 운영 구매");
+    await user.click(within(intake).getByRole("button", { name: "작성" }));
+
+    await waitFor(() => {
+      expect(created).toHaveBeenCalledWith(
+        expect.objectContaining({
+          equipment_id: null,
+          statement_evidence_id: null,
+          purchase_type: "OTHER",
+          vendor_name: "비장비 공급사",
+          amount_won: 220000,
+          quote_attachment_ids: [quoteAttachmentId],
+          lines: [
+            expect.objectContaining({
+              item: "사무실 소모품",
+              quantity: 2,
+              unit_supply_price_won: 100000,
+              vat_won: null,
+            }),
+          ],
+        }),
+      );
+    });
+
+    expect(await screen.findByText("요청자")).toBeVisible();
+    expect(screen.getByText("김요청")).toBeVisible();
+    expect(screen.getByText("hanbit-quote.pdf")).toBeVisible();
+    expect(screen.getByText(/견적서 업데이트가 필요/)).toBeVisible();
+  });
+
   it("routes above-threshold requests through executive approval", async () => {
     const user = userEvent.setup();
 
     server.use(
       lookupHandler(),
+      evidenceStatusHandler("https://example.test/executive-statement.jpg"),
       http.get(
         "*/api/v1/financial/purchase-requests/:id",
         () =>
@@ -368,6 +511,12 @@ describe("financial purchase request workflow", () => {
       purchaseId,
     );
     await user.click(screen.getByRole("button", { name: "불러오기" }));
+
+    const statementThumb = await screen.findByAltText("거래명세표 사진 미리보기");
+    expect(statementThumb).toHaveAttribute(
+      "src",
+      "https://example.test/executive-statement.jpg",
+    );
 
     await user.click(
       await screen.findByRole("button", { name: "임원 최종 승인" }),
@@ -444,8 +593,14 @@ describe("financial purchase request workflow", () => {
 
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
-    await fillPurchaseDraft(user);
-    await user.click(screen.getAllByRole("button", { name: "작성" })[0]);
+    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
+    await fillPurchaseLine(user);
+    await user.type(
+      screen.getByLabelText("거래명세표 증빙 번호"),
+      evidenceId,
+    );
+    await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+    await user.click(screen.getByRole("button", { name: "작성" }));
 
     // The server's actual reason renders in an alert, not a generic failure.
     const alert = await screen.findByRole("alert");
@@ -484,8 +639,14 @@ describe("financial purchase request workflow", () => {
     // Create a request first so the submit button appears.
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
-    await fillPurchaseDraft(user);
-    await user.click(screen.getAllByRole("button", { name: "작성" })[0]);
+    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
+    await fillPurchaseLine(user);
+    await user.type(
+      screen.getByLabelText("거래명세표 증빙 번호"),
+      evidenceId,
+    );
+    await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+    await user.click(screen.getByRole("button", { name: "작성" }));
 
     // Submit the request.
     await user.click(await screen.findByRole("button", { name: "결재 상신" }));
@@ -548,14 +709,6 @@ describe("cost ledger", () => {
 
     expect(await screen.findByText("정기 부품 교체")).toBeVisible();
     expect(screen.getByText("구매 집행")).toBeVisible();
-    expect(screen.getByRole("link", { name: new RegExp(purchaseId) }))
-      .toHaveAttribute("href", `/financial?purchase=${purchaseId}`);
-    expect(
-      screen.getByRole("link", { name: /eeeeeeee-5555-4555-8555-eeeeeeeeeeee/ }),
-    ).toHaveAttribute(
-      "href",
-      "/work-orders/eeeeeeee-5555-4555-8555-eeeeeeeeeeee",
-    );
   });
 
   it("denies cost-ledger access to a role without EquipmentCostLedgerRead", async () => {

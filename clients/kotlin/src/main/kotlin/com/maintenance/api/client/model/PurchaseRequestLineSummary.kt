@@ -32,22 +32,13 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param lineOrder
- * @param description
+ * @param lineNo
+ * @param item
  * @param quantity
- * @param unit
- * @param unitPriceWon
- * @param subtotalWon
- * @param taxRateBps
+ * @param unitSupplyPriceWon
  * @param vatWon
- * @param totalWon
- * @param category
- * @param department
- * @param costCenter
- * @param project
- * @param sku
- * @param quoteEvidenceId
- * @param neededBy
+ * @param vatOverridden
+ * @param lineTotalWon
  */
 @Serializable
 
@@ -56,53 +47,26 @@ data class PurchaseRequestLineSummary (
     @Contextual @SerialName(value = "id")
     val id: java.util.UUID,
 
-    @SerialName(value = "line_order")
-    val lineOrder: kotlin.Int,
+    @SerialName(value = "line_no")
+    val lineNo: kotlin.Int,
 
-    @SerialName(value = "description")
-    val description: kotlin.String,
+    @SerialName(value = "item")
+    val item: kotlin.String,
 
     @SerialName(value = "quantity")
     val quantity: kotlin.Int,
 
-    @SerialName(value = "unit")
-    val unit: kotlin.String,
-
-    @SerialName(value = "unit_price_won")
-    val unitPriceWon: kotlin.Long,
-
-    @SerialName(value = "subtotal_won")
-    val subtotalWon: kotlin.Long,
-
-    @SerialName(value = "tax_rate_bps")
-    val taxRateBps: kotlin.Int,
+    @SerialName(value = "unit_supply_price_won")
+    val unitSupplyPriceWon: kotlin.Long,
 
     @SerialName(value = "vat_won")
     val vatWon: kotlin.Long,
 
-    @SerialName(value = "total_won")
-    val totalWon: kotlin.Long,
+    @SerialName(value = "vat_overridden")
+    val vatOverridden: kotlin.Boolean,
 
-    @SerialName(value = "category")
-    val category: kotlin.String,
-
-    @SerialName(value = "department")
-    val department: kotlin.String? = null,
-
-    @SerialName(value = "cost_center")
-    val costCenter: kotlin.String? = null,
-
-    @SerialName(value = "project")
-    val project: kotlin.String? = null,
-
-    @SerialName(value = "sku")
-    val sku: kotlin.String? = null,
-
-    @Contextual @SerialName(value = "quote_evidence_id")
-    val quoteEvidenceId: java.util.UUID? = null,
-
-    @Contextual @SerialName(value = "needed_by")
-    val neededBy: java.time.LocalDate? = null
+    @SerialName(value = "line_total_won")
+    val lineTotalWon: kotlin.Long
 
 ) {
 

@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.PurchaseRequestLineInput
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -31,22 +32,30 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
+ * @param lines
+ * @param quoteAttachmentIds
+ * @param memo
  * @param statementEvidenceId
  * @param amountWon
- * @param memo
  */
 @Serializable
 
 data class RestartPurchaseRequest (
 
-    @Contextual @SerialName(value = "statement_evidence_id")
-    val statementEvidenceId: java.util.UUID,
+    @SerialName(value = "lines")
+    val lines: kotlin.collections.List<PurchaseRequestLineInput>,
 
-    @SerialName(value = "amount_won")
-    val amountWon: kotlin.Long,
+    @SerialName(value = "quote_attachment_ids")
+    val quoteAttachmentIds: kotlin.collections.List<@Contextual java.util.UUID>,
 
     @SerialName(value = "memo")
-    val memo: kotlin.String
+    val memo: kotlin.String,
+
+    @Contextual @SerialName(value = "statement_evidence_id")
+    val statementEvidenceId: java.util.UUID? = null,
+
+    @SerialName(value = "amount_won")
+    val amountWon: kotlin.Long? = null
 
 ) {
 

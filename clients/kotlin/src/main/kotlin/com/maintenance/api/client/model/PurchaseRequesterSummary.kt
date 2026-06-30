@@ -31,26 +31,18 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param item
- * @param quantity
- * @param unitSupplyPriceWon
- * @param vatWon
+ * @param userId
+ * @param displayName
  */
 @Serializable
 
-data class PurchaseRequestLineInput (
+data class PurchaseRequesterSummary (
 
-    @SerialName(value = "item")
-    val item: kotlin.String,
+    @Contextual @SerialName(value = "user_id")
+    val userId: java.util.UUID,
 
-    @SerialName(value = "quantity")
-    val quantity: kotlin.Int,
-
-    @SerialName(value = "unit_supply_price_won")
-    val unitSupplyPriceWon: kotlin.Long,
-
-    @SerialName(value = "vat_won")
-    val vatWon: kotlin.Long? = null
+    @SerialName(value = "display_name")
+    val displayName: kotlin.String
 
 ) {
 

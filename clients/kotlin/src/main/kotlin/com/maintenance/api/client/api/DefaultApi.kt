@@ -179,7 +179,11 @@ import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.PrivacyConsentAcceptRequest
 import com.maintenance.api.client.model.PrivacyConsentStatusResponse
-import com.maintenance.api.client.model.PurchaseAttachmentDownload
+import com.maintenance.api.client.model.PurchaseAttachmentDownloadResponse
+import com.maintenance.api.client.model.PurchaseAttachmentPresignRequest
+import com.maintenance.api.client.model.PurchaseAttachmentPresignResponse
+import com.maintenance.api.client.model.PurchaseAttachmentUploadRecord
+import com.maintenance.api.client.model.PurchaseFeaturePreferences
 import com.maintenance.api.client.model.PurchaseRequestSummary
 import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.RegionSummary
@@ -196,6 +200,7 @@ import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.RollbackWorkflowDefinitionRequest
 import com.maintenance.api.client.model.SalesListingPage
 import com.maintenance.api.client.model.SalesListingView
+import com.maintenance.api.client.model.SavePurchasePreferencesRequest
 import com.maintenance.api.client.model.SendMailRequest
 import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
@@ -2826,6 +2831,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/financial/purchase-requests/attachments/{attachmentId}/confirm
+     * Confirm a completed direct purchase attachment upload
+     *
+     * @param attachmentId
+     * @return PurchaseAttachmentUploadRecord
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun confirmPurchaseRequestAttachment(attachmentId: java.util.UUID) : PurchaseAttachmentUploadRecord = withContext(Dispatchers.IO) {
+        val localVarResponse = confirmPurchaseRequestAttachmentWithHttpInfo(attachmentId = attachmentId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseAttachmentUploadRecord
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/attachments/{attachmentId}/confirm
+     * Confirm a completed direct purchase attachment upload
+     *
+     * @param attachmentId
+     * @return ApiResponse<PurchaseAttachmentUploadRecord?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun confirmPurchaseRequestAttachmentWithHttpInfo(attachmentId: java.util.UUID) : ApiResponse<PurchaseAttachmentUploadRecord?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = confirmPurchaseRequestAttachmentRequestConfig(attachmentId = attachmentId)
+
+        return@withContext request<Unit, PurchaseAttachmentUploadRecord>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation confirmPurchaseRequestAttachment
+     *
+     * @param attachmentId
+     * @return RequestConfig
+     */
+    fun confirmPurchaseRequestAttachmentRequestConfig(attachmentId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/attachments/{attachmentId}/confirm".replace("{"+"attachmentId"+"}", encodeURIComponent(attachmentId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/reporting/work-diary/confirm
      * Confirm a work-diary draft before export
      *
@@ -5195,11 +5273,11 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * GET /api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download
-     * Issue a short-lived download URL for a purchase request attachment
+     * Return a short-lived download URL for a confirmed purchase attachment
      *
      * @param purchaseRequestId
      * @param attachmentId
-     * @return PurchaseAttachmentDownload
+     * @return PurchaseAttachmentDownloadResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -5208,11 +5286,11 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun downloadPurchaseRequestAttachment(purchaseRequestId: java.util.UUID, attachmentId: java.util.UUID) : PurchaseAttachmentDownload = withContext(Dispatchers.IO) {
+    suspend fun downloadPurchaseRequestAttachment(purchaseRequestId: java.util.UUID, attachmentId: java.util.UUID) : PurchaseAttachmentDownloadResponse = withContext(Dispatchers.IO) {
         val localVarResponse = downloadPurchaseRequestAttachmentWithHttpInfo(purchaseRequestId = purchaseRequestId, attachmentId = attachmentId)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseAttachmentDownload
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseAttachmentDownloadResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -5228,20 +5306,20 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * GET /api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download
-     * Issue a short-lived download URL for a purchase request attachment
+     * Return a short-lived download URL for a confirmed purchase attachment
      *
      * @param purchaseRequestId
      * @param attachmentId
-     * @return ApiResponse<PurchaseAttachmentDownload?>
+     * @return ApiResponse<PurchaseAttachmentDownloadResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun downloadPurchaseRequestAttachmentWithHttpInfo(purchaseRequestId: java.util.UUID, attachmentId: java.util.UUID) : ApiResponse<PurchaseAttachmentDownload?> = withContext(Dispatchers.IO) {
+    suspend fun downloadPurchaseRequestAttachmentWithHttpInfo(purchaseRequestId: java.util.UUID, attachmentId: java.util.UUID) : ApiResponse<PurchaseAttachmentDownloadResponse?> = withContext(Dispatchers.IO) {
         val localVariableConfig = downloadPurchaseRequestAttachmentRequestConfig(purchaseRequestId = purchaseRequestId, attachmentId = attachmentId)
 
-        return@withContext request<Unit, PurchaseAttachmentDownload>(
+        return@withContext request<Unit, PurchaseAttachmentDownloadResponse>(
             localVariableConfig
         )
     }
@@ -7068,6 +7146,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/financial/purchase-requests/{purchaseRequestId}".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/financial/purchase-requests/preferences
+     * Fetch the current user&#39;s purchase request workspace preferences
+     *
+     * @return PurchaseFeaturePreferences
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getPurchaseRequestPreferences() : PurchaseFeaturePreferences = withContext(Dispatchers.IO) {
+        val localVarResponse = getPurchaseRequestPreferencesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseFeaturePreferences
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/financial/purchase-requests/preferences
+     * Fetch the current user&#39;s purchase request workspace preferences
+     *
+     * @return ApiResponse<PurchaseFeaturePreferences?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getPurchaseRequestPreferencesWithHttpInfo() : ApiResponse<PurchaseFeaturePreferences?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getPurchaseRequestPreferencesRequestConfig()
+
+        return@withContext request<Unit, PurchaseFeaturePreferences>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getPurchaseRequestPreferences
+     *
+     * @return RequestConfig
+     */
+    fun getPurchaseRequestPreferencesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/financial/purchase-requests/preferences",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -11577,6 +11725,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/financial/purchase-requests/attachments/presign
+     * Create a purchase attachment record and return a presigned upload URL
+     *
+     * @param purchaseAttachmentPresignRequest
+     * @return PurchaseAttachmentPresignResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun presignPurchaseRequestAttachment(purchaseAttachmentPresignRequest: PurchaseAttachmentPresignRequest) : PurchaseAttachmentPresignResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = presignPurchaseRequestAttachmentWithHttpInfo(purchaseAttachmentPresignRequest = purchaseAttachmentPresignRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseAttachmentPresignResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/attachments/presign
+     * Create a purchase attachment record and return a presigned upload URL
+     *
+     * @param purchaseAttachmentPresignRequest
+     * @return ApiResponse<PurchaseAttachmentPresignResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun presignPurchaseRequestAttachmentWithHttpInfo(purchaseAttachmentPresignRequest: PurchaseAttachmentPresignRequest) : ApiResponse<PurchaseAttachmentPresignResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = presignPurchaseRequestAttachmentRequestConfig(purchaseAttachmentPresignRequest = purchaseAttachmentPresignRequest)
+
+        return@withContext request<PurchaseAttachmentPresignRequest, PurchaseAttachmentPresignResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation presignPurchaseRequestAttachment
+     *
+     * @param purchaseAttachmentPresignRequest
+     * @return RequestConfig
+     */
+    fun presignPurchaseRequestAttachmentRequestConfig(purchaseAttachmentPresignRequest: PurchaseAttachmentPresignRequest) : RequestConfig<PurchaseAttachmentPresignRequest> {
+        val localVariableBody = purchaseAttachmentPresignRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/attachments/presign",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/employees/import/preview
      * Preview an employee workbook through the governed import ledger
      * Creates an immutable tenant-scoped raw import run, preserves every non-empty source row, masks restricted/PII/payroll/location values in the response, and returns a column-to-employee schema mapping preview. No employee rows are written until dry-run and apply are completed.
@@ -13239,6 +13461,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/workflow-studio/definitions/{id}/rollback".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PUT /api/v1/financial/purchase-requests/preferences
+     * Save the current user&#39;s purchase request workspace preferences
+     *
+     * @param savePurchasePreferencesRequest
+     * @return PurchaseFeaturePreferences
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun savePurchaseRequestPreferences(savePurchasePreferencesRequest: SavePurchasePreferencesRequest) : PurchaseFeaturePreferences = withContext(Dispatchers.IO) {
+        val localVarResponse = savePurchaseRequestPreferencesWithHttpInfo(savePurchasePreferencesRequest = savePurchasePreferencesRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseFeaturePreferences
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/v1/financial/purchase-requests/preferences
+     * Save the current user&#39;s purchase request workspace preferences
+     *
+     * @param savePurchasePreferencesRequest
+     * @return ApiResponse<PurchaseFeaturePreferences?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun savePurchaseRequestPreferencesWithHttpInfo(savePurchasePreferencesRequest: SavePurchasePreferencesRequest) : ApiResponse<PurchaseFeaturePreferences?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = savePurchaseRequestPreferencesRequestConfig(savePurchasePreferencesRequest = savePurchasePreferencesRequest)
+
+        return@withContext request<SavePurchasePreferencesRequest, PurchaseFeaturePreferences>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation savePurchaseRequestPreferences
+     *
+     * @param savePurchasePreferencesRequest
+     * @return RequestConfig
+     */
+    fun savePurchaseRequestPreferencesRequestConfig(savePurchasePreferencesRequest: SavePurchasePreferencesRequest) : RequestConfig<SavePurchasePreferencesRequest> {
+        val localVariableBody = savePurchasePreferencesRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/v1/financial/purchase-requests/preferences",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
