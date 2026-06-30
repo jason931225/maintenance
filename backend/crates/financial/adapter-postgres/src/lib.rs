@@ -136,7 +136,6 @@ impl PgFinancialStore {
         })
         .await
     }
-
     pub async fn confirm_purchase_attachment_upload(
         &self,
         command: ConfirmPurchaseAttachmentUploadCommand,
@@ -1915,7 +1914,6 @@ async fn purchase_attachment_upload_record_tx(
 ) -> Result<PurchaseAttachmentUploadRecord, PgFinancialError> {
     purchase_attachment_upload_record_conn(tx.as_mut(), attachment_id).await
 }
-
 async fn purchase_policy_flags_tx(
     tx: &mut Transaction<'_, Postgres>,
     branch_id: BranchId,

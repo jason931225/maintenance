@@ -88,6 +88,7 @@ const server = setupServer(
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
+  http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
   http.get("*/api/daily-work-plans", () =>
     HttpResponse.json({ items: [] }),
   ),
@@ -182,9 +183,9 @@ function renderAt(path: string) {
 // Each entry: route, the page's heading (proves it mounted, shell intact), and
 // the empty-state copy that must appear with an empty backend.
 const pages: { path: string; heading: string; empty: string }[] = [
-  { path: "/work-hub", heading: "업무 허브", empty: "현재 처리할 업무·승인·대화가 없습니다." },
+  { path: "/work-hub", heading: "업무 허브", empty: "현재 처리할 업무·승인·지원 티켓이 없습니다." },
   { path: "/dispatch", heading: "배차 보드", empty: "표시할 접수건이 없습니다." },
-  { path: "/approvals", heading: "승인 대기", empty: "승인 대기 건이 없습니다." },
+  { path: "/approvals", heading: "전자결제 대기", empty: "승인 대기 건이 없습니다." },
   { path: "/kpi", heading: "임원 KPI 대시보드", empty: "KPI 데이터를 불러오면 표시됩니다." },
   { path: "/messenger", heading: "메신저", empty: "표시할 대화방이 없습니다." },
   { path: "/support", heading: "고객지원 티켓", empty: "표시할 티켓이 없습니다." },

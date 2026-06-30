@@ -118,6 +118,8 @@ describe("IntakeForm", () => {
     expect(screen.queryByText("P2 권장")).not.toBeInTheDocument();
     expect(screen.queryByText("P1 권장")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/중요도/)).not.toBeInTheDocument();
+    // 접수자는 목표 완료일시를 지정하지 않는다. 목표일 관리는 배차/승인 흐름에서만 한다.
+    expect(screen.queryByLabelText("목표 완료일시")).not.toBeInTheDocument();
   });
 
   it("marks the required fields with a visible asterisk and aria-required", () => {

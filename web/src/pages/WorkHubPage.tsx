@@ -46,6 +46,13 @@ const MAIL_USE_ROLES = [
   ROLES.SUPER_ADMIN,
 ] as const;
 const MAIL_USE_FEATURES = [FEATURES.MAIL_USE] as const;
+const MESSENGER_ROLES = [
+  ROLES.SUPER_ADMIN,
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.MECHANIC,
+  ROLES.RECEPTIONIST,
+] as const;
 const TEAM_QUEUE_ROLES = [
   ROLES.ADMIN,
   ROLES.SUPER_ADMIN,
@@ -53,8 +60,8 @@ const TEAM_QUEUE_ROLES = [
   ROLES.RECEPTIONIST,
 ] as const;
 
-type FilterKey = "all" | "urgent" | "work" | "approval" | "daily" | "conversation" | "support" | "mail";
-type SourceKey = "workOrders" | "approvals" | "dailyPlans" | "messenger" | "support";
+type FilterKey = "all" | "urgent" | "work" | "approval" | "daily" | "support" | "conversation";
+type SourceKey = "workOrders" | "approvals" | "dailyPlans" | "support" | "messenger";
 
 type ReadState = "loading" | "idle" | "error";
 
@@ -62,8 +69,8 @@ interface WorkHubData {
   workOrders: WorkOrderListItem[];
   approvalItems: ApprovalItem[];
   dailyPlans: DailyPlanSummary[];
-  threads: MessengerThreadSummary[];
   tickets: SupportTicketSummary[];
+  messengerThreads: MessengerThreadSummary[];
 }
 
 interface SourceFailure {
@@ -96,8 +103,8 @@ const emptyData: WorkHubData = {
   workOrders: [],
   approvalItems: [],
   dailyPlans: [],
-  threads: [],
   tickets: [],
+  messengerThreads: [],
 };
 
 function labelFromMap(map: Record<string, string>, value: string | null | undefined): string {
@@ -253,45 +260,6 @@ function buildDailyItems(plans: DailyPlanSummary[]): HubItem[] {
   });
 }
 
-function threadDisplayTitle(thread: MessengerThreadSummary): string {
-  return safeLabel(
-    thread.title,
-    thread.kind === "work_order" ? ko.workHub.threadFallback.workOrder : undefined,
-    thread.kind === "dm" ? ko.workHub.threadFallback.dm : undefined,
-    thread.kind === "group" ? ko.workHub.threadFallback.group : undefined,
-    ko.workHub.threadFallback.team,
-  );
-}
-
-function messengerUnreadCount(thread: MessengerThreadSummary): number {
-  return Math.max(0, thread.unread_count);
-}
-
-function isActionableConversationThread(thread: MessengerThreadSummary): boolean {
-  return messengerUnreadCount(thread) > 0;
-}
-
-function buildConversationItems(threads: MessengerThreadSummary[]): HubItem[] {
-  return threads.filter(isActionableConversationThread).map((thread) => ({
-    id: `conversation-${thread.id}`,
-    filter: "conversation",
-    title: threadDisplayTitle(thread),
-    eyebrow: ko.workHub.items.conversation,
-    detail: ko.workHub.threadDetail
-      .replace("{kind}", labelFromMap(ko.workHub.threadKind, thread.kind))
-      .replace("{count}", String(thread.member_count)),
-    href: "/messenger",
-    action: ko.workHub.actions.openMessenger,
-    dueLabel: thread.last_message_at
-      ? ko.workHub.due.lastMessage.replace("{time}", formatKoreanDateTime(thread.last_message_at))
-      : undefined,
-    badge: thread.work_order_id ? ko.workHub.badges.linkedWork : undefined,
-    badgeClass: "border-brand-teal/30 bg-brand-teal/10 text-brand-teal",
-    tone: "conversation",
-    sortTime: timeValue(thread.last_message_at || thread.updated_at),
-  }));
-}
-
 function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
   return tickets.map((ticket) => {
     const overdue = ticket.status !== "RESOLVED" && ticket.status !== "CLOSED" && isOverdue(ticket.due_at);
@@ -319,13 +287,78 @@ function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
   });
 }
 
+function messengerUnreadTotal(threads: MessengerThreadSummary[]): number {
+  return threads.reduce((sum, thread) => sum + Math.max(0, thread.unread_count), 0);
+}
+
+function isActionableConversationThread(thread: MessengerThreadSummary): boolean {
+  return thread.kind !== "work_order" && thread.unread_count > 0;
+}
+
+function conversationThreadFallback(kind: MessengerThreadSummary["kind"]): string {
+  switch (kind) {
+    case "work_order":
+      return ko.workHub.threadFallback.workOrder;
+    case "team":
+      return ko.workHub.threadFallback.team;
+    case "dm":
+      return ko.workHub.threadFallback.dm;
+    case "group":
+      return ko.workHub.threadFallback.group;
+  }
+}
+
+function conversationThreadKindLabel(kind: MessengerThreadSummary["kind"]): string {
+  switch (kind) {
+    case "work_order":
+      return ko.workHub.threadKind.work_order;
+    case "team":
+      return ko.workHub.threadKind.team;
+    case "dm":
+      return ko.workHub.threadKind.dm;
+    case "group":
+      return ko.workHub.threadKind.group;
+  }
+}
+
+function conversationThreadTitle(thread: MessengerThreadSummary): string {
+  const title = thread.title?.trim();
+  if (title) return title;
+  return conversationThreadFallback(thread.kind);
+}
+
+function buildConversationItems(threads: MessengerThreadSummary[]): HubItem[] {
+  if (threads.length === 0) return [];
+  return threads.filter(isActionableConversationThread).map((thread) => {
+    const kindLabel = conversationThreadKindLabel(thread.kind);
+    return {
+      id: `conversation-${thread.id}`,
+      filter: "conversation",
+      title: conversationThreadTitle(thread),
+      eyebrow: `${ko.workHub.items.conversation} · ${kindLabel}`,
+      detail: ko.workHub.threadDetail
+        .replace("{kind}", kindLabel)
+        .replace("{count}", String(thread.member_count)),
+      href: `/messenger?thread=${thread.id}`,
+      action: ko.workHub.actions.openMessenger,
+      dueLabel: thread.last_message_at
+        ? ko.workHub.due.lastMessage.replace("{time}", formatKoreanDateTime(thread.last_message_at))
+        : undefined,
+      badge: ko.workHub.badges.unreadMessages.replace("{count}", String(thread.unread_count)),
+      badgeClass: "border-brand-teal/30 bg-brand-teal/10 text-brand-teal",
+      tone: "conversation",
+      sortTime: timeValue(thread.last_message_at || thread.updated_at),
+    };
+  });
+}
+
 function buildInboxItems(data: WorkHubData): HubItem[] {
   return [
     ...buildApprovalItems(data.approvalItems),
     ...buildWorkItems(data.workOrders),
     ...buildDailyItems(data.dailyPlans),
-    ...buildConversationItems(data.threads),
     ...buildSupportItems(data.tickets),
+    ...buildConversationItems(data.messengerThreads),
   ].sort((a, b) => b.sortTime - a.sortTime);
 }
 
@@ -351,6 +384,7 @@ export function WorkHubPage() {
   const canApprove = hasAnyRole(session?.roles, ADMIN_ROLES);
   const canUseDailyPlan = hasAnyRole(session?.roles, DAILY_PLAN_ROLES);
   const canSeeTeamQueue = hasAnyRole(session?.roles, TEAM_QUEUE_ROLES);
+  const canUseMessenger = hasAnyRole(session?.roles, MESSENGER_ROLES);
   const canUseMail =
     hasAnyRole(session?.roles, MAIL_USE_ROLES) ||
     hasAnyFeatureGrant(session?.feature_grants, MAIL_USE_FEATURES);
@@ -363,8 +397,13 @@ export function WorkHubPage() {
 
     const requests = [
       capture("workOrders", api.GET("/api/v1/work-orders", { params: { query: workOrderQuery } })),
-      capture("messenger", api.GET("/api/messenger/threads", { params: { query: { limit: 20 } } })),
       capture("support", api.GET("/api/v1/support/tickets", { params: { query: { include_untriaged: true, limit: 20 } } })),
+      canUseMessenger
+        ? capture(
+            "messenger",
+            api.GET("/api/messenger/threads", { params: { query: { limit: 100 } } }),
+          )
+        : skippedSource("messenger"),
       canApprove
         ? capture(
             "approvals",
@@ -386,14 +425,14 @@ export function WorkHubPage() {
       workOrders: (results.find((r) => r.key === "workOrders")?.data as { items?: WorkOrderListItem[] } | undefined)?.items ?? [],
       approvalItems: (results.find((r) => r.key === "approvals")?.data as { items?: ApprovalItem[] } | undefined)?.items ?? [],
       dailyPlans: (results.find((r) => r.key === "dailyPlans")?.data as { items?: DailyPlanSummary[] } | undefined)?.items ?? [],
-      threads: ((results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? []).filter(isActionableConversationThread),
       tickets: ((results.find((r) => r.key === "support")?.data as { items?: SupportTicketSummary[] } | undefined)?.items ?? []).filter(isActionableSupportTicket),
+      messengerThreads: (results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? [],
     };
 
     setData(nextData);
     setFailures(nextFailures);
     setReadState(requestedResults.every((result) => result.failed) ? "error" : "idle");
-  }, [api, canApprove, canSeeTeamQueue, canUseDailyPlan]);
+  }, [api, canApprove, canSeeTeamQueue, canUseDailyPlan, canUseMessenger]);
 
   useEffect(() => {
     void Promise.resolve().then(loadData);
@@ -408,6 +447,10 @@ export function WorkHubPage() {
   const urgentCount = useMemo(
     () => inboxItems.filter((item) => item.tone === "urgent").length,
     [inboxItems],
+  );
+  const messengerUnreadCount = useMemo(
+    () => messengerUnreadTotal(data.messengerThreads),
+    [data.messengerThreads],
   );
   const stats = useMemo(
     () => [
@@ -435,18 +478,19 @@ export function WorkHubPage() {
         disabled: !canUseDailyPlan,
       },
       {
-        key: "conversation" as const,
-        label: ko.workHub.stats.conversations,
-        value: data.threads.length,
-        href: "/messenger",
-        Icon: MessageSquare,
-      },
-      {
         key: "support" as const,
         label: ko.workHub.stats.support,
         value: data.tickets.length,
         href: "/support",
         Icon: LifeBuoy,
+      },
+      {
+        key: "messenger" as const,
+        label: ko.workHub.stats.messenger,
+        value: messengerUnreadCount,
+        href: "/messenger",
+        Icon: MessageSquare,
+        disabled: !canUseMessenger,
       },
       {
         key: "mail" as const,
@@ -457,7 +501,7 @@ export function WorkHubPage() {
         disabled: !canUseMail,
       },
     ],
-    [canApprove, canUseDailyPlan, canUseMail, data],
+    [canApprove, canUseDailyPlan, canUseMail, canUseMessenger, data, messengerUnreadCount],
   );
   const priorityCards = useMemo(
     () => [
@@ -488,14 +532,6 @@ export function WorkHubPage() {
         className: "border-violet-200 bg-violet-50 text-violet-950",
       },
       {
-        key: "conversation" as const,
-        filter: "conversation" as const,
-        label: ko.workHub.priorityRail.cards.conversation.label,
-        hint: ko.workHub.priorityRail.cards.conversation.hint,
-        count: data.threads.length,
-        className: "border-brand-teal/30 bg-brand-teal/10 text-brand-teal",
-      },
-      {
         key: "support" as const,
         filter: "support" as const,
         label: ko.workHub.priorityRail.cards.support.label,
@@ -509,7 +545,6 @@ export function WorkHubPage() {
       canUseDailyPlan,
       data.approvalItems.length,
       data.dailyPlans.length,
-      data.threads.length,
       data.tickets.length,
       urgentCount,
     ],
@@ -553,6 +588,13 @@ export function WorkHubPage() {
             </Card>
           ))}
         </section>
+
+        <WorkHubFocusDashboard
+          workOrders={data.workOrders}
+          dailyPlans={data.dailyPlans}
+          inboxItems={inboxItems}
+          urgentCount={urgentCount}
+        />
 
         <Card
           aria-labelledby="work-hub-priority-title"
@@ -649,15 +691,128 @@ export function WorkHubPage() {
   );
 }
 
+function WorkHubFocusDashboard({
+  workOrders,
+  dailyPlans,
+  inboxItems,
+  urgentCount,
+}: {
+  workOrders: WorkOrderListItem[];
+  dailyPlans: DailyPlanSummary[];
+  inboxItems: HubItem[];
+  urgentCount: number;
+}) {
+  const calendarItems = [
+    ...workOrders.flatMap((workOrder) =>
+      workOrder.target_due_at
+        ? [
+            {
+              id: `work-${workOrder.id}`,
+              time: workOrder.target_due_at,
+              title: workOrder.request_no,
+              detail: workOrderDetail(workOrder),
+            },
+          ]
+        : [],
+    ),
+    ...dailyPlans.map((plan, index) => ({
+      id: `daily-${String(plan.id ?? index)}`,
+      time: plan.plan_date,
+      title: ko.workHub.items.dailyTitle.replace(
+        "{date}",
+        plan.plan_date ? formatKoreanDate(plan.plan_date) : ko.common.unknownLabel,
+      ),
+      detail: labelFromMap(ko.workHub.dailyPlanStatus, plan.status),
+    })),
+  ]
+    .sort((left, right) => timeValue(left.time) - timeValue(right.time))
+    .slice(0, 5);
+  const focusItems = inboxItems.slice(0, 4);
+  const compactWorkOrders = workOrders.slice(0, 5);
+
+  return (
+    <section className="grid gap-3 xl:grid-cols-[1fr_1fr_1.2fr]" aria-label={ko.workHub.dashboard.label}>
+      <Card className="grid gap-3 p-3">
+        <div>
+          <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.focusTitle}</h2>
+          <p className="text-xs text-steel">
+            {ko.workHub.dashboard.focusHint.replace("{count}", String(urgentCount))}
+          </p>
+        </div>
+        <ul className="grid gap-2">
+          {focusItems.length === 0 ? (
+            <li className="text-sm text-steel">{ko.workHub.dashboard.emptyFocus}</li>
+          ) : (
+            focusItems.map((item) => (
+              <li key={item.id} className="rounded-md border border-line px-3 py-2">
+                <p className="truncate text-sm font-semibold text-ink">{item.title}</p>
+                <p className="truncate text-xs text-steel">{item.eyebrow} · {item.detail}</p>
+              </li>
+            ))
+          )}
+        </ul>
+      </Card>
+
+      <Card className="grid gap-3 p-3">
+        <div>
+          <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.calendarTitle}</h2>
+          <p className="text-xs text-steel">{ko.workHub.dashboard.calendarHint}</p>
+        </div>
+        <ol className="grid gap-2">
+          {calendarItems.length === 0 ? (
+            <li className="text-sm text-steel">{ko.workHub.dashboard.emptyCalendar}</li>
+          ) : (
+            calendarItems.map((item) => (
+              <li key={item.id} className="grid grid-cols-[auto_1fr] gap-2 rounded-md border border-line px-3 py-2">
+                <time className="text-xs font-semibold text-brand-teal">
+                  {item.time ? formatKoreanDateTime(item.time) : ko.common.unknownLabel}
+                </time>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-ink">{item.title}</p>
+                  <p className="truncate text-xs text-steel">{item.detail}</p>
+                </div>
+              </li>
+            ))
+          )}
+        </ol>
+      </Card>
+
+      <Card className="grid gap-3 p-3">
+        <div>
+          <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.personalTitle}</h2>
+          <p className="text-xs text-steel">
+            {ko.workHub.dashboard.personalHint.replace("{count}", String(workOrders.length))}
+          </p>
+        </div>
+        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+          {compactWorkOrders.length === 0 ? (
+            <li className="text-sm text-steel">{ko.workHub.dashboard.emptyWork}</li>
+          ) : (
+            compactWorkOrders.map((workOrder) => (
+              <li key={workOrder.id} className="rounded-md border border-line px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={priorityClass(workOrder.priority)}>{priorityLabel(workOrder.priority)}</Badge>
+                  <span className="truncate text-sm font-semibold text-ink">{workOrder.request_no}</span>
+                </div>
+                <p className="mt-1 truncate text-xs text-steel">{workOrderDetail(workOrder)}</p>
+              </li>
+            ))
+          )}
+        </ul>
+      </Card>
+    </section>
+  );
+}
+
 function WorkHubItemCard({ item }: { item: HubItem }) {
   const Icon = item.filter === "approval"
     ? CheckSquare
     : item.filter === "daily"
       ? CalendarCheck
-      : item.filter === "conversation"
-        ? MessageSquare
-        : item.filter === "support"
-          ? LifeBuoy
+      : item.filter === "support"
+        ? LifeBuoy
+        : item.filter === "conversation"
+          ? MessageSquare
           : Timer;
   return (
     <Card

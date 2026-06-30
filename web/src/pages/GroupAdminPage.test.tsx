@@ -176,7 +176,7 @@ describe("GroupAdminPage", () => {
     expect(screen.getByText("그룹 전체 운영 지휘")).toBeVisible();
     expect(screen.getAllByText("코스").length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: "코스 승인" }));
+    await user.click(screen.getByRole("button", { name: "코스 전자결제" }));
 
     await waitFor(() => {
       expect(enterViewAs).toHaveBeenCalledWith({

@@ -31,7 +31,12 @@ import type {
   WorkOrderListItem,
 } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
-import { hasAnyRole, ROLES } from "../components/shell/nav";
+import {
+  FEATURES,
+  hasAnyFeatureGrant,
+  hasAnyRole,
+  ROLES,
+} from "../components/shell/nav";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
@@ -54,12 +59,7 @@ const DAILY_PLAN_ROLES = [
   ROLES.ADMIN,
   ROLES.SUPER_ADMIN,
 ] as const;
-const MAIL_USE_ROLES = [
-  ROLES.RECEPTIONIST,
-  ROLES.ADMIN,
-  ROLES.EXECUTIVE,
-  ROLES.SUPER_ADMIN,
-] as const;
+const MAIL_USE_FEATURES = [FEATURES.MAIL_USE] as const;
 
 type ReadState = "loading" | "ready" | "error";
 type MailReadState = "allowed" | "forbidden" | "unavailable";
@@ -314,7 +314,7 @@ export function CollaborationPage() {
   const roles = useMemo(() => session?.roles ?? [], [session?.roles]);
   const canApprove = hasAnyRole(roles, ADMIN_ROLES);
   const canDailyPlan = hasAnyRole(roles, DAILY_PLAN_ROLES);
-  const canUseMail = hasAnyRole(roles, MAIL_USE_ROLES);
+  const canUseMail = hasAnyFeatureGrant(session?.feature_grants, MAIL_USE_FEATURES);
   const [readState, setReadState] = useState<ReadState>("loading");
   const [mutationError, setMutationError] = useState<string>();
   const [mutationOk, setMutationOk] = useState<string>();

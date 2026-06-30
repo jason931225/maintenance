@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
@@ -270,9 +270,9 @@ describe("WorkHubPage", () => {
     ).toBeVisible();
     expect(await screen.findByText("20260612-002 작업 보고 승인")).toBeVisible();
     expect(screen.getByText("2026-06-29 계획업무 검토")).toBeVisible();
-    expect(screen.getByText("일정 변경 요청")).toBeVisible();
-    expect(screen.getByText("P1 현장 대화")).toBeVisible();
-    expect(screen.getByText("부품 입고 확인")).toBeVisible();
+    expect(screen.getAllByText("일정 변경 요청").length).toBeGreaterThan(0);
+    expect(screen.queryByText("P1 현장 대화")).not.toBeInTheDocument();
+    expect(screen.getAllByText("부품 입고 확인").length).toBeGreaterThan(0);
     expect(screen.queryByText("업무 객체 중심 실행 흐름")).not.toBeInTheDocument();
     expect(
       screen.queryByText(/허브는 메신저·메일·티켓을 별도 데모로 분리하지 않고/),
@@ -285,7 +285,7 @@ describe("WorkHubPage", () => {
     expect(screen.getByText("팀·그룹 범위")).toBeVisible();
     expect(screen.getByRole("button", { name: "지연·긴급 3건 보기" })).toBeVisible();
     expect(screen.getByRole("button", { name: "승인·검토 3건 보기" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "대화 1건 보기" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /대화/ })).not.toBeInTheDocument();
     const approvalLinks = screen.getAllByRole("link", { name: "승인센터에서 검토" });
     const approvalHrefs = approvalLinks.map((link) => link.getAttribute("href"));
     expect(approvalHrefs).toContain(
@@ -308,8 +308,8 @@ describe("WorkHubPage", () => {
 
     await user.click(screen.getByRole("button", { name: "지연·긴급 3건 보기" }));
 
-    expect(screen.getByText(/20260612-002 · Acme Corporation/)).toBeVisible();
-    expect(screen.getByText("부품 입고 확인")).toBeVisible();
+    expect(screen.getAllByText(/20260612-002 · Acme Corporation/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("부품 입고 확인").length).toBeGreaterThan(0);
     expect(screen.queryByText("P1 현장 대화")).not.toBeInTheDocument();
     expect(screen.queryByText("20260612-002 작업 보고 승인")).not.toBeInTheDocument();
 
@@ -317,8 +317,10 @@ describe("WorkHubPage", () => {
 
     expect(screen.getByText("20260612-002 작업 보고 승인")).toBeVisible();
     expect(screen.getByText("2026-06-29 계획업무 검토")).toBeVisible();
-    expect(screen.getByText("일정 변경 요청")).toBeVisible();
-    expect(screen.queryByText("부품 입고 확인")).not.toBeInTheDocument();
+    expect(screen.getAllByText("일정 변경 요청").length).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole("region", { name: "액션 인박스" })).queryByText("부품 입고 확인"),
+    ).not.toBeInTheDocument();
     await waitFor(() => {
       expect(approvalItemRequests).toHaveLength(1);
       expect(approvalItemRequests[0].searchParams.get("limit")).toBe("50");
@@ -402,7 +404,7 @@ describe("WorkHubPage", () => {
       branches: [branchId],
     });
 
-    expect(await screen.findByText("부품 입고 확인")).toBeVisible();
+    await screen.findAllByText("부품 입고 확인");
     expect(screen.queryByText("이미 닫힌 요청")).not.toBeInTheDocument();
     expect(screen.queryByText("이미 해결된 요청")).not.toBeInTheDocument();
   });
@@ -438,8 +440,46 @@ describe("WorkHubPage", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "업무 허브", level: 1 })).toBeVisible();
-    expect(screen.getByRole("button", { name: "대화 0건 보기" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /대화/ })).not.toBeInTheDocument();
     expect(screen.queryByText("이운창 현장 확인")).not.toBeInTheDocument();
+  });
+
+  it("surfaces unread non-work-order messenger threads as conversation actions", async () => {
+    installHappyHandlers();
+    server.use(
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "99999999-9999-4999-8999-999999999999",
+              kind: "dm",
+              branch_id: branchId,
+              title: "이운창 현장 확인",
+              work_order_id: null,
+              last_message_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+              last_message_at: "2026-06-28T02:00:00Z",
+              unread_count: 2,
+              member_count: 2,
+              created_at: "2026-06-28T01:00:00Z",
+              updated_at: "2026-06-28T02:00:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderPage({
+      access_token: "admin-token",
+      roles: ["ADMIN"],
+      branches: [branchId],
+    });
+
+    expect(await screen.findByText("이운창 현장 확인")).toBeVisible();
+    expect(screen.getByText("읽지 않음 2건")).toBeVisible();
+    expect(screen.getByRole("link", { name: "메신저 열기" })).toHaveAttribute(
+      "href",
+      "/messenger?thread=99999999-9999-4999-8999-999999999999",
+    );
   });
 
   it("does not render protocol-relative approval links from server payloads", async () => {
@@ -467,8 +507,10 @@ describe("WorkHubPage", () => {
       branches: [branchId],
     });
 
-    const unsafeCard = (await screen.findByText("외부 링크 시도")).closest("section");
-    expect(unsafeCard).not.toBeNull();
+    const unsafeCard = (await screen.findAllByText("외부 링크 시도"))
+      .map((element) => element.closest("section"))
+      .find((section) => section?.querySelector('a[href="/daily-plan"]'));
+    expect(unsafeCard).toBeDefined();
     expect(
       unsafeCard?.querySelector<HTMLAnchorElement>('a[href="//evil.example/phish"]'),
     ).toBeNull();
@@ -486,7 +528,11 @@ describe("WorkHubPage", () => {
       branches: [branchId],
     });
 
-    expect(await screen.findByText("내 업무, 계획, 대화, 티켓을 하루·주간 실행 흐름으로 묶어 보여줍니다.")).toBeVisible();
+    expect(await screen.findByText("내 업무, 계획, 티켓을 하루·주간 실행 흐름으로 묶어 보여줍니다.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "오늘의 중점사항" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "개인 업무 캘린더" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "개인별 업무 요약" })).toBeVisible();
+    expect(screen.getAllByText(/20260612-001/).length).toBeGreaterThan(0);
     expect(screen.getByText("내 업무 범위")).toBeVisible();
 
     await waitFor(() => {

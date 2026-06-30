@@ -69,7 +69,7 @@ test("ADMIN-07 admin approves a submitted completion", async ({
   await loginAs("ADMIN");
   await page.goto("/approvals");
   await expect(
-    page.getByRole("heading", { name: /승인 대기/, level: 1 }),
+    page.getByRole("heading", { name: /전자결제 대기/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
   await expect(page.getByRole("region", { name: "승인 액션 큐" })).toBeVisible({
     timeout: 8_000,
@@ -141,7 +141,7 @@ test("ADMIN-07 admin rejects a submitted completion with a memo", async ({
   await loginAs("ADMIN");
   await page.goto("/approvals");
   await expect(
-    page.getByRole("heading", { name: /승인 대기/, level: 1 }),
+    page.getByRole("heading", { name: /전자결제 대기/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
   const rejectBtn = page.getByRole("button", { name: /-072 반려/ });

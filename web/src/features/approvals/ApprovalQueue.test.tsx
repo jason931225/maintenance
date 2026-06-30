@@ -110,6 +110,7 @@ function evidenceStatusHandler() {
       processing_status: "READY",
       content_type: "image/jpeg",
       thumbnail_url: "https://example.test/after.jpg",
+      processed_at: "2026-06-12T14:02:00Z",
     }),
   );
 }
@@ -182,6 +183,14 @@ describe("ApprovalQueue", () => {
     expect(screen.getByText("주행 중 유압 누유가 발생합니다.")).toBeVisible();
     const thumb = await screen.findByAltText("증거 미리보기");
     expect(thumb).toHaveAttribute("src", "https://example.test/after.jpg");
+    await user.click(screen.getByRole("button", { name: "미리보기 열기" }));
+    const viewer = await screen.findByRole("dialog", { name: "증거 이미지 미리보기" });
+    expect(within(viewer).getByText("증거 · image/jpeg")).toBeVisible();
+    expect(within(viewer).getByText("2026-06-12 23:01")).toBeVisible();
+    expect(within(viewer).getByRole("link", { name: "파일 열기" })).toHaveAttribute(
+      "href",
+      "https://example.test/after.jpg",
+    );
   });
 
   it("approves the specific order only after a required decision comment", async () => {

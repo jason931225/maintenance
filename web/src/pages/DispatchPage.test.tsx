@@ -229,12 +229,11 @@ describe("DispatchPage manager controls", () => {
 
     const prioritySelect = await screen.findByLabelText("중요도");
     await user.selectOptions(prioritySelect, "P2");
+    const scheduleInput = screen.getByLabelText("목표 일정");
+    expect(scheduleInput).toHaveAttribute("type", "date");
+    await user.type(scheduleInput, "2026-06-13");
     await user.type(
-      screen.getByLabelText("일정(목표 완료)"),
-      "2026-06-13T09:30",
-    );
-    await user.type(
-      screen.getByLabelText("변경 사유"),
+      screen.getByLabelText("일정변경 사유"),
       "부품 도착 이후 방문",
     );
     await user.click(await screen.findByRole("button", { name: "김정비 주" }));
@@ -250,7 +249,7 @@ describe("DispatchPage manager controls", () => {
     await waitFor(() => {
       expect(patched).toHaveBeenCalledWith({ priority: "P2" });
       expect(scheduleRequested).toHaveBeenCalledWith({
-        requested_target_due_at: new Date("2026-06-13T09:30").toISOString(),
+        requested_target_due_at: "2026-06-13T00:00:00.000Z",
         reason: "부품 도착 이후 방문",
       });
       expect(assigned).toHaveBeenCalledWith({
@@ -288,6 +287,62 @@ describe("DispatchPage manager controls", () => {
           { mechanic_id: primaryMechanicId, role: "PRIMARY" },
           { mechanic_id: SECONDARY_MECHANIC, role: "SECONDARY" },
         ],
+      });
+    });
+  });
+
+  it("saves changed dispatch controls together from one compact action", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    const assigned = vi.fn();
+    const scheduleRequested = vi.fn();
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
+      http.patch("*/api/work-orders/:id/priority", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({ ...workOrderListItems[0], priority: "P2" });
+      }),
+      http.put("*/api/work-orders/:id/assignments", async ({ request }) => {
+        assigned(await request.json());
+        return HttpResponse.json(workOrderListItems[0]);
+      }),
+      http.post(
+        "*/api/work-orders/:id/target-change-requests",
+        async ({ request }) => {
+          scheduleRequested(await request.json());
+          return HttpResponse.json({ id: "target-change-1" });
+        },
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    await user.click(
+      await screen.findByRole("button", { name: "20260612-001 배차 제어" }),
+    );
+
+    await user.selectOptions(await screen.findByLabelText("중요도"), "P2");
+    const scheduleInput = screen.getByLabelText("목표 일정");
+    expect(scheduleInput).toHaveAttribute("type", "date");
+    await user.type(scheduleInput, "2026-06-13");
+    await user.type(screen.getByLabelText("일정변경 사유"), "고객 요청");
+    await user.click(await screen.findByRole("button", { name: "김정비 주" }));
+    await user.click(screen.getByRole("button", { name: "이정비 보조" }));
+
+    await user.click(screen.getByRole("button", { name: "전체 저장" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({ priority: "P2" });
+      expect(assigned).toHaveBeenCalledWith({
+        assignments: [
+          { mechanic_id: primaryMechanicId, role: "PRIMARY" },
+          { mechanic_id: SECONDARY_MECHANIC, role: "SECONDARY" },
+        ],
+      });
+      expect(scheduleRequested).toHaveBeenCalledWith({
+        requested_target_due_at: "2026-06-13T00:00:00.000Z",
+        reason: "고객 요청",
       });
     });
   });

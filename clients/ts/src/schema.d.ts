@@ -6894,8 +6894,8 @@ export interface components {
                 "application/json": components["schemas"]["ErrorBody"];
             };
         };
-        /** @description Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy. */
-        MailUnavailable: {
+        /** @description Required storage or platform dependency is not configured. */
+        ServiceUnavailable: {
             headers: {
                 [name: string]: unknown;
             };
@@ -6903,8 +6903,8 @@ export interface components {
                 "application/json": components["schemas"]["ErrorBody"];
             };
         };
-        /** @description Required storage or platform dependency is not configured. */
-        ServiceUnavailable: {
+        /** @description Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy. */
+        MailUnavailable: {
             headers: {
                 [name: string]: unknown;
             };

@@ -61,6 +61,10 @@ function actionLabel(actionKey: string): string {
   return mapped ?? actionKey;
 }
 
+function isCompletedStatus(status: string): boolean {
+  return ["APPROVED", "ADMIN_APPROVED", "EXECUTIVE_APPROVED", "COMPLETED"].includes(status);
+}
+
 function scopeLabel(scopeKind: string): string {
   const mapped = (
     ko.approvals.scopeLabels as Partial<Record<string, string>>
@@ -135,6 +139,30 @@ export function ApprovalCommandCenter({
   ].flatMap((card) =>
     card.count === undefined ? [] : [{ ...card, count: card.count }],
   );
+  const submittedDocumentCount = sourceCards.reduce((sum, card) => sum + card.count, 0);
+  const completedApprovalCount = items.filter((item) => isCompletedStatus(item.status)).length;
+  const summaryCards = [
+    {
+      key: "payable",
+      label: t.summary.payable,
+      value: items.length,
+    },
+    {
+      key: "submitted",
+      label: t.summary.submittedDocuments,
+      value: submittedDocumentCount,
+    },
+    {
+      key: "completed",
+      label: t.summary.completed,
+      value: completedApprovalCount,
+    },
+    {
+      key: "other",
+      label: t.summary.other,
+      value: Math.max(0, items.length - submittedDocumentCount),
+    },
+  ];
 
   return (
     <Card
@@ -151,6 +179,15 @@ export function ApprovalCommandCenter({
         <Badge className="border-brand-teal/20 bg-white text-brand-teal">
           {t.auditBadge}
         </Badge>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        {summaryCards.map((card) => (
+          <div key={card.key} className="rounded-lg border border-line bg-white p-3">
+            <p className="text-xs font-semibold text-steel">{card.label}</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{countLabel(card.value)}</p>
+          </div>
+        ))}
       </div>
 
       <div className="grid gap-3 rounded-lg border border-line bg-white p-4">

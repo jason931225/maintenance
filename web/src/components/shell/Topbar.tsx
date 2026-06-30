@@ -1,4 +1,4 @@
-import { LogOut, MapPin, Menu, RefreshCw, Search, User } from "lucide-react";
+import { Bell, LogOut, MapPin, Menu, RefreshCw, Search, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -9,7 +9,13 @@ import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
 import { useActiveBranchName } from "../../lib/useActiveBranchName";
 import { cn, identityLabel, safeLabel } from "../../lib/utils";
-import { hasGroupAdminRole, isPendingMember } from "./nav";
+import {
+  FEATURES,
+  hasAnyFeatureGrant,
+  hasGroupAdminRole,
+  isNavItemVisible,
+  isPendingMember,
+} from "./nav";
 
 interface TopbarProps {
   onOpenMobileSidebar: () => void;
@@ -59,12 +65,215 @@ export function Topbar({
 
       <GroupScopeSwitcher />
 
+      <NotificationBell />
+
       {/* Branch chip */}
       <BranchChip />
 
       {/* User menu */}
       <UserMenu />
     </header>
+  );
+}
+
+interface NotificationCounts {
+  pendingApprovals: number;
+  submittedDocuments: number;
+  completedApprovals: number;
+  messenger: number;
+  mail: number;
+  supportUnread: number;
+  supportOpen: number;
+  other: number;
+}
+
+const emptyNotificationCounts: NotificationCounts = {
+  pendingApprovals: 0,
+  submittedDocuments: 0,
+  completedApprovals: 0,
+  messenger: 0,
+  mail: 0,
+  supportUnread: 0,
+  supportOpen: 0,
+  other: 0,
+};
+const MAIL_BADGE_FEATURES = [FEATURES.MAIL_USE] as const;
+
+
+function notificationTotal(counts: NotificationCounts): number {
+  return counts.pendingApprovals + counts.messenger + counts.mail + counts.supportUnread + counts.other;
+}
+
+function notificationBadge(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
+
+function isCompletedApprovalStatus(status: string): boolean {
+  return ["APPROVED", "ADMIN_APPROVED", "EXECUTIVE_APPROVED", "COMPLETED"].includes(status);
+}
+
+function isOpenSupportStatus(status: string): boolean {
+  return status === "OPEN" || status === "IN_PROGRESS" || status === "ON_HOLD";
+}
+
+function NotificationBell() {
+  const { api, session } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [counts, setCounts] = useState<NotificationCounts>(emptyNotificationCounts);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const roles = session?.roles;
+  const groupRoles = session?.group_roles;
+  const featureGrants = session?.feature_grants;
+  const canLoadApprovals = isNavItemVisible("approvals", roles, groupRoles, featureGrants);
+  const canLoadMessenger = isNavItemVisible("messenger", roles, groupRoles, featureGrants);
+  const canLoadMail = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
+  const canLoadSupport = isNavItemVisible("support", roles, groupRoles, featureGrants);
+  const total = notificationTotal(counts);
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadNotifications() {
+      let failed = false;
+      setLoading(true);
+      const next: NotificationCounts = { ...emptyNotificationCounts };
+      await Promise.all([
+        canLoadApprovals
+          ? api
+              .GET("/api/approval-items", { params: { query: { limit: 100, offset: 0 } } })
+              .then((response) => {
+                const approvalItems = response.data?.items ?? [];
+                const sourceTotal = response.data?.sources.reduce(
+                  (sum, source) => sum + source.count,
+                  0,
+                );
+                next.pendingApprovals = response.data?.total ?? approvalItems.length;
+                next.submittedDocuments = sourceTotal ?? next.pendingApprovals;
+                next.completedApprovals = approvalItems.filter((item) =>
+                  isCompletedApprovalStatus(item.status),
+                ).length;
+              })
+              .catch(() => { failed = true; })
+          : Promise.resolve(),
+        canLoadMessenger
+          ? api
+              .GET("/api/messenger/threads", { params: { query: { limit: 100 } } })
+              .then((response) => {
+                next.messenger = response.data?.items.reduce(
+                  (sum, thread) => sum + Math.max(0, thread.unread_count),
+                  0,
+                ) ?? 0;
+              })
+              .catch(() => { failed = true; })
+          : Promise.resolve(),
+        canLoadMail
+          ? api
+              .GET("/api/v1/mail/folders")
+              .then((response) => {
+                next.mail = response.data?.reduce(
+                  (sum, folder) => sum + Math.max(0, folder.unread_count),
+                  0,
+                ) ?? 0;
+              })
+              .catch(() => { failed = true; })
+          : Promise.resolve(),
+        canLoadSupport
+          ? api
+              .GET("/api/v1/support/tickets", {
+                params: { query: { include_untriaged: true, limit: 100 } },
+              })
+              .then((response) => {
+                const tickets = response.data?.items ?? [];
+                next.supportOpen = tickets.filter((ticket) =>
+                  isOpenSupportStatus(ticket.status),
+                ).length;
+                next.supportUnread = tickets.filter(
+                  (ticket) => ticket.origin === "CUSTOMER" && isOpenSupportStatus(ticket.status),
+                ).length;
+              })
+              .catch(() => { failed = true; })
+          : Promise.resolve(),
+      ]);
+      if (!ignore) {
+        setCounts(next);
+        setLoadError(failed);
+        setLoading(false);
+      }
+    }
+    void loadNotifications();
+    const timer = window.setInterval(() => { void loadNotifications(); }, 30_000);
+    return () => {
+      ignore = true;
+      window.clearInterval(timer);
+    };
+  }, [api, canLoadApprovals, canLoadMail, canLoadMessenger, canLoadSupport]);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label={ko.shell.notifications.open}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => { setOpen((value) => !value); }}
+        className="relative rounded-md p-2 text-steel hover:bg-muted-panel hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
+      >
+        <Bell size={18} aria-hidden="true" />
+        {total > 0 ? (
+          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">
+            {notificationBadge(total)}
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div
+          className="absolute right-0 top-full z-50 mt-1 w-72 rounded-md border border-line bg-white p-3 shadow-md"
+          role="dialog"
+          aria-label={ko.shell.notifications.title}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink">{ko.shell.notifications.title}</p>
+            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+              {notificationBadge(total)}
+            </span>
+          </div>
+          {loading ? (
+            <p className="mb-2 rounded-md bg-muted-panel px-2 py-1 text-xs text-steel">
+              {ko.shell.notifications.loading}
+            </p>
+          ) : null}
+          {loadError ? (
+            <p role="alert" className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900">
+              {ko.shell.notifications.loadFailed}
+            </p>
+          ) : null}
+          {!loading && !loadError && total === 0 ? (
+            <p className="mb-2 rounded-md border border-dashed border-line px-2 py-2 text-sm text-steel">
+              {ko.shell.notifications.empty}
+            </p>
+          ) : null}
+          <ul className="grid gap-2 text-sm text-steel">
+            <NotificationCountRow label={ko.shell.notifications.approvals} count={counts.pendingApprovals} />
+            <NotificationCountRow label={ko.shell.notifications.submittedDocuments} count={counts.submittedDocuments} />
+            <NotificationCountRow label={ko.shell.notifications.completedApprovals} count={counts.completedApprovals} />
+            <NotificationCountRow label={ko.shell.notifications.messages} count={counts.messenger} />
+            <NotificationCountRow label={ko.shell.notifications.mail} count={counts.mail} />
+            <NotificationCountRow label={ko.shell.notifications.supportUnread} count={counts.supportUnread} />
+            <NotificationCountRow label={ko.shell.notifications.supportOpen} count={counts.supportOpen} />
+            <NotificationCountRow label={ko.shell.notifications.other} count={counts.other} />
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function NotificationCountRow({ label, count }: { label: string; count: number }) {
+  return (
+    <li className="flex justify-between gap-3">
+      <span>{label}</span>
+      <strong className="text-ink">{count}</strong>
+    </li>
   );
 }
 
