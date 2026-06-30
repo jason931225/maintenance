@@ -76,6 +76,8 @@ interface PurchasePreferences {
 const PURCHASE_TYPE_LABELS: Record<PurchaseTypeValue, string> = ko.financial.purchase.types;
 const PURCHASE_TEXT = ko.financial.purchase.optionA;
 let lineIdCounter = 0;
+const KNL_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
+
 
 function newLineId() {
   lineIdCounter += 1;
@@ -93,11 +95,14 @@ function emptyLine(): PurchaseLineForm {
   };
 }
 
-function emptyCreateForm(defaultPurchaseType: PurchaseTypeValue = "ONE_OFF"): CreateForm {
+function emptyCreateForm(
+  defaultPurchaseType: PurchaseTypeValue = "ONE_OFF",
+  equipmentScoped = false,
+): CreateForm {
   return {
     vendorName: "",
     purchaseType: defaultPurchaseType,
-    equipmentScoped: false,
+    equipmentScoped,
     statementEvidenceId: "",
     memo: "",
     lines: [emptyLine()],
@@ -184,6 +189,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const activeBranchId = useActiveBranchId();
   const { session } = useAuth();
   const requesterLabel = session?.display_name ?? session?.email ?? PURCHASE_TEXT.requesterFallback;
+  const isKnlOrg = session?.org_id === KNL_ORG_ID;
 
   const [requests, setRequests] = useState<PurchaseRequestSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -193,7 +199,9 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [equipment, setEquipment] = useState<SelectedEquipment>();
   const [density, setDensity] = useState<Density>("compact");
   const [preferencesSaved, setPreferencesSaved] = useState(false);
-  const [form, setForm] = useState<CreateForm>(() => emptyCreateForm("ONE_OFF"));
+  const [form, setForm] = useState<CreateForm>(() =>
+    emptyCreateForm("ONE_OFF", isKnlOrg),
+  );
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [createError, setCreateError] = useState<string>();
   const [quoteState, setQuoteState] = useState<WriteState>("idle");
@@ -238,19 +246,27 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     };
   }, [api]);
 
+
+
   const totalWon = useMemo(() => linesTotal(form.lines), [form.lines]);
-  const branchId = form.equipmentScoped ? equipment?.branchId : activeBranchId;
+  const equipmentScoped = isKnlOrg || form.equipmentScoped;
+  const branchId = equipmentScoped ? equipment?.branchId : activeBranchId;
   const attachmentIds = form.quoteAttachments.map((attachment) => attachment.id);
   const equipmentRequiredHint = PURCHASE_TEXT.equipmentRequiredHint;
   const policyMessages = [
-    form.equipmentScoped ? PURCHASE_TEXT.policyEquipment : PURCHASE_TEXT.policyExpense,
+    equipmentScoped ? PURCHASE_TEXT.policyEquipment : PURCHASE_TEXT.policyExpense,
     form.purchaseType === "REGULAR" ? PURCHASE_TEXT.policyRegular : PURCHASE_TEXT.policyOptionalQuote,
   ];
 
   function resetCreate() {
     setCreating(false);
     setEquipment(undefined);
-    setForm(emptyCreateForm(form.purchaseType === "LEGACY_MANUAL" ? "ONE_OFF" : form.purchaseType));
+    setForm(
+      emptyCreateForm(
+        form.purchaseType === "LEGACY_MANUAL" ? "ONE_OFF" : form.purchaseType,
+        isKnlOrg,
+      ),
+    );
     setWriteState("idle");
     setCreateError(undefined);
     setQuoteError(undefined);
@@ -360,9 +376,9 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     try {
       const body: CreatePurchaseRequest = {
         branch_id: branchId,
-        equipment_id: form.equipmentScoped ? equipment?.id ?? null : null,
+        equipment_id: equipmentScoped ? equipment?.id ?? null : null,
         work_order_id: null,
-        statement_evidence_id: form.equipmentScoped
+        statement_evidence_id: equipmentScoped
           ? form.statementEvidenceId.trim() || null
           : null,
         purchase_type: form.purchaseType,
@@ -457,7 +473,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     !form.vendorName.trim() ||
     !form.memo.trim() ||
     form.lines.some((line) => !lineValid(line)) ||
-    (form.equipmentScoped && (!equipment || !form.statementEvidenceId.trim()));
+    (equipmentScoped && (!equipment || !form.statementEvidenceId.trim()));
 
   const densityClass = density === "compact" ? "gap-3 p-3" : "gap-4 p-4";
 
@@ -556,7 +572,8 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
               <label className="flex items-center gap-2 text-sm font-semibold text-ink">
                 <input
                   type="checkbox"
-                  checked={form.equipmentScoped}
+                  checked={equipmentScoped}
+                  disabled={isKnlOrg}
                   onChange={(event) => {
                     setField("equipmentScoped", event.currentTarget.checked);
                     if (!event.currentTarget.checked) {
@@ -568,7 +585,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
                 {PURCHASE_TEXT.equipmentScoped}
               </label>
               <p className="text-xs text-steel">{equipmentRequiredHint}</p>
-              {form.equipmentScoped ? (
+              {equipmentScoped ? (
                 <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)]">
                   <EquipmentSelector
                     api={api}
@@ -1266,7 +1283,11 @@ function PurchaseDetail({
         )}
       </section>
 
-      <StatementEvidencePreview api={api} evidenceId={request.statement_evidence_id} />
+      <StatementEvidencePreview
+        api={api}
+        evidenceId={request.statement_evidence_id}
+        loadThumbnail={canCreate || canApprove || canFinalApprove || canExecute}
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         {actions.submit ? (
@@ -1454,9 +1475,11 @@ function SourceObjectRail({ request }: { request: PurchaseRequestSummary }) {
 function StatementEvidencePreview({
   api,
   evidenceId,
+  loadThumbnail,
 }: {
   api: ConsoleApiClient;
   evidenceId?: string | null;
+  loadThumbnail: boolean;
 }) {
   const [preview, setPreview] = useState<{
     evidenceId: string;
@@ -1467,9 +1490,9 @@ function StatementEvidencePreview({
   const loadFailed = Boolean(evidenceId && preview.evidenceId === evidenceId && preview.loadFailed);
 
   useEffect(() => {
-    if (!evidenceId) return;
+    if (!evidenceId || !loadThumbnail) return;
     let ignore = false;
-    async function loadThumbnail() {
+    async function loadEvidenceThumbnail() {
       const response = await api
         .GET("/api/v1/evidence/{evidenceId}/status", {
           params: { path: { evidenceId: evidenceId ?? "" } },
@@ -1482,11 +1505,11 @@ function StatementEvidencePreview({
         setPreview({ evidenceId, loadFailed: true });
       }
     }
-    void loadThumbnail();
+    void loadEvidenceThumbnail();
     return () => {
       ignore = true;
     };
-  }, [api, evidenceId]);
+  }, [api, evidenceId, loadThumbnail]);
 
   if (!evidenceId) return null;
 
