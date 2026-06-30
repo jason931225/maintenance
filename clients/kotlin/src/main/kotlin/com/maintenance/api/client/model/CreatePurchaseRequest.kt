@@ -24,6 +24,8 @@
 package com.maintenance.api.client.model
 
 import com.maintenance.api.client.model.FinancialConfigSnapshot
+import com.maintenance.api.client.model.PurchaseRequestLineInput
+import com.maintenance.api.client.model.PurchaseType
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -33,13 +35,16 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param branchId
- * @param equipmentId
- * @param statementEvidenceId
+ * @param purchaseType
  * @param vendorName
- * @param amountWon
+ * @param lines
+ * @param quoteAttachmentIds
  * @param memo
  * @param config
+ * @param equipmentId
  * @param workOrderId
+ * @param statementEvidenceId
+ * @param amountWon
  */
 @Serializable
 
@@ -48,17 +53,17 @@ data class CreatePurchaseRequest (
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID,
 
-    @Contextual @SerialName(value = "equipment_id")
-    val equipmentId: java.util.UUID,
-
-    @Contextual @SerialName(value = "statement_evidence_id")
-    val statementEvidenceId: java.util.UUID,
+    @Contextual @SerialName(value = "purchase_type")
+    val purchaseType: PurchaseType,
 
     @SerialName(value = "vendor_name")
     val vendorName: kotlin.String,
 
-    @SerialName(value = "amount_won")
-    val amountWon: kotlin.Long,
+    @SerialName(value = "lines")
+    val lines: kotlin.collections.List<PurchaseRequestLineInput>,
+
+    @SerialName(value = "quote_attachment_ids")
+    val quoteAttachmentIds: kotlin.collections.List<@Contextual java.util.UUID>,
 
     @SerialName(value = "memo")
     val memo: kotlin.String,
@@ -66,8 +71,17 @@ data class CreatePurchaseRequest (
     @SerialName(value = "config")
     val config: FinancialConfigSnapshot,
 
+    @Contextual @SerialName(value = "equipment_id")
+    val equipmentId: java.util.UUID? = null,
+
     @Contextual @SerialName(value = "work_order_id")
-    val workOrderId: java.util.UUID? = null
+    val workOrderId: java.util.UUID? = null,
+
+    @Contextual @SerialName(value = "statement_evidence_id")
+    val statementEvidenceId: java.util.UUID? = null,
+
+    @SerialName(value = "amount_won")
+    val amountWon: kotlin.Long? = null
 
 ) {
 

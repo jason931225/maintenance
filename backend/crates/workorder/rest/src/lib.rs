@@ -25,8 +25,9 @@ use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_jobs::{JobQueue, JobRequest};
 use mnt_platform_request_context::current_org;
 use mnt_platform_storage::{
-    EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, MediaKind, PresignedUpload,
-    ProcessingStatus, S3ObjectStore, StagingUploadCommand, StorageError, WormReplicaStatus,
+    EvidenceMedia, EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, MediaKind,
+    PresignedUpload, ProcessingStatus, S3ObjectStore, StagingUploadCommand, StorageError,
+    WormReplicaStatus,
 };
 use mnt_workorder_adapter_postgres::{PgWorkOrderError, PgWorkOrderStore};
 use mnt_workorder_application::{
@@ -1819,7 +1820,7 @@ where
 }
 
 /// Poll the server-side processing status of an evidence row (처리 중 → 완료 /
-/// 실패). Same assigned-mechanic/admin authz as the upload path.
+/// 실패). Read access follows branch-scoped work-order visibility.
 async fn evidence_status<S>(
     State(state): State<MobileRestState<S>>,
     headers: HeaderMap,
@@ -1830,33 +1831,32 @@ where
 {
     let principal = mobile_principal_from_headers(&state, &headers).await?;
     let media_id = EvidenceId::from_uuid(evidence_id);
-    let service = state.evidence_service.as_ref().ok_or_else(|| {
-        RestError::unavailable("evidence storage is not configured for mobile API")
-    })?;
-    let media = service
-        .evidence_media(media_id)
-        .await
-        .map_err(RestError::from_storage)?;
+    let media = if let Some(service) = state.evidence_service.as_ref() {
+        service
+            .evidence_media(media_id)
+            .await
+            .map_err(RestError::from_storage)?
+    } else {
+        evidence_media_status_from_db(&state.pool, media_id).await?
+    };
     let work_order = state
         .store
         .work_order(media.work_order_id)
         .await
         .map_err(RestError::from_store)?;
-    authorize_evidence_access(
-        &state,
-        &principal,
-        media.work_order_id,
-        work_order.branch_id,
-    )
-    .await?;
+    authorize_evidence_status_access(&principal, work_order.branch_id)?;
 
     // Hand the client a short-lived presigned GET URL for the thumbnail instead
     // of the raw object key (which leaked internal storage layout). Null until
     // the row is READY and a thumbnail exists.
-    let thumbnail_url = service
-        .presigned_thumbnail_url(&media)
-        .await
-        .map_err(RestError::from_storage)?;
+    let thumbnail_url = if let Some(service) = state.evidence_service.as_ref() {
+        service
+            .presigned_thumbnail_url(&media)
+            .await
+            .map_err(RestError::from_storage)?
+    } else {
+        None
+    };
 
     Ok(Json(EvidenceStatusResponse {
         id: media.id,
@@ -1870,6 +1870,82 @@ where
     }))
 }
 
+async fn evidence_media_status_from_db(
+    pool: &PgPool,
+    media_id: EvidenceId,
+) -> Result<EvidenceMedia, RestError> {
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let row = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
+                SELECT id, work_order_id, stage, s3_key, content_type, size_bytes,
+                       checksum_sha256, uploaded_by, worm_replica_status, retry_count,
+                       next_retry_at, last_error, verified_at, upload_confirmed_at,
+                       confirmed_by, created_at, updated_at,
+                       processing_status, staging_s3_key, thumbnail_s3_key,
+                       original_content_type, processing_error, processed_at
+                FROM evidence_media
+                WHERE id = $1
+                "#,
+            )
+            .bind(*media_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?
+    .ok_or_else(|| {
+        RestError::from_kernel(KernelError::not_found("evidence media was not found"))
+    })?;
+
+    evidence_media_from_status_row(&row)
+}
+
+fn evidence_media_from_status_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceMedia, RestError> {
+    let stage: String = row.try_get("stage")?;
+    let worm_status: String = row.try_get("worm_replica_status")?;
+    let processing_status: String = row.try_get("processing_status")?;
+    Ok(EvidenceMedia {
+        id: EvidenceId::from_uuid(row.try_get("id")?),
+        work_order_id: WorkOrderId::from_uuid(row.try_get("work_order_id")?),
+        stage: AttachmentStage::from_db_str(&stage).map_err(RestError::from_kernel)?,
+        s3_key: row.try_get("s3_key")?,
+        content_type: row.try_get("content_type")?,
+        size_bytes: row.try_get("size_bytes")?,
+        checksum_sha256: row.try_get("checksum_sha256")?,
+        uploaded_by: UserId::from_uuid(row.try_get("uploaded_by")?),
+        worm_replica_status: WormReplicaStatus::from_db_str(&worm_status)
+            .map_err(RestError::from_kernel)?,
+        retry_count: row.try_get("retry_count")?,
+        next_retry_at: row.try_get("next_retry_at")?,
+        last_error: row.try_get("last_error")?,
+        verified_at: row.try_get("verified_at")?,
+        upload_confirmed_at: row.try_get("upload_confirmed_at")?,
+        confirmed_by: row
+            .try_get::<Option<uuid::Uuid>, _>("confirmed_by")?
+            .map(UserId::from_uuid),
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        processing_status: ProcessingStatus::from_db_str(&processing_status)
+            .map_err(RestError::from_kernel)?,
+        staging_s3_key: row.try_get("staging_s3_key")?,
+        thumbnail_s3_key: row.try_get("thumbnail_s3_key")?,
+        original_content_type: row.try_get("original_content_type")?,
+        processing_error: row.try_get("processing_error")?,
+        processed_at: row.try_get("processed_at")?,
+    })
+}
+
+fn authorize_evidence_status_access(
+    principal: &Principal,
+    branch_id: BranchId,
+) -> Result<(), RestError> {
+    authorize(principal, Action::new(Feature::WorkOrderReadAll), branch_id)
+        .map_err(RestError::from_kernel)
+}
 async fn authorize_evidence_access<S>(
     state: &MobileRestState<S>,
     principal: &Principal,

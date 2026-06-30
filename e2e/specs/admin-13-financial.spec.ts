@@ -115,7 +115,7 @@ test("ADMIN-13 admin creates → submits → approves a purchase request", async
   // The 구매요청 tab is the default. Open the create form.
   await page.getByRole("button", { name: /구매요청서 작성/ }).first().click();
 
-  // Resolve equipment, then fill the create form.
+  // Resolve equipment, then fill the normalized line-item create form.
   await page.locator("#financial-equipment-lookup").fill(MANAGEMENT_NO);
   await page.getByRole("button", { name: /^호기 번호$/ }).click();
   await expect(page.getByText(/선택된 장비/).first()).toBeVisible({
@@ -123,7 +123,8 @@ test("ADMIN-13 admin creates → submits → approves a purchase request", async
   });
 
   await page.locator("#pr-vendor").fill("E2E거래처");
-  await page.locator("#pr-amount").fill("1500000");
+  await page.getByLabel("품목 1", { exact: true }).fill("E2E 구매 품목");
+  await page.getByLabel("공급가액(단가) 1", { exact: true }).fill("1500000");
   await page.locator("#pr-evidence").fill(EVIDENCE_ID);
   await page.locator("#pr-memo").fill("E2E 구매 사유");
 

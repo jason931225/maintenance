@@ -8,10 +8,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_financial_adapter_postgres::{PgFinancialError, PgFinancialStore};
 use mnt_financial_application::{
-    AppendCostLedgerEntryCommand, CostLedgerSource, CreatePurchaseRequestCommand,
-    CreateRentalQuoteCommand, ExecutePurchaseCommand, FinancialConfigSnapshot,
-    PrepareExpenditureCommand, PurchaseApprovalCommand, PurchaseRestartCommand,
-    PurchaseSubmitCommand, RejectPurchaseCommand,
+    AppendCostLedgerEntryCommand, ConfirmPurchaseAttachmentUploadCommand, CostLedgerSource,
+    CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
+    FinancialConfigSnapshot, PrepareExpenditureCommand, PreparePurchaseAttachmentUploadCommand,
+    PurchaseApprovalCommand, PurchaseRequestLineInput, PurchaseRestartCommand,
+    PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand,
 };
 use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
@@ -21,12 +22,17 @@ use mnt_kernel_core::{
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use mnt_platform_db::DbError;
+use mnt_platform_storage::{
+    PresignGetRequest, PresignPutRequest, PresignedUpload, S3ObjectStore, SeaweedS3Storage,
+};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct FinancialRestState {
     store: PgFinancialStore,
     jwt_verifier: Option<JwtVerifier>,
+    purchase_attachment_storage: Option<(SeaweedS3Storage, String)>,
 }
 
 impl FinancialRestState {
@@ -35,7 +41,17 @@ impl FinancialRestState {
         Self {
             store,
             jwt_verifier,
+            purchase_attachment_storage: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_purchase_attachment_storage(
+        mut self,
+        storage: Option<(SeaweedS3Storage, String)>,
+    ) -> Self {
+        self.purchase_attachment_storage = storage;
+        self
     }
 }
 
@@ -69,8 +85,24 @@ pub fn router(state: FinancialRestState) -> Router {
             post(create_purchase_request),
         )
         .route(
+            "/api/v1/financial/purchase-requests/preferences",
+            get(get_purchase_preferences).put(save_purchase_preferences),
+        )
+        .route(
+            "/api/v1/financial/purchase-requests/attachments/presign",
+            post(presign_purchase_attachment),
+        )
+        .route(
+            "/api/v1/financial/purchase-requests/attachments/{attachment_id}/confirm",
+            post(confirm_purchase_attachment),
+        )
+        .route(
             "/api/v1/financial/purchase-requests/{purchase_request_id}",
             get(get_purchase_request),
+        )
+        .route(
+            "/api/v1/financial/purchase-requests/{purchase_request_id}/attachments/{attachment_id}/download",
+            get(download_purchase_attachment),
         )
         .route(
             "/api/v1/financial/purchase-requests/{purchase_request_id}/submit",
@@ -132,13 +164,48 @@ struct AppendManualCostLedgerRequest {
 #[derive(Debug, Deserialize)]
 struct CreatePurchaseRequest {
     branch_id: BranchId,
-    equipment_id: EquipmentId,
+    equipment_id: Option<EquipmentId>,
     work_order_id: Option<WorkOrderId>,
-    statement_evidence_id: EvidenceId,
+    statement_evidence_id: Option<EvidenceId>,
+    purchase_type: PurchaseType,
     vendor_name: String,
-    amount_won: i64,
+    amount_won: Option<i64>,
+    lines: Vec<PurchaseRequestLineInput>,
+    quote_attachment_ids: Vec<uuid::Uuid>,
     memo: String,
     config: FinancialConfigSnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+struct PurchaseAttachmentPresignRequest {
+    branch_id: BranchId,
+    file_name: String,
+    content_type: String,
+    size_bytes: i64,
+    checksum_sha256: Option<String>,
+    role: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PurchaseAttachmentPresignResponse {
+    attachment_id: uuid::Uuid,
+    upload: PresignedUpload,
+    file_name: String,
+    content_type: String,
+    size_bytes: i64,
+    role: String,
+    upload_state: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PurchaseAttachmentDownloadResponse {
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SavePurchasePreferencesRequest {
+    schema_version: i32,
+    preferences: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,8 +220,10 @@ struct RejectPurchaseRequest {
 
 #[derive(Debug, Deserialize)]
 struct RestartPurchaseRequest {
-    statement_evidence_id: EvidenceId,
-    amount_won: i64,
+    statement_evidence_id: Option<EvidenceId>,
+    amount_won: Option<i64>,
+    lines: Vec<PurchaseRequestLineInput>,
+    quote_attachment_ids: Vec<uuid::Uuid>,
     memo: String,
 }
 
@@ -342,8 +411,11 @@ async fn create_purchase_request(
             equipment_id: body.equipment_id,
             work_order_id: body.work_order_id,
             statement_evidence_id: body.statement_evidence_id,
+            purchase_type: body.purchase_type,
             vendor_name: body.vendor_name,
             amount_won: body.amount_won,
+            lines: body.lines,
+            quote_attachment_ids: body.quote_attachment_ids,
             memo: body.memo,
             config: body.config,
             trace: TraceContext::generate(),
@@ -352,6 +424,170 @@ async fn create_purchase_request(
         .await
         .map_err(RestError::from_store)?;
     Ok((StatusCode::CREATED, Json(purchase)))
+}
+
+async fn get_purchase_preferences(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let preferences = state
+        .store
+        .purchase_feature_preferences(principal.user_id, "purchase_requests")
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(preferences))
+}
+
+async fn save_purchase_preferences(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Json(body): Json<SavePurchasePreferencesRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let preferences = state
+        .store
+        .save_purchase_feature_preferences(
+            principal.user_id,
+            "purchase_requests",
+            body.schema_version,
+            body.preferences,
+        )
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(preferences))
+}
+
+async fn presign_purchase_attachment(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Json(body): Json<PurchaseAttachmentPresignRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize(
+        &principal,
+        Action::request(Feature::PurchaseRequestCreate),
+        body.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    validate_purchase_attachment_content_type(&body.content_type)
+        .map_err(RestError::from_kernel)?;
+
+    let (object_store, bucket) = state
+        .purchase_attachment_storage
+        .as_ref()
+        .ok_or_else(|| RestError::unavailable("purchase attachment storage is not configured"))?;
+    let org =
+        mnt_platform_request_context::current_org().map_err(rest_error_from_request_context)?;
+    let storage_key = purchase_attachment_s3_key(org, &body.file_name);
+    let role = body
+        .role
+        .unwrap_or_else(|| "QUOTE".to_owned())
+        .to_uppercase();
+    let upload = object_store
+        .presign_put(PresignPutRequest {
+            bucket: bucket.clone(),
+            key: storage_key.clone(),
+            content_type: body.content_type.clone(),
+            size_bytes: body.size_bytes,
+            checksum_sha256: body.checksum_sha256.clone(),
+            expires_in: Duration::from_secs(15 * 60),
+        })
+        .await
+        .map_err(|err| {
+            RestError::unavailable(format!("purchase attachment storage unavailable: {err}"))
+        })?;
+
+    let record = state
+        .store
+        .prepare_purchase_attachment_upload(PreparePurchaseAttachmentUploadCommand {
+            actor: principal.user_id,
+            branch_id: body.branch_id,
+            file_name: body.file_name,
+            content_type: body.content_type,
+            size_bytes: body.size_bytes,
+            checksum_sha256: body.checksum_sha256,
+            role,
+            s3_bucket: bucket.clone(),
+            s3_key: storage_key,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(PurchaseAttachmentPresignResponse {
+            attachment_id: record.id,
+            upload,
+            file_name: record.file_name,
+            content_type: record.content_type,
+            size_bytes: record.size_bytes,
+            role: record.role,
+            upload_state: record.upload_state,
+        }),
+    ))
+}
+
+async fn confirm_purchase_attachment(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Path(attachment_id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let staged = state
+        .store
+        .purchase_attachment_upload_record(attachment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize(
+        &principal,
+        Action::request(Feature::PurchaseRequestCreate),
+        staged.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    let record = state
+        .store
+        .confirm_purchase_attachment_upload(ConfirmPurchaseAttachmentUploadCommand {
+            actor: principal.user_id,
+            attachment_id,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+
+    Ok(Json(record))
+}
+
+async fn download_purchase_attachment(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Path((purchase_request_id, attachment_id)): Path<(uuid::Uuid, uuid::Uuid)>,
+) -> Result<impl IntoResponse, RestError> {
+    let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
+    let _ = authorize_for_purchase_read(&state, &headers, purchase_request_id).await?;
+    let attachment = state
+        .store
+        .purchase_attachment_download(purchase_request_id, attachment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    let (object_store, _) = state
+        .purchase_attachment_storage
+        .as_ref()
+        .ok_or_else(|| RestError::unavailable("purchase attachment storage is not configured"))?;
+    let url = object_store
+        .presign_get(PresignGetRequest {
+            bucket: attachment.s3_bucket,
+            key: attachment.s3_key,
+            expires_in: Duration::from_secs(10 * 60),
+        })
+        .await
+        .map_err(|err| {
+            RestError::unavailable(format!("purchase attachment storage unavailable: {err}"))
+        })?;
+    Ok(Json(PurchaseAttachmentDownloadResponse { url }))
 }
 
 async fn get_purchase_request(
@@ -528,6 +764,8 @@ async fn restart_purchase_request(
             purchase_request_id,
             statement_evidence_id: body.statement_evidence_id,
             amount_won: body.amount_won,
+            lines: body.lines,
+            quote_attachment_ids: body.quote_attachment_ids,
             memo: body.memo,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
@@ -563,6 +801,54 @@ async fn execute_purchase(
     Ok(Json(purchase))
 }
 
+fn purchase_attachment_s3_key(org: mnt_kernel_core::OrgId, file_name: &str) -> String {
+    let safe_name: String = file_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe_name = safe_name.trim_matches('_');
+    let file_name = if safe_name.is_empty() {
+        "quote"
+    } else {
+        safe_name
+    };
+    format!(
+        "orgs/{}/purchase-requests/quotes/{}-{}",
+        org.as_uuid(),
+        uuid::Uuid::new_v4(),
+        file_name
+    )
+}
+
+fn validate_purchase_attachment_content_type(content_type: &str) -> Result<(), KernelError> {
+    let content_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim()
+        .to_ascii_lowercase();
+    const ALLOWED: &[&str] = &[
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/heic",
+    ];
+    if ALLOWED.iter().any(|allowed| *allowed == content_type) {
+        Ok(())
+    } else {
+        Err(KernelError::validation(
+            "purchase quote attachments must be PDF or image files",
+        ))
+    }
+}
+
 async fn authorize_for_purchase(
     state: &FinancialRestState,
     headers: &HeaderMap,
@@ -586,12 +872,14 @@ async fn authorize_for_purchase_read(
         .purchase_request(purchase_request_id)
         .await
         .map_err(RestError::from_store)?;
-    authorize(
-        &principal,
-        Action::limited(Feature::PurchaseRequestRead),
-        purchase.branch_id,
-    )
-    .map_err(RestError::from_kernel)?;
+    if purchase.requester.user_id != principal.user_id {
+        authorize(
+            &principal,
+            Action::limited(Feature::PurchaseRequestRead),
+            purchase.branch_id,
+        )
+        .map_err(RestError::from_kernel)?;
+    }
     Ok((purchase, principal))
 }
 

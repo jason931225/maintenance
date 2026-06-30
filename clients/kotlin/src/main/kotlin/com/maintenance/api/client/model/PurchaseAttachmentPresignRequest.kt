@@ -23,7 +23,6 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.PurchaseRequestLineInput
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -32,30 +31,34 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param lines
- * @param quoteAttachmentIds
- * @param memo
- * @param statementEvidenceId
- * @param amountWon
+ * @param branchId
+ * @param fileName
+ * @param contentType
+ * @param sizeBytes
+ * @param checksumSha256
+ * @param role
  */
 @Serializable
 
-data class RestartPurchaseRequest (
+data class PurchaseAttachmentPresignRequest (
 
-    @SerialName(value = "lines")
-    val lines: kotlin.collections.List<PurchaseRequestLineInput>,
+    @Contextual @SerialName(value = "branch_id")
+    val branchId: java.util.UUID,
 
-    @SerialName(value = "quote_attachment_ids")
-    val quoteAttachmentIds: kotlin.collections.List<@Contextual java.util.UUID>,
+    @SerialName(value = "file_name")
+    val fileName: kotlin.String,
 
-    @SerialName(value = "memo")
-    val memo: kotlin.String,
+    @SerialName(value = "content_type")
+    val contentType: kotlin.String,
 
-    @Contextual @SerialName(value = "statement_evidence_id")
-    val statementEvidenceId: java.util.UUID? = null,
+    @SerialName(value = "size_bytes")
+    val sizeBytes: kotlin.Long,
 
-    @SerialName(value = "amount_won")
-    val amountWon: kotlin.Long? = null
+    @SerialName(value = "checksum_sha256")
+    val checksumSha256: kotlin.String? = null,
+
+    @SerialName(value = "role")
+    val role: kotlin.String? = null
 
 ) {
 

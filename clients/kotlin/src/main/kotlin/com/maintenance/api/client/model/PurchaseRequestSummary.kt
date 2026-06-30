@@ -23,7 +23,12 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.PurchaseAttachmentSummary
+import com.maintenance.api.client.model.PurchasePolicySummary
+import com.maintenance.api.client.model.PurchaseRequestLineSummary
+import com.maintenance.api.client.model.PurchaseRequesterSummary
 import com.maintenance.api.client.model.PurchaseStatus
+import com.maintenance.api.client.model.PurchaseType
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -35,15 +40,20 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param branchId
  * @param equipmentId
+ * @param workOrderId
  * @param statementEvidenceId
+ * @param purchaseType
  * @param vendorName
  * @param amountWon
  * @param status
- * @param createdAt
- * @param updatedAt
- * @param workOrderId
+ * @param requester
+ * @param lines
+ * @param quoteAttachments
+ * @param policy
  * @param expenditureNo
  * @param rejectionMemo
+ * @param createdAt
+ * @param updatedAt
  */
 @Serializable
 
@@ -56,10 +66,16 @@ data class PurchaseRequestSummary (
     val branchId: java.util.UUID,
 
     @Contextual @SerialName(value = "equipment_id")
-    val equipmentId: java.util.UUID,
+    val equipmentId: java.util.UUID?,
+
+    @Contextual @SerialName(value = "work_order_id")
+    val workOrderId: java.util.UUID?,
 
     @Contextual @SerialName(value = "statement_evidence_id")
-    val statementEvidenceId: java.util.UUID,
+    val statementEvidenceId: java.util.UUID?,
+
+    @Contextual @SerialName(value = "purchase_type")
+    val purchaseType: PurchaseType,
 
     @SerialName(value = "vendor_name")
     val vendorName: kotlin.String,
@@ -70,20 +86,29 @@ data class PurchaseRequestSummary (
     @Contextual @SerialName(value = "status")
     val status: PurchaseStatus,
 
+    @SerialName(value = "requester")
+    val requester: PurchaseRequesterSummary,
+
+    @SerialName(value = "lines")
+    val lines: kotlin.collections.List<PurchaseRequestLineSummary>,
+
+    @SerialName(value = "quote_attachments")
+    val quoteAttachments: kotlin.collections.List<PurchaseAttachmentSummary>,
+
+    @SerialName(value = "policy")
+    val policy: PurchasePolicySummary,
+
+    @SerialName(value = "expenditure_no")
+    val expenditureNo: kotlin.String?,
+
+    @SerialName(value = "rejection_memo")
+    val rejectionMemo: kotlin.String?,
+
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,
 
     @Contextual @SerialName(value = "updated_at")
-    val updatedAt: java.time.OffsetDateTime,
-
-    @Contextual @SerialName(value = "work_order_id")
-    val workOrderId: java.util.UUID? = null,
-
-    @SerialName(value = "expenditure_no")
-    val expenditureNo: kotlin.String? = null,
-
-    @SerialName(value = "rejection_memo")
-    val rejectionMemo: kotlin.String? = null
+    val updatedAt: java.time.OffsetDateTime
 
 ) {
 

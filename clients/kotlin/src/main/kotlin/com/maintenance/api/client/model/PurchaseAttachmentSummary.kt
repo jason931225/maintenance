@@ -23,7 +23,6 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.PurchaseRequestLineInput
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -32,30 +31,38 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param lines
- * @param quoteAttachmentIds
- * @param memo
- * @param statementEvidenceId
- * @param amountWon
+ * @param id
+ * @param fileName
+ * @param contentType
+ * @param sizeBytes
+ * @param role
+ * @param downloadUrl
+ * @param createdAt
  */
 @Serializable
 
-data class RestartPurchaseRequest (
+data class PurchaseAttachmentSummary (
 
-    @SerialName(value = "lines")
-    val lines: kotlin.collections.List<PurchaseRequestLineInput>,
+    @Contextual @SerialName(value = "id")
+    val id: java.util.UUID,
 
-    @SerialName(value = "quote_attachment_ids")
-    val quoteAttachmentIds: kotlin.collections.List<@Contextual java.util.UUID>,
+    @SerialName(value = "file_name")
+    val fileName: kotlin.String,
 
-    @SerialName(value = "memo")
-    val memo: kotlin.String,
+    @SerialName(value = "content_type")
+    val contentType: kotlin.String,
 
-    @Contextual @SerialName(value = "statement_evidence_id")
-    val statementEvidenceId: java.util.UUID? = null,
+    @SerialName(value = "size_bytes")
+    val sizeBytes: kotlin.Long,
 
-    @SerialName(value = "amount_won")
-    val amountWon: kotlin.Long? = null
+    @SerialName(value = "role")
+    val role: kotlin.String,
+
+    @SerialName(value = "download_url")
+    val downloadUrl: kotlin.String,
+
+    @Contextual @SerialName(value = "created_at")
+    val createdAt: java.time.OffsetDateTime
 
 ) {
 
