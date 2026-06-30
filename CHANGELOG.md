@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.27](https://github.com/jason931225/maintenance/compare/v0.1.26...v0.1.27) (2026-06-30)
+
+
+### Features
+
+* **financial:** implement purchase request option a ([b8a3088](https://github.com/jason931225/maintenance/commit/b8a3088251910fd5700dc9bd88da5a1e5180b8f6))
+
+
+### Bug Fixes
+
+* **workflow:** harden runtime trace integrity ([#99](https://github.com/jason931225/maintenance/issues/99)) ([c4e9a26](https://github.com/jason931225/maintenance/commit/c4e9a26bb0cb80eaf5be844915b9523fc72f69bf))
+
 ## [0.1.26](https://github.com/jason931225/maintenance/compare/v0.1.25...v0.1.26) (2026-06-30)
 
 
