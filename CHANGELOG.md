@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/jason931225/maintenance/compare/v0.1.23...v0.1.24) (2026-06-30)
+
+
+### Features
+
+* harden platform maturity import and payroll gates ([#89](https://github.com/jason931225/maintenance/issues/89)) ([f6fe80b](https://github.com/jason931225/maintenance/commit/f6fe80b9867298b546e9758f280d6e5e11becdd5))
+
 ## [0.1.23](https://github.com/jason931225/maintenance/compare/v0.1.22...v0.1.23) (2026-06-29)
 
 
