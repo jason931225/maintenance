@@ -189,6 +189,75 @@ describe("DispatchPage manager controls", () => {
       });
     });
   });
+  it("saves compact dispatch changes with the existing endpoints", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    const scheduleRequested = vi.fn();
+    const assigned = vi.fn();
+
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
+      http.patch("*/api/work-orders/:id/priority", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({ ...workOrderListItems[0], priority: "P2" });
+      }),
+      http.post(
+        "*/api/work-orders/:id/target-change-requests",
+        async ({ request }) => {
+          scheduleRequested(await request.json());
+          return HttpResponse.json({
+            id: "target-change-1",
+            work_order_id: workOrderListItems[0].id,
+            requested_target_due_at: "2026-06-13T09:30:00.000Z",
+            reason: "부품 도착 이후 방문",
+            status: "REQUESTED",
+          });
+        },
+      ),
+      http.put("*/api/work-orders/:id/assignments", async ({ request }) => {
+        assigned(await request.json());
+        return HttpResponse.json(workOrderListItems[0]);
+      }),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    await user.click(
+      await screen.findByRole("button", { name: "20260612-001 배차 제어" }),
+    );
+
+    const prioritySelect = await screen.findByLabelText("중요도");
+    await user.selectOptions(prioritySelect, "P2");
+    await user.type(
+      screen.getByLabelText("일정(목표 완료)"),
+      "2026-06-13T09:30",
+    );
+    await user.type(
+      screen.getByLabelText("변경 사유"),
+      "부품 도착 이후 방문",
+    );
+    await user.click(await screen.findByRole("button", { name: "김정비 주" }));
+
+    const saveAllButton = await screen.findByRole("button", {
+      name: "전체 저장",
+    });
+    expect(saveAllButton).toHaveClass("min-h-8");
+    expect(prioritySelect).toHaveClass("min-h-8");
+
+    await user.click(saveAllButton);
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({ priority: "P2" });
+      expect(scheduleRequested).toHaveBeenCalledWith({
+        requested_target_due_at: new Date("2026-06-13T09:30").toISOString(),
+        reason: "부품 도착 이후 방문",
+      });
+      expect(assigned).toHaveBeenCalledWith({
+        assignments: [{ mechanic_id: primaryMechanicId, role: "PRIMARY" }],
+      });
+    });
+  });
 
   it("assigns multiple mechanics and sends the full Vec", async () => {
     const user = userEvent.setup();

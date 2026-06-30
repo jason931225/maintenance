@@ -21,6 +21,11 @@ const PRIORITY_OPTIONS: PriorityLevel[] = [
   "OUTSOURCE",
   "UNSET",
 ];
+const COMPACT_FIELD_CLASS = "min-h-8 px-2 py-1 text-xs";
+const COMPACT_TEXTAREA_CLASS = "min-h-8 resize-none px-2 py-1 text-xs";
+const COMPACT_SECTION_CLASS =
+  "grid gap-1 rounded-lg border border-line bg-muted-panel/30 p-2";
+const COMPACT_LABEL_CLASS = "text-xs font-medium text-steel";
 
 export interface MechanicAssignmentInput {
   mechanic_id: string;
@@ -91,9 +96,23 @@ export function WorkOrderDispatchControls({
   const [outsourceContact, setOutsourceContact] = useState("");
   const [outsourceReason, setOutsourceReason] = useState("");
   const [creatingOutsource, setCreatingOutsource] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
 
   const { feedback, error, showFeedback, showError, clearFeedback, clearError } =
     useFeedback();
+
+  const selectedAssignments: MechanicAssignmentInput[] = Object.entries(
+    selected,
+  ).map(([mechanic_id, role]) => ({ mechanic_id, role }));
+  const hasSelectedAssignments = selectedAssignments.length > 0;
+  const hasPrimaryAssignment = selectedAssignments.some(
+    (assignment) => assignment.role === "PRIMARY",
+  );
+  const hasPriorityChange = priority !== workOrder.priority;
+  const hasCompleteSchedule = Boolean(scheduleAt && scheduleReason.trim());
+  const hasPartialSchedule =
+    Boolean(scheduleAt || scheduleReason.trim()) && !hasCompleteSchedule;
+  const controlsHeadingId = `dispatch-controls-${workOrder.id}`;
 
   async function handlePriority() {
     const ok = await onSetPriority(workOrder.id, priority);
@@ -140,15 +159,11 @@ export function WorkOrderDispatchControls({
 
   async function handleAssign() {
     clearFeedback();
-    const assignments: MechanicAssignmentInput[] = Object.entries(selected).map(
-      ([mechanic_id, role]) => ({ mechanic_id, role }),
-    );
-    const hasPrimary = assignments.some((a) => a.role === "PRIMARY");
-    if (!hasPrimary) {
+    if (!hasPrimaryAssignment) {
       showError(t.selectPrimary);
       return;
     }
-    const ok = await onAssign(workOrder.id, assignments);
+    const ok = await onAssign(workOrder.id, selectedAssignments);
     if (ok) {
       showFeedback(t.assigned);
       setSelected({});
@@ -205,18 +220,99 @@ export function WorkOrderDispatchControls({
     }
   }
 
+  async function handleSaveAll() {
+    clearFeedback();
+
+    if (hasPartialSchedule) {
+      showError(t.scheduleIncomplete);
+      return;
+    }
+
+    if (hasSelectedAssignments && !hasPrimaryAssignment) {
+      showError(t.selectPrimary);
+      return;
+    }
+
+    if (!hasPriorityChange && !hasCompleteSchedule && !hasSelectedAssignments) {
+      showError(t.noBatchChanges);
+      return;
+    }
+
+    setSavingAll(true);
+    try {
+      if (hasPriorityChange) {
+        const ok = await onSetPriority(workOrder.id, priority);
+        if (!ok) {
+          showError(t.actionFailed);
+          return;
+        }
+      }
+
+      if (hasCompleteSchedule) {
+        const iso = new Date(scheduleAt).toISOString();
+        const ok = await onRequestSchedule(
+          workOrder.id,
+          iso,
+          scheduleReason.trim(),
+        );
+        if (!ok) {
+          showError(t.actionFailed);
+          return;
+        }
+      }
+
+      if (hasSelectedAssignments) {
+        const ok = await onAssign(workOrder.id, selectedAssignments);
+        if (!ok) {
+          showError(t.actionFailed);
+          return;
+        }
+      }
+
+      if (hasCompleteSchedule) {
+        setScheduleAt("");
+        setScheduleReason("");
+      }
+      if (hasSelectedAssignments) {
+        setSelected({});
+      }
+      showFeedback(t.saveAllDone);
+    } catch {
+      showError(t.actionFailed);
+    } finally {
+      setSavingAll(false);
+    }
+  }
+
   const forceMechanicName =
     mechanics.find((m) => m.id === forceMechanicId)?.display_name ?? "";
 
   return (
-    <Card className="grid gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-base font-semibold text-ink">
-          {t.title} · {workOrder.request_no}
-        </h3>
-        <span className="text-xs font-medium text-steel">
-          {t.managerOnly}
-        </span>
+    <Card
+      aria-labelledby={controlsHeadingId}
+      className="grid gap-3 p-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3
+            id={controlsHeadingId}
+            className="truncate text-sm font-semibold text-ink"
+          >
+            {t.title} · {workOrder.request_no}
+          </h3>
+          <p className="text-xs font-medium text-steel">{t.managerOnly}</p>
+        </div>
+        <Button
+          type="button"
+          size="xs"
+          variant="secondary"
+          disabled={savingAll}
+          onClick={() => {
+            void handleSaveAll();
+          }}
+        >
+          {savingAll ? t.savingAll : t.saveAll}
+        </Button>
       </div>
 
       <FeedbackBanner
@@ -226,198 +322,202 @@ export function WorkOrderDispatchControls({
       />
       <FeedbackBanner kind="error" message={error} onDismiss={clearError} />
 
-
-      {/* priority */}
-      <div className="grid gap-2">
-        <label
-          className="text-sm font-medium text-steel"
-          htmlFor={`priority-${workOrder.id}`}
-        >
-          {t.priorityLabel}
-        </label>
-        <div className="flex gap-2">
-          <Select
-            id={`priority-${workOrder.id}`}
-            aria-label={t.priorityLabel}
-            value={priority}
-            onChange={(event) => {
-              setPriority(event.target.value as PriorityLevel);
-            }}
+      <div className="grid gap-2 xl:grid-cols-4">
+        <div className={COMPACT_SECTION_CLASS}>
+          <label
+            className={COMPACT_LABEL_CLASS}
+            htmlFor={`priority-${workOrder.id}`}
           >
-            {PRIORITY_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {priorityLabel(option)}
-              </option>
-            ))}
-          </Select>
+            {t.priorityLabel}
+          </label>
+          <div className="flex gap-1">
+            <Select
+              id={`priority-${workOrder.id}`}
+              aria-label={t.priorityLabel}
+              className={COMPACT_FIELD_CLASS}
+              value={priority}
+              onChange={(event) => {
+                setPriority(event.target.value as PriorityLevel);
+              }}
+            >
+              {PRIORITY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {priorityLabel(option)}
+                </option>
+              ))}
+            </Select>
+            <Button
+              type="button"
+              size="xs"
+              variant="secondary"
+              onClick={() => {
+                void handlePriority();
+              }}
+            >
+              {t.setPriority}
+            </Button>
+          </div>
+        </div>
+
+        <div className={COMPACT_SECTION_CLASS}>
+          <p className={COMPACT_LABEL_CLASS}>{t.startP1Label}</p>
+          <p className="text-xs leading-snug text-steel">{t.startP1Hint}</p>
           <Button
             type="button"
-            variant="secondary"
+            size="xs"
+            variant="destructive"
+            disabled={startingP1}
             onClick={() => {
-              void handlePriority();
+              void handleStartP1();
             }}
           >
-            {t.setPriority}
+            {startingP1 ? t.startingP1 : t.startP1}
           </Button>
         </div>
-      </div>
 
-      {/* start a P1 emergency dispatch broadcast */}
-      <div className="grid gap-2">
-        <p className="text-sm font-medium text-steel">{t.startP1Label}</p>
-        <p className="text-xs text-steel">{t.startP1Hint}</p>
-        <Button
-          type="button"
-          variant="destructive"
-          disabled={startingP1}
-          onClick={() => {
-            void handleStartP1();
-          }}
-        >
-          {startingP1 ? t.startingP1 : t.startP1}
-        </Button>
-      </div>
+        <div className={`${COMPACT_SECTION_CLASS} xl:col-span-2`}>
+          <label
+            className={COMPACT_LABEL_CLASS}
+            htmlFor={`schedule-${workOrder.id}`}
+          >
+            {t.scheduleLabel}
+          </label>
+          <div className="grid gap-1 sm:grid-cols-[minmax(0,13rem)_1fr_auto]">
+            <Input
+              id={`schedule-${workOrder.id}`}
+              type="datetime-local"
+              aria-label={t.scheduleLabel}
+              className={COMPACT_FIELD_CLASS}
+              value={scheduleAt}
+              onChange={(event) => {
+                setScheduleAt(event.target.value);
+              }}
+            />
+            <Textarea
+              aria-label={t.scheduleReason}
+              placeholder={t.scheduleReasonPlaceholder}
+              rows={1}
+              className={COMPACT_TEXTAREA_CLASS}
+              value={scheduleReason}
+              onChange={(event) => {
+                setScheduleReason(event.target.value);
+              }}
+            />
+            <Button
+              type="button"
+              size="xs"
+              variant="secondary"
+              onClick={() => {
+                void handleSchedule();
+              }}
+            >
+              {t.requestSchedule}
+            </Button>
+          </div>
+        </div>
 
-      {/* schedule (target-due change request) */}
-      <div className="grid gap-2">
-        <label
-          className="text-sm font-medium text-steel"
-          htmlFor={`schedule-${workOrder.id}`}
-        >
-          {t.scheduleLabel}
-        </label>
-        <Input
-          id={`schedule-${workOrder.id}`}
-          type="datetime-local"
-          aria-label={t.scheduleLabel}
-          value={scheduleAt}
-          onChange={(event) => {
-            setScheduleAt(event.target.value);
-          }}
-        />
-        <Textarea
-          aria-label={t.scheduleReason}
-          placeholder={t.scheduleReasonPlaceholder}
-          rows={2}
-          className="min-h-9"
-          value={scheduleReason}
-          onChange={(event) => {
-            setScheduleReason(event.target.value);
-          }}
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            void handleSchedule();
-          }}
-        >
-          {t.requestSchedule}
-        </Button>
-      </div>
+        <div className={`${COMPACT_SECTION_CLASS} xl:col-span-2`}>
+          <div className="flex flex-wrap items-center justify-between gap-1">
+            <div>
+              <p className={COMPACT_LABEL_CLASS}>{t.assignMultiLabel}</p>
+              <p className="text-xs text-steel">{t.assignMultiHint}</p>
+            </div>
+            <Button
+              type="button"
+              size="xs"
+              disabled={mechanics.length === 0}
+              onClick={() => {
+                void handleAssign();
+              }}
+            >
+              {t.assign}
+            </Button>
+          </div>
+          {mechanics.length === 0 ? (
+            <p className="rounded-md border border-dashed border-line p-2 text-xs text-steel">
+              {t.noMechanics}
+            </p>
+          ) : (
+            <ul className="grid max-h-40 gap-1 overflow-y-auto sm:grid-cols-2">
+              {mechanics.map((mechanic) => (
+                <li
+                  key={mechanic.id}
+                  className="flex items-center justify-between gap-1 rounded-md border border-line bg-white px-2 py-1"
+                >
+                  <span className="truncate text-xs text-steel">
+                    {mechanic.display_name}
+                  </span>
+                  <span className="flex gap-1">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant={
+                        selected[mechanic.id] === "PRIMARY"
+                          ? "default"
+                          : "ghost"
+                      }
+                      aria-pressed={selected[mechanic.id] === "PRIMARY"}
+                      aria-label={`${mechanic.display_name} ${t.rolePrimary}`}
+                      onClick={() => {
+                        toggleMechanic(mechanic.id, "PRIMARY");
+                      }}
+                    >
+                      {t.rolePrimary}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant={
+                        selected[mechanic.id] === "SECONDARY"
+                          ? "default"
+                          : "ghost"
+                      }
+                      aria-pressed={selected[mechanic.id] === "SECONDARY"}
+                      aria-label={`${mechanic.display_name} ${t.roleSecondary}`}
+                      onClick={() => {
+                        toggleMechanic(mechanic.id, "SECONDARY");
+                      }}
+                    >
+                      {t.roleSecondary}
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      {/* assign one or many mechanics */}
-      <div className="grid gap-2">
-        <p className="text-sm font-medium text-steel">{t.assignMultiLabel}</p>
-        <p className="text-xs text-steel">{t.assignMultiHint}</p>
-        {mechanics.length === 0 ? (
-          <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
-            {t.noMechanics}
-          </p>
-        ) : (
-          <ul className="grid gap-1">
-            {mechanics.map((mechanic) => (
-              <li
-                key={mechanic.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2"
-              >
-                <span className="text-sm text-steel">
-                  {mechanic.display_name}
-                </span>
-                <span className="flex gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={
-                      selected[mechanic.id] === "PRIMARY"
-                        ? "default"
-                        : "ghost"
-                    }
-                    aria-pressed={selected[mechanic.id] === "PRIMARY"}
-                    aria-label={`${mechanic.display_name} ${t.rolePrimary}`}
-                    onClick={() => {
-                      toggleMechanic(mechanic.id, "PRIMARY");
-                    }}
-                  >
-                    {t.rolePrimary}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={
-                      selected[mechanic.id] === "SECONDARY"
-                        ? "default"
-                        : "ghost"
-                    }
-                    aria-pressed={selected[mechanic.id] === "SECONDARY"}
-                    aria-label={`${mechanic.display_name} ${t.roleSecondary}`}
-                    onClick={() => {
-                      toggleMechanic(mechanic.id, "SECONDARY");
-                    }}
-                  >
-                    {t.roleSecondary}
-                  </Button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <Button
-          type="button"
-          onClick={() => {
-            void handleAssign();
-          }}
-          disabled={mechanics.length === 0}
-        >
-          {t.assign}
-        </Button>
-      </div>
+        <div className={COMPACT_SECTION_CLASS}>
+          <p className={COMPACT_LABEL_CLASS}>{t.currentAssignments}</p>
+          {workOrder.assignments.length === 0 ? (
+            <p className="text-xs text-steel">{t.noAssignments}</p>
+          ) : (
+            <ul className="grid gap-1">
+              {workOrder.assignments.map((assignment) => (
+                <li key={assignment.id} className="text-xs text-steel">
+                  {assignment.mechanic_name} ·{" "}
+                  {assignment.role === "PRIMARY"
+                    ? t.rolePrimary
+                    : t.roleSecondary}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      {/* Current assignments */}
-      <div className="grid gap-1">
-        <p className="text-sm font-medium text-steel">
-          {t.currentAssignments}
-        </p>
-        {workOrder.assignments.length === 0 ? (
-          <p className="text-sm text-steel">{t.noAssignments}</p>
-        ) : (
-          <ul className="grid gap-1">
-            {workOrder.assignments.map((assignment) => (
-              <li key={assignment.id} className="text-sm text-steel">
-                {assignment.mechanic_name} ·{" "}
-                {assignment.role === "PRIMARY"
-                  ? t.rolePrimary
-                  : t.roleSecondary}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* force-assign an escalated P1 dispatch */}
-      <div className="grid gap-2 border-t border-line pt-3">
-        <label
-          className="text-sm font-medium text-steel"
-          htmlFor={`force-${workOrder.id}`}
-        >
-          {t.forceAssign}
-        </label>
-        {forceAssignDispatchId ? (
-          <>
-            <div className="flex gap-2">
+        <div className={COMPACT_SECTION_CLASS}>
+          <label
+            className={COMPACT_LABEL_CLASS}
+            htmlFor={`force-${workOrder.id}`}
+          >
+            {t.forceAssign}
+          </label>
+          {forceAssignDispatchId ? (
+            <div className="flex gap-1">
               <Select
                 id={`force-${workOrder.id}`}
                 aria-label={t.forceAssign}
+                className={COMPACT_FIELD_CLASS}
                 value={forceMechanicId}
                 onChange={(event) => {
                   setForceMechanicId(event.target.value);
@@ -432,6 +532,7 @@ export function WorkOrderDispatchControls({
               </Select>
               <Button
                 type="button"
+                size="xs"
                 variant="destructive"
                 disabled={!forceMechanicId}
                 onClick={() => {
@@ -441,56 +542,64 @@ export function WorkOrderDispatchControls({
                 {t.forceAssign}
               </Button>
             </div>
-          </>
-        ) : (
-          <p className="text-sm text-steel">{t.forceAssignNeedsDispatch}</p>
-        )}
-      </div>
+          ) : (
+            <p className="text-xs text-steel">{t.forceAssignNeedsDispatch}</p>
+          )}
+        </div>
 
-      {/* outsource work create */}
-      <div className="grid gap-2 border-t border-line pt-3">
-        <p className="text-sm font-medium text-steel">{t.outsourceLabel}</p>
-        <p className="text-xs text-steel">{t.outsourceHint}</p>
-        <Input
-          id={`outsource-vendor-${workOrder.id}`}
-          aria-label={t.outsourceVendor}
-          placeholder={t.outsourceVendorPlaceholder}
-          value={outsourceVendor}
-          onChange={(event) => {
-            setOutsourceVendor(event.target.value);
-          }}
-        />
-        <Input
-          id={`outsource-contact-${workOrder.id}`}
-          aria-label={t.outsourceContact}
-          placeholder={t.outsourceContactPlaceholder}
-          value={outsourceContact}
-          onChange={(event) => {
-            setOutsourceContact(event.target.value);
-          }}
-        />
-        <Textarea
-          aria-label={t.outsourceReason}
-          placeholder={t.outsourceReasonPlaceholder}
-          value={outsourceReason}
-          onChange={(event) => {
-            setOutsourceReason(event.target.value);
-          }}
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={
-            creatingOutsource ||
-            !outsourceVendor.trim() ||
-            !outsourceReason.trim()
-          }
-          onClick={() => {
-            void handleCreateOutsource();
-          }}
-        >
-          {creatingOutsource ? t.creatingOutsource : t.createOutsource}
-        </Button>
+        <div className={`${COMPACT_SECTION_CLASS} xl:col-span-4`}>
+          <div>
+            <p className={COMPACT_LABEL_CLASS}>{t.outsourceLabel}</p>
+            <p className="text-xs text-steel">{t.outsourceHint}</p>
+          </div>
+          <div className="grid gap-1 lg:grid-cols-[minmax(0,12rem)_minmax(0,12rem)_1fr_auto]">
+            <Input
+              id={`outsource-vendor-${workOrder.id}`}
+              aria-label={t.outsourceVendor}
+              placeholder={t.outsourceVendorPlaceholder}
+              className={COMPACT_FIELD_CLASS}
+              value={outsourceVendor}
+              onChange={(event) => {
+                setOutsourceVendor(event.target.value);
+              }}
+            />
+            <Input
+              id={`outsource-contact-${workOrder.id}`}
+              aria-label={t.outsourceContact}
+              placeholder={t.outsourceContactPlaceholder}
+              className={COMPACT_FIELD_CLASS}
+              value={outsourceContact}
+              onChange={(event) => {
+                setOutsourceContact(event.target.value);
+              }}
+            />
+            <Textarea
+              aria-label={t.outsourceReason}
+              placeholder={t.outsourceReasonPlaceholder}
+              rows={1}
+              className={COMPACT_TEXTAREA_CLASS}
+              value={outsourceReason}
+              onChange={(event) => {
+                setOutsourceReason(event.target.value);
+              }}
+            />
+            <Button
+              type="button"
+              size="xs"
+              variant="secondary"
+              disabled={
+                creatingOutsource ||
+                !outsourceVendor.trim() ||
+                !outsourceReason.trim()
+              }
+              onClick={() => {
+                void handleCreateOutsource();
+              }}
+            >
+              {creatingOutsource ? t.creatingOutsource : t.createOutsource}
+            </Button>
+          </div>
+        </div>
       </div>
 
       <ConfirmDialog
