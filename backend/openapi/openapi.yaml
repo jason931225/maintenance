@@ -13392,6 +13392,15 @@ components:
       required:
         - id
         - display_name
+        - employee_id
+        - employee_name
+        - employee_number
+        - employee_company
+        - employee_org_unit
+        - employee_position
+        - employee_identity_review_required
+        - employee_identity_resolution_confidence
+        - employee_link_status
         - phone
         - team
         - roles
@@ -13405,6 +13414,44 @@ components:
           $ref: "#/components/schemas/Uuid"
         display_name:
           type: string
+        employee_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        employee_name:
+          type:
+            - string
+            - "null"
+        employee_number:
+          type:
+            - string
+            - "null"
+        employee_company:
+          type:
+            - string
+            - "null"
+        employee_org_unit:
+          type:
+            - string
+            - "null"
+        employee_position:
+          type:
+            - string
+            - "null"
+        employee_identity_review_required:
+          type:
+            - boolean
+            - "null"
+        employee_identity_resolution_confidence:
+          type:
+            - string
+            - "null"
+        employee_link_status:
+          type: string
+          enum:
+            - LINKED
+            - UNLINKED
         phone:
           type:
             - string
@@ -13526,6 +13573,11 @@ components:
       properties:
         display_name:
           type: string
+        employee_id:
+          type:
+            - string
+            - "null"
+          format: uuid
         phone:
           type:
             - string
@@ -13545,6 +13597,11 @@ components:
       properties:
         display_name:
           type: string
+        employee_id:
+          type:
+            - string
+            - "null"
+          format: uuid
         phone:
           type:
             - string

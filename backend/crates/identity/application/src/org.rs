@@ -22,6 +22,8 @@ pub struct CreateUserCommand {
     /// Acting administrator (audited).
     pub actor: UserId,
     pub display_name: String,
+    /// Explicit HR employee-directory link. Never inferred by name.
+    pub employee_id: Option<uuid::Uuid>,
     pub phone: Option<String>,
     pub team: Option<Team>,
     /// Canonical DB role strings, already validated at the REST boundary.
@@ -39,6 +41,8 @@ pub struct UpdateUserCommand {
     pub actor: UserId,
     pub user_id: UserId,
     pub display_name: Option<String>,
+    /// `Some(None)` clears the employee link; `Some(Some(_))` sets it; `None` leaves it.
+    pub employee_id: Option<Option<uuid::Uuid>>,
     /// `Some(None)` clears the phone; `Some(Some(_))` sets it; `None` leaves it.
     pub phone: Option<Option<String>>,
     /// `Some(None)` clears the team; `Some(Some(_))` sets it; `None` leaves it.
@@ -269,10 +273,29 @@ pub fn account_status_for(is_active: bool, has_passkey: bool) -> AccountStatus {
     }
 }
 
+/// Whether a platform account is explicitly linked to an HR employee record.
+/// The absence of a link is a first-class state; the system must not silently
+/// infer one from display name because Korean names often collide in real data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EmployeeLinkStatus {
+    Linked,
+    Unlinked,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserSummary {
     pub id: UserId,
     pub display_name: String,
+    pub employee_id: Option<uuid::Uuid>,
+    pub employee_name: Option<String>,
+    pub employee_number: Option<String>,
+    pub employee_company: Option<String>,
+    pub employee_org_unit: Option<String>,
+    pub employee_position: Option<String>,
+    pub employee_identity_review_required: Option<bool>,
+    pub employee_identity_resolution_confidence: Option<String>,
+    pub employee_link_status: EmployeeLinkStatus,
     pub phone: Option<String>,
     pub team: Option<Team>,
     pub roles: Vec<String>,

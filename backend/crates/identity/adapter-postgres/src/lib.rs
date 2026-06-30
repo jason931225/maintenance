@@ -11,14 +11,14 @@ use std::collections::BTreeSet;
 use mnt_identity_application::{
     BranchSummary, CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand,
     CreatePolicyRoleCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
-    DeactivateRegionCommand, DeactivateUserCommand, PolicyAssignmentPreviewReceiptSummary,
-    PolicyAuditEventSummary, PolicyRoleAssignmentSummary, PolicyRoleCondition,
-    PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary, RegionSummary,
-    ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand, UpdatePolicyRoleCommand,
-    UpdatePolicyRoleStatusCommand, UpdateRegionCommand, UpdateSelfProfileCommand,
-    UpdateUserCommand, UserListQuery, UserPage, UserSummary, account_status_for,
-    branch_audit_event, policy_role_assignment_audit_event, policy_role_audit_event,
-    region_audit_event, user_audit_event,
+    DeactivateRegionCommand, DeactivateUserCommand, EmployeeLinkStatus,
+    PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary, PolicyRoleAssignmentSummary,
+    PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
+    RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
+    UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
+    UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserPage, UserSummary,
+    account_status_for, branch_audit_event, policy_role_assignment_audit_event,
+    policy_role_audit_event, region_audit_event, user_audit_event,
 };
 use mnt_identity_domain::{
     Team, normalize_optional_phone, validate_display_name, validate_org_name,
@@ -99,6 +99,7 @@ impl PgOrgStore {
         let display_name = validate_display_name(&command.display_name)?;
         let phone = normalize_optional_phone(command.phone.as_deref())?;
         let team_db = command.team.map(Team::as_db_str);
+        let employee_id = command.employee_id;
         let user_id = UserId::new();
         let branch_ids: Vec<uuid::Uuid> = command.branch_ids.iter().map(|b| *b.as_uuid()).collect();
 
@@ -113,6 +114,7 @@ impl PgOrgStore {
             None,
             Some(serde_json::json!({
                 "display_name": display_name,
+                "employee_id": employee_id,
                 "roles": command.roles,
                 "team": team_db,
                 "branch_ids": command.branch_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
@@ -126,12 +128,13 @@ impl PgOrgStore {
             Box::pin(async move {
                 sqlx::query(
                     r#"
-                    INSERT INTO users (id, display_name, phone, roles, team, is_active, created_at, org_id)
-                    VALUES ($1, $2, $3, $4, $5, true, $6, $7)
+                    INSERT INTO users (id, display_name, employee_id, phone, roles, team, is_active, created_at, org_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)
                     "#,
                 )
                 .bind(*user_id.as_uuid())
                 .bind(&display_name)
+                .bind(employee_id)
                 .bind(phone.as_deref())
                 .bind(&roles)
                 .bind(team_db)
@@ -156,6 +159,7 @@ impl PgOrgStore {
             .as_deref()
             .map(validate_display_name)
             .transpose()?;
+        let employee_id = command.employee_id;
         let phone = match &command.phone {
             None => None,
             Some(value) => Some(normalize_optional_phone(value.as_deref())?),
@@ -196,6 +200,13 @@ impl PgOrgStore {
                     sqlx::query("UPDATE users SET display_name = $2 WHERE id = $1")
                         .bind(*user_id.as_uuid())
                         .bind(display_name)
+                        .execute(tx.as_mut())
+                        .await?;
+                }
+                if let Some(employee_id) = employee_id {
+                    sqlx::query("UPDATE users SET employee_id = $2 WHERE id = $1")
+                        .bind(*user_id.as_uuid())
+                        .bind(employee_id)
                         .execute(tx.as_mut())
                         .await?;
                 }
@@ -1643,11 +1654,30 @@ async fn user_in_scope(
 /// audited tx), so the subquery only ever sees THIS tenant's credentials and the
 /// account-setup state (활성 vs 설정 대기) is derived correctly.
 const USER_SELECT_WITH_PASSKEY: &str = r#"
-    SELECT u.id, u.display_name, u.phone, u.roles, u.team, u.is_active, u.created_at,
+    SELECT
+           u.id,
+           u.display_name,
+           u.employee_id,
+           e.name AS employee_name,
+           e.employee_number AS employee_number,
+           e.company AS employee_company,
+           e.org_unit AS employee_org_unit,
+           e.position AS employee_position,
+           e.identity_review_required AS employee_identity_review_required,
+           e.identity_resolution_confidence AS employee_identity_resolution_confidence,
+           u.phone,
+           u.roles,
+           u.team,
+           u.is_active,
+           u.created_at,
            EXISTS (
                SELECT 1 FROM auth_webauthn_credentials c WHERE c.user_id = u.id
            ) AS has_passkey
-    FROM users u WHERE u.id = $1
+    FROM users u
+    LEFT JOIN employees e
+      ON e.id = u.employee_id
+     AND e.org_id = u.org_id
+    WHERE u.id = $1
 "#;
 
 async fn fetch_policy_role(
@@ -2046,9 +2076,24 @@ fn user_from_row(
     let team = team.as_deref().map(Team::from_db_str).transpose()?;
     let is_active: bool = row.try_get("is_active")?;
     let has_passkey: bool = row.try_get("has_passkey")?;
+    let employee_id: Option<uuid::Uuid> = row.try_get("employee_id")?;
     Ok(UserSummary {
         id: UserId::from_uuid(row.try_get("id")?),
         display_name: row.try_get("display_name")?,
+        employee_id,
+        employee_name: row.try_get("employee_name")?,
+        employee_number: row.try_get("employee_number")?,
+        employee_company: row.try_get("employee_company")?,
+        employee_org_unit: row.try_get("employee_org_unit")?,
+        employee_position: row.try_get("employee_position")?,
+        employee_identity_review_required: row.try_get("employee_identity_review_required")?,
+        employee_identity_resolution_confidence: row
+            .try_get("employee_identity_resolution_confidence")?,
+        employee_link_status: if employee_id.is_some() {
+            EmployeeLinkStatus::Linked
+        } else {
+            EmployeeLinkStatus::Unlinked
+        },
         phone: row.try_get("phone")?,
         team,
         roles: row.try_get("roles")?,
