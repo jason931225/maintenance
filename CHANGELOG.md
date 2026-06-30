@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/jason931225/maintenance/compare/v0.1.27...v0.1.28) (2026-06-30)
+
+
+### Bug Fixes
+
+* **db:** preserve applied migration checksum ([#123](https://github.com/jason931225/maintenance/issues/123)) ([d4ea324](https://github.com/jason931225/maintenance/commit/d4ea3247ecd2d634a035f06152c244431673ea6a))
+
 ## [0.1.27](https://github.com/jason931225/maintenance/compare/v0.1.26...v0.1.27) (2026-06-30)
 
 
