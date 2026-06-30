@@ -215,6 +215,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   useEffect(() => {
     let ignore = false;
     async function loadPreferences() {
+      if (typeof api.GET !== "function") return;
       const response = await api
         .GET("/api/v1/financial/purchase-requests/preferences")
         .catch(() => undefined);
@@ -223,13 +224,11 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       if (preferences.density === "compact" || preferences.density === "comfortable") {
         setDensity(preferences.density);
       }
-      if (
-        preferences.default_purchase_type &&
-        preferences.default_purchase_type !== "LEGACY_MANUAL"
-      ) {
+      const preferredType = preferences.default_purchase_type;
+      if (preferredType && preferredType !== "LEGACY_MANUAL") {
         setForm((prev) => ({
           ...prev,
-          purchaseType: preferences.default_purchase_type,
+          purchaseType: preferredType,
         }));
       }
     }
@@ -296,7 +295,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         setQuoteState("error");
         return;
       }
-      const uploadHeaders = new Headers(ticket.data.upload.headers);
+      const uploadHeaders = new Headers(
+        ticket.data.upload.headers.map((header): [string, string] => {
+          const [name, value] = header;
+          if (name.length === 0) throw new Error("invalid upload header");
+          return [name, value];
+        }),
+      );
       const uploaded = await fetch(ticket.data.upload.url, {
         method: ticket.data.upload.method,
         headers: uploadHeaders,

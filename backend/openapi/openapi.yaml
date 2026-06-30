@@ -1810,9 +1810,8 @@ paths:
     post:
       operationId: executeObjectAction
       summary: Execute a governed audited object action
-      description: Executes a typed object write-back action through the server-side action executor. Sensitive actions require
-        a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice
-        supports `equipment.update_profile`.
+      description: Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion
+        so the append-only audit event binds the write to the human actor. The initial slice supports `equipment.update_profile`.
       security:
       - bearerAuth: []
       requestBody:
