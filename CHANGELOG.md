@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/jason931225/maintenance/compare/v0.1.25...v0.1.26) (2026-06-30)
+
+
+### Features
+
+* **workflow:** add runtime persistence spine ([#96](https://github.com/jason931225/maintenance/issues/96)) ([55a9bd3](https://github.com/jason931225/maintenance/commit/55a9bd386b4d6db3ded97058b3b027c3f89aa26f))
+
 ## [0.1.25](https://github.com/jason931225/maintenance/compare/v0.1.24...v0.1.25) (2026-06-30)
 
 
