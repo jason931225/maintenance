@@ -119,7 +119,13 @@ BEGIN
     DELETE FROM equipment_substitutions         WHERE org_id = p_id;
     DELETE FROM excel_export_logs               WHERE org_id = p_id;
 
+    DELETE FROM user_feature_preferences          WHERE org_id = p_id;
+
     DELETE FROM financial_purchase_history      WHERE org_id = p_id;
+    DELETE FROM financial_regular_purchase_prices WHERE org_id = p_id;
+    DELETE FROM financial_expense_ledger          WHERE org_id = p_id;
+    DELETE FROM financial_purchase_attachments    WHERE org_id = p_id;
+    DELETE FROM financial_purchase_request_lines  WHERE org_id = p_id;
     DELETE FROM financial_purchase_requests     WHERE org_id = p_id;
     DELETE FROM financial_rental_quote_lines    WHERE org_id = p_id;
     DELETE FROM financial_rental_quotes         WHERE org_id = p_id;

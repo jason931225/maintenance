@@ -154,9 +154,9 @@ BEGIN
         );
         EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO mnt_rt', t);
         EXECUTE format(
-            'CREATE TRIGGER trg_%I_org_immutable BEFORE UPDATE ON %I '
+            'CREATE TRIGGER %I BEFORE UPDATE ON %I '
             || 'FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable()',
-            t, t
+            'trg_' || t || '_org_immutable', t
         );
     END LOOP;
 END

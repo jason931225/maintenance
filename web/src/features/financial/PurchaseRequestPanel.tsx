@@ -1154,6 +1154,20 @@ function PurchaseDetail({
   });
   const busy = actionState === "saving";
   const hasAction = Object.values(actions).some(Boolean);
+  async function openQuoteAttachment(attachmentId: string) {
+    const response = await api
+      .GET(
+        "/api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download",
+        {
+          params: { path: { purchaseRequestId: request.id, attachmentId } },
+        },
+      )
+      .catch(() => undefined);
+    if (response?.data?.url) {
+      globalThis.open(response.data.url, "_blank", "noopener,noreferrer");
+    }
+  }
+
 
   return (
     <section aria-label={PURCHASE_TEXT.detailAria} className="grid gap-3 rounded-md border border-line bg-muted-panel p-3">
@@ -1238,6 +1252,10 @@ function PurchaseDetail({
               <a
                 key={attachment.id}
                 href={attachment.download_url}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openQuoteAttachment(attachment.id);
+                }}
                 className="flex items-center justify-between gap-2 rounded bg-muted-panel px-2 py-1 text-sm text-ink underline-offset-2 hover:underline"
               >
                 <span>{attachment.file_name}</span>

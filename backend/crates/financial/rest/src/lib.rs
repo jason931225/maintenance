@@ -536,6 +536,17 @@ async fn confirm_purchase_attachment(
     Path(attachment_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
+    let staged = state
+        .store
+        .purchase_attachment_upload_record(attachment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize(
+        &principal,
+        Action::request(Feature::PurchaseRequestCreate),
+        staged.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
     let record = state
         .store
         .confirm_purchase_attachment_upload(ConfirmPurchaseAttachmentUploadCommand {
@@ -546,12 +557,7 @@ async fn confirm_purchase_attachment(
         })
         .await
         .map_err(RestError::from_store)?;
-    authorize(
-        &principal,
-        Action::request(Feature::PurchaseRequestCreate),
-        record.branch_id,
-    )
-    .map_err(RestError::from_kernel)?;
+
     Ok(Json(record))
 }
 
@@ -866,12 +872,14 @@ async fn authorize_for_purchase_read(
         .purchase_request(purchase_request_id)
         .await
         .map_err(RestError::from_store)?;
-    authorize(
-        &principal,
-        Action::limited(Feature::PurchaseRequestRead),
-        purchase.branch_id,
-    )
-    .map_err(RestError::from_kernel)?;
+    if purchase.requester.user_id != principal.user_id {
+        authorize(
+            &principal,
+            Action::limited(Feature::PurchaseRequestRead),
+            purchase.branch_id,
+        )
+        .map_err(RestError::from_kernel)?;
+    }
     Ok((purchase, principal))
 }
 

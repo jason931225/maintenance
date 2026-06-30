@@ -24,7 +24,7 @@ use mnt_kernel_core::{
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
 use time::{Date, OffsetDateTime};
 
 #[derive(Debug, thiserror::Error)]
@@ -120,6 +120,19 @@ impl PgFinancialStore {
                 .await?;
                 purchase_attachment_upload_record_tx(tx, attachment_id).await
             })
+        })
+        .await
+    }
+
+    pub async fn purchase_attachment_upload_record(
+        &self,
+        attachment_id: uuid::Uuid,
+    ) -> Result<PurchaseAttachmentUploadRecord, PgFinancialError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgFinancialError>(&self.pool, org, move |conn| {
+            Box::pin(
+                async move { purchase_attachment_upload_record_conn(conn, attachment_id).await },
+            )
         })
         .await
     }
@@ -1867,8 +1880,8 @@ async fn attach_purchase_attachments_tx(
     Ok(())
 }
 
-async fn purchase_attachment_upload_record_tx(
-    tx: &mut Transaction<'_, Postgres>,
+async fn purchase_attachment_upload_record_conn(
+    conn: &mut PgConnection,
     attachment_id: uuid::Uuid,
 ) -> Result<PurchaseAttachmentUploadRecord, PgFinancialError> {
     let row = sqlx::query(
@@ -1880,7 +1893,7 @@ async fn purchase_attachment_upload_record_tx(
         "#,
     )
     .bind(attachment_id)
-    .fetch_optional(tx.as_mut())
+    .fetch_optional(conn)
     .await?
     .ok_or_else(|| KernelError::not_found("purchase attachment not found"))?;
 
@@ -1894,6 +1907,13 @@ async fn purchase_attachment_upload_record_tx(
         upload_state: row.try_get("upload_state")?,
         created_at: row.try_get("created_at")?,
     })
+}
+
+async fn purchase_attachment_upload_record_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    attachment_id: uuid::Uuid,
+) -> Result<PurchaseAttachmentUploadRecord, PgFinancialError> {
+    purchase_attachment_upload_record_conn(tx.as_mut(), attachment_id).await
 }
 
 async fn purchase_policy_flags_tx(
