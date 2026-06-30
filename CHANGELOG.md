@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.29](https://github.com/jason931225/maintenance/compare/v0.1.28...v0.1.29) (2026-06-30)
+
+
+### Features
+
+* **comms:** add standalone mailbox server spine ([#122](https://github.com/jason931225/maintenance/issues/122)) ([61a9503](https://github.com/jason931225/maintenance/commit/61a95036a336f97f3109064c94b8fdf1893b938b))
+
 ## [0.1.28](https://github.com/jason931225/maintenance/compare/v0.1.27...v0.1.28) (2026-06-30)
 
 
