@@ -149,8 +149,8 @@ requireIncludes(
 );
 requireIncludes(
   "docs/benchmarks/enterprise-ui-route-audit.json",
-  "G012-operations-intelligence-mes-optimiza",
-  "enterprise route audit assigns G012 ownership",
+  "G008-import-export-hr-payroll-finance-erp",
+  "enterprise route audit assigns current G008 ownership",
 );
 requireIncludes(
   "docs/benchmarks/enterprise-ui-route-audit.json",

@@ -1,0 +1,494 @@
+{
+  "schemaVersion": 1,
+  "goalId": "G007-collaboration-mail-calendar-poll-mob",
+  "title": "Collaboration, mail, calendar, polls, notifications, and mobile lifecycle contract",
+  "nonClaimPolicy": "G007 proves repository, contract, browser-contract, native-surface, CI, and targeted regression readiness only. Live SMTP/IMAP delivery, push provider delivery, production mobile signing, Argo/live host proof, screenshots/traces, and issue closure remain reserved for G009.",
+  "routePaths": [
+    {
+      "path": "/collaboration",
+      "routeGroup": "collaboration-hub",
+      "mustContainOwnerGoal": "G007",
+      "requiredStory": "Group, org, department, team, and personal collaboration hub must combine messenger, mail, calendar, polls, approvals, and object links with badge lifecycle without nonfunctional explanatory walls."
+    },
+    {
+      "path": "/messenger",
+      "routeGroup": "messenger",
+      "mustContainOwnerGoal": "G007",
+      "requiredStory": "Messenger must support thread list, read receipts, unread badges, search, realtime reconnect, Enter send, latest-message focus, mentions, and object-linked evidence paths."
+    },
+    {
+      "path": "/mail",
+      "routeGroup": "mailbox",
+      "mustContainOwnerGoal": "G007",
+      "requiredStory": "Mail client must support configured corporate mailbox folders, unread filters, safe HTML, attachments, send/reply/forward threading, read-state lifecycle, and permission denial."
+    },
+    {
+      "path": "/settings/email",
+      "routeGroup": "mail-admin",
+      "mustContainOwnerGoal": "G007",
+      "requiredStory": "Mail server settings must support write-only SMTP/IMAP credentials, test connection, validation, rate/error surfacing, and admin-only account management."
+    }
+  ],
+  "dependencyRoutes": [
+    {
+      "path": "/work-hub",
+      "expectedDependency": "messenger",
+      "requiredStory": "Work Hub depends on G007 collaboration unread threads, mail status, notification badges, and object-linked communications while preserving G005 approval lifecycle."
+    },
+    {
+      "path": "/approvals",
+      "expectedDependency": "approval",
+      "requiredStory": "Approvals depend on collaboration notifications, mobile passkey-sensitive approval decisions, and comments/evidence staying attached to source objects."
+    }
+  ],
+  "backendContracts": [
+    {
+      "file": "backend/crates/messenger/rest/src/lib.rs",
+      "contract": "Messenger REST must expose thread creation/listing, message paging/sending, read receipts, member discovery, and search under authenticated tenant scope.",
+      "requiredSnippets": [
+        "/api/messenger/threads",
+        "/api/messenger/threads/{threadId}/messages",
+        "/api/messenger/threads/{threadId}/read-receipt",
+        "/api/messenger/search",
+        "create_thread",
+        "send_message",
+        "mark_thread_read",
+        "search_messages"
+      ]
+    },
+    {
+      "file": "backend/crates/messenger/application/src/lib.rs",
+      "contract": "Messenger application layer must keep unread/read state, work-order thread linkage, audit action names, and post-commit message notifications explicit.",
+      "requiredSnippets": [
+        "MessagePostedNotification",
+        "EnsureWorkOrderThreadCommand",
+        "MarkThreadReadCommand",
+        "ThreadSummary",
+        "unread_count",
+        "messenger_audit_event"
+      ]
+    },
+    {
+      "file": "backend/crates/messenger/adapter-postgres/src/lib.rs",
+      "contract": "Messenger persistence must be RLS/audit armed and own list/page/send/read/search behavior against durable messenger tables.",
+      "requiredSnippets": [
+        "list_threads",
+        "message_page",
+        "send_message",
+        "mark_thread_read",
+        "search_messages",
+        "with_audit",
+        "messenger_read_receipts"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0012_create_messenger.sql",
+      "contract": "Messenger storage must remain audit-grade: durable threads, members, messages, attachments, read receipts, search, and no raw evidence bytes in messages.",
+      "requiredSnippets": [
+        "CREATE TABLE messenger_threads",
+        "CREATE TABLE messenger_thread_members",
+        "CREATE TABLE messenger_messages",
+        "CREATE TABLE messenger_message_attachments",
+        "CREATE TABLE messenger_read_receipts",
+        "idx_messenger_messages_search"
+      ]
+    },
+    {
+      "file": "backend/crates/comms/rest/src/lib.rs",
+      "contract": "Corporate mail REST must separate account-admin and mail-use features, expose folders/threads/messages/read-state/attachments, and support send/reply/forward.",
+      "requiredSnippets": [
+        "MAIL_ACCOUNT_PATH",
+        "MAIL_SEND_PATH",
+        "MAIL_REPLY_PATH",
+        "MAIL_FORWARD_PATH",
+        "MAIL_FOLDERS_PATH",
+        "MAIL_THREADS_PATH",
+        "MAIL_THREAD_READ_STATE_PATH",
+        "MAIL_ATTACHMENT_DOWNLOAD_PATH",
+        "Feature::MailAccountManage",
+        "Feature::MailUse"
+      ]
+    },
+    {
+      "file": "backend/crates/comms/application/src/lib.rs",
+      "contract": "Mail application layer must preserve write-only secrets, rate limits, SMTP/IMAP lifecycle, reply/forward threading, read-state audit, attachments, and sync/read DTOs.",
+      "requiredSnippets": [
+        "AccountView",
+        "SendKind",
+        "Reply",
+        "Forward",
+        "SEND_RATE_BUCKETS",
+        "thread_read_state_audit_event",
+        "MailAttachmentStore",
+        "ThreadQuery",
+        "ThreadView",
+        "thread_grouping_key"
+      ]
+    },
+    {
+      "file": "backend/crates/comms/adapter-postgres/src/lib.rs",
+      "contract": "Mail persistence must RLS-arm reads, audit writes/read-state, sync folders/messages/attachments idempotently, and preserve unread aggregates/search.",
+      "requiredSnippets": [
+        "email_accounts",
+        "email_threads",
+        "email_messages",
+        "email_attachments",
+        "with_audit",
+        "with_org_conn",
+        "unread_count",
+        "set_thread_seen_inner",
+        "recompute_thread_read_state_tx"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0053_create_comms_webmail.sql",
+      "contract": "Mail schema must define tenant-scoped accounts, folders, threads, messages, attachments, unread/search indexes, and object-link indexes.",
+      "requiredSnippets": [
+        "CREATE TABLE email_accounts",
+        "CREATE TABLE email_folders",
+        "CREATE TABLE email_threads",
+        "CREATE TABLE email_messages",
+        "CREATE TABLE email_attachments",
+        "idx_email_messages_unseen",
+        "idx_email_threads_linked_wo"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0056_create_comms_send_rate.sql",
+      "contract": "Mail send/test endpoints must have per-org/per-user fixed-window rate counters to prevent abuse and accidental mail storms.",
+      "requiredSnippets": [
+        "CREATE TABLE comms_send_rate",
+        "mail_send:1m",
+        "mail_send:1h",
+        "mail_test:1m"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0073_create_collaboration_calendar_polls.sql",
+      "contract": "Calendar and poll foundations must be durable, audited, scoped, object-linkable, vote-tracked, append-only for history, and RLS-ready.",
+      "requiredSnippets": [
+        "CREATE TABLE collaboration_calendar_events",
+        "CREATE TABLE collaboration_calendar_event_events",
+        "CREATE TABLE collaboration_polls",
+        "CREATE TABLE collaboration_poll_options",
+        "CREATE TABLE collaboration_poll_votes",
+        "CREATE TABLE collaboration_poll_events",
+        "trg_collaboration_polls_no_delete"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/push/src/lib.rs",
+      "contract": "Push/Alimtalk provider seam must carry idempotency keys and provider IDs so urgent work, approval, messenger, mail, calendar, and poll notifications can be deduped.",
+      "requiredSnippets": [
+        "FcmPushMessage",
+        "AlimtalkMessage",
+        "idempotency_key",
+        "messages:send",
+        "send-many",
+        "provider_message_id"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/email/src/lib.rs",
+      "contract": "Transactional email provider must support live OCI SMTP via STARTTLS and a stub sender that logs OTPs without sending in dev/test.",
+      "requiredSnippets": [
+        "SmtpEmailConfig",
+        "LettreSmtpSender",
+        "STARTTLS",
+        "OCI Email Delivery",
+        "StubEmailSender",
+        "send_otp"
+      ]
+    }
+  ],
+  "frontendContracts": [
+    {
+      "file": "web/src/pages/CollaborationPage.tsx",
+      "contract": "Collaboration hub must load work orders, approvals, daily plans, calendar events, polls, messenger threads, and mail threads with scoped creation/vote actions.",
+      "requiredSnippets": [
+        "/api/v1/collaboration/calendar/events",
+        "/api/v1/collaboration/polls",
+        "/api/messenger/threads",
+        "/api/v1/mail/threads",
+        "createCalendarEvent",
+        "createPoll",
+        "votePoll",
+        "unreadMailCount",
+        "PERSONAL",
+        "DEPARTMENT",
+        "TENANT"
+      ]
+    },
+    {
+      "file": "web/src/features/messenger/MessengerPanel.tsx",
+      "contract": "Messenger UI must implement thread selection, read receipts, realtime updates, search, @mention rendering, Enter send, latest-message scroll/focus, and evidence attachment linkage.",
+      "requiredSnippets": [
+        "scrollIntoView",
+        "focus({ preventScroll: true })",
+        "read-receipt",
+        "connectMessengerRealtime",
+        "handleComposerKeyDown",
+        "event.key !== \"Enter\"",
+        "MentionText",
+        "unread_count",
+        "/api/messenger/search",
+        "work_order_id"
+      ]
+    },
+    {
+      "file": "web/src/features/messenger/messenger-state.ts",
+      "contract": "Messenger reducer must preserve deterministic message/thread ordering, unread increments, mark-read state, realtime events, and resume cursor behavior.",
+      "requiredSnippets": [
+        "MessengerRealtimeEvent",
+        "message_posted",
+        "threadRead",
+        "realtimeEventReceived",
+        "incrementUnread",
+        "resumeCursor",
+        "sortThreads",
+        "sortMessages"
+      ]
+    },
+    {
+      "file": "web/src/features/messenger/realtime.ts",
+      "contract": "Messenger realtime client must build authenticated ws/wss URLs with resume cursor and close/disconnect handling.",
+      "requiredSnippets": [
+        "buildMessengerWebSocketUrl",
+        "/api/v1/ws",
+        "last_message_id",
+        "protocols = accessToken ? [\"bearer\", accessToken]",
+        "onDisconnect",
+        "close"
+      ]
+    },
+    {
+      "file": "web/src/pages/MailPage.tsx",
+      "contract": "Mail UI must implement folders, unread filter, safe body rendering, attachments, compose/send/reply/forward, read-state toggles, and unavailable/permission states.",
+      "requiredSnippets": [
+        "/api/v1/mail/folders",
+        "/api/v1/mail/threads",
+        "/api/v1/mail/threads/{id}",
+        "/api/v1/mail/send",
+        "/api/v1/mail/reply",
+        "/api/v1/mail/forward",
+        "/api/v1/mail/threads/{id}/read-state",
+        "/api/v1/mail/attachments/{id}/download",
+        "sanitizeMailHtml",
+        "fileToMailAttachment",
+        "MAX_OUTBOUND_ATTACHMENT_BYTES"
+      ]
+    },
+    {
+      "file": "web/src/pages/EmailSettingsPage.tsx",
+      "contract": "Mail settings UI must validate SMTP/IMAP configuration, keep passwords write-only, support save/test, and surface 503/rate-limit states without exposing secrets.",
+      "requiredSnippets": [
+        "/api/v1/mail/account",
+        "/api/v1/mail/account/test",
+        "has_smtp_password",
+        "has_imap_password",
+        "smtp_password",
+        "imap_password",
+        "testRateLimited",
+        "passwordKeepPlaceholder"
+      ]
+    },
+    {
+      "file": "web/src/pages/WorkHubPage.tsx",
+      "contract": "Work Hub must include collaboration notifications by pulling actionable messenger threads, approvals, support, and mail status into the object/action inbox without stale closed items.",
+      "requiredSnippets": [
+        "/api/messenger/threads",
+        "/api/approval-items",
+        "messengerUnreadCount",
+        "isActionableConversationThread",
+        "buildConversationItems",
+        "threads.length",
+        "key: \"mail\""
+      ]
+    },
+    {
+      "file": "web/src/lib/mailHtml.ts",
+      "contract": "Mail HTML sanitizer must strip scriptable/dangerous markup before rendering untrusted inbound mail.",
+      "requiredSnippets": [
+        "sanitizeMailHtml",
+        "FORBID_TAGS",
+        "FORBID_ATTR",
+        "href",
+        "noopener noreferrer"
+      ]
+    },
+    {
+      "file": "web/src/components/RequireMailUseRoute.tsx",
+      "contract": "Mail route access must deny users without MailUse and return them to Work Hub instead of showing mailbox data.",
+      "requiredSnippets": [
+        "FEATURES.MAIL_USE",
+        "feature_grants",
+        "Navigate to=\"/work-hub\""
+      ]
+    }
+  ],
+  "mobileContracts": [
+    {
+      "file": "ios/Sources/MaintenanceFieldApp/FieldViews.swift",
+      "contract": "iOS field app must surface Work Hub, messenger, operations notifications, approvals with comments, mail, calendar, polls, and passkey-sensitive actions.",
+      "requiredSnippets": [
+        "workHubCollaborationAction",
+        "operations_notification_badge",
+        "operations_approval_comment",
+        "operations_mail_section",
+        "operations_calendar_section",
+        "operations_poll_section",
+        "viewModel.votePoll",
+        "messengerComposerField",
+        "messengerSendButton"
+      ]
+    },
+    {
+      "file": "ios/Sources/MaintenanceFieldApp/FieldViewModel.swift",
+      "contract": "iOS view model must refresh mobile operations, require passkey envelopes for approvals/polls, mark notifications read, and send/search/read messenger messages.",
+      "requiredSnippets": [
+        "MobileCollaborationAction",
+        "mobileNotificationInbox",
+        "votePoll(_ poll",
+        "operations_passkey_poll_vote",
+        "operations_passkey_approval_decision",
+        "markNotificationRead",
+        "messengerRepository.replayPending",
+        "messengerRepository.markRead"
+      ]
+    },
+    {
+      "file": "ios/Sources/MaintenanceFieldCore/MobileOperationsRepository.swift",
+      "contract": "iOS core operations repository must expose approval, mail, calendar, poll, notification inbox, passkey step-up, cached fallback, and poll vote flows.",
+      "requiredSnippets": [
+        "MobileOperationsSnapshot",
+        "MobileNotificationInbox",
+        "mailThreads",
+        "calendarEvents",
+        "polls",
+        "votePoll",
+        "markNotificationRead",
+        "stepUpEnvelope",
+        "MobileSensitiveActionKind"
+      ]
+    },
+    {
+      "file": "ios/Sources/MaintenanceFieldCore/APIGateway.swift",
+      "contract": "iOS API gateway must call generated client endpoints for mail, calendar, polls, approvals, messenger, passkey, and work-order evidence without bespoke divergent APIs.",
+      "requiredSnippets": [
+        "listMailThreads",
+        "setMailThreadReadState",
+        "listCalendarEvents",
+        "listPolls",
+        "votePoll",
+        "listApprovalItems",
+        "passkey"
+      ]
+    },
+    {
+      "file": "android/app/src/main/kotlin/com/maintenance/field/data/collaboration/MobileOperationsRepository.kt",
+      "contract": "Android operations repository must mirror approval, mail, calendar, polls, notifications, passkey-sensitive action, cache fallback, device registration, and location ping flows.",
+      "requiredSnippets": [
+        "MobileOperationsGateway",
+        "listMailThreads",
+        "setMailThreadReadState",
+        "listCalendarEvents",
+        "listPolls",
+        "votePoll",
+        "MobileNotificationInbox",
+        "MobileSensitiveActionKind",
+        "PasskeyStepUpAssertion"
+      ]
+    },
+    {
+      "file": "android/app/src/main/kotlin/com/maintenance/field/data/messenger/MessengerRepository.kt",
+      "contract": "Android messenger repository must load/search/send/mark-read and queue offline messages for replay instead of losing field messages.",
+      "requiredSnippets": [
+        "loadThreads",
+        "loadMessages",
+        "search",
+        "markRead",
+        "sendOrQueue",
+        "replayPending",
+        "MessengerSendState.PENDING"
+      ]
+    },
+    {
+      "file": "android/app/src/main/kotlin/com/maintenance/field/ui/FieldApp.kt",
+      "contract": "Android UI must expose Work Hub collaboration actions, messenger, operations notifications, approval comment/passkey queue, mail, calendar, and poll vote flows.",
+      "requiredSnippets": [
+        "WorkHubScreen",
+        "MessengerScreen",
+        "OperationsScreen",
+        "MobileNotificationInbox",
+        "approvalComment",
+        "markMailThreadSeen",
+        "operations_passkey_poll_vote",
+        "votePoll"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/DefaultApi.kt",
+      "contract": "Generated Kotlin client must include mail, collaboration, messenger, approval, and passkey endpoints used by mobile code.",
+      "requiredSnippets": [
+        "GET /api/v1/collaboration/calendar/events",
+        "GET /api/v1/collaboration/polls",
+        "POST /api/v1/mail/send",
+        "POST /api/v1/mail/reply",
+        "GET /api/v1/mail/threads",
+        "PUT /api/messenger/threads/{threadId}/read-receipt",
+        "GET /api/approval-items",
+        "POST /api/v1/auth/device-login/poll"
+      ]
+    }
+  ],
+  "safetyAssertions": [
+    "Closed/terminal items must not remain actionable in Work Hub or collaboration badges.",
+    "Messenger Enter sends only plain Enter; Shift+Enter preserves newline and disabled composer cannot send blank messages.",
+    "Latest sent/received message must scroll/focus so the user sees the newest message after send or realtime delivery.",
+    "@mention text is rendered as mentions without breaking safe display or raw UUID fallbacks.",
+    "Messenger read receipt transitions must zero unread counts for selected threads and increment unread only for other-user realtime messages in unselected threads.",
+    "Mail HTML must be sanitized and attachment downloads must use backend-issued download URLs only.",
+    "Mail credentials are write-only; UI and DTOs expose has_smtp_password/has_imap_password instead of secret material.",
+    "Mail send/reply/forward is MailUse-gated and rate-limited per org/user; account settings are MailAccountManage-gated.",
+    "Calendar scopes must distinguish PERSONAL, TEAM, DEPARTMENT, ORG, and TENANT with explicit policy metadata and object links.",
+    "Poll votes must preserve eligibility/anonymity/audit semantics and prevent duplicate/invalid option voting server-side.",
+    "Mobile approval and poll vote actions require passkey step-up envelopes before sensitive actions are replayed.",
+    "Mobile notifications must track unread/urgent badge counts and route to work hub, approvals, work orders, messenger, mail, calendar, or poll objects.",
+    "Offline mobile messenger and sensitive actions must queue with idempotent request IDs and replay instead of dropping field work.",
+    "Live SMTP/IMAP/push/mobile production rollout must not be claimed before G009 live evidence."
+  ],
+  "requiredE2eSpecs": [
+    "e2e/specs/admin-21-work-hub.spec.ts",
+    "e2e/specs/mech-11-messenger.spec.ts",
+    "e2e/specs/recp-02-messenger-support.spec.ts",
+    "e2e/specs/admin-07-approvals.spec.ts",
+    "e2e/specs/platform-maturity-g007-collaboration-mobile-lifecycle.spec.ts"
+  ],
+  "requiredWebTests": [
+    "web/src/pages/CollaborationPage.test.tsx",
+    "web/src/features/messenger/MessengerPanel.test.tsx",
+    "web/src/features/messenger/messenger-state.test.ts",
+    "web/src/features/messenger/realtime.test.ts",
+    "web/src/pages/MailPage.test.tsx",
+    "web/src/pages/EmailSettingsPage.test.tsx",
+    "web/src/lib/mailHtml.test.ts",
+    "web/src/pages/WorkHubPage.test.tsx",
+    "web/src/components/shell/nav.test.ts"
+  ],
+  "requiredBackendTests": [
+    "backend/crates/messenger/rest/tests/api.rs",
+    "backend/crates/messenger/adapter-postgres/tests/use_cases.rs",
+    "backend/crates/messenger/domain/tests/thread_kind.rs",
+    "backend/crates/comms/adapter-postgres/tests/mail_account_rls_surfaces_as_runtime_role.rs",
+    "backend/crates/comms/adapter-postgres/tests/mail_sync_rls_surfaces_as_runtime_role.rs"
+  ],
+  "requiredMobileTests": [
+    "ios/UITests/MessengerUITests.swift",
+    "ios/UITests/FieldAccessibilityIDParityTests.swift",
+    "ios/Tests/MaintenanceFieldCoreTests/BuildOnlyTests.swift",
+    "android/app/src/test/kotlin/com/maintenance/field/data/collaboration/MobileOperationsRepositoryTest.kt",
+    "android/app/src/test/kotlin/com/maintenance/field/data/messenger/MessengerRepositoryTest.kt",
+    "android/app/src/test/kotlin/com/maintenance/field/ui/FieldScreensTest.kt",
+    "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt"
+  ]
+}

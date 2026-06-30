@@ -30,6 +30,7 @@ pub const HR_ORG_CHART_PATH: &str = "/api/v1/hr/org-chart";
 pub const HR_LEAVE_BALANCES_PATH: &str = "/api/v1/hr/leave-balances";
 pub const HR_ATTENDANCE_SUMMARY_PATH: &str = "/api/v1/hr/attendance-summary";
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_IMPORT_HEADER_SCAN_ROWS: usize = 25;
 const DEFAULT_LIMIT: i64 = 500;
 const MAX_LIMIT: i64 = 1000;
 
@@ -123,6 +124,10 @@ struct EmployeeResponse {
     leave_used: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     leave_remaining: Option<String>,
+    identity_resolution_strategy: String,
+    identity_resolution_confidence: String,
+    identity_review_required: bool,
+    identity_name_only_merge: bool,
     created_at: time::OffsetDateTime,
     updated_at: time::OffsetDateTime,
 }
@@ -317,7 +322,7 @@ async fn list_employees(
             let total: i64 = count.build_query_scalar().fetch_one(tx.as_mut()).await?;
 
             let mut rows = QueryBuilder::<Postgres>::new(
-                "SELECT id, company, name, employee_number, org_unit, job, position, worksite_name, worksite_address, hire_date, exit_date, employment_status, leave_accrued::TEXT AS leave_accrued, leave_used::TEXT AS leave_used, leave_remaining::TEXT AS leave_remaining, created_at, updated_at FROM employees WHERE TRUE",
+                "SELECT id, company, name, employee_number, org_unit, job, position, worksite_name, worksite_address, hire_date, exit_date, employment_status, leave_accrued::TEXT AS leave_accrued, leave_used::TEXT AS leave_used, leave_remaining::TEXT AS leave_remaining, identity_resolution_strategy, identity_resolution_confidence, identity_review_required, identity_name_only_merge, created_at, updated_at FROM employees WHERE TRUE",
             );
             if let Some(company) = company.as_deref() {
                 rows.push(" AND company = ");
@@ -1392,22 +1397,18 @@ fn parse_employee_sheet(
     sheet: &str,
     range: &calamine::Range<Data>,
 ) -> Result<Vec<ParsedEmployeeRow>, HrError> {
-    let Some(headers) = range.rows().next() else {
+    let Some(header) = detect_employee_import_header(range, sheet)? else {
         return Ok(Vec::new());
     };
-    let headers = headers
-        .iter()
-        .map(|cell| normalize_header_label(&cell_text(cell)))
-        .collect::<Vec<_>>();
-    let name_index = headers
-        .iter()
-        .position(|header| header == "성명")
-        .ok_or_else(|| HrError::workbook(format!("sheet {sheet} is missing 성명 header")))?;
 
     let mut parsed = Vec::new();
-    for (zero_based_idx, row) in range.rows().enumerate().skip(1) {
+    for (zero_based_idx, row) in range
+        .rows()
+        .enumerate()
+        .skip(header.zero_based_row.saturating_add(1))
+    {
         let Some(name) = row
-            .get(name_index)
+            .get(header.name_index)
             .map(cell_text)
             .filter(|value| !value.is_empty())
         else {
@@ -1416,18 +1417,24 @@ fn parse_employee_sheet(
         let source_row = i32::try_from(zero_based_idx + 1)
             .map_err(|_| HrError::workbook("source row does not fit i32"))?;
         let mut raw = Map::new();
-        for (idx, header) in headers.iter().enumerate() {
-            if header.is_empty() {
+        for (idx, header_label) in header.normalized_headers.iter().enumerate() {
+            if header_label.is_empty() {
                 continue;
             }
             let value = row.get(idx).map(cell_json).unwrap_or(Value::Null);
-            raw.insert(header.clone(), value);
+            raw.insert(header_label.clone(), value);
         }
         let source_key = format!("filename:{filename}|sheet:{sheet}|row:{source_row}");
         let raw_row = Value::Object(raw);
-        let canonical = canonical_employee_fields(&raw_row);
+        let canonical = canonical_employee_fields_for_import(&raw_row, &header.columns);
+        let mapped_company = raw_text_for_import_target(&raw_row, &header.columns, "company");
+        let company_source = if mapped_company.is_some() {
+            "mapped_column"
+        } else {
+            "sheet_name_default"
+        };
         parsed.push(ParsedEmployeeRow {
-            company: sheet.to_owned(),
+            company: mapped_company.unwrap_or_else(|| sheet.to_owned()),
             name,
             source_filename: filename.to_owned(),
             source_sheet: sheet.to_owned(),
@@ -1438,7 +1445,9 @@ fn parse_employee_sheet(
                 "filename": filename,
                 "sheet": sheet,
                 "row": source_row,
-                "source_key_kind": "filename_sheet_row"
+                "source_key_kind": "filename_sheet_row",
+                "header_row": header.zero_based_row + 1,
+                "company_source": company_source
             }),
             canonical,
         });
@@ -1483,52 +1492,50 @@ fn parse_employee_import_sheet(
     sheet: &str,
     range: &calamine::Range<Data>,
 ) -> Result<ParsedEmployeeImportSheet, HrError> {
-    let Some(header_cells) = range.rows().next() else {
+    let Some(header) = detect_employee_import_header(range, sheet)? else {
         return Ok(ParsedEmployeeImportSheet {
             rows: Vec::new(),
             columns: Vec::new(),
         });
     };
-    let headers = header_cells.iter().map(cell_text).collect::<Vec<_>>();
-    let normalized_headers = headers
-        .iter()
-        .map(|header| normalize_header_label(header))
-        .collect::<Vec<_>>();
-    let columns = headers
-        .iter()
-        .zip(normalized_headers.iter())
-        .filter(|(_, normalized)| !normalized.is_empty())
-        .map(|(source, normalized)| employee_import_column(source, normalized))
-        .collect::<Vec<_>>();
-    let name_index = normalized_headers
-        .iter()
-        .position(|header| header == "성명")
-        .ok_or_else(|| HrError::workbook(format!("sheet {sheet} is missing 성명 header")))?;
 
     let mut parsed = Vec::new();
-    for (zero_based_idx, row) in range.rows().enumerate().skip(1) {
+    for (zero_based_idx, row) in range
+        .rows()
+        .enumerate()
+        .skip(header.zero_based_row.saturating_add(1))
+    {
         if !row.iter().any(|cell| !cell_text(cell).is_empty()) {
             continue;
         }
         let source_row = i32::try_from(zero_based_idx + 1)
             .map_err(|_| HrError::workbook("source row does not fit i32"))?;
         let mut raw = Map::new();
-        for (idx, header) in normalized_headers.iter().enumerate() {
-            if header.is_empty() {
+        for (idx, header_label) in header.normalized_headers.iter().enumerate() {
+            if header_label.is_empty() {
                 continue;
             }
             let value = row.get(idx).map(cell_json).unwrap_or(Value::Null);
-            raw.insert(header.clone(), value);
+            raw.insert(header_label.clone(), value);
         }
         let raw_row = Value::Object(raw);
         let name = row
-            .get(name_index)
+            .get(header.name_index)
             .map(cell_text)
             .filter(|value| !value.is_empty());
-        let canonical = name.as_ref().map(|_| canonical_employee_fields(&raw_row));
+        let canonical = name
+            .as_ref()
+            .map(|_| canonical_employee_fields_for_import(&raw_row, &header.columns));
+        let mapped_company = raw_text_for_import_target(&raw_row, &header.columns, "company");
+        let company_source = if mapped_company.is_some() {
+            "mapped_column"
+        } else {
+            "sheet_name_default"
+        };
+        let company = mapped_company.unwrap_or_else(|| sheet.to_owned());
         let source_key = format!("filename:{filename}|sheet:{sheet}|row:{source_row}");
         parsed.push(ParsedEmployeeImportRow {
-            company: sheet.to_owned(),
+            company,
             name,
             source_filename: filename.to_owned(),
             source_sheet: sheet.to_owned(),
@@ -1540,11 +1547,13 @@ fn parse_employee_import_sheet(
                 "sheet": sheet,
                 "row": source_row,
                 "source_key_kind": "filename_sheet_row",
-                "header_normalization": "trim_remove_whitespace"
+                "header_row": header.zero_based_row + 1,
+                "header_normalization": "trim_remove_whitespace_for_storage_schema_catalog_for_matching",
+                "company_source": company_source
             }),
             canonical,
             row_status: if row
-                .get(name_index)
+                .get(header.name_index)
                 .map(cell_text)
                 .filter(|value| !value.is_empty())
                 .is_some()
@@ -1558,7 +1567,7 @@ fn parse_employee_import_sheet(
 
     Ok(ParsedEmployeeImportSheet {
         rows: parsed,
-        columns,
+        columns: header.columns,
     })
 }
 
@@ -1602,6 +1611,270 @@ fn normalize_header_label(raw: &str) -> String {
         .collect::<String>()
 }
 
+#[derive(Debug)]
+struct EmployeeImportHeader {
+    zero_based_row: usize,
+    normalized_headers: Vec<String>,
+    columns: Vec<EmployeeImportColumn>,
+    name_index: usize,
+}
+
+#[derive(Debug)]
+struct EmployeeImportFieldDefinition {
+    target: &'static str,
+    aliases: &'static [&'static str],
+    classification: &'static str,
+    required: bool,
+}
+
+const EMPLOYEE_IMPORT_FIELD_DEFINITIONS: &[EmployeeImportFieldDefinition] = &[
+    EmployeeImportFieldDefinition {
+        target: "name",
+        aliases: &[
+            "성명",
+            "이름",
+            "직원명",
+            "사원명",
+            "근로자명",
+            "임직원명",
+            "name",
+            "employee_name",
+            "employeename",
+            "worker_name",
+            "workername",
+        ],
+        classification: "canonical",
+        required: true,
+    },
+    EmployeeImportFieldDefinition {
+        target: "employee_number",
+        aliases: &[
+            "사번",
+            "사원번호",
+            "직원번호",
+            "사용자ID",
+            "user_id",
+            "userid",
+            "employee_id",
+            "employeeid",
+            "employee_number",
+            "employeenumber",
+            "staff_id",
+            "staffid",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "org_unit",
+        aliases: &[
+            "부서명",
+            "부서",
+            "소속",
+            "소속부서",
+            "조직",
+            "팀",
+            "org_unit",
+            "orgunit",
+            "department",
+            "dept",
+            "team",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "job",
+        aliases: &[
+            "업무",
+            "담당업무",
+            "직무",
+            "직종",
+            "job",
+            "work_type",
+            "worktype",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "position",
+        aliases: &["직책", "직위", "직급", "직함", "position", "title", "rank"],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "worksite_name",
+        aliases: &[
+            "근무지",
+            "현장",
+            "현장명",
+            "사업장",
+            "근무사업장",
+            "worksite",
+            "workplace_name",
+            "workplacename",
+            "site",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "worksite_address",
+        aliases: &[
+            "근무지(주소)",
+            "근무지주소",
+            "근무지주소지",
+            "현장주소",
+            "사업장주소",
+            "주소",
+            "worksite_address",
+            "worksiteaddress",
+            "workplace_address",
+            "workplaceaddress",
+            "site_address",
+            "siteaddress",
+        ],
+        classification: "location",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "hire_date",
+        aliases: &[
+            "입사일",
+            "입사일자",
+            "채용일",
+            "보험가입일",
+            "hire_date",
+            "hiredate",
+            "start_date",
+            "startdate",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "exit_date",
+        aliases: &[
+            "퇴사일",
+            "퇴사일자",
+            "퇴직일",
+            "보험상실일",
+            "exit_date",
+            "exitdate",
+            "end_date",
+            "enddate",
+            "termination_date",
+            "terminationdate",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "leave_accrued",
+        aliases: &[
+            "발생연차",
+            "연차발생",
+            "부여연차",
+            "발생휴가",
+            "leave_accrued",
+            "leaveaccrued",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "leave_used",
+        aliases: &[
+            "사용연차",
+            "연차사용",
+            "사용휴가",
+            "leave_used",
+            "leaveused",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "leave_remaining",
+        aliases: &[
+            "잔여연차",
+            "남은연차",
+            "연차잔여",
+            "잔여휴가",
+            "leave_balance",
+            "leavebalance",
+            "leave_remaining",
+            "leaveremaining",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+    EmployeeImportFieldDefinition {
+        target: "company",
+        aliases: &[
+            "회사",
+            "법인",
+            "소속회사",
+            "계열사",
+            "조직회사",
+            "company",
+            "corporation",
+            "legal_entity",
+            "legalentity",
+        ],
+        classification: "canonical",
+        required: false,
+    },
+];
+
+fn detect_employee_import_header(
+    range: &calamine::Range<Data>,
+    sheet: &str,
+) -> Result<Option<EmployeeImportHeader>, HrError> {
+    if !range
+        .rows()
+        .any(|row| row.iter().any(|cell| !cell_text(cell).is_empty()))
+    {
+        return Ok(None);
+    }
+
+    for (zero_based_row, header_cells) in range.rows().enumerate().take(MAX_IMPORT_HEADER_SCAN_ROWS)
+    {
+        let source_headers = header_cells.iter().map(cell_text).collect::<Vec<_>>();
+        let normalized_headers = source_headers
+            .iter()
+            .map(|header| normalize_header_label(header))
+            .collect::<Vec<_>>();
+        let column_targets = normalized_headers
+            .iter()
+            .map(|header| employee_import_target_for_header(header))
+            .collect::<Vec<_>>();
+        let Some(name_index) = column_targets
+            .iter()
+            .position(|target| *target == Some("name"))
+        else {
+            continue;
+        };
+        let columns = source_headers
+            .iter()
+            .zip(normalized_headers.iter())
+            .filter(|(_, normalized)| !normalized.is_empty())
+            .map(|(source, normalized)| employee_import_column(source, normalized))
+            .collect::<Vec<_>>();
+        return Ok(Some(EmployeeImportHeader {
+            zero_based_row,
+            normalized_headers,
+            columns,
+            name_index,
+        }));
+    }
+
+    Err(HrError::workbook(format!(
+        "sheet {sheet} is missing an employee name header"
+    )))
+}
+
 fn employee_import_column(source_header: &str, normalized_header: &str) -> EmployeeImportColumn {
     let target = employee_import_target_for_header(normalized_header).map(ToOwned::to_owned);
     let classification =
@@ -1616,26 +1889,27 @@ fn employee_import_column(source_header: &str, normalized_header: &str) -> Emplo
 }
 
 fn employee_import_target_for_header(header: &str) -> Option<&'static str> {
-    match header {
-        "성명" => Some("name"),
-        "사번" => Some("employee_number"),
-        "부서명" | "소속" => Some("org_unit"),
-        "업무" => Some("job"),
-        "직책" | "직위" => Some("position"),
-        "근무지" => Some("worksite_name"),
-        "근무지(주소)" => Some("worksite_address"),
-        "입사일" | "보험가입일" => Some("hire_date"),
-        "퇴사일" | "보험상실일" => Some("exit_date"),
-        "발생연차" => Some("leave_accrued"),
-        "사용연차" => Some("leave_used"),
-        "잔여연차" => Some("leave_remaining"),
-        "회사" | "법인" | "소속회사" => Some("company"),
-        _ => None,
-    }
+    employee_import_field_for_header(header).map(|field| field.target)
+}
+
+fn import_header_match_key(header: &str) -> String {
+    normalize_header_label(header)
+        .chars()
+        .filter(|ch| {
+            !matches!(
+                ch,
+                '(' | ')' | '[' | ']' | '{' | '}' | '_' | '-' | '/' | '\\' | '.' | '·' | ':'
+            )
+        })
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 fn employee_import_column_classification(header: &str, target: Option<&str>) -> &'static str {
-    if target == Some("worksite_address") || is_location_header(header) {
+    if let Some(field) = target.and_then(employee_import_field_for_target) {
+        return field.classification;
+    }
+    if is_location_header(header) {
         return "location";
     }
     if is_restricted_employee_import_header(header) {
@@ -1645,6 +1919,26 @@ fn employee_import_column_classification(header: &str, target: Option<&str>) -> 
         return "canonical";
     }
     "retained"
+}
+
+fn employee_import_field_for_header(
+    header: &str,
+) -> Option<&'static EmployeeImportFieldDefinition> {
+    let key = import_header_match_key(header);
+    EMPLOYEE_IMPORT_FIELD_DEFINITIONS.iter().find(|field| {
+        field
+            .aliases
+            .iter()
+            .any(|alias| import_header_match_key(alias) == key)
+    })
+}
+
+fn employee_import_field_for_target(
+    target: &str,
+) -> Option<&'static EmployeeImportFieldDefinition> {
+    EMPLOYEE_IMPORT_FIELD_DEFINITIONS
+        .iter()
+        .find(|field| field.target == target)
 }
 
 fn is_location_header(header: &str) -> bool {
@@ -1681,28 +1975,35 @@ fn is_restricted_employee_import_header(header: &str) -> bool {
 }
 
 fn employee_import_mapping_profile(columns: &[EmployeeImportColumn]) -> Value {
+    let target_allowlist = EMPLOYEE_IMPORT_FIELD_DEFINITIONS
+        .iter()
+        .map(|field| field.target)
+        .collect::<Vec<_>>();
+    let target_catalog = EMPLOYEE_IMPORT_FIELD_DEFINITIONS
+        .iter()
+        .map(|field| {
+            json!({
+                "target": field.target,
+                "aliases": field.aliases,
+                "classification": field.classification,
+                "required": field.required
+            })
+        })
+        .collect::<Vec<_>>();
     json!({
         "entity_type": "employee_hr",
-        "target_allowlist": [
-            "name",
-            "employee_number",
-            "org_unit",
-            "job",
-            "position",
-            "worksite_name",
-            "worksite_address",
-            "hire_date",
-            "exit_date",
-            "leave_accrued",
-            "leave_used",
-            "leave_remaining",
-            "company"
-        ],
+        "target_allowlist": target_allowlist,
+        "target_catalog": target_catalog,
         "columns": columns,
         "policy": {
             "unknown_columns": "retain_raw_only",
             "restricted_columns": "retain_raw_mask_preview",
             "blank_name_rows": "preserve_raw_only",
+            "header_detection": {
+                "strategy": "schema_catalog_first_mappable_row",
+                "scan_rows": MAX_IMPORT_HEADER_SCAN_ROWS
+            },
+            "company_resolution": ["mapped_company_column", "sheet_name_default"],
             "server_side_entity_allowlist": ["employee_hr"]
         }
     })
@@ -1791,6 +2092,7 @@ async fn apply_employee_rows_tx(
                 });
         company_entry.input_rows += 1;
         report.input_rows += 1;
+        let identity = employee_identity_resolution_from_metadata(&row.source_metadata);
 
         let outcome: String = sqlx::query_scalar(
             r#"
@@ -1798,12 +2100,15 @@ async fn apply_employee_rows_tx(
                 org_id, company, name, source_filename, source_sheet, source_row,
                 source_key, raw_row, source_metadata, employee_number, org_unit, job,
                 position, worksite_name, worksite_address, hire_date, exit_date,
-                employment_status, leave_accrued, leave_used, leave_remaining
+                employment_status, leave_accrued, leave_used, leave_remaining,
+                identity_resolution_strategy, identity_resolution_confidence,
+                identity_review_required, identity_name_only_merge
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                 $14, $15, $16, $17, $18, NULLIF($19::TEXT, '')::NUMERIC,
-                NULLIF($20::TEXT, '')::NUMERIC, NULLIF($21::TEXT, '')::NUMERIC
+                NULLIF($20::TEXT, '')::NUMERIC, NULLIF($21::TEXT, '')::NUMERIC,
+                $22, $23, $24, $25
             )
             ON CONFLICT (org_id, source_key) DO UPDATE SET
                 company = EXCLUDED.company,
@@ -1825,6 +2130,10 @@ async fn apply_employee_rows_tx(
                 leave_accrued = EXCLUDED.leave_accrued,
                 leave_used = EXCLUDED.leave_used,
                 leave_remaining = EXCLUDED.leave_remaining,
+                identity_resolution_strategy = EXCLUDED.identity_resolution_strategy,
+                identity_resolution_confidence = EXCLUDED.identity_resolution_confidence,
+                identity_review_required = EXCLUDED.identity_review_required,
+                identity_name_only_merge = EXCLUDED.identity_name_only_merge,
                 updated_at = now()
             RETURNING CASE WHEN xmax = 0 THEN 'inserted' ELSE 'updated' END
             "#,
@@ -1850,6 +2159,10 @@ async fn apply_employee_rows_tx(
         .bind(row.canonical.leave_accrued.as_deref())
         .bind(row.canonical.leave_used.as_deref())
         .bind(row.canonical.leave_remaining.as_deref())
+        .bind(&identity.strategy)
+        .bind(&identity.confidence)
+        .bind(identity.review_required)
+        .bind(identity.name_only_merge)
         .fetch_one(tx.as_mut())
         .await?;
 
@@ -1959,6 +2272,59 @@ fn required_json_i32(value: &Value, key: &'static str) -> Result<i32, HrError> {
         .ok_or_else(|| HrError::validation(format!("stored import row is missing {key}")))?;
     i32::try_from(number)
         .map_err(|_| HrError::validation(format!("stored import row {key} does not fit i32")))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EmployeeIdentityResolution {
+    strategy: String,
+    confidence: String,
+    review_required: bool,
+    name_only_merge: bool,
+}
+
+fn employee_identity_resolution_from_metadata(metadata: &Value) -> EmployeeIdentityResolution {
+    let identity = metadata
+        .get("identity_resolution")
+        .and_then(Value::as_object);
+    let strategy = identity
+        .and_then(|value| value.get("strategy"))
+        .and_then(Value::as_str)
+        .filter(|value| {
+            matches!(
+                *value,
+                "employee_number"
+                    | "legal_identifier_hash"
+                    | "birth_hire_fingerprint"
+                    | "source_row_fingerprint"
+            )
+        })
+        .unwrap_or("source_row_fingerprint")
+        .to_owned();
+    let confidence = match strategy.as_str() {
+        "employee_number" | "legal_identifier_hash" => "high",
+        "birth_hire_fingerprint" => "medium",
+        _ => "low",
+    }
+    .to_owned();
+    let explicit_review_clearance = identity
+        .and_then(|value| value.get("manual_review_required"))
+        .and_then(Value::as_bool)
+        == Some(false);
+    let review_required = !(explicit_review_clearance
+        && matches!(
+            strategy.as_str(),
+            "employee_number" | "legal_identifier_hash"
+        ));
+
+    EmployeeIdentityResolution {
+        strategy,
+        confidence,
+        review_required,
+        // Name-only merging is not a supported identity strategy. Even if stale
+        // or malicious import metadata claims otherwise, keep the public record
+        // non-mergeable until HR performs an explicit reviewed resolution.
+        name_only_merge: false,
+    }
 }
 
 async fn compute_employee_import_dry_run(
@@ -2237,6 +2603,10 @@ fn employee_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeResponse, HrE
         leave_accrued: row.try_get("leave_accrued")?,
         leave_used: row.try_get("leave_used")?,
         leave_remaining: row.try_get("leave_remaining")?,
+        identity_resolution_strategy: row.try_get("identity_resolution_strategy")?,
+        identity_resolution_confidence: row.try_get("identity_resolution_confidence")?,
+        identity_review_required: row.try_get("identity_review_required")?,
+        identity_name_only_merge: row.try_get("identity_name_only_merge")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -2293,16 +2663,17 @@ fn neutralize_spreadsheet_formula(value: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn canonical_employee_fields(raw_row: &Value) -> EmployeeCanonicalFields {
-    let exit_date = raw_text(raw_row, &["퇴사일", "보험상실일"]);
+    let exit_date = raw_text(raw_row, target_header_aliases("exit_date"));
     EmployeeCanonicalFields {
-        employee_number: raw_text(raw_row, &["사번"]),
-        org_unit: raw_text(raw_row, &["부서명", "소속"]),
-        job: raw_text(raw_row, &["업무"]),
-        position: raw_text(raw_row, &["직책", "직위"]),
-        worksite_name: raw_text(raw_row, &["근무지"]),
-        worksite_address: raw_text(raw_row, &["근무지(주소)"]),
-        hire_date: raw_text(raw_row, &["입사일", "보험가입일"]),
+        employee_number: raw_text(raw_row, target_header_aliases("employee_number")),
+        org_unit: raw_text(raw_row, target_header_aliases("org_unit")),
+        job: raw_text(raw_row, target_header_aliases("job")),
+        position: raw_text(raw_row, target_header_aliases("position")),
+        worksite_name: raw_text(raw_row, target_header_aliases("worksite_name")),
+        worksite_address: raw_text(raw_row, target_header_aliases("worksite_address")),
+        hire_date: raw_text(raw_row, target_header_aliases("hire_date")),
         exit_date: exit_date.clone(),
         employment_status: if exit_date.is_some() {
             "EXITED"
@@ -2310,14 +2681,54 @@ fn canonical_employee_fields(raw_row: &Value) -> EmployeeCanonicalFields {
             "ACTIVE"
         }
         .to_owned(),
-        leave_accrued: raw_decimal_text(raw_row, &["발생연차"]),
-        leave_used: raw_decimal_text(raw_row, &["사용연차"]),
-        leave_remaining: raw_decimal_text(raw_row, &["잔여연차"]),
+        leave_accrued: raw_decimal_text(raw_row, target_header_aliases("leave_accrued")),
+        leave_used: raw_decimal_text(raw_row, target_header_aliases("leave_used")),
+        leave_remaining: raw_decimal_text(raw_row, target_header_aliases("leave_remaining")),
     }
 }
 
+fn canonical_employee_fields_for_import(
+    raw_row: &Value,
+    columns: &[EmployeeImportColumn],
+) -> EmployeeCanonicalFields {
+    let exit_date = raw_text_for_import_target(raw_row, columns, "exit_date");
+    EmployeeCanonicalFields {
+        employee_number: raw_text_for_import_target(raw_row, columns, "employee_number"),
+        org_unit: raw_text_for_import_target(raw_row, columns, "org_unit"),
+        job: raw_text_for_import_target(raw_row, columns, "job"),
+        position: raw_text_for_import_target(raw_row, columns, "position"),
+        worksite_name: raw_text_for_import_target(raw_row, columns, "worksite_name"),
+        worksite_address: raw_text_for_import_target(raw_row, columns, "worksite_address"),
+        hire_date: raw_text_for_import_target(raw_row, columns, "hire_date"),
+        exit_date: exit_date.clone(),
+        employment_status: if exit_date.is_some() {
+            "EXITED"
+        } else {
+            "ACTIVE"
+        }
+        .to_owned(),
+        leave_accrued: raw_decimal_text_for_import_target(raw_row, columns, "leave_accrued"),
+        leave_used: raw_decimal_text_for_import_target(raw_row, columns, "leave_used"),
+        leave_remaining: raw_decimal_text_for_import_target(raw_row, columns, "leave_remaining"),
+    }
+}
+
+#[cfg(test)]
 fn raw_decimal_text(raw_row: &Value, headers: &[&str]) -> Option<String> {
     let raw = raw_text(raw_row, headers)?;
+    normalized_decimal_text(&raw)
+}
+
+fn raw_decimal_text_for_import_target(
+    raw_row: &Value,
+    columns: &[EmployeeImportColumn],
+    target: &str,
+) -> Option<String> {
+    let raw = raw_text_for_import_target(raw_row, columns, target)?;
+    normalized_decimal_text(&raw)
+}
+
+fn normalized_decimal_text(raw: &str) -> Option<String> {
     let cleaned = raw.replace(',', "").trim().to_owned();
     let value = cleaned.parse::<f64>().ok()?;
     if !value.is_finite() {
@@ -2333,18 +2744,44 @@ fn raw_decimal_text(raw_row: &Value, headers: &[&str]) -> Option<String> {
     Some(formatted)
 }
 
+fn raw_text_for_import_target(
+    raw_row: &Value,
+    columns: &[EmployeeImportColumn],
+    target: &str,
+) -> Option<String> {
+    let object = raw_row.as_object()?;
+    columns
+        .iter()
+        .filter(|column| column.target.as_deref() == Some(target))
+        .find_map(|column| {
+            let value = object.get(&column.normalized_header)?;
+            json_value_text(value)
+        })
+        .or_else(|| raw_text(raw_row, target_header_aliases(target)))
+}
+
 fn raw_text(raw_row: &Value, headers: &[&str]) -> Option<String> {
     let object = raw_row.as_object()?;
     headers.iter().find_map(|header| {
         let value = object.get(*header)?;
-        let text = match value {
-            Value::String(value) => value.trim().to_owned(),
-            Value::Number(value) => value.to_string(),
-            Value::Bool(value) => value.to_string(),
-            Value::Null | Value::Array(_) | Value::Object(_) => String::new(),
-        };
-        (!text.is_empty()).then_some(text)
+        json_value_text(value)
     })
+}
+
+fn json_value_text(value: &Value) -> Option<String> {
+    let text = match value {
+        Value::String(value) => value.trim().to_owned(),
+        Value::Number(value) => value.to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Null | Value::Array(_) | Value::Object(_) => String::new(),
+    };
+    (!text.is_empty()).then_some(text)
+}
+
+fn target_header_aliases(target: &str) -> &'static [&'static str] {
+    employee_import_field_for_target(target)
+        .map(|field| field.aliases)
+        .unwrap_or(&[])
 }
 
 fn find_or_insert_company(companies: &mut Vec<HrOrgChartCompany>, name: String) -> usize {
@@ -2552,7 +2989,7 @@ mod tests {
     #[test]
     fn missing_name_header_is_a_workbook_error() -> Result<(), String> {
         let mut range = Range::new((0, 0), (0, 0));
-        range.set_value((0, 0), Data::String("이름".to_owned()));
+        range.set_value((0, 0), Data::String("급여".to_owned()));
 
         let err = match parse_employee_sheet("payroll.xlsx", "A회사", &range) {
             Ok(rows) => return Err(format!("expected missing-name-header error, got {rows:?}")),
@@ -2561,6 +2998,39 @@ mod tests {
 
         assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(err.code, "workbook");
+        Ok(())
+    }
+
+    #[test]
+    fn governed_import_detects_schema_header_below_title_rows() -> Result<(), String> {
+        let mut range = Range::new((0, 0), (2, 2));
+        range.set_value((0, 0), Data::String("2026년 임직원 명부".to_owned()));
+        range.set_value((1, 0), Data::String("직원번호".to_owned()));
+        range.set_value((1, 1), Data::String("이름".to_owned()));
+        range.set_value((1, 2), Data::String("법인".to_owned()));
+        range.set_value((2, 0), Data::String("ALT-010".to_owned()));
+        range.set_value((2, 1), Data::String("김표준".to_owned()));
+        range.set_value((2, 2), Data::String("운영법인".to_owned()));
+
+        let parsed = parse_employee_import_sheet("employees.xlsx", "원천", &range)
+            .map_err(|err| format!("expected governed import sheet to parse, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 1);
+        assert_eq!(parsed.rows[0].source_row, 3);
+        assert_eq!(parsed.rows[0].company, "운영법인");
+        assert_eq!(parsed.rows[0].source_metadata["header_row"], json!(2));
+        assert_eq!(
+            parsed.rows[0].source_metadata["company_source"],
+            json!("mapped_column")
+        );
+        assert!(
+            parsed
+                .columns
+                .iter()
+                .any(|column| column.source_header == "직원번호"
+                    && column.target.as_deref() == Some("employee_number")),
+            "schema catalog must map moved/shuffled employee number columns",
+        );
         Ok(())
     }
 
@@ -2640,6 +3110,63 @@ mod tests {
     }
 
     #[test]
+    fn governed_import_maps_shuffled_alias_headers_without_column_position_assumptions()
+    -> Result<(), String> {
+        let mut range = Range::new((0, 0), (2, 5));
+        range.set_value((0, 0), Data::String("메모".to_owned()));
+        range.set_value((0, 1), Data::String("직원번호".to_owned()));
+        range.set_value((0, 2), Data::String("남은 연차".to_owned()));
+        range.set_value((0, 3), Data::String("근무지 주소".to_owned()));
+        range.set_value((0, 4), Data::String("이름".to_owned()));
+        range.set_value((0, 5), Data::String("계열사".to_owned()));
+        range.set_value((1, 0), Data::String("현장 배치".to_owned()));
+        range.set_value((1, 1), Data::String("ALT-001".to_owned()));
+        range.set_value((1, 2), Data::Float(7.5));
+        range.set_value((1, 3), Data::String("서울".to_owned()));
+        range.set_value((1, 4), Data::String("홍길동".to_owned()));
+        range.set_value((1, 5), Data::String("코스".to_owned()));
+        range.set_value((2, 0), Data::String("raw-only keep".to_owned()));
+
+        let parsed = parse_employee_import_sheet("employees.xlsx", "원천시트", &range)
+            .map_err(|err| format!("expected alias import sheet to parse, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 2);
+        assert_eq!(parsed.rows[0].row_status, ImportRowStatus::Candidate);
+        assert_eq!(parsed.rows[1].row_status, ImportRowStatus::Preserved);
+        assert_eq!(parsed.rows[0].company, "코스");
+        assert_eq!(parsed.rows[0].name.as_deref(), Some("홍길동"));
+        let canonical = parsed.rows[0]
+            .canonical
+            .as_ref()
+            .ok_or_else(|| "candidate row missing canonical fields".to_owned())?;
+        assert_eq!(canonical.employee_number.as_deref(), Some("ALT-001"));
+        assert_eq!(canonical.leave_remaining.as_deref(), Some("7.5"));
+        assert_eq!(canonical.worksite_address.as_deref(), Some("서울"));
+
+        let preview = masked_preview_values(&parsed.rows[0].raw_row, &parsed.columns);
+        assert_eq!(preview["근무지주소"], json!("••••"));
+        assert_eq!(preview["남은연차"], json!(7.5));
+        assert_eq!(preview["메모"], json!("현장 배치"));
+        assert!(
+            parsed
+                .columns
+                .iter()
+                .any(|column| column.source_header == "직원번호"
+                    && column.target.as_deref() == Some("employee_number")),
+            "직원번호 must map to the canonical employee_number target",
+        );
+        assert!(
+            parsed
+                .columns
+                .iter()
+                .any(|column| column.source_header == "이름"
+                    && column.target.as_deref() == Some("name")),
+            "이름 must map to the canonical name target",
+        );
+        Ok(())
+    }
+
+    #[test]
     fn standardized_csv_neutralizes_spreadsheet_formulas() {
         assert_eq!(csv_field("=cmd|' /C calc'!A0"), "'=cmd|' /C calc'!A0");
         assert_eq!(csv_field("hello, world"), "\"hello, world\"");
@@ -2664,6 +3191,10 @@ mod tests {
             leave_accrued: None,
             leave_used: None,
             leave_remaining: None,
+            identity_resolution_strategy: "employee_number".to_owned(),
+            identity_resolution_confidence: "high".to_owned(),
+            identity_review_required: false,
+            identity_name_only_merge: false,
             created_at: time::OffsetDateTime::UNIX_EPOCH,
             updated_at: time::OffsetDateTime::UNIX_EPOCH,
         })
@@ -2681,7 +3212,67 @@ mod tests {
                 "public employee response must not expose {forbidden}",
             );
         }
+        assert_eq!(
+            body["identity_resolution_strategy"],
+            json!("employee_number")
+        );
+        assert_eq!(body["identity_resolution_confidence"], json!("high"));
+        assert_eq!(body["identity_review_required"], json!(false));
+        assert_eq!(body["identity_name_only_merge"], json!(false));
         Ok(())
+    }
+
+    #[test]
+    fn employee_identity_resolution_rejects_name_only_and_untrusted_confidence() {
+        let metadata = json!({
+            "identity_resolution": {
+                "strategy": "source_row_fingerprint",
+                "confidence": "high",
+                "manual_review_required": true,
+                "name_only_merge": true
+            }
+        });
+
+        let identity = employee_identity_resolution_from_metadata(&metadata);
+
+        assert_eq!(identity.strategy, "source_row_fingerprint");
+        assert_eq!(identity.confidence, "low");
+        assert!(identity.review_required);
+        assert!(!identity.name_only_merge);
+    }
+
+    #[test]
+    fn employee_identity_resolution_accepts_high_confidence_trusted_strategies() {
+        let metadata = json!({
+            "identity_resolution": {
+                "strategy": "legal_identifier_hash",
+                "manual_review_required": false
+            }
+        });
+
+        let identity = employee_identity_resolution_from_metadata(&metadata);
+
+        assert_eq!(identity.strategy, "legal_identifier_hash");
+        assert_eq!(identity.confidence, "high");
+        assert!(!identity.review_required);
+        assert!(!identity.name_only_merge);
+    }
+
+    #[test]
+    fn employee_identity_resolution_keeps_weak_strategies_review_required() {
+        let metadata = json!({
+            "identity_resolution": {
+                "strategy": "birth_hire_fingerprint",
+                "manual_review_required": false
+            }
+        });
+
+        let identity = employee_identity_resolution_from_metadata(&metadata);
+
+        assert_eq!(identity.strategy, "birth_hire_fingerprint");
+        assert_eq!(identity.confidence, "medium");
+        assert!(identity.review_required);
+        assert!(!identity.name_only_merge);
     }
 
     #[test]

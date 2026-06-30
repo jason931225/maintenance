@@ -137,7 +137,8 @@ export const ko = {
           key: "rentalPricing" as const,
           title: "렌탈 가격·입찰 마진",
           object: "PricingScenario",
-          outcome: "가격 하한, 목표가, 위험 프리미엄, SLA 영향을 함께 검토합니다.",
+          outcome:
+            "가격 하한, 목표가, 위험 프리미엄, SLA 영향을 함께 검토합니다.",
           signals: [
             { label: "원천", value: "견적·원가·가동률" },
             { label: "제약", value: "마진·SLA·수금 위험" },
@@ -201,7 +202,8 @@ export const ko = {
           key: "procurement" as const,
           title: "구매·입찰·공급사 평가",
           object: "ProcurementScenario",
-          outcome: "단가뿐 아니라 납기, 품질, 보증, 현금흐름, 위험을 평가합니다.",
+          outcome:
+            "단가뿐 아니라 납기, 품질, 보증, 현금흐름, 위험을 평가합니다.",
           signals: [
             { label: "원천", value: "구매·견적·입고" },
             { label: "제약", value: "예산·분리승인" },
@@ -217,7 +219,8 @@ export const ko = {
           key: "maintenanceCycles" as const,
           title: "정비 주기·윈도우",
           object: "MaintenanceForecast",
-          outcome: "고장 위험, 예방정비 주기, 작업 가능 시간, 부품 준비도를 맞춥니다.",
+          outcome:
+            "고장 위험, 예방정비 주기, 작업 가능 시간, 부품 준비도를 맞춥니다.",
           signals: [
             { label: "원천", value: "검사·계획·배차" },
             { label: "제약", value: "안전·제조사 기준" },
@@ -249,7 +252,8 @@ export const ko = {
           key: "mesReadiness" as const,
           title: "MES 준비도",
           object: "ExperimentRun",
-          outcome: "제조 실행은 공장·라인·자재·품질·노무 기반이 완성된 뒤 연결합니다.",
+          outcome:
+            "제조 실행은 공장·라인·자재·품질·노무 기반이 완성된 뒤 연결합니다.",
           signals: [
             { label: "원천", value: "조직·품목·흐름" },
             { label: "제약", value: "도메인 활성화" },
@@ -776,7 +780,7 @@ export const ko = {
     title: "인사·조직 관리",
     description:
       "가져온 인사 원장을 조직도, 연차, 근태 요약으로 표준화해 확인합니다.",
-    companyFilter: "회사",
+    companyFilter: "회사 필터",
     allCompanies: "전체 회사",
     empty: "표시할 직원이 없습니다.",
     loadFailed: "직원 명부를 불러오지 못했습니다.",
@@ -810,6 +814,11 @@ export const ko = {
         title: "계정·정책",
         value: "사용자·정책 연결",
         meta: "직책/역할/소속은 권한 정책과 분리해 검토합니다.",
+      },
+      identity: {
+        title: "신원 표준화",
+        value: "검토 {review} · 고신뢰 {high}",
+        meta: "동명이인은 이름만으로 병합하지 않고 검토 대기 상태로 둡니다.",
       },
       importControls: {
         title: "원장·마스킹",
@@ -854,6 +863,7 @@ export const ko = {
       company: "회사",
       employeeNumber: "사번",
       orgUnit: "소속",
+      identity: "신원 검증",
       sourceRow: "원본 행",
       worksite: "근무지",
       job: "직무",
@@ -863,6 +873,19 @@ export const ko = {
       status: "상태",
       leaveRemaining: "잔여 연차",
       actions: "작업",
+    },
+    identity: {
+      reviewRequired: "검토 필요",
+      highConfidence: "고신뢰",
+      mediumConfidence: "중간",
+      lowConfidence: "낮음",
+      nameOnlyBlocked: "이름 병합 금지",
+      strategies: {
+        employee_number: "사번",
+        legal_identifier_hash: "식별번호 해시",
+        birth_hire_fingerprint: "생년월일+입사일",
+        source_row_fingerprint: "원천 행",
+      },
     },
     lifecycle: {
       title: "근로 생애주기",
@@ -917,8 +940,29 @@ export const ko = {
         targetField: "표준 필드",
         policy: "정책",
         rawOnly: "원천 보존",
-        previewAllowed: "미리보기 허용",
-        masked: "마스킹",
+        previewAllowed: "표준 매핑",
+        masked: "민감정보 마스킹",
+        locationMasked: "위치정보 마스킹",
+        mappingSummary: "가져오기 매핑 요약",
+        mappedColumns: "표준화 열",
+        maskedColumns: "민감정보 열",
+        locationColumns: "위치정보 열",
+        rawOnlyColumns: "원천 보존 열",
+        targetLabels: {
+          name: "성명",
+          employee_number: "사번",
+          org_unit: "부서/팀",
+          job: "업무/직무",
+          position: "직책/직급",
+          worksite_name: "근무지",
+          worksite_address: "근무지 주소",
+          hire_date: "입사일",
+          exit_date: "퇴사일",
+          leave_accrued: "발생연차",
+          leave_used: "사용연차",
+          leave_remaining: "잔여연차",
+          company: "회사/법인",
+        },
         row: "행",
         status: "상태",
         dryRun: "드라이런",

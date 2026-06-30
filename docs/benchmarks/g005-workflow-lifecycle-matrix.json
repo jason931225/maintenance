@@ -1,0 +1,334 @@
+{
+  "schemaVersion": 1,
+  "goalId": "G005-workflow-builder-approvals-work-hub",
+  "updatedAt": "2026-06-30",
+  "purpose": "Machine-readable workflow, approval, Work Hub, planned-work, notification, evidence, and object-timeline lifecycle contract for the platform-maturity ultragoal. This gate proves source-object centered workflow operations are wired through backend contracts, frontend actions, browser matrices, and regression tests before asset, collaboration, ERP, and live-rollout lanes depend on them.",
+  "nonClaimPolicy": "G005 may prove local contract, browser matrix, and regression coverage. Production Argo rollout, live screenshot/trace closure, and live DB/API/browser parity remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a rollout blocker, not as live closure.",
+  "routePaths": [
+    {
+      "path": "/work-hub",
+      "routeGroup": "work-hub",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "first-screen enterprise action inbox shows today/week tasks, approvals, messages, tickets, urgent badges, terminal removal, and group/org scope controls without maintenance-only framing"
+    },
+    {
+      "path": "/approvals",
+      "routeGroup": "approvals",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "manager approval queue requires comment or rejection memo, shows source object, evidence images, approval line actors, history, and removes terminal decisions"
+    },
+    {
+      "path": "/settings/workflows",
+      "routeGroup": "workflow-builder",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "authorized manager builds, simulates, publishes, pauses, rolls back, and clones workflows with approval/payment lines, passkey step-up, audit, and connector allowlists"
+    },
+    {
+      "path": "/work-orders/:id",
+      "routeGroup": "work-order-detail",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "work-order detail supports dispatch control, priority, schedule change, mechanic assignment, outsource work, evidence image view, approval line comments, and immutable object timeline"
+    },
+    {
+      "path": "/intake",
+      "routeGroup": "intake",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "received work requests create source objects that later planned work, dispatch, approval, notifications, evidence, and audit can reference"
+    },
+    {
+      "path": "/daily-plan",
+      "routeGroup": "planned-work",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "mechanic planned work starts from received work order, requests manager review, records review memo, and reaches final confirmation without bypassing approval lifecycle"
+    }
+  ],
+  "dependencyRoutes": [
+    {
+      "path": "/dispatch",
+      "expectedDependency": "G005 workflow dependencies",
+      "requiredStory": "dispatch board actions must link back to work order detail and workflow/audit lifecycle before G006 claims maturity"
+    },
+    {
+      "path": "/support",
+      "expectedDependency": "G005 workflow/object lifecycle",
+      "requiredStory": "support ticket action inbox removal and object-linked comments use workflow lifecycle primitives before G008 CX claims maturity"
+    },
+    {
+      "path": "/financial",
+      "expectedDependency": "approval/payment line",
+      "requiredStory": "finance and procurement requests cannot claim maturity until purchase/payment lines are routed through the approval workflow lifecycle"
+    }
+  ],
+  "backendContracts": [
+    {
+      "file": "backend/app/src/workflow_studio.rs",
+      "contract": "Workflow Studio is not cosmetic configuration: it exposes versioned simulate/publish lifecycle, internal connectors, required approval and payment lines, passkey step-up, audit, and request instrumentation.",
+      "requiredSnippets": [
+        "WORKFLOW_STUDIO_DEFINITION_SIMULATE_PATH_TEMPLATE",
+        "WORKFLOW_STUDIO_DEFINITION_PUBLISH_PATH_TEMPLATE",
+        "internal.approvals",
+        "internal.notifications",
+        "internal.mail",
+        "internal.audit",
+        "purchase_payment_approval",
+        "required_payment_line: true",
+        "validate_publishable",
+        "missing_approval_line",
+        "missing_payment_line",
+        "verify_workflow_step_up",
+        "passkey_step_up_required",
+        "with_audit",
+        "record_workflow_studio_request"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0069_create_workflow_studio.sql",
+      "contract": "Workflow definitions, versions, and events are RLS-scoped and append-only where needed; approval/payment lines and notification rules are persisted for review and rollback history.",
+      "requiredSnippets": [
+        "workflow_definitions",
+        "workflow_definition_versions",
+        "workflow_definition_events",
+        "approval_line",
+        "payment_line",
+        "notification_rules",
+        "required_approval_line",
+        "required_payment_line",
+        "workflow_studio_append_only_immutable",
+        "CREATE POLICY org_isolation",
+        "GRANT SELECT, INSERT, UPDATE, DELETE ON workflow_definitions"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0068_work_order_approval_decision_comments.sql",
+      "contract": "Approval decisions are signing-equivalent events and must persist reviewer comment or rejection memo text with the approval step.",
+      "requiredSnippets": [
+        "signing-equivalent business events",
+        "decision_comment",
+        "work_order_approval_steps"
+      ]
+    },
+    {
+      "file": "backend/crates/workorder/rest/src/lib.rs",
+      "contract": "Approval feeds are server-owned and scoped; terminal work orders are removed, and each item deep-links to its source object or planned-work target.",
+      "requiredSnippets": [
+        "/api/approval-items",
+        "list_approval_items",
+        "REPORT_SUBMITTED",
+        "ADMIN_REVIEW",
+        "NOT IN ('FINAL_COMPLETED', 'REJECTED', 'ARCHIVED', 'CANCELLED')",
+        "/approvals?source=work-order&focus=",
+        "/daily-plan?planId=",
+        "#target-change-"
+      ]
+    },
+    {
+      "file": "backend/crates/workorder/adapter-postgres/src/lib.rs",
+      "contract": "Work-order approval and rejection require human rationale, persist decision_comment, create audit events, and daily plans keep requested/draft plans visible for review and confirmation.",
+      "requiredSnippets": [
+        "approval comment is required",
+        "reject memo is required",
+        "decision_comment",
+        "work_order.approve",
+        "work_order.reject",
+        "list_daily_plans",
+        "DRAFT/REQUESTED",
+        "daily_plan.review",
+        "daily_plan.confirm",
+        "create_outsource_work"
+      ]
+    },
+    {
+      "file": "backend/crates/workorder/domain/src/lib.rs",
+      "contract": "Domain transitions enforce ordered approval line completion and verified completion evidence before final completion can be reached.",
+      "requiredSnippets": [
+        "approval_line_complete",
+        "completion_evidence_verified",
+        "ApprovalLine",
+        "approve_next",
+        "FinalCompletionInterlock"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0008_create_work_orders.sql",
+      "contract": "Work order and daily plan tables carry explicit approval and status history lifecycles that UI queues must reflect.",
+      "requiredSnippets": [
+        "work_order_approval_steps",
+        "work_order_status_history",
+        "DRAFT",
+        "REQUESTED",
+        "APPROVED",
+        "REJECTED",
+        "FINAL_CONFIRMED"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0009_create_evidence_media.sql",
+      "contract": "Evidence images and files are first-class work-order objects with WORM verification and an admin queue for unverified artifacts.",
+      "requiredSnippets": [
+        "evidence_media",
+        "worm_replica_status",
+        "unverified_evidence_admin_queue"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0052_add_evidence_media_processing.sql",
+      "contract": "Evidence upload processing has explicit PROCESSING, READY, and FAILED lifecycle states so approval views can distinguish viewable images from pending artifacts.",
+      "requiredSnippets": [
+        "processing_status",
+        "PROCESSING",
+        "READY",
+        "FAILED"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0019_harden_worm_and_alert_leases.sql",
+      "contract": "Terminal work orders freeze completion evidence and notification leases prevent duplicate or stale alert state.",
+      "requiredSnippets": [
+        "evidence_media_reject_terminal_completion",
+        "FINAL_COMPLETED",
+        "ARCHIVED",
+        "CANCELLED",
+        "PENDING",
+        "SENT",
+        "FAILED"
+      ]
+    }
+  ],
+  "frontendContracts": [
+    {
+      "file": "web/src/pages/WorkflowStudioPage.tsx",
+      "contract": "Workflow Studio exposes real authoring lifecycle operations and blocks publish until required approval/payment lines and passkey step-up are present.",
+      "requiredSnippets": [
+        "assertPasskeyStepUp",
+        "createDraft",
+        "simulateDefinition",
+        "publishDefinition",
+        "pauseDefinition",
+        "rollbackDefinition",
+        "cloneDefinition",
+        "missingRequiredLines",
+        "requiredPaymentLine",
+        "history"
+      ]
+    },
+    {
+      "file": "web/src/pages/WorkHubPage.tsx",
+      "contract": "Work Hub is a group-aware enterprise action inbox that combines server approval, daily plan, messenger, support, urgency, and partial-failure states without client-side security assumptions.",
+      "requiredSnippets": [
+        "isActionableSupportTicket",
+        "messengerUnreadCount",
+        "urgentCount",
+        "approvalHref",
+        "buildApprovalItems",
+        "buildDailyItems",
+        "partialFailure",
+        "/api/approval-items"
+      ]
+    },
+    {
+      "file": "web/src/pages/ApprovalsPage.tsx",
+      "contract": "Approvals page consumes the federated server feed and routes approve/reject commands through comment-bearing actions.",
+      "requiredSnippets": [
+        "/api/approval-items",
+        "approveWorkOrder",
+        "rejectWorkOrder",
+        "ApprovalCommandCenter",
+        "ApprovalQueue"
+      ]
+    },
+    {
+      "file": "web/src/features/approvals/ApprovalQueue.tsx",
+      "contract": "Approval queue requires approval comment or rejection memo, lazily renders detail/evidence, and filters to actionable review statuses.",
+      "requiredSnippets": [
+        "approveComment",
+        "rejectMemo",
+        "requiredApproveComment",
+        "requiredRejectMemo",
+        "WorkOrderDetail",
+        "REPORT_SUBMITTED",
+        "ADMIN_REVIEW"
+      ]
+    },
+    {
+      "file": "web/src/pages/DailyPlanPage.tsx",
+      "contract": "Planned-work authoring starts from received work orders, requests review, records review decision, and supports final confirmation lifecycle.",
+      "requiredSnippets": [
+        "sourceWorkOrders",
+        "handleRequestReview",
+        "handleReview",
+        "handleConfirm",
+        "sourceWorkOrderPlaceholder"
+      ]
+    },
+    {
+      "file": "web/src/pages/WorkOrderDetailPage.tsx",
+      "contract": "Work order detail hosts dispatch/edit operations so dispatch control lives at the source object rather than on a disconnected board.",
+      "requiredSnippets": [
+        "WorkOrderDispatchControls",
+        "setPriority",
+        "requestSchedule",
+        "assignMechanics",
+        "forceAssign",
+        "createOutsourceWork"
+      ]
+    },
+    {
+      "file": "web/src/features/dispatch/WorkOrderDetail.tsx",
+      "contract": "Object detail renders evidence, approval line comments, and status history so managers can review what happened before approving or rejecting.",
+      "requiredSnippets": [
+        "WorkOrderEvidencePanel",
+        "WorkOrderApprovalPanel",
+        "WorkOrderTimelinePanel",
+        "decision_comment"
+      ]
+    },
+    {
+      "file": "web/src/features/support/support-format.ts",
+      "contract": "Support ticket lifecycle helpers keep resolved and closed tickets out of action inboxes while preserving reopen paths and SLA status.",
+      "requiredSnippets": [
+        "isActionableSupportTicket",
+        "RESOLVED",
+        "CLOSED"
+      ]
+    }
+  ],
+  "requiredE2eSpecs": [
+    "e2e/specs/platform-maturity-g005-workflow-lifecycle.spec.ts",
+    "e2e/specs/admin-26-workflow-studio.spec.ts",
+    "e2e/specs/admin-21-work-hub.spec.ts",
+    "e2e/specs/admin-07-approvals.spec.ts",
+    "e2e/specs/admin-08-daily-plan.spec.ts",
+    "e2e/specs/mech-09-daily-plan.spec.ts",
+    "e2e/specs/admin-09-dispatch.spec.ts",
+    "e2e/specs/mech-03-04-p1-dispatch.spec.ts",
+    "e2e/specs/mech-05-06-work-start-report.spec.ts"
+  ],
+  "requiredWebTests": [
+    "web/src/pages/WorkflowStudioPage.test.tsx",
+    "web/src/pages/WorkHubPage.test.tsx",
+    "web/src/pages/ApprovalsPage.test.tsx",
+    "web/src/features/approvals/ApprovalQueue.test.tsx",
+    "web/src/pages/DailyPlanPage.test.tsx",
+    "web/src/pages/WorkOrderDetailPage.test.tsx",
+    "web/src/features/dispatch/EvidenceUpload.test.tsx",
+    "web/src/features/dispatch/DispatchBoard.test.tsx"
+  ],
+  "requiredBackendTests": [
+    "backend/app/tests/workorder_api.rs",
+    "backend/crates/workorder/domain/tests/approval_and_assignment.rs",
+    "backend/crates/workorder/rest/tests/mobile_evidence.rs",
+    "backend/crates/platform/storage/tests/evidence_processing_rls_surfaces_as_runtime_role.rs"
+  ],
+  "safetyAssertions": [
+    "Workflow publish, pause, rollback, clone, approval decisions, payment-line changes, and terminal status changes are signing-equivalent or sensitive actions and require passkey or equivalent step-up where implemented.",
+    "Workflow Builder must prove simulate before publish and reject missing approval or payment lines for templates that require them.",
+    "Approval and rejection decisions require visible human comment or memo and store the actor, decision, and rationale for audit and timeline display.",
+    "Approval queues and Work Hub queues remove terminal, closed, archived, cancelled, approved, or rejected objects from actionable counts and badges.",
+    "Evidence images/files uploaded by mechanics remain viewable in manager approval context and cannot be attached after terminal completion.",
+    "Planned work must originate from a received work order or explicit source object so future analytics can use historical request, equipment, site, and approval context.",
+    "Urgent priority, notifications, badges, messenger/mail/work comments, and support tickets are linked to the source object instead of floating as disconnected widgets.",
+    "Work-order detail is the canonical source-object control surface for dispatch edits, mechanic assignment, priority, schedule change, evidence, approval, and history.",
+    "Group admins see consolidated queues and can scope into subsidiaries only when workflow policy grants access; wrong-org approvals or edits are denied.",
+    "Live screenshot/trace/Argo closure remains G009 unless captured by production browser evidence."
+  ]
+}

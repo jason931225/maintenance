@@ -1,0 +1,331 @@
+{
+  "schemaVersion": 1,
+  "goalId": "G004-identity-group-org-people-policy-fou",
+  "updatedAt": "2026-06-30",
+  "purpose": "Machine-readable identity/group/org/people/policy foundation contract for the platform-maturity ultragoal. This gate proves repo-local implementation, tests, route ownership, RLS/audit/passkey contracts, and no-false-live-claim evidence before downstream domain lanes depend on identity foundations.",
+  "nonClaimPolicy": "G004 may prove local contract and regression coverage. Live rollout, production screenshot/trace closure, and Argo evidence remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a blocker for rollout claims, not as live closure.",
+  "routePaths": [
+    {
+      "path": "/login",
+      "routeGroup": "auth",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "desktop passkey, QR-to-mobile handoff, mobile passkey, stale OTP denial, and audit actor match"
+    },
+    {
+      "path": "/onboarding",
+      "routeGroup": "auth",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "first login setup cannot bypass passkey enrollment or consent gates"
+    },
+    {
+      "path": "/pending",
+      "routeGroup": "auth",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "pending setup users remain 설정 대기 and cannot be counted as active"
+    },
+    {
+      "path": "/platform",
+      "routeGroup": "platform",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "platform admin can manage metadata without tenant-private data leakage"
+    },
+    {
+      "path": "/platform/tenants",
+      "routeGroup": "platform",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "platform admin can manage tenant lifecycle under audit"
+    },
+    {
+      "path": "/platform/groups",
+      "routeGroup": "platform",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "platform admin can manage group registry, group accounts, and group slug/name"
+    },
+    {
+      "path": "/platform/ops",
+      "routeGroup": "platform",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "platform admin can view platform operations/audit without cross-tenant content exposure"
+    },
+    {
+      "path": "/platform/onboard",
+      "routeGroup": "platform",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "platform onboarding uses audited tenant creation and deny paths"
+    },
+    {
+      "path": "/platform/account",
+      "routeGroup": "platform",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "platform account settings support passkeys, OTP self-service, and scoped audit"
+    },
+    {
+      "path": "/settings",
+      "routeGroup": "settings",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "settings index routes each role to the appropriate account, org, group, policy, or security surface"
+    },
+    {
+      "path": "/settings/profile",
+      "routeGroup": "auth",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "profile/security self-service supports passkeys and does not expose admin-only operations"
+    },
+    {
+      "path": "/settings/security",
+      "routeGroup": "auth",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "security settings cover passkey list, QR handoff, and sensitive action step-up"
+    },
+    {
+      "path": "/settings/users",
+      "routeGroup": "identity-admin",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "admin can issue OTP/reset credentials without marking setup-pending users active"
+    },
+    {
+      "path": "/settings/group",
+      "routeGroup": "group-org",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "group admin can view consolidated group and switch each subsidiary scope"
+    },
+    {
+      "path": "/settings/org",
+      "routeGroup": "group-org",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "org admin manages regions/branches/org chart boundaries within authorized org"
+    },
+    {
+      "path": "/settings/employees",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "employee lifecycle covers onboard/offboard/terminate/transfer with signoffs and policy-bound sensitive fields"
+    },
+    {
+      "path": "/settings/policy",
+      "routeGroup": "policy",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "policy manager can create/edit/simulate custom PBAC/RBAC/ABAC policies, grant roles after preview/passkey, deny unauthorized grants, and audit actor match"
+    }
+  ],
+  "backendContracts": [
+    {
+      "file": "backend/crates/platform/db/migrations/0060_create_groups_and_membership.sql",
+      "contract": "Group is not a tenant; cross-tenant group membership tables are owner-only and exposed only through SECURITY DEFINER resolvers that restore RLS.",
+      "requiredSnippets": [
+        "A Group is NOT a tenant",
+        "group_member_org_ids",
+        "group_role_grants_for_user",
+        "REVOKE ALL ON groups, group_memberships, group_role_grants",
+        "SET LOCAL row_security = on"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0064_platform_group_accounts.sql",
+      "contract": "Platform can edit groups and create/revoke group accounts without direct runtime access to raw group authorization tables.",
+      "requiredSnippets": [
+        "platform_update_group",
+        "platform_list_group_accounts",
+        "platform_create_group_account",
+        "platform_revoke_group_role",
+        "PENDING_SETUP"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0065_create_policy_roles.sql",
+      "contract": "Custom PBAC/RBAC/ABAC policy substrate has versioned roles, permissions, conditions, assignments, preview receipts, RLS, and current org isolation.",
+      "requiredSnippets": [
+        "policy_roles",
+        "policy_role_permissions",
+        "policy_role_conditions",
+        "user_role_assignments",
+        "policy_assignment_preview_receipts",
+        "'group'",
+        "'tenant'",
+        "'organization'",
+        "'department'",
+        "'team'",
+        "'position'",
+        "'employment_status'",
+        "'action'",
+        "'resource'",
+        "'sensitive_action'",
+        "CREATE POLICY org_isolation"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0067_auth_device_login_handoff.sql",
+      "contract": "Desktop QR login is a mobile-authenticates-PC handoff, not phone-only login; phone must prove existing passkey possession and no DELETE grant is exposed.",
+      "requiredSnippets": [
+        "Cross-device passkey login handoff",
+        "poll_token_hash",
+        "approve_token_hash",
+        "phone must prove possession of an existing passkey",
+        "GRANT SELECT, INSERT, UPDATE ON auth_device_login_handoffs TO mnt_rt"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0071_create_employee_lifecycle_events.sql",
+      "contract": "Employee lifecycle events are append-only, RLS-isolated, and preserve Korean labor/payroll/privacy signoff evidence for onboard/offboard/terminate/transfer.",
+      "requiredSnippets": [
+        "ONBOARD",
+        "OFFBOARD",
+        "TERMINATE",
+        "TRANSFER",
+        "signoffs",
+        "employee_lifecycle_events is append-only",
+        "CREATE POLICY org_isolation"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0030_enable_rls.sql",
+      "contract": "Core tenant data tables use RLS and current-org isolation for read/write paths.",
+      "requiredSnippets": [
+        "ENABLE ROW LEVEL SECURITY",
+        "CREATE POLICY org_isolation",
+        "app.current_org"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0031_runtime_role_and_immutable_org.sql",
+      "contract": "Runtime role and immutable org-id triggers prevent cross-org mutation drift.",
+      "requiredSnippets": [
+        "mnt_rt",
+        "enforce_org_id_immutable",
+        "GRANT SELECT, INSERT, UPDATE, DELETE"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0035_enable_rls_rollout.sql",
+      "contract": "Rollout tables force RLS and audit events remain org-isolated.",
+      "requiredSnippets": [
+        "ENABLE + FORCE RLS",
+        "CREATE POLICY org_isolation ON audit_events",
+        "ALTER TABLE"
+      ]
+    }
+  ],
+  "frontendContracts": [
+    {
+      "file": "web/src/pages/UsersPage.tsx",
+      "contract": "User management distinguishes active vs setup-pending, supports OTP issue and passkey reset, and protects elevated role grants.",
+      "requiredSnippets": [
+        "resetUserCredentials",
+        "issueAdminOtp",
+        "account_status",
+        "PENDING_SETUP",
+        "ELEVATED_ROLES"
+      ]
+    },
+    {
+      "file": "web/src/pages/PolicyStudioPage.tsx",
+      "contract": "Policy Studio supports PBAC/RBAC/ABAC conditions, preview acknowledgement, passkey step-up, and audit event review.",
+      "requiredSnippets": [
+        "assertPasskeyStepUp",
+        "CONDITION_ATTRIBUTES",
+        "assignmentPreviewAcknowledged",
+        "auditEvents",
+        "PolicyAuditEventResponse"
+      ]
+    },
+    {
+      "file": "web/src/pages/GroupAdminPage.tsx",
+      "contract": "Group admin can switch subsidiary scope and use group-wide module access without confusing group and tenant identity.",
+      "requiredSnippets": [
+        "startGroupTenantContext",
+        "GROUP_ADMIN_MODULE_GROUPS",
+        "enterViewAs",
+        "viewAs"
+      ]
+    },
+    {
+      "file": "web/src/pages/EmployeesPage.tsx",
+      "contract": "People operations expose employee lifecycle, transfers, signoffs, and status changes as first-class operations.",
+      "requiredSnippets": [
+        "PeopleOperationsPanel",
+        "ONBOARD",
+        "OFFBOARD",
+        "TERMINATE",
+        "TRANSFER",
+        "signoffs"
+      ]
+    },
+    {
+      "file": "web/src/pages/OrgPage.tsx",
+      "contract": "Organization management separates regions and branches with guarded create/edit/delete flows.",
+      "requiredSnippets": [
+        "regions",
+        "branches",
+        "createBranch",
+        "createRegion",
+        "GuardConflictError"
+      ]
+    },
+    {
+      "file": "web/src/features/auth/EnrollHandoffQr.tsx",
+      "contract": "QR handoff UI clearly represents phone approval of desktop login and completion polling.",
+      "requiredSnippets": [
+        "EnrollHandoffQr",
+        "approve",
+        "poll",
+        "onComplete"
+      ]
+    },
+    {
+      "file": "web/src/features/group/GroupScopeSwitcher.tsx",
+      "contract": "Group scope switcher lets authorized users move between group-all and subsidiary view-as contexts.",
+      "requiredSnippets": [
+        "GroupScopeSwitcher",
+        "startGroupTenantContext",
+        "enterViewAs",
+        "exitViewAs"
+      ]
+    }
+  ],
+  "requiredE2eSpecs": [
+    "e2e/specs/platform-maturity-g004-identity-foundation.spec.ts",
+    "e2e/specs/auth-08-phone-qr-handoff.spec.ts",
+    "e2e/specs/auth-06-passkey-list.spec.ts",
+    "e2e/specs/auth-06b-passkey-ui.spec.ts",
+    "e2e/specs/auth-07-open-signup.spec.ts",
+    "e2e/specs/admin-16-auth-08-recovery.spec.ts",
+    "e2e/specs/admin-sadmin-elevated.spec.ts",
+    "e2e/specs/admin-25-policy-studio.spec.ts",
+    "e2e/specs/admin-24-hr-core.spec.ts",
+    "e2e/specs/admin-01-03-users.spec.ts",
+    "e2e/specs/tenant-neg-platform.spec.ts",
+    "e2e/specs/plat-01-tenants-health.spec.ts",
+    "e2e/specs/plat-02-onboard.spec.ts"
+  ],
+  "requiredWebTests": [
+    "web/src/pages/UsersPage.test.tsx",
+    "web/src/pages/PolicyStudioPage.test.tsx",
+    "web/src/pages/GroupAdminPage.test.tsx",
+    "web/src/pages/EmployeesPage.test.tsx",
+    "web/src/pages/OrgPage.test.tsx",
+    "web/src/features/auth/SecurityPanel.test.tsx",
+    "web/src/features/group/GroupScopeSwitcher.test.tsx"
+  ],
+  "requiredBackendTests": [
+    "backend/app/tests/auth_rest.rs",
+    "backend/app/tests/platform_onboarding_e2e.rs",
+    "backend/app/tests/tenant_context_e2e.rs",
+    "backend/app/tests/audit_api.rs",
+    "backend/crates/platform/authz/tests/policy.rs",
+    "backend/crates/identity/rest/tests/org_setup.rs",
+    "backend/crates/platform/platform-rest/tests/platform_groups.rs",
+    "backend/crates/platform/provisioning/tests/bootstrap_passkey.rs",
+    "backend/crates/platform/provisioning/tests/self_enroll_handoff_as_runtime_role.rs"
+  ],
+  "safetyAssertions": [
+    "Group is not a tenant and group authorization tables are owner-only.",
+    "Platform support/admin manages metadata without tenant-private data leakage.",
+    "Desktop QR login path is desktop starts handoff -> mobile proves passkey -> desktop session completes.",
+    "Pending setup users are not shown as active until passkey setup is complete.",
+    "Sensitive role/policy changes require preview, passkey step-up, and immutable audit evidence.",
+    "Custom policy is modeled as PBAC/RBAC/ABAC role definitions, permissions, conditions, assignments, and scoped preview receipts.",
+    "Employee lifecycle handles onboarding, offboarding, termination, and intra-group transfer as append-only legal/payroll signoff events.",
+    "Unauthorized cross-org/group grants and scope switches are denied and visible in tests/gates.",
+    "Live screenshot/trace/Argo closure remains G009 unless captured by production browser evidence."
+  ]
+}

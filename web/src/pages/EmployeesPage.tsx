@@ -33,7 +33,8 @@ import { formatListCount } from "../lib/utils";
 const EMPLOYEE_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 
 type ReadState = "loading" | "idle" | "error";
-type UploadState = "idle" | "previewing" | "dryRunning" | "applying" | "exporting" | "error";
+type UploadState =
+  "idle" | "previewing" | "dryRunning" | "applying" | "exporting" | "error";
 const LIFECYCLE_EVENT_TYPES = [
   "ONBOARD",
   "OFFBOARD",
@@ -355,8 +356,11 @@ function PeopleOperationsPanel({
 }) {
   const t = ko.employees.operations;
   const statusCounts = countEmploymentStatuses(visibleEmployees);
+  const identityCounts = countIdentityResolution(visibleEmployees);
   const scopeLabel =
-    selectedCompany === "all" ? t.groupScope : `${selectedCompany} ${t.orgScope}`;
+    selectedCompany === "all"
+      ? t.groupScope
+      : `${selectedCompany} ${t.orgScope}`;
   const cards = [
     {
       title: t.scope.title,
@@ -379,8 +383,17 @@ function PeopleOperationsPanel({
       meta: t.policy.meta,
     },
     {
+      title: t.identity.title,
+      value: t.identity.value
+        .replace("{review}", formatListCount(identityCounts.reviewRequired))
+        .replace("{high}", formatListCount(identityCounts.highConfidence)),
+      meta: t.identity.meta,
+    },
+    {
       title: t.importControls.title,
-      value: canImport ? t.importControls.adminValue : t.importControls.readValue,
+      value: canImport
+        ? t.importControls.adminValue
+        : t.importControls.readValue,
       meta: t.importControls.meta,
     },
   ];
@@ -404,7 +417,7 @@ function PeopleOperationsPanel({
           </Button>
         </div>
       </div>
-      <dl className="grid gap-3 lg:grid-cols-4">
+      <dl className="grid gap-3 lg:grid-cols-5">
         {cards.map((card) => (
           <div
             key={card.title}
@@ -620,6 +633,7 @@ function EmployeeTable({
             <th className="px-4 py-3">{t.columns.company}</th>
             <th className="px-4 py-3">{t.columns.employeeNumber}</th>
             <th className="px-4 py-3">{t.columns.orgUnit}</th>
+            <th className="px-4 py-3">{t.columns.identity}</th>
             <th className="px-4 py-3">{t.columns.worksite}</th>
             <th className="px-4 py-3">{t.columns.job}</th>
             <th className="px-4 py-3">{t.columns.position}</th>
@@ -642,6 +656,9 @@ function EmployeeTable({
               </td>
               <td className="px-4 py-3 text-steel">
                 {text(employee.org_unit)}
+              </td>
+              <td className="px-4 py-3">
+                <IdentityResolutionBadge employee={employee} />
               </td>
               <td className="px-4 py-3 text-steel">
                 {text(employee.worksite_name ?? employee.worksite)}
@@ -679,6 +696,43 @@ function EmployeeTable({
   );
 }
 
+function IdentityResolutionBadge({
+  employee,
+}: {
+  employee: EmployeeDirectoryItem;
+}) {
+  const t = ko.employees.identity;
+  const reviewRequired = employee.identity_review_required;
+  const confidence = employee.identity_resolution_confidence;
+  const strategy = employee.identity_resolution_strategy;
+  const confidenceLabel =
+    confidence === "high"
+      ? t.highConfidence
+      : confidence === "medium"
+        ? t.mediumConfidence
+        : t.lowConfidence;
+  const strategyLabel = t.strategies[strategy];
+
+  return (
+    <div className="flex min-w-32 flex-col gap-1">
+      <span
+        className={[
+          "inline-flex w-fit rounded-full border px-2 py-0.5 text-xs font-semibold",
+          reviewRequired
+            ? "border-amber-300 bg-amber-50 text-amber-900"
+            : "border-emerald-300 bg-emerald-50 text-emerald-800",
+        ].join(" ")}
+      >
+        {reviewRequired ? t.reviewRequired : confidenceLabel}
+      </span>
+      <span className="text-xs text-steel">{strategyLabel}</span>
+      {employee.identity_name_only_merge ? null : (
+        <span className="text-xs text-steel">{t.nameOnlyBlocked}</span>
+      )}
+    </div>
+  );
+}
+
 function EmployeeLifecyclePanel({
   api,
   employee,
@@ -690,9 +744,9 @@ function EmployeeLifecyclePanel({
 }) {
   const t = ko.employees.lifecycle;
   const [events, setEvents] = useState<EmployeeLifecycleEvent[]>([]);
-  const [state, setState] = useState<"loading" | "idle" | "submitting" | "error">(
-    "loading",
-  );
+  const [state, setState] = useState<
+    "loading" | "idle" | "submitting" | "error"
+  >("loading");
   const [eventType, setEventType] =
     useState<EmployeeLifecycleEventType>("TRANSFER");
   const [effectiveDate, setEffectiveDate] = useState("");
@@ -1166,6 +1220,7 @@ function ImportPreview({
   onApply: () => void;
 }) {
   const t = ko.employees.import.previewPanel;
+  const mappingCounts = employeeImportMappingCounts(preview.columns);
   return (
     <section className="grid gap-3 rounded-lg border border-line bg-muted-panel/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1173,7 +1228,9 @@ function ImportPreview({
           <h3 className="font-semibold text-ink">{t.title}</h3>
           <p className="text-sm text-steel">
             {preview.source_filename} · {t.hash}{" "}
-            <code className="font-mono text-xs">{preview.source_sha256.slice(0, 12)}</code>
+            <code className="font-mono text-xs">
+              {preview.source_sha256.slice(0, 12)}
+            </code>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1194,6 +1251,44 @@ function ImportPreview({
           </Button>
         </div>
       </div>
+      <dl
+        aria-label={t.mappingSummary}
+        className="grid gap-2 text-sm sm:grid-cols-4"
+      >
+        {(
+          [
+            [
+              t.mappedColumns,
+              mappingCounts.canonical,
+              "bg-emerald-50 text-emerald-800",
+            ],
+            [
+              t.maskedColumns,
+              mappingCounts.restricted,
+              "bg-amber-50 text-amber-800",
+            ],
+            [
+              t.locationColumns,
+              mappingCounts.location,
+              "bg-blue-50 text-blue-800",
+            ],
+            [
+              t.rawOnlyColumns,
+              mappingCounts.retained,
+              "bg-slate-100 text-slate-800",
+            ],
+          ] as const
+        ).map(([label, value, className]) => (
+          <div key={label} className="rounded border border-line bg-white p-3">
+            <dt className="text-xs font-semibold text-steel">{label}</dt>
+            <dd
+              className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${className}`}
+            >
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
       <dl className="grid gap-2 text-sm sm:grid-cols-3">
         <div>
           <dt className="font-semibold text-steel">{t.inputRows}</dt>
@@ -1224,10 +1319,16 @@ function ImportPreview({
                   {column.source_header || column.normalized_header}
                 </td>
                 <td className="px-3 py-2 text-steel">
-                  {column.target ?? t.rawOnly}
+                  <span className="font-medium text-ink">
+                    {employeeImportTargetLabel(column.target)}
+                  </span>
                 </td>
-                <td className="px-3 py-2 text-steel">
-                  {column.preview_allowed ? t.previewAllowed : t.masked}
+                <td className="px-3 py-2">
+                  <span
+                    className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${employeeImportPolicyClass(column.classification)}`}
+                  >
+                    {employeeImportPolicyLabel(column.classification)}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -1255,7 +1356,10 @@ function ImportPreview({
                 </td>
                 <td className="px-3 py-2 text-steel">{row.row_status}</td>
                 {preview.columns.slice(0, 8).map((column) => (
-                  <td key={column.normalized_header} className="px-3 py-2 text-steel">
+                  <td
+                    key={column.normalized_header}
+                    className="px-3 py-2 text-steel"
+                  >
                     {textValue(row.values[column.normalized_header])}
                   </td>
                 ))}
@@ -1266,6 +1370,42 @@ function ImportPreview({
       </div>
     </section>
   );
+}
+
+type EmployeeImportColumn = EmployeeImportPreview["columns"][number];
+
+function employeeImportMappingCounts(columns: EmployeeImportColumn[]) {
+  return columns.reduce(
+    (counts, column) => {
+      const { classification } = column;
+      counts[classification] += 1;
+      return counts;
+    },
+    { canonical: 0, restricted: 0, location: 0, retained: 0 },
+  );
+}
+
+function employeeImportTargetLabel(
+  target: EmployeeImportColumn["target"],
+): string {
+  if (!target) return ko.employees.import.previewPanel.rawOnly;
+  const { targetLabels } = ko.employees.import.previewPanel;
+  return targetLabels[target];
+}
+
+function employeeImportPolicyLabel(classification: string): string {
+  const t = ko.employees.import.previewPanel;
+  if (classification === "canonical") return t.previewAllowed;
+  if (classification === "restricted") return t.masked;
+  if (classification === "location") return t.locationMasked;
+  return t.rawOnly;
+}
+
+function employeeImportPolicyClass(classification: string): string {
+  if (classification === "canonical") return "bg-emerald-50 text-emerald-800";
+  if (classification === "restricted") return "bg-amber-50 text-amber-800";
+  if (classification === "location") return "bg-blue-50 text-blue-800";
+  return "bg-slate-100 text-slate-800";
 }
 
 function ImportDryRunSummary({ summary }: { summary: EmployeeImportDryRun }) {
@@ -1340,6 +1480,24 @@ function countEmploymentStatuses(employees: EmployeeDirectoryItem[]): {
   );
 }
 
+function countIdentityResolution(employees: EmployeeDirectoryItem[]): {
+  reviewRequired: number;
+  highConfidence: number;
+} {
+  return employees.reduce(
+    (counts, employee) => {
+      if (employee.identity_review_required) {
+        counts.reviewRequired += 1;
+      }
+      if (employee.identity_resolution_confidence === "high") {
+        counts.highConfidence += 1;
+      }
+      return counts;
+    },
+    { reviewRequired: 0, highConfidence: 0 },
+  );
+}
+
 function employeeName(employee: EmployeeDirectoryItem): string {
   return text(employee.name);
 }
@@ -1358,7 +1516,11 @@ function lifecycleToStatus(
 
 function textValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return String(value);
   }
   return JSON.stringify(value);

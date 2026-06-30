@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-29",
-  "purpose": "Machine-readable route-to-enterprise-parity coverage for the G023 no-text-wall gate.",
+  "updatedAt": "2026-06-30",
+  "purpose": "Machine-readable route-to-enterprise-parity coverage for the current G002 shared hard gate and G003 browser-persona evidence plan.",
   "qualityGateSource": "docs/benchmarks/enterprise-parity-matrix.md#quality-gates-for-every-future-slice",
   "routeCoverage": [
     {
@@ -17,7 +17,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "public storefront visitor/customer entry; G009 public-cx E2E evidence .omx/context/public-cx/g009-completion-evidence-20260629.md",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/home",
@@ -32,7 +40,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "public storefront alias; G009 public-cx E2E evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/landing",
@@ -47,7 +63,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "landing alias; legal/cookie/footer/semver gate in G009",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/rental",
@@ -61,8 +85,16 @@
         "employee",
         "platform-admin"
       ],
-      "roleStoryEvidence": "rental marketplace visitor path routed to contact inquiry lifecycle; G009 public sales evidence and G026 sales/CX maturity gate",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "rental marketplace visitor path routed to contact inquiry lifecycle; G009 public sales evidence and G008 sales/CX maturity gate",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/used",
@@ -76,8 +108,16 @@
         "employee",
         "platform-admin"
       ],
-      "roleStoryEvidence": "used asset marketplace visitor path routed to contact inquiry lifecycle; G009 public sales evidence and G026 sales/CX maturity gate",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "used asset marketplace visitor path routed to contact inquiry lifecycle; G009 public sales evidence and G008 sales/CX maturity gate",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/maintenance",
@@ -92,7 +132,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "public maintenance-service entry; G009 routing to contact/support evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/about",
@@ -107,7 +155,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "public trust/about content; G009 legal/footer evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/contact",
@@ -121,8 +177,16 @@
         "employee",
         "platform-admin"
       ],
-      "roleStoryEvidence": "commercial lead capture posts storefront inquiries; G009 browser flow and G026 sales/CX maturity gate",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "commercial lead capture posts storefront inquiries; G009 browser flow and G008 sales/CX maturity gate",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/privacy",
@@ -137,7 +201,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "privacy/cookie/legal notice route; G009 legal/cookie evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/platform-fsm",
@@ -152,7 +224,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "public platform FSM explainer tied to workflow roadmap, not an operational dead screen",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/support/new",
@@ -167,7 +247,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "public customer support intake; G009 support intake E2E",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 public/CX/legal trust lane with G003 browser-persona evidence and G009 rollout proof",
+      "dataClass": "public company, customer inquiry, cookie/privacy preference, and public marketplace metadata",
+      "sourceObject": "storefront page, customer inquiry, privacy/cookie notice, or public support intake object",
+      "lifecycleStates": "public loading, empty listing, validation error, submitted, unavailable, and safe fallback states",
+      "e2eSpec": "Required browser story: public visitor legal trust to inquiry/support/sales flow with screenshot and trace evidence",
+      "denialScopeTest": "Public route has no role denial; forms must test consent/validation/rate-limit or unavailable-state denial",
+      "screenshotTraceEvidence": "Pending G003/G008 live browser screenshot and trace; existing role/accessibility evidence remains non-terminal proof",
+      "groupScopeStory": "Not group-scoped for viewers; submitted inquiries must later route into authorized group/org support scopes"
     },
     {
       "rawPath": "/login",
@@ -182,7 +270,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "employee/admin passkey/OTP entry; G003 passkey/policy E2E evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/account/policy foundation lane plus G002 passkey/audit hard gate",
+      "dataClass": "identity, credential, passkey device, account lifecycle, role grant, audit metadata, and security setting data",
+      "sourceObject": "account, session, passkey credential, OTP setup, role assignment, or security policy object",
+      "lifecycleStates": "unauthenticated, setup-pending, active, denied, recovery, suspended, revoked, and audited terminal states",
+      "e2eSpec": "Required browser/mobile story: desktop passkey, QR-to-mobile handoff, mobile passkey, role grant denial and audit",
+      "denialScopeTest": "Unauthenticated redirect, insufficient role denial, stale OTP rejection, passkey step-up required, and audit actor match",
+      "screenshotTraceEvidence": "Pending G003/G004 auth trace and screenshots; current row evidence must not be treated as live closure",
+      "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
     },
     {
       "rawPath": "/onboarding",
@@ -197,7 +293,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "initial account/passkey/legal agreement setup; G003 auth/policy E2E",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/account/policy foundation lane plus G002 passkey/audit hard gate",
+      "dataClass": "identity, credential, passkey device, account lifecycle, role grant, audit metadata, and security setting data",
+      "sourceObject": "account, session, passkey credential, OTP setup, role assignment, or security policy object",
+      "lifecycleStates": "unauthenticated, setup-pending, active, denied, recovery, suspended, revoked, and audited terminal states",
+      "e2eSpec": "Required browser/mobile story: desktop passkey, QR-to-mobile handoff, mobile passkey, role grant denial and audit",
+      "denialScopeTest": "Unauthenticated redirect, insufficient role denial, stale OTP rejection, passkey step-up required, and audit actor match",
+      "screenshotTraceEvidence": "Pending G003/G004 auth trace and screenshots; current row evidence must not be treated as live closure",
+      "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
     },
     {
       "rawPath": "/pending",
@@ -212,7 +316,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "least-privilege pending member state; G003 signup-state split evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/account/policy foundation lane plus G002 passkey/audit hard gate",
+      "dataClass": "identity, credential, passkey device, account lifecycle, role grant, audit metadata, and security setting data",
+      "sourceObject": "account, session, passkey credential, OTP setup, role assignment, or security policy object",
+      "lifecycleStates": "unauthenticated, setup-pending, active, denied, recovery, suspended, revoked, and audited terminal states",
+      "e2eSpec": "Required browser/mobile story: desktop passkey, QR-to-mobile handoff, mobile passkey, role grant denial and audit",
+      "denialScopeTest": "Unauthenticated redirect, insufficient role denial, stale OTP rejection, passkey step-up required, and audit actor match",
+      "screenshotTraceEvidence": "Pending G003/G004 auth trace and screenshots; current row evidence must not be treated as live closure",
+      "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
     },
     {
       "rawPath": "/platform",
@@ -224,7 +336,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "platform console index; PlatformConsole.test.tsx + G006/G010 platform evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 platform tenant/group/account management with G002 policy and G009 rollout verification",
+      "dataClass": "platform metadata, tenant/group registry, onboarding state, operational health, audit/log metadata",
+      "sourceObject": "tenant, group, platform account, onboarding request, platform operation, or audit-log object",
+      "lifecycleStates": "loading, empty tenant/group, pending onboarding, active, suspended, denied, failed operation, audited closure",
+      "e2eSpec": "Required browser story: platform admin manages tenants/groups/accounts/logs without reading tenant-private content",
+      "denialScopeTest": "Non-platform user denial, metadata-only platform support access, tenant-private data denial, and audit-log visibility test",
+      "screenshotTraceEvidence": "Pending G003/G004 platform-admin screenshot and trace; route row is an ownership gate until captured",
+      "groupScopeStory": "Platform can manage group registry metadata; group-private subsidiary data stays behind group/org policy scopes"
     },
     {
       "rawPath": "tenants",
@@ -236,7 +356,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "tenant management; PlatformConsole.test.tsx",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 platform tenant/group/account management with G002 policy and G009 rollout verification",
+      "dataClass": "platform metadata, tenant/group registry, onboarding state, operational health, audit/log metadata",
+      "sourceObject": "tenant, group, platform account, onboarding request, platform operation, or audit-log object",
+      "lifecycleStates": "loading, empty tenant/group, pending onboarding, active, suspended, denied, failed operation, audited closure",
+      "e2eSpec": "Required browser story: platform admin manages tenants/groups/accounts/logs without reading tenant-private content",
+      "denialScopeTest": "Non-platform user denial, metadata-only platform support access, tenant-private data denial, and audit-log visibility test",
+      "screenshotTraceEvidence": "Pending G003/G004 platform-admin screenshot and trace; route row is an ownership gate until captured",
+      "groupScopeStory": "Platform can manage group registry metadata; group-private subsidiary data stays behind group/org policy scopes"
     },
     {
       "rawPath": "groups",
@@ -249,7 +377,15 @@
         "group-admin"
       ],
       "roleStoryEvidence": "group management; PlatformGroupsPage.test/G006 group admin evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 platform tenant/group/account management with G002 policy and G009 rollout verification",
+      "dataClass": "platform metadata, tenant/group registry, onboarding state, operational health, audit/log metadata",
+      "sourceObject": "tenant, group, platform account, onboarding request, platform operation, or audit-log object",
+      "lifecycleStates": "loading, empty tenant/group, pending onboarding, active, suspended, denied, failed operation, audited closure",
+      "e2eSpec": "Required browser story: platform admin manages tenants/groups/accounts/logs without reading tenant-private content",
+      "denialScopeTest": "Non-platform user denial, metadata-only platform support access, tenant-private data denial, and audit-log visibility test",
+      "screenshotTraceEvidence": "Pending G003/G004 platform-admin screenshot and trace; route row is an ownership gate until captured",
+      "groupScopeStory": "Platform can manage group registry metadata; group-private subsidiary data stays behind group/org policy scopes"
     },
     {
       "rawPath": "ops",
@@ -261,7 +397,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "platform ops/logs; PlatformConsole.test.tsx",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 platform tenant/group/account management with G002 policy and G009 rollout verification",
+      "dataClass": "platform metadata, tenant/group registry, onboarding state, operational health, audit/log metadata",
+      "sourceObject": "tenant, group, platform account, onboarding request, platform operation, or audit-log object",
+      "lifecycleStates": "loading, empty tenant/group, pending onboarding, active, suspended, denied, failed operation, audited closure",
+      "e2eSpec": "Required browser story: platform admin manages tenants/groups/accounts/logs without reading tenant-private content",
+      "denialScopeTest": "Non-platform user denial, metadata-only platform support access, tenant-private data denial, and audit-log visibility test",
+      "screenshotTraceEvidence": "Pending G003/G004 platform-admin screenshot and trace; route row is an ownership gate until captured",
+      "groupScopeStory": "Platform can manage group registry metadata; group-private subsidiary data stays behind group/org policy scopes"
     },
     {
       "rawPath": "onboard",
@@ -273,7 +417,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "tenant onboarding; PlatformConsole.test.tsx",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 platform tenant/group/account management with G002 policy and G009 rollout verification",
+      "dataClass": "platform metadata, tenant/group registry, onboarding state, operational health, audit/log metadata",
+      "sourceObject": "tenant, group, platform account, onboarding request, platform operation, or audit-log object",
+      "lifecycleStates": "loading, empty tenant/group, pending onboarding, active, suspended, denied, failed operation, audited closure",
+      "e2eSpec": "Required browser story: platform admin manages tenants/groups/accounts/logs without reading tenant-private content",
+      "denialScopeTest": "Non-platform user denial, metadata-only platform support access, tenant-private data denial, and audit-log visibility test",
+      "screenshotTraceEvidence": "Pending G003/G004 platform-admin screenshot and trace; route row is an ownership gate until captured",
+      "groupScopeStory": "Platform can manage group registry metadata; group-private subsidiary data stays behind group/org policy scopes"
     },
     {
       "rawPath": "account",
@@ -285,7 +437,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "platform account/passkey settings; G003 account lifecycle evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 platform tenant/group/account management with G002 policy and G009 rollout verification",
+      "dataClass": "platform metadata, tenant/group registry, onboarding state, operational health, audit/log metadata",
+      "sourceObject": "tenant, group, platform account, onboarding request, platform operation, or audit-log object",
+      "lifecycleStates": "loading, empty tenant/group, pending onboarding, active, suspended, denied, failed operation, audited closure",
+      "e2eSpec": "Required browser story: platform admin manages tenants/groups/accounts/logs without reading tenant-private content",
+      "denialScopeTest": "Non-platform user denial, metadata-only platform support access, tenant-private data denial, and audit-log visibility test",
+      "screenshotTraceEvidence": "Pending G003/G004 platform-admin screenshot and trace; route row is an ownership gate until captured",
+      "groupScopeStory": "Platform can manage group registry metadata; group-private subsidiary data stays behind group/org policy scopes"
     },
     {
       "rawPath": "/settings/group",
@@ -297,7 +457,15 @@
         "group-admin"
       ],
       "roleStoryEvidence": "group admin subsidiary/account management; GroupAdminPage.test.tsx + G006 evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/group/org/people policy foundation with G008 HR/payroll legal gates",
+      "dataClass": "person, employee, employment episode, org unit, department, team, position, role, payroll-sensitive metadata",
+      "sourceObject": "person, account, employee record, employment episode, org unit, department/team/position, or lifecycle request",
+      "lifecycleStates": "candidate, invited, setup-pending, active, transferred, offboarding, terminated, retained, masked, archived",
+      "e2eSpec": "Required browser story: group admin manages org graph/person lifecycle with transfer/offboarding and policy/account links",
+      "denialScopeTest": "Sensitive HR/payroll fields denied outside authorized scope; terminated users inactive; no hard-delete without lawful workflow",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 people/HR screenshot and trace; legal signoff remains gated for regulated claims",
+      "groupScopeStory": "Group admin can view consolidated org graph and scope to each subsidiary while sensitive data remains policy-bound"
     },
     {
       "rawPath": "/settings/org",
@@ -310,7 +478,15 @@
         "group-admin"
       ],
       "roleStoryEvidence": "regions/branches org management; G006 HR/org lifecycle evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/group/org/people policy foundation with G008 HR/payroll legal gates",
+      "dataClass": "person, employee, employment episode, org unit, department, team, position, role, payroll-sensitive metadata",
+      "sourceObject": "person, account, employee record, employment episode, org unit, department/team/position, or lifecycle request",
+      "lifecycleStates": "candidate, invited, setup-pending, active, transferred, offboarding, terminated, retained, masked, archived",
+      "e2eSpec": "Required browser story: group admin manages org graph/person lifecycle with transfer/offboarding and policy/account links",
+      "denialScopeTest": "Sensitive HR/payroll fields denied outside authorized scope; terminated users inactive; no hard-delete without lawful workflow",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 people/HR screenshot and trace; legal signoff remains gated for regulated claims",
+      "groupScopeStory": "Group admin can view consolidated org graph and scope to each subsidiary while sensitive data remains policy-bound"
     },
     {
       "rawPath": "/settings/sites",
@@ -323,7 +499,15 @@
         "asset-manager"
       ],
       "roleStoryEvidence": "customer/site/geography management; G007 assets lifecycle evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/work-hub",
@@ -338,8 +522,16 @@
         "executive",
         "group-admin"
       ],
-      "roleStoryEvidence": "role-aware day/week action inbox; WorkHubPage.test.tsx asserts actionable queues and no reported text wall; G015 action inbox evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "role-aware day/week action inbox; WorkHubPage.test.tsx asserts actionable queues and no reported text wall; G007 action inbox evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
+      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object, messenger thread, mail notification, or collaboration badge",
+      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
+      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
+      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
+      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
+      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
     },
     {
       "rawPath": "/approvals",
@@ -352,8 +544,16 @@
         "admin",
         "group-admin"
       ],
-      "roleStoryEvidence": "universal approval center; ApprovalQueue tests + G013/G014 workflow approval evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "universal approval center; ApprovalQueue tests + G005-workflow-builder-approvals-work-hub approval evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
+      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object",
+      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
+      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
+      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
+      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
+      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
     },
     {
       "rawPath": "/settings/policy",
@@ -367,7 +567,15 @@
         "policy-admin"
       ],
       "roleStoryEvidence": "PBAC/RBAC/ABAC Policy Studio; PolicyStudioPage.test.tsx + G003 policy evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/account/policy foundation lane with G002 Gate A policy/audit/passkey hard gate",
+      "dataClass": "policy definition, role grant, attribute condition, permission test, delegation boundary, approval authority, audit metadata, and security setting data",
+      "sourceObject": "policy, role, permission, attribute rule, scope binding, policy simulation result, audit event, or approval authority object",
+      "lifecycleStates": "draft, simulated, active, denied, superseded, revoked, audited, and archived terminal states",
+      "e2eSpec": "Required browser story: create/edit custom PBAC/RBAC/ABAC role policy, simulate access, grant executive/admin authority, require passkey step-up, verify denial and audit actor match",
+      "denialScopeTest": "Policy manager can preview allowed/denied actions; unauthorized tenant/org/user cannot grant cross-scope privilege; sensitive policy changes require passkey and immutable audit event",
+      "screenshotTraceEvidence": "Pending G003/G004 policy studio screenshot and trace evidence; row blocks maturity until browser persona trace proves create/simulate/grant/deny lifecycle",
+      "groupScopeStory": "Group admins may manage group-level policy templates and subsidiary bindings only within their group; org admins may manage org-local policy only when delegated"
     },
     {
       "rawPath": "/settings/workflows",
@@ -381,8 +589,16 @@
         "workflow-admin",
         "manager"
       ],
-      "roleStoryEvidence": "no-code Workflow Studio; G014 schema/API/UI/E2E evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "no-code Workflow Studio; G005 schema/API/UI/E2E evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
+      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object",
+      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
+      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
+      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
+      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
+      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
     },
     {
       "rawPath": "/collaboration",
@@ -397,8 +613,16 @@
         "manager",
         "team-lead"
       ],
-      "roleStoryEvidence": "collaboration hub API-backed messenger/mail/calendar/poll summaries; G015/G016 evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "collaboration hub API-backed messenger/mail/calendar/poll summaries; G007/G007 evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G007 collaboration mail calendar poll mobile suite with G005 object/workflow integration",
+      "dataClass": "message, mail, calendar event, poll, attachment, unread state, mention, notification, retention/export metadata",
+      "sourceObject": "conversation, work-mail thread, shared calendar event, poll, notification, object-linked comment, or attachment",
+      "lifecycleStates": "draft, sent, unread, read, mentioned, archived, replied, forwarded, scheduled, voted, closed, retained",
+      "e2eSpec": "Required browser/mobile story: send/read/search/mention/mail/calendar/poll with object links and badge lifecycle",
+      "denialScopeTest": "Private thread/mail/calendar denial, shared mailbox permission denial, poll eligibility denial, retention export scope test",
+      "screenshotTraceEvidence": "Pending G003/G007 collaboration screenshots and traces; prior focused tests must be refreshed in live persona matrix",
+      "groupScopeStory": "Group and subsidiary scopes must separate shared mailboxes, channels, calendars, polls, and notification fanout"
     },
     {
       "rawPath": "/messenger",
@@ -411,8 +635,16 @@
         "manager",
         "group-admin"
       ],
-      "roleStoryEvidence": "messenger read/send/search/mentions/object links; G015 focused web collaboration tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "messenger read/send/search/mentions/object links; G007 focused web collaboration tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G007 collaboration mail calendar poll mobile suite with G005 object/workflow integration",
+      "dataClass": "message, mail, calendar event, poll, attachment, unread state, mention, notification, retention/export metadata",
+      "sourceObject": "conversation, work-mail thread, shared calendar event, poll, notification, object-linked comment, or attachment",
+      "lifecycleStates": "draft, sent, unread, read, mentioned, archived, replied, forwarded, scheduled, voted, closed, retained",
+      "e2eSpec": "Required browser/mobile story: send/read/search/mention/mail/calendar/poll with object links and badge lifecycle",
+      "denialScopeTest": "Private thread/mail/calendar denial, shared mailbox permission denial, poll eligibility denial, retention export scope test",
+      "screenshotTraceEvidence": "Pending G003/G007 collaboration screenshots and traces; prior focused tests must be refreshed in live persona matrix",
+      "groupScopeStory": "Group and subsidiary scopes must separate shared mailboxes, channels, calendars, polls, and notification fanout"
     },
     {
       "rawPath": "/mail",
@@ -426,8 +658,16 @@
         "finance",
         "hr"
       ],
-      "roleStoryEvidence": "work mail inbox/thread/reply/forward/read state; G015 web collaboration evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "work mail inbox/thread/reply/forward/read state; G007 web collaboration evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G007 collaboration mail calendar poll mobile suite with G005 object/workflow integration",
+      "dataClass": "message, mail, calendar event, poll, attachment, unread state, mention, notification, retention/export metadata",
+      "sourceObject": "conversation, work-mail thread, shared calendar event, poll, notification, object-linked comment, or attachment",
+      "lifecycleStates": "draft, sent, unread, read, mentioned, archived, replied, forwarded, scheduled, voted, closed, retained",
+      "e2eSpec": "Required browser/mobile story: send/read/search/mention/mail/calendar/poll with object links and badge lifecycle",
+      "denialScopeTest": "Private thread/mail/calendar denial, shared mailbox permission denial, poll eligibility denial, retention export scope test",
+      "screenshotTraceEvidence": "Pending G003/G007 collaboration screenshots and traces; prior focused tests must be refreshed in live persona matrix",
+      "groupScopeStory": "Group and subsidiary scopes must separate shared mailboxes, channels, calendars, polls, and notification fanout"
     },
     {
       "rawPath": "/settings/email",
@@ -441,7 +681,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "mail account provisioning setup state with explicit admin next step; EmailSettingsPage tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G007 collaboration mail calendar poll mobile suite with G005 object/workflow integration",
+      "dataClass": "message, mail, calendar event, poll, attachment, unread state, mention, notification, retention/export metadata",
+      "sourceObject": "conversation, work-mail thread, shared calendar event, poll, notification, object-linked comment, or attachment",
+      "lifecycleStates": "draft, sent, unread, read, mentioned, archived, replied, forwarded, scheduled, voted, closed, retained",
+      "e2eSpec": "Required browser/mobile story: send/read/search/mention/mail/calendar/poll with object links and badge lifecycle",
+      "denialScopeTest": "Private thread/mail/calendar denial, shared mailbox permission denial, poll eligibility denial, retention export scope test",
+      "screenshotTraceEvidence": "Pending G003/G007 collaboration screenshots and traces; prior focused tests must be refreshed in live persona matrix",
+      "groupScopeStory": "Group and subsidiary scopes must separate shared mailboxes, channels, calendars, polls, and notification fanout"
     },
     {
       "rawPath": "/support",
@@ -454,8 +702,16 @@
         "customer-success",
         "manager"
       ],
-      "roleStoryEvidence": "internal/customer ticket queue with SLA/search/assignment command center and ticket object rail; SupportPage/SupportTicketDetail tests and G026 CX evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "internal/customer ticket queue with SLA/search/assignment command center and ticket object rail; SupportPage/SupportTicketDetail tests and G008 CX evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 CX/support maturity lane with G005 workflow/object lifecycle and G007 collaboration integration",
+      "dataClass": "support ticket, SLA, requester, customer/account context, assignment, comment, attachment/evidence, status, priority, escalation, and audit data",
+      "sourceObject": "support ticket, SLA policy, requester profile, customer organization, assignment, conversation, attachment, or escalation workflow object",
+      "lifecycleStates": "new, triaged, assigned, waiting, escalated, resolved, closed, reopened, archived, and SLA-breached states",
+      "e2eSpec": "Required browser story: create/search/assign/escalate/comment/close support ticket with SLA visibility, object-linked conversation, attachment evidence, notification badge, and closed-ticket inbox removal",
+      "denialScopeTest": "Support agents can only see tickets in authorized customer/org scope; cross-org tickets, private attachments, and closed queues are denied or hidden with audit evidence",
+      "screenshotTraceEvidence": "Pending G003/G008 support browser screenshot and trace evidence; row blocks maturity until persona matrix proves ticket queue/detail/closure lifecycle",
+      "groupScopeStory": "Group support managers can consolidate subsidiary tickets and drill into selected org queues while preserving org-local visibility boundaries"
     },
     {
       "rawPath": "/equipment",
@@ -470,7 +726,15 @@
         "operator"
       ],
       "roleStoryEvidence": "asset browse/search; G007 equipment lifecycle tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/equipment/:id",
@@ -485,7 +749,15 @@
         "operator"
       ],
       "roleStoryEvidence": "asset detail/object rail; G007 equipment lifecycle tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/equipment/manage",
@@ -500,7 +772,15 @@
         "operator"
       ],
       "roleStoryEvidence": "asset management owner/operator/transfer controls; G007 tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/equipment/legacy",
@@ -515,7 +795,15 @@
         "operator"
       ],
       "roleStoryEvidence": "legacy equipment import/control surface tracked under EP-011 until retired",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/settings/location",
@@ -530,7 +818,15 @@
         "operator"
       ],
       "roleStoryEvidence": "GPS/location consent self-service; G003/G007 privacy/location evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/wallboard",
@@ -544,8 +840,16 @@
         "manager",
         "executive"
       ],
-      "roleStoryEvidence": "wallboard operational KPI surface with exception strip and execution navigation; WallBoard tests and G026 CX/BI evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "wallboard operational KPI surface with exception strip and execution navigation; WallBoard tests and G008 CX/BI evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 reporting/BI/CX/operations-intelligence lane with G009 live rollout verification",
+      "dataClass": "KPI, report, export history, operational event, integrity finding, analytics scenario, and audit/source lineage data",
+      "sourceObject": "KPI metric, report export, wallboard event, integrity finding, operations scenario, or source-object drilldown",
+      "lifecycleStates": "loading, no data, filtered, drilled down, exported, reviewed, recommendation drafted, approved, rejected, archived",
+      "e2eSpec": "Required browser story: executive or manager drills from KPI/report/scenario to source objects with group/org scope",
+      "denialScopeTest": "Unauthorized BI/integrity/intelligence access denied; recommendations cannot write back without workflow approval",
+      "screenshotTraceEvidence": "Pending G003/G008 reporting/BI screenshots and traces; deterministic source-lineage evidence required",
+      "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
       "rawPath": "/dispatch",
@@ -559,8 +863,16 @@
         "mechanic",
         "manager"
       ],
-      "roleStoryEvidence": "dispatch board/work execution; G007/G013 workflow lifecycle evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "dispatch board/work execution; G006/G005 workflow lifecycle evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/work-orders/:id",
@@ -574,8 +886,16 @@
         "mechanic",
         "manager"
       ],
-      "roleStoryEvidence": "canonical work-order detail/control surface; G013 planned work/source object evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "canonical work-order detail/control surface; G005 planned work/source object evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
+      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object",
+      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
+      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
+      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
+      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
+      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
     },
     {
       "rawPath": "/dispatch-map",
@@ -589,7 +909,15 @@
         "manager"
       ],
       "roleStoryEvidence": "dispatch map/geolocation; DispatchMapPage tests and live-map memory ladder",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/intake",
@@ -602,8 +930,16 @@
         "receptionist",
         "dispatcher"
       ],
-      "roleStoryEvidence": "work intake tied to customer/site/equipment; G013 planned work evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "work intake tied to customer/site/equipment; G005 planned work evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
+      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object",
+      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
+      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
+      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
+      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
+      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
     },
     {
       "rawPath": "/daily-plan",
@@ -616,8 +952,16 @@
         "mechanic",
         "manager"
       ],
-      "roleStoryEvidence": "planned work from source work order and approvals; G013 E2E evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "planned work from source work order and approvals; G005 E2E evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
+      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object",
+      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
+      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
+      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
+      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
+      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
     },
     {
       "rawPath": "/kpi",
@@ -630,8 +974,16 @@
         "executive",
         "manager"
       ],
-      "roleStoryEvidence": "KPI dashboard source metrics with executive insight rail and operational drilldown links; KpiDashboard tests and G026 CX/BI evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "KPI dashboard source metrics with executive insight rail and operational drilldown links; KpiDashboard tests and G008 CX/BI evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 reporting/BI/CX/operations-intelligence lane with G009 live rollout verification",
+      "dataClass": "KPI, report, export history, operational event, integrity finding, analytics scenario, and audit/source lineage data",
+      "sourceObject": "KPI metric, report export, wallboard event, integrity finding, operations scenario, or source-object drilldown",
+      "lifecycleStates": "loading, no data, filtered, drilled down, exported, reviewed, recommendation drafted, approved, rejected, archived",
+      "e2eSpec": "Required browser story: executive or manager drills from KPI/report/scenario to source objects with group/org scope",
+      "denialScopeTest": "Unauthorized BI/integrity/intelligence access denied; recommendations cannot write back without workflow approval",
+      "screenshotTraceEvidence": "Pending G003/G008 reporting/BI screenshots and traces; deterministic source-lineage evidence required",
+      "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
       "rawPath": "/integrity",
@@ -645,7 +997,15 @@
         "data-steward"
       ],
       "roleStoryEvidence": "data quality/integrity triage with restricted role gate; IntegrityPage tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 reporting/BI/CX/operations-intelligence lane with G009 live rollout verification",
+      "dataClass": "KPI, report, export history, operational event, integrity finding, analytics scenario, and audit/source lineage data",
+      "sourceObject": "KPI metric, report export, wallboard event, integrity finding, operations scenario, or source-object drilldown",
+      "lifecycleStates": "loading, no data, filtered, drilled down, exported, reviewed, recommendation drafted, approved, rejected, archived",
+      "e2eSpec": "Required browser story: executive or manager drills from KPI/report/scenario to source objects with group/org scope",
+      "denialScopeTest": "Unauthorized BI/integrity/intelligence access denied; recommendations cannot write back without workflow approval",
+      "screenshotTraceEvidence": "Pending G003/G008 reporting/BI screenshots and traces; deterministic source-lineage evidence required",
+      "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
       "rawPath": "/reporting",
@@ -659,8 +1019,16 @@
         "manager",
         "executive"
       ],
-      "roleStoryEvidence": "standardized workbook export with BI command links and successful session export history; ReportingPage.test.tsx and G026 CX/BI evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "standardized workbook export with BI command links and successful session export history; ReportingPage.test.tsx and G008 CX/BI evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 reporting/BI/CX/operations-intelligence lane with G009 live rollout verification",
+      "dataClass": "KPI, report, export history, operational event, integrity finding, analytics scenario, and audit/source lineage data",
+      "sourceObject": "KPI metric, report export, wallboard event, integrity finding, operations scenario, or source-object drilldown",
+      "lifecycleStates": "loading, no data, filtered, drilled down, exported, reviewed, recommendation drafted, approved, rejected, archived",
+      "e2eSpec": "Required browser story: executive or manager drills from KPI/report/scenario to source objects with group/org scope",
+      "denialScopeTest": "Unauthorized BI/integrity/intelligence access denied; recommendations cannot write back without workflow approval",
+      "screenshotTraceEvidence": "Pending G003/G008 reporting/BI screenshots and traces; deterministic source-lineage evidence required",
+      "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
       "rawPath": "/inspection",
@@ -674,7 +1042,15 @@
         "mechanic"
       ],
       "roleStoryEvidence": "preventive inspection scheduling and findings; InspectionPage tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G006 assets/equipment/inventory/site/dispatch lifecycle lane with G005 workflow dependencies",
+      "dataClass": "asset, equipment, inventory, site/geolocation, dispatch, maintenance, transfer, cost/lifecycle, and evidence data",
+      "sourceObject": "equipment, asset, site, dispatch assignment, work order, maintenance event, transfer request, or inventory item",
+      "lifecycleStates": "registered, active, assigned, in maintenance, transfer pending, approved, rejected, retired, sold, archived",
+      "e2eSpec": "Required browser story: group admin creates/searches/transfers equipment with owner/operator/signoff and dispatch evidence",
+      "denialScopeTest": "Wrong org cannot mutate owner/operator; cross-org movement requires sender receiver legal accounting approvals",
+      "screenshotTraceEvidence": "Pending G003/G006 asset/dispatch screenshot and trace; live DB/API/browser map ladder required for geodata claims",
+      "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
       "rawPath": "/intelligence",
@@ -690,9 +1066,17 @@
         "finance",
         "asset-manager"
       ],
-      "roleStoryEvidence": "Story-coverage personas only, not authorization: G012 operations intelligence workbench validates executive and manager workflows with deterministic scenario readiness, source-object links, workflow conversion, MES/AI guardrails, OperationsIntelligencePage tests, and check:operations-intelligence-maturity gate.",
+      "roleStoryEvidence": "Story-coverage personas only, not authorization: G008 operations intelligence workbench validates executive and manager workflows with deterministic scenario readiness, source-object links, workflow conversion, MES/AI guardrails, OperationsIntelligencePage tests, and check:operations-intelligence-maturity gate.",
       "authorizationEvidence": "Actual access is enforced by RequireKpiRoute plus nav role/feature gates: SUPER_ADMIN/ADMIN/EXECUTIVE/KPI_READ. Domain conversion links are further filtered through nav policy so read-only executives do not see admin-only workflow routes.",
-      "accessibilityEvidence": "PageHeader, semantic sections/cards, link buttons, role-gated nav/route coverage, OperationsIntelligencePage.test.tsx, and enterprise UI route audit gate"
+      "accessibilityEvidence": "PageHeader, semantic sections/cards, link buttons, role-gated nav/route coverage, OperationsIntelligencePage.test.tsx, and enterprise UI route audit gate",
+      "ownerLane": "G008 reporting/BI/CX/operations-intelligence lane with G009 live rollout verification",
+      "dataClass": "KPI, report, export history, operational event, integrity finding, analytics scenario, and audit/source lineage data",
+      "sourceObject": "KPI metric, report export, wallboard event, integrity finding, operations scenario, or source-object drilldown",
+      "lifecycleStates": "loading, no data, filtered, drilled down, exported, reviewed, recommendation drafted, approved, rejected, archived",
+      "e2eSpec": "Required browser story: executive or manager drills from KPI/report/scenario to source objects with group/org scope",
+      "denialScopeTest": "Unauthorized BI/integrity/intelligence access denied; recommendations cannot write back without workflow approval",
+      "screenshotTraceEvidence": "Pending G003/G008 reporting/BI screenshots and traces; deterministic source-lineage evidence required",
+      "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
       "rawPath": "/ops",
@@ -705,8 +1089,16 @@
         "admin",
         "executive"
       ],
-      "roleStoryEvidence": "ops dashboard/logistics execution overview; OpsDashboard tests plus G026 reporting/BI drilldown path",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "ops dashboard/logistics execution overview; OpsDashboard tests plus G008 reporting/BI drilldown path",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 reporting/BI/CX/operations-intelligence lane with G009 live rollout verification",
+      "dataClass": "KPI, report, export history, operational event, integrity finding, analytics scenario, and audit/source lineage data",
+      "sourceObject": "KPI metric, report export, wallboard event, integrity finding, operations scenario, or source-object drilldown",
+      "lifecycleStates": "loading, no data, filtered, drilled down, exported, reviewed, recommendation drafted, approved, rejected, archived",
+      "e2eSpec": "Required browser story: executive or manager drills from KPI/report/scenario to source objects with group/org scope",
+      "denialScopeTest": "Unauthorized BI/integrity/intelligence access denied; recommendations cannot write back without workflow approval",
+      "screenshotTraceEvidence": "Pending G003/G008 reporting/BI screenshots and traces; deterministic source-lineage evidence required",
+      "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
       "rawPath": "/financial",
@@ -722,8 +1114,16 @@
         "executive",
         "asset-manager"
       ],
-      "roleStoryEvidence": "finance command center, procurement approval/payment-line, source-object rail, cost ledger, and asset-economics tests; G025 owner goal",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "finance command center, procurement approval/payment-line, source-object rail, cost ledger, and asset-economics tests; G008 owner goal",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G008 finance/procurement/accounting/rental-pricing maturity lane with G002 passkey and legal gates",
+      "dataClass": "procurement, purchase request, vendor quote, accounting/cost ledger, asset economics, payroll-adjacent metadata",
+      "sourceObject": "purchase request, approval/payment line, vendor quote, budget/cost ledger entry, rental pricing scenario, asset decision",
+      "lifecycleStates": "draft, submitted, budget checked, approval pending, approved, rejected, ordered, received, posted, audited",
+      "e2eSpec": "Required browser story: purchase/rental/asset economics request flows through approval/payment line to ledger/mail receipt",
+      "denialScopeTest": "Finance actions require role and passkey step-up; payroll/tax/legal calculations stay gated until signoff",
+      "screenshotTraceEvidence": "Pending G003/G008 finance screenshots and traces; no false payroll/accounting compliance claim allowed",
+      "groupScopeStory": "Group finance may consolidate subsidiary cost/asset views while subsidiary finance keeps bounded operational scope"
     },
     {
       "rawPath": "/settings",
@@ -737,7 +1137,15 @@
         "admin"
       ],
       "roleStoryEvidence": "settings index/profile/security entry; MemberAccess/AppShell tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G002 route audit/navigation hard gate plus G004 account/policy settings owners",
+      "dataClass": "settings navigation metadata, account preferences, security links, policy entry points, and audit navigation data",
+      "sourceObject": "settings route index, profile/security/org/policy/email/catalog navigation target, or role-safe landing target",
+      "lifecycleStates": "redirected, loading, available, denied, missing route handled, settings section active, audited navigation",
+      "e2eSpec": "Required browser story: role lands on appropriate settings surface or safe landing target without dead route or blank page",
+      "denialScopeTest": "Unauthorized settings child route denied or hidden; safe landing target must not expose restricted admin surfaces",
+      "screenshotTraceEvidence": "Pending G003 settings navigation screenshots and traces; route-audit gate guards route drift",
+      "groupScopeStory": "Group admin settings expose group-wide and subsidiary-scoped management only where policy grants access"
     },
     {
       "rawPath": "/settings/profile",
@@ -749,7 +1157,15 @@
         "employee"
       ],
       "roleStoryEvidence": "profile and passkey/account self-service; ProfilePage/LoginPage tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/account/policy foundation lane plus G002 passkey/audit hard gate",
+      "dataClass": "identity, credential, passkey device, account lifecycle, role grant, audit metadata, and security setting data",
+      "sourceObject": "account, session, passkey credential, OTP setup, role assignment, or security policy object",
+      "lifecycleStates": "unauthenticated, setup-pending, active, denied, recovery, suspended, revoked, and audited terminal states",
+      "e2eSpec": "Required browser/mobile story: desktop passkey, QR-to-mobile handoff, mobile passkey, role grant denial and audit",
+      "denialScopeTest": "Unauthenticated redirect, insufficient role denial, stale OTP rejection, passkey step-up required, and audit actor match",
+      "screenshotTraceEvidence": "Pending G003/G004 auth trace and screenshots; current row evidence must not be treated as live closure",
+      "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
     },
     {
       "rawPath": "/settings/employees",
@@ -763,8 +1179,16 @@
         "manager",
         "executive"
       ],
-      "roleStoryEvidence": "employee directory/lifecycle; G006 HR lifecycle evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "employee directory/lifecycle; G004/G008 HR lifecycle evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/group/org/people policy foundation with G008 HR/payroll legal gates",
+      "dataClass": "person, employee, employment episode, org unit, department, team, position, role, payroll-sensitive metadata",
+      "sourceObject": "person, account, employee record, employment episode, org unit, department/team/position, or lifecycle request",
+      "lifecycleStates": "candidate, invited, setup-pending, active, transferred, offboarding, terminated, retained, masked, archived",
+      "e2eSpec": "Required browser story: group admin manages org graph/person lifecycle with transfer/offboarding and policy/account links",
+      "denialScopeTest": "Sensitive HR/payroll fields denied outside authorized scope; terminated users inactive; no hard-delete without lawful workflow",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 people/HR screenshot and trace; legal signoff remains gated for regulated claims",
+      "groupScopeStory": "Group admin can view consolidated org graph and scope to each subsidiary while sensitive data remains policy-bound"
     },
     {
       "rawPath": "/settings/users",
@@ -778,7 +1202,15 @@
         "platform-admin"
       ],
       "roleStoryEvidence": "user/account provisioning and lifecycle; UsersPage tests + G003/G006 evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/account/policy foundation lane plus G002 passkey/audit hard gate",
+      "dataClass": "identity, credential, passkey device, account lifecycle, role grant, audit metadata, and security setting data",
+      "sourceObject": "account, session, passkey credential, OTP setup, role assignment, or security policy object",
+      "lifecycleStates": "unauthenticated, setup-pending, active, denied, recovery, suspended, revoked, and audited terminal states",
+      "e2eSpec": "Required browser/mobile story: desktop passkey, QR-to-mobile handoff, mobile passkey, role grant denial and audit",
+      "denialScopeTest": "Unauthenticated redirect, insufficient role denial, stale OTP rejection, passkey step-up required, and audit actor match",
+      "screenshotTraceEvidence": "Pending G003/G004 auth trace and screenshots; current row evidence must not be treated as live closure",
+      "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
     },
     {
       "rawPath": "/settings/security",
@@ -792,7 +1224,15 @@
         "security-admin"
       ],
       "roleStoryEvidence": "OTP/security/passkey-sensitive admin actions; AdminSettingsPage tests + G003 evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 identity/account/policy foundation lane plus G002 passkey/audit hard gate",
+      "dataClass": "identity, credential, passkey device, account lifecycle, role grant, audit metadata, and security setting data",
+      "sourceObject": "account, session, passkey credential, OTP setup, role assignment, or security policy object",
+      "lifecycleStates": "unauthenticated, setup-pending, active, denied, recovery, suspended, revoked, and audited terminal states",
+      "e2eSpec": "Required browser/mobile story: desktop passkey, QR-to-mobile handoff, mobile passkey, role grant denial and audit",
+      "denialScopeTest": "Unauthenticated redirect, insufficient role denial, stale OTP rejection, passkey step-up required, and audit actor match",
+      "screenshotTraceEvidence": "Pending G003/G004 auth trace and screenshots; current row evidence must not be treated as live closure",
+      "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
     },
     {
       "rawPath": "/catalog",
@@ -807,14 +1247,22 @@
         "data-steward",
         "asset-manager"
       ],
-      "roleStoryEvidence": "catalog/listing/inquiry/import management; G005 import/export and G009 CX evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row"
+      "roleStoryEvidence": "catalog/listing/inquiry/import management; G008 import/export and G009 CX evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G002 ontology/import route-audit hard gate with G008 governed import/export execution",
+      "dataClass": "ontology catalog, object type, import mapping profile, schema target, data-class policy, raw-file lineage metadata",
+      "sourceObject": "catalog item, object type, schema mapping, import batch, raw ledger entry, or standardized export profile",
+      "lifecycleStates": "draft type, mapped, dry-run, validation failed, applied, exported, versioned, deprecated, archived",
+      "e2eSpec": "Required browser story: upload/preview/map/dry-run/apply/export with entity-type allowlist and invalid mapping rejection",
+      "denialScopeTest": "Employee data cannot map to machinery/site schemas; PII/payroll/location fields require domain permissions and masking",
+      "screenshotTraceEvidence": "Pending G003/G008 import/catalog screenshot and trace; raw-cell preservation proof required for data claims",
+      "groupScopeStory": "Group data admin can standardize schemas across subsidiaries while apply permissions remain domain/org scoped"
     }
   ],
   "epEvidence": [
     {
       "id": "EP-001",
-      "ownerGoalId": "G009-public-landing-cx-sales-rental-marke",
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp + G009-pr-ci-argo-live-rollout-issue-closur",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -822,7 +1270,7 @@
     },
     {
       "id": "EP-002",
-      "ownerGoalId": "G023-enterprise-ui-parity-audit-and-no-te",
+      "ownerGoalId": "G005-workflow-builder-approvals-work-hub + G003-browser-e2e-persona-harness",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -830,7 +1278,7 @@
     },
     {
       "id": "EP-003",
-      "ownerGoalId": "G013-workflow-approval-lifecycle-and-acti + G014-workflow-studio-backend-schema-and-n",
+      "ownerGoalId": "G005-workflow-builder-approvals-work-hub + G002-wave-1-shared-contracts-and-hard-gat",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -838,7 +1286,7 @@
     },
     {
       "id": "EP-004",
-      "ownerGoalId": "G003-identity-passkey-account-lifecycle-a",
+      "ownerGoalId": "G004-identity-group-org-people-policy-fou + G002-wave-1-shared-contracts-and-hard-gat",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -846,7 +1294,7 @@
     },
     {
       "id": "EP-005",
-      "ownerGoalId": "G015-collaboration-messenger-mail-and-wor",
+      "ownerGoalId": "G007-collaboration-mail-calendar-poll-mob",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -854,7 +1302,7 @@
     },
     {
       "id": "EP-006",
-      "ownerGoalId": "G015-collaboration-messenger-mail-and-wor + G016-shared-calendar-and-poll-workflow-fo",
+      "ownerGoalId": "G007-collaboration-mail-calendar-poll-mob",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -862,15 +1310,15 @@
     },
     {
       "id": "EP-007",
-      "ownerGoalId": "G009-public-landing-cx-sales-rental-marke + G026-cx-sales-support-reporting-bi-and-ex",
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp + G009-pr-ci-argo-live-rollout-issue-closur",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
-      "roleStoryEvidence": "Support route command center/search/object rail plus SupportTicketDetail tests and G026 CX/reporting evidence.",
+      "roleStoryEvidence": "Support route command center/search/object rail plus SupportTicketDetail tests and G008 CX/reporting evidence.",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
       "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
     },
     {
       "id": "EP-008",
-      "ownerGoalId": "G006-group-org-people-hr-payroll-lifecycl + G027-people-hr-lifecycle-org-scope-ui-mat",
+      "ownerGoalId": "G004-identity-group-org-people-policy-fou + G003-browser-e2e-persona-harness",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -878,7 +1326,7 @@
     },
     {
       "id": "EP-009",
-      "ownerGoalId": "G006-group-org-people-hr-payroll-lifecycl + G027-people-hr-lifecycle-org-scope-ui-mat",
+      "ownerGoalId": "G004-identity-group-org-people-policy-fou + G003-browser-e2e-persona-harness",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -886,7 +1334,7 @@
     },
     {
       "id": "EP-010",
-      "ownerGoalId": "G027-people-hr-lifecycle-org-scope-ui-mat + G028-korean-payroll-severance-controls-an",
+      "ownerGoalId": "G004-identity-group-org-people-policy-fou + G008-import-export-hr-payroll-finance-erp",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -894,7 +1342,7 @@
     },
     {
       "id": "EP-011",
-      "ownerGoalId": "G007-assets-equipment-sites-dispatch-life + G025-finance-procurement-accounting-and-a",
+      "ownerGoalId": "G006-assets-equipment-inventory-dispatch + G008-import-export-hr-payroll-finance-erp",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -902,7 +1350,7 @@
     },
     {
       "id": "EP-012",
-      "ownerGoalId": "G025-finance-procurement-accounting-and-a",
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp + G002-wave-1-shared-contracts-and-hard-gat",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -910,15 +1358,15 @@
     },
     {
       "id": "EP-013",
-      "ownerGoalId": "G013/G014 workflow + G026-cx-sales-support-reporting-bi-and-ex",
+      "ownerGoalId": "G005-workflow-builder-approvals-work-hub + G008-import-export-hr-payroll-finance-erp",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
-      "roleStoryEvidence": "Reporting/KPI/wallboard execution drilldowns plus routeCoverage rows and G026 tests.",
+      "roleStoryEvidence": "Reporting/KPI/wallboard execution drilldowns plus routeCoverage rows and G008 tests.",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
       "gapHandling": "Known maturity gaps are assigned to pending ultragoal child stories; operational UI must not expose unowned backend-missing or demo copy."
     },
     {
       "id": "EP-014",
-      "ownerGoalId": "G005-import-export-and-data-governance + G014 workflow studio",
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp + G002-wave-1-shared-contracts-and-hard-gat",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -926,15 +1374,15 @@
     },
     {
       "id": "EP-015",
-      "ownerGoalId": "G012-operations-intelligence-mes-optimiza + G026 dashboards + G025-finance-procurement-accounting-and-a",
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp + G005-workflow-builder-approvals-work-hub",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "Operations intelligence workbench, KPI executive insight rail, wallboard action strip, finance asset-economics signals, CX/BI reporting command center, and docs/specs/session-backlog-2026-06-29.md directives.",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
-      "gapHandling": "G012 ships the first governed deterministic scenario workbench; future backend analytics must retain source-object lineage, workflow conversion, policy/passkey gating, and no autonomous write-back."
+      "gapHandling": "G008 ships the first governed deterministic scenario workbench; future backend analytics must retain source-object lineage, workflow conversion, policy/passkey gating, and no autonomous write-back."
     },
     {
       "id": "EP-016",
-      "ownerGoalId": "G018/G020/G021/G022 native mobile parity goals",
+      "ownerGoalId": "G007-collaboration-mail-calendar-poll-mob + G004-identity-group-org-people-policy-fou",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "docs/specs/session-backlog-2026-06-29.md persona/workflow directives plus routeCoverage rows in this file",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -942,7 +1390,7 @@
     },
     {
       "id": "EP-017",
-      "ownerGoalId": "G012-operations-intelligence-mes-optimiza future MES scope",
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp",
       "benchmarkTrace": "docs/benchmarks/enterprise-parity-matrix.md official benchmark registry and row details",
       "roleStoryEvidence": "Operations intelligence MES readiness domain card plus docs/specs/mes.md future-scope capability matrix and routeCoverage rows in this file.",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations, web lint UI-string gate, and module-specific component/e2e tests",
@@ -956,8 +1404,8 @@
         "EP-008",
         "EP-010"
       ],
-      "ownerGoalId": "G027-people-hr-lifecycle-org-scope-ui-mat + G028-korean-payroll-severance-controls-an",
-      "rule": "May document missing maturity in specs, but product UI must show actionable lifecycle/setup states, not backend-missing dead panels."
+      "ownerGoalId": "G004-identity-group-org-people-policy-fou + G008-import-export-hr-payroll-finance-erp",
+      "rule": "G004 owns people/org/policy scope and G008 owns HR/payroll/legal import/export maturity; product UI must show actionable lifecycle/setup states, masking, and counsel/management gates, not backend-missing dead panels."
     },
     {
       "id": "GAP-FINANCE-ERP",
@@ -965,8 +1413,8 @@
         "EP-012",
         "EP-011"
       ],
-      "ownerGoalId": "G025-finance-procurement-accounting-and-a",
-      "rule": "Finance/procurement/accounting gaps stay in backlog or guided setup, not demo panels."
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp",
+      "rule": "G008 owns finance/procurement/accounting/rental-pricing maturity; gaps stay in backlog or guided setup, not demo panels."
     },
     {
       "id": "GAP-CX-BI-DASHBOARDS",
@@ -975,8 +1423,8 @@
         "EP-013",
         "EP-015"
       ],
-      "ownerGoalId": "G026-cx-sales-support-reporting-bi-and-ex",
-      "rule": "G026 closes the first CX/reporting/BI UI maturity slice; future backend analytics must retain source-object links and role-story tests before exposure."
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp",
+      "rule": "G008 owns CX/reporting/BI maturity; future backend analytics must retain source-object links and role-story tests before exposure."
     },
     {
       "id": "GAP-OPS-INTEL-MES",
@@ -984,8 +1432,8 @@
         "EP-015",
         "EP-017"
       ],
-      "ownerGoalId": "G012-operations-intelligence-mes-optimiza",
-      "rule": "G012 closes the first governed operations-intelligence UI foundation; AI/MES/optimization stay recommendation/scenario and future-scope only until deterministic data/workflow/observability foundations are verified."
+      "ownerGoalId": "G008-import-export-hr-payroll-finance-erp",
+      "rule": "G008 owns deterministic operations-intelligence and MES/AI future gates; AI/MES/optimization stay recommendation/scenario and future-scope only until data/workflow/observability foundations are verified."
     }
   ],
   "bannedProductCopyPolicy": {
@@ -1001,5 +1449,33 @@
       "준비 후 허용"
     ],
     "allowedSetupStates": "Configuration-gated states are allowed only when the user has a concrete setup or recovery action, for example mail server settings."
+  },
+  "routeHardGatePolicy": {
+    "introducedBy": "G001-wave-0-route-backlog-compliance-ledg",
+    "requiredRouteFields": [
+      "ownerLane",
+      "dataClass",
+      "sourceObject",
+      "lifecycleStates",
+      "e2eSpec",
+      "denialScopeTest",
+      "screenshotTraceEvidence",
+      "groupScopeStory"
+    ],
+    "notCompletionClaim": "These fields assign ownership and required evidence. A route is mature only when the owner later replaces pending evidence with PR/CI/browser/live proof.",
+    "enforcedBy": "scripts/check-enterprise-ux-parity.mjs",
+    "currentGoalIds": [
+      "G001-wave-0-route-backlog-compliance-ledg",
+      "G002-wave-1-shared-contracts-and-hard-gat",
+      "G003-browser-e2e-persona-harness",
+      "G004-identity-group-org-people-policy-fou",
+      "G005-workflow-builder-approvals-work-hub",
+      "G006-assets-equipment-inventory-dispatch",
+      "G007-collaboration-mail-calendar-poll-mob",
+      "G008-import-export-hr-payroll-finance-erp",
+      "G009-pr-ci-argo-live-rollout-issue-closur",
+      "G010-final-cleanup-review-and-invariant-g"
+    ],
+    "hardenedBy": "G002-wave-1-shared-contracts-and-hard-gat"
   }
 }

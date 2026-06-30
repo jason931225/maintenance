@@ -34,6 +34,10 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param company
  * @param name
+ * @param identityResolutionStrategy Non-PII strategy used to keep same-name employees from being merged by name alone.
+ * @param identityResolutionConfidence Confidence derived from the accepted identity strategy; never from user-supplied labels.
+ * @param identityReviewRequired True when HR must manually verify the employee identity before account linkage or duplicate cleanup.
+ * @param identityNameOnlyMerge Always false; name-only merging is not allowed because different people can share a name.
  * @param createdAt
  * @param updatedAt
  * @param employeeNumber
@@ -61,6 +65,22 @@ data class Employee (
 
     @SerialName(value = "name")
     val name: kotlin.String,
+
+    /* Non-PII strategy used to keep same-name employees from being merged by name alone. */
+    @SerialName(value = "identity_resolution_strategy")
+    val identityResolutionStrategy: Employee.IdentityResolutionStrategy,
+
+    /* Confidence derived from the accepted identity strategy; never from user-supplied labels. */
+    @SerialName(value = "identity_resolution_confidence")
+    val identityResolutionConfidence: Employee.IdentityResolutionConfidence,
+
+    /* True when HR must manually verify the employee identity before account linkage or duplicate cleanup. */
+    @SerialName(value = "identity_review_required")
+    val identityReviewRequired: kotlin.Boolean,
+
+    /* Always false; name-only merging is not allowed because different people can share a name. */
+    @SerialName(value = "identity_name_only_merge")
+    val identityNameOnlyMerge: kotlin.Boolean,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,
@@ -106,5 +126,28 @@ data class Employee (
 
 ) {
 
+    /**
+     * Non-PII strategy used to keep same-name employees from being merged by name alone.
+     *
+     * Values: EMPLOYEE_NUMBER,LEGAL_IDENTIFIER_HASH,BIRTH_HIRE_FINGERPRINT,SOURCE_ROW_FINGERPRINT
+     */
+    @Serializable
+    enum class IdentityResolutionStrategy(val value: kotlin.String) {
+        @SerialName(value = "employee_number") EMPLOYEE_NUMBER("employee_number"),
+        @SerialName(value = "legal_identifier_hash") LEGAL_IDENTIFIER_HASH("legal_identifier_hash"),
+        @SerialName(value = "birth_hire_fingerprint") BIRTH_HIRE_FINGERPRINT("birth_hire_fingerprint"),
+        @SerialName(value = "source_row_fingerprint") SOURCE_ROW_FINGERPRINT("source_row_fingerprint");
+    }
+    /**
+     * Confidence derived from the accepted identity strategy; never from user-supplied labels.
+     *
+     * Values: HIGH,MEDIUM,LOW
+     */
+    @Serializable
+    enum class IdentityResolutionConfidence(val value: kotlin.String) {
+        @SerialName(value = "high") HIGH("high"),
+        @SerialName(value = "medium") MEDIUM("medium"),
+        @SerialName(value = "low") LOW("low");
+    }
 
 }

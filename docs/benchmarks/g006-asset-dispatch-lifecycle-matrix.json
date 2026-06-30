@@ -1,0 +1,469 @@
+{
+  "schemaVersion": 1,
+  "goalId": "G006-assets-equipment-inventory-dispatch",
+  "updatedAt": "2026-06-30",
+  "purpose": "Machine-readable assets, equipment, inventory-adjacent catalog, site/geodata, dispatch, owner/operator, transfer/signoff, maintenance lifecycle, search parity, and asset-cost contract for the platform-maturity ultragoal. This gate proves repo-local implementation, test, route ownership, RLS/audit, and browser contract coverage before live rollout or analytics claims.",
+  "nonClaimPolicy": "G006 may prove local contract and regression coverage for asset/dispatch lifecycles. Production Argo rollout, live DB/API/browser equipment counts, map screenshots, and live data import parity remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a rollout blocker, not as live closure.",
+  "routePaths": [
+    {
+      "path": "/settings/sites",
+      "routeGroup": "sites",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "group admin manages customer/site/address/geodata records with bounded org scope, coordinate pairing, and map readiness without fabricating missing locations"
+    },
+    {
+      "path": "/equipment",
+      "routeGroup": "equipment-list",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "authorized users browse all visible equipment, search by chassis/equipment number, management number, model, VIN, customer, and site, then open detail or manage actions"
+    },
+    {
+      "path": "/equipment/:id",
+      "routeGroup": "equipment-detail",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "equipment detail shows identity, owner/operator assignment, lifecycle events, relationship graph, work-order links, and catalog actions for a single source object"
+    },
+    {
+      "path": "/equipment/manage",
+      "routeGroup": "equipment-manage",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "group admin can see the equipment list and create/edit/decommission from one management surface while selecting the legal owner organization with signoff"
+    },
+    {
+      "path": "/equipment/legacy",
+      "routeGroup": "legacy-import",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "legacy master-list equipment import preserves raw fields and routes data into the equipment registry without bypassing typed lifecycle validation"
+    },
+    {
+      "path": "/settings/location",
+      "routeGroup": "geodata",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "location/geofence settings capture address, province, city, coordinate pair, geofence radius, arrival/departure readiness, and privacy/consent boundaries"
+    },
+    {
+      "path": "/dispatch",
+      "routeGroup": "dispatch-board",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "dispatch board supports selected work-order detail, assignment, P1 broadcast, accept/decline, force assign, SLA risk, and object-linked dispatch history"
+    },
+    {
+      "path": "/dispatch-map",
+      "routeGroup": "dispatch-map",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "map view loads equipment-by-location, site assets, ungeocoded-site handling, arrival/departure events, and scoped asset panels without crashing on partial GPS data"
+    },
+    {
+      "path": "/inspection",
+      "routeGroup": "maintenance-inspection",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "inspection/preventive maintenance links equipment picker, cycle, schedule, checklist, and lifecycle evidence to the equipment source object"
+    }
+  ],
+  "dependencyRoutes": [
+    {
+      "path": "/work-orders/:id",
+      "expectedDependency": "work order",
+      "requiredStory": "asset and dispatch operations must deep-link to the work-order detail lifecycle already enforced by G005"
+    },
+    {
+      "path": "/financial",
+      "expectedDependency": "asset decision",
+      "requiredStory": "asset sales/acquisition/rental economics and lifecycle-cost analysis remain tied to equipment source objects before G008 finance maturity claims"
+    },
+    {
+      "path": "/catalog",
+      "expectedDependency": "catalog item",
+      "requiredStory": "general inventory and item-type extensibility are represented through catalog/object-type lineage until the governed import/export lane closes"
+    }
+  ],
+  "backendContracts": [
+    {
+      "file": "backend/crates/registry/rest/src/lib.rs",
+      "contract": "Registry REST exposes list/detail/create/update/import/by-location/substitution/timeline/ownership-transfer routes, and mutating equipment/site paths are gated by EquipmentManage.",
+      "requiredSnippets": [
+        "EQUIPMENT_PATH",
+        "EQUIPMENT_LIST_PATH",
+        "EQUIPMENT_IMPORT_PATH",
+        "EQUIPMENT_ID_PATH_TEMPLATE",
+        "EQUIPMENT_TIMELINE_GRAPH_PATH_TEMPLATE",
+        "EQUIPMENT_BY_LOCATION_PATH",
+        "EQUIPMENT_OWNERSHIP_TRANSFER_DECISION_PATH_TEMPLATE",
+        "authorize_equipment_feature(&principal, Feature::EquipmentManage)",
+        "list_equipment",
+        "create_equipment",
+        "update_equipment",
+        "list_equipment_ownership_transfers",
+        "decide_equipment_ownership_transfer"
+      ]
+    },
+    {
+      "file": "backend/crates/registry/application/src/lib.rs",
+      "contract": "Registry application models legal-owner transfer as an ordered signoff workflow while equipment list queries search by management number, model, maker, equipment number, customer, site, and VIN.",
+      "requiredSnippets": [
+        "EquipmentOwnershipTransferStepKey",
+        "SendingOrgAdmin",
+        "ReceivingOrgAdmin",
+        "LegalSignoff",
+        "AccountingSignoff",
+        "asset_owner",
+        "EquipmentListQuery",
+        "Free-text search across management_no",
+        "VIN"
+      ]
+    },
+    {
+      "file": "backend/crates/registry/adapter-postgres/src/lib.rs",
+      "contract": "Registry adapter performs audited writes, normalized search, equipment CRUD/import/substitution, and durable ownership-transfer request/decision persistence before mutating asset owner state.",
+      "requiredSnippets": [
+        "create_equipment",
+        "list_equipment",
+        "find_model_by_management_no",
+        "create_equipment_ownership_transfer",
+        "decide_equipment_ownership_transfer",
+        "initial_ownership_transfer_line",
+        "apply_ownership_transfer_decision",
+        "SET asset_owner = $2",
+        "with_audit"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0007_create_registry.sql",
+      "contract": "Registry equipment master stores equipment number, management number, VIN, asset owner, status indexes, and source fields as tenant-scoped source objects.",
+      "requiredSnippets": [
+        "CREATE TABLE registry_equipment",
+        "equipment_no",
+        "management_no",
+        "vin",
+        "asset_owner",
+        "idx_registry_equipment_branch_management_no",
+        "idx_registry_equipment_status_rented",
+        "idx_registry_equipment_status_spare",
+        "idx_registry_equipment_status_replacement"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0020_equipment_autocomplete_trgm.sql",
+      "contract": "Equipment autocomplete/search is indexed for management number, equipment number, and model so chassis/unit-number search parity is not a full-table scan after import.",
+      "requiredSnippets": [
+        "management_no ILIKE",
+        "idx_registry_equipment_management_no_trgm",
+        "idx_registry_equipment_equipment_no_trgm",
+        "idx_registry_equipment_model_trgm"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0039_add_site_geography.sql",
+      "contract": "Site geodata requires address, province/city, paired WGS84 coordinates, bounded text, and a geocoded-site partial index instead of fabricated map positions.",
+      "requiredSnippets": [
+        "ADD COLUMN address",
+        "ADD COLUMN province",
+        "ADD COLUMN city",
+        "ADD COLUMN latitude",
+        "ADD COLUMN longitude",
+        "registry_sites_lat_lon_paired",
+        "idx_registry_sites_geo"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0041_add_site_geofence_radius.sql",
+      "contract": "Site geofence radius is bounded and nullable, inheriting registry site RLS for arrival/departure detection without new cross-org exposure.",
+      "requiredSnippets": [
+        "geofence_radius_m",
+        "DEFAULT_GEOFENCE_RADIUS_M",
+        "registry_sites_geofence_radius_positive"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0044_add_equipment_acquisition.sql",
+      "contract": "Asset acquisition cost/date are first-class accounting facts on equipment master and explicitly distinct from depreciation vehicle value.",
+      "requiredSnippets": [
+        "acquisition_cost_won",
+        "acquisition_date",
+        "DELIBERATELY distinct from `vehicle_value`",
+        "registry_equipment is already RLS-ENABLED"
+      ]
+    },
+    {
+      "file": "backend/crates/platform/db/migrations/0072_create_equipment_ownership_transfers.sql",
+      "contract": "Equipment ownership transfer is durable, RLS-isolated, append-only/no-delete, and ordered through sending org, receiving org, legal, and accounting signoff.",
+      "requiredSnippets": [
+        "equipment_ownership_transfer_requests",
+        "equipment_ownership_transfer_events",
+        "sending_org_admin",
+        "receiving_org_admin",
+        "legal_signoff",
+        "accounting_signoff",
+        "ENABLE ROW LEVEL SECURITY",
+        "CREATE POLICY org_isolation",
+        "equipment ownership transfer requests are a durable approval ledger",
+        "equipment ownership transfer events are append-only"
+      ]
+    },
+    {
+      "file": "backend/crates/dispatch/domain/src/lib.rs",
+      "contract": "P1 dispatch domain is a finite-state machine with broadcast, accept-window, response, and auto-assignment guards.",
+      "requiredSnippets": [
+        "P1Dispatch",
+        "BROADCASTING",
+        "AUTO_ASSIGNED",
+        "dispatch responses are only allowed while broadcasting",
+        "dispatch accept window has expired",
+        "force_assign"
+      ]
+    },
+    {
+      "file": "backend/crates/dispatch/rest/src/lib.rs",
+      "contract": "Dispatch REST exposes start/respond/get/force-assign routes and schedules follow-up jobs with tenant context for alerts/escalation.",
+      "requiredSnippets": [
+        "/api/v1/work-orders/{work_order_id}/p1-dispatch",
+        "/api/v1/p1-dispatches/{dispatch_id}/responses",
+        "/api/v1/p1-dispatches/{dispatch_id}/force-assign",
+        "schedule_dispatch_jobs",
+        "dispatch_accept_window_expired",
+        "dispatch_manual_call_required"
+      ]
+    },
+    {
+      "file": "backend/crates/dispatch/adapter-postgres/src/lib.rs",
+      "contract": "Dispatch adapter enforces priority P1, GPS freshness, target availability, audited responses, force assignment, alert leases, and RLS-scoped persistence.",
+      "requiredSnippets": [
+        "P1 dispatch requires work-order priority P1",
+        "dispatch GPS freshness overflows time",
+        "count_dispatch_targets",
+        "p1_dispatch.start",
+        "p1_dispatch.respond",
+        "p1_dispatch.force_assign",
+        "claim_fcm_pushes",
+        "with_audit"
+      ]
+    },
+    {
+      "file": "backend/crates/financial/domain/src/tco.rs",
+      "contract": "Asset lifecycle economics are deterministic: TCO resolves acquisition basis, adds maintenance exactly once, computes margin only when sold, and avoids divide-by-zero rates.",
+      "requiredSnippets": [
+        "AcquisitionBasis",
+        "AcquisitionAnchor",
+        "tco_won",
+        "gross_margin_won",
+        "cost_per_month_won",
+        "No explicit acquisition",
+        "Gross margin on a realized sale"
+      ]
+    },
+    {
+      "file": "backend/crates/financial/adapter-postgres/src/lib.rs",
+      "contract": "Financial lifecycle summary reads equipment master, maintenance cost ledger, outsource works, sale listing, and timeline under RLS to support later sell/keep/rental analysis.",
+      "requiredSnippets": [
+        "lifecycle_cost_for_equipment",
+        "registry_equipment",
+        "equipment_cost_ledger",
+        "outsource_works",
+        "sales_listings",
+        "gross_margin_won",
+        "acquisition_source"
+      ]
+    }
+  ],
+  "frontendContracts": [
+    {
+      "file": "web/src/pages/EquipmentPage.tsx",
+      "contract": "Equipment page allows group-admin owner-org selection and delegates create/edit flows through group tenant context instead of silently writing to the current HQ org.",
+      "requiredSnippets": [
+        "canSelectEquipmentOwnerOrg",
+        "groupAdminSourceToken",
+        "ownerOrgOptions",
+        "flattenEquipmentOwnerOrgOptions",
+        "ownerSelectionRequired",
+        "selectedOwnerOrgId",
+        "EquipmentManagementPanel"
+      ]
+    },
+    {
+      "file": "web/src/pages/EquipmentManagePage.tsx",
+      "contract": "Equipment management combines browse/list context with create/edit/import/site/substitution management so users select equipment from the list before managing it.",
+      "requiredSnippets": [
+        "EquipmentBrowseSurface showHeader={false}",
+        "EquipmentManagementPanel",
+        "EquipmentImportPanel",
+        "SiteGeographyPanel",
+        "SubstitutionPanel",
+        "ownerSelectionRequired",
+        "groupAdminSourceToken"
+      ]
+    },
+    {
+      "file": "web/src/features/equipment/EquipmentManagementPanel.tsx",
+      "contract": "Management panel supports legal owner selection, delegated group context, create/edit/decommission, and ownership-transfer request with signoff acknowledgement.",
+      "requiredSnippets": [
+        "ownerSelectionRequired",
+        "selectedOwnerOrgId",
+        "startGroupTenantContext",
+        "exitGroupTenantContext",
+        "ownershipConfirmed",
+        "ownership-transfer-requests",
+        "transferConfirmed",
+        "signoffAcknowledgement"
+      ]
+    },
+    {
+      "file": "web/src/features/equipment/ownerOrgOptions.ts",
+      "contract": "Group-admin subsidiary options flatten group membership so asset owner selection can target any authorized subsidiary.",
+      "requiredSnippets": [
+        "flattenEquipmentOwnerOrgOptions",
+        "id: member.id",
+        "name: member.name",
+        "groupName: group.name"
+      ]
+    },
+    {
+      "file": "web/src/pages/EquipmentBrowsePage.tsx",
+      "contract": "Equipment browse is the primary searchable table: equipment number, management number, status, model, customer/site, sorting, row-open detail, and manage actions stay visible.",
+      "requiredSnippets": [
+        "EquipmentBrowseSurface",
+        "equipment_no",
+        "management_no",
+        "type=\"search\"",
+        "sortEquipmentNo",
+        "handleRowOpen",
+        "EquipmentDetailDialog"
+      ]
+    },
+    {
+      "file": "web/src/pages/EquipmentDetailPage.tsx",
+      "contract": "Equipment detail is the source-object cockpit for identity, assignment, lifecycle events, relationship graph, links, and generated action catalog.",
+      "requiredSnippets": [
+        "EquipmentIdentityPanel",
+        "EquipmentAssignmentPanel",
+        "EquipmentLifecyclePanel",
+        "EquipmentRelationshipGraphPanel",
+        "EquipmentLinksPanel",
+        "EquipmentActionCatalogPanel"
+      ]
+    },
+    {
+      "file": "web/src/pages/DispatchPage.tsx",
+      "contract": "Dispatch page binds dispatch board selection to work-order dispatch controls, P1 broadcast, force assign, and mechanic accept/decline offers.",
+      "requiredSnippets": [
+        "DispatchBoard",
+        "WorkOrderDispatchControls",
+        "MechanicDispatchOffers",
+        "forceAssign",
+        "startP1Dispatch",
+        "respondDispatch",
+        "forceAssignDispatchId"
+      ]
+    },
+    {
+      "file": "web/src/features/dispatch/WorkOrderDispatchControls.tsx",
+      "contract": "Dispatch controls expose priority, schedule, assignment, force-assign confirmation, and P1 dispatch actions from the source object.",
+      "requiredSnippets": [
+        "forceAssignDispatchId",
+        "onStartP1Dispatch",
+        "onForceAssign",
+        "forceAssignWarning",
+        "forceAssignConfirm",
+        "forceAssignNeedsDispatch"
+      ]
+    },
+    {
+      "file": "web/src/pages/DispatchMapPage.tsx",
+      "contract": "Dispatch map loads equipment-by-location and arrival/departure events, handles ungeocoded/partial data, and exposes a site asset panel for authorized managers.",
+      "requiredSnippets": [
+        "DispatchMapPage",
+        "/api/v1/equipment-by-location",
+        "/api/v1/location/arrival-events",
+        "arrivalMarkers",
+        "SiteAssetPanel",
+        "canManage"
+      ]
+    },
+    {
+      "file": "web/src/features/equipment/SiteGeographyPanel.tsx",
+      "contract": "Site geography panel edits address/province/city/coordinates/geofence and refreshes equipment-by-location for map readiness.",
+      "requiredSnippets": [
+        "SiteGeographyPanel",
+        "/api/v1/equipment-by-location",
+        "geofenceRadius",
+        "latitude",
+        "longitude",
+        "province",
+        "city"
+      ]
+    },
+    {
+      "file": "web/src/features/equipment/SubstitutionPanel.tsx",
+      "contract": "Substitution panel supports reserve/replacement policy by choosing down equipment and candidate substitutes from site or search result pools.",
+      "requiredSnippets": [
+        "SubstitutionPanel",
+        "sourceId",
+        "substitute_equipment_id",
+        "management_no",
+        "equipment_no",
+        "STATUS_RENTED"
+      ]
+    },
+    {
+      "file": "web/src/features/financial/AssetLifecycleCostPanel.tsx",
+      "contract": "Asset lifecycle cost panel surfaces TCO, maintenance spend, sale margin, and decision signal for later operations optimization without hiding missing acquisition data.",
+      "requiredSnippets": [
+        "AssetLifecycleCostPanel",
+        "AssetDecisionSignal",
+        "gross_margin_won",
+        "tco_won",
+        "acquisition_source",
+        "maintenance_total_won"
+      ]
+    }
+  ],
+  "requiredE2eSpecs": [
+    "e2e/specs/platform-maturity-g006-asset-dispatch-lifecycle.spec.ts",
+    "e2e/specs/admin-05-equipment.spec.ts",
+    "e2e/specs/admin-09-dispatch.spec.ts",
+    "e2e/specs/admin-17-sites.spec.ts",
+    "e2e/specs/admin-18-site-create.spec.ts",
+    "e2e/specs/admin-23-equipment-timeline-graph.spec.ts",
+    "e2e/specs/mech-01-02-dispatch.spec.ts",
+    "e2e/specs/mech-03-04-p1-dispatch.spec.ts",
+    "e2e/specs/mech-13-equipment.spec.ts",
+    "e2e/specs/mech-16-profile-location.spec.ts"
+  ],
+  "requiredWebTests": [
+    "web/src/pages/EquipmentBrowsePage.test.tsx",
+    "web/src/features/equipment/EquipmentManagementPanel.test.tsx",
+    "web/src/pages/EquipmentDetailPage.test.tsx",
+    "web/src/pages/DispatchPage.test.tsx",
+    "web/src/pages/DispatchMapPage.test.tsx",
+    "web/src/features/equipment/SiteGeographyPanel.test.tsx",
+    "web/src/features/equipment/SubstitutionPanel.test.tsx",
+    "web/src/features/financial/AssetLifecycleCostPanel.test.tsx",
+    "web/src/features/financial/FinancialWorkflow.test.tsx"
+  ],
+  "requiredBackendTests": [
+    "backend/crates/registry/rest/tests/equipment_admin.rs",
+    "backend/crates/registry/adapter-postgres/tests/create_rls_surfaces_as_runtime_role.rs",
+    "backend/crates/registry/adapter-postgres/tests/equipment_list_rls_as_runtime_role.rs",
+    "backend/crates/registry/adapter-postgres/tests/equipment_lookup_normalization_rls_as_runtime_role.rs",
+    "backend/crates/registry/adapter-postgres/tests/master_list_import.rs",
+    "backend/crates/registry/adapter-postgres/tests/master_list_import_rls_as_runtime_role.rs",
+    "backend/crates/registry/adapter-postgres/tests/site_address_postal_roundtrip_rls_as_runtime_role.rs",
+    "backend/crates/dispatch/adapter-postgres/tests/p1_dispatch.rs",
+    "backend/crates/financial/adapter-postgres/tests/lifecycle_rls_surfaces_as_runtime_role.rs",
+    "backend/crates/compliance/domain/tests/location_consent_fsm.rs",
+    "backend/crates/compliance/adapter-postgres/tests/location_consent_status_rls_as_runtime_role.rs",
+    "backend/crates/reporting/adapter-postgres/tests/ops_summary.rs"
+  ],
+  "safetyAssertions": [
+    "Legal owner and operating customer/site are separate concepts; changing legal owner requires ordered sender, receiver, legal, and accounting signoff.",
+    "Group admin equipment creation must select the target subsidiary owner org and write under delegated group context instead of the signed-in HQ org by default.",
+    "KNL operation of affiliate-owned equipment must preserve legal owner/operator distinction and be represented as policy-bound operating scope, not raw org mutation.",
+    "Equipment search must cover equipment number, management number/호기 with leading-zero normalization, model, maker, VIN, customer, and site.",
+    "Equipment management and browse flows must keep the whole list visible and let users select an equipment row to manage rather than requiring a disconnected separate screen.",
+    "Cross-org ownership transfer and dispatch/maintenance lifecycle decisions must be auditable and terminal states must not be silently overwritten.",
+    "Sites with missing coordinates are listed as ungeocoded; maps must not invent GPS coordinates, and coordinate pairs/geofence bounds are validated.",
+    "P1 dispatch requires priority P1, fresh GPS/target readiness, response within the broadcast window, and auditable force assignment/escalation.",
+    "Asset lifecycle economics must remain deterministic and source-object based: acquisition, maintenance cost, outsource work, sale price, margin, and TCO are visible for future optimization.",
+    "Inventory and item-type extensibility use ontology/catalog/import lineage until governed import/export closes in G008; G006 cannot claim arbitrary inventory maturity beyond equipment/spares/substitutions.",
+    "Live equipment counts, browser screenshots, map traces, and production data parity remain G009 unless captured by production evidence."
+  ]
+}

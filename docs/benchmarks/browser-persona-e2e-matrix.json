@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "goalId": "G003-browser-e2e-persona-harness",
+  "updatedAt": "2026-06-30",
+  "fixtureModule": "e2e/fixtures/personas.ts",
+  "sourceEvidence": [
+    ".omx/context/platform-maturity-g001/live-baseline-20260630T0017Z.txt",
+    "docs/benchmarks/enterprise-ui-route-audit.json",
+    "docs/specs/backlog-clearance-ledger.md",
+    "docs/specs/foundation-gates.md"
+  ],
+  "purpose": "Machine-readable browser persona and live-org E2E matrix. This is the G003 harness contract: every domain lane must attach real screenshots, traces, scope-denial proof, and DB/API/browser/log evidence before claiming route or module maturity.",
+  "liveOrgSlugs": [
+    "cheongun-hr",
+    "cheongun-logis",
+    "cnl",
+    "coss",
+    "dsl",
+    "elso",
+    "jy-tech",
+    "knl"
+  ],
+  "requiredUiStates": [
+    "loading",
+    "empty",
+    "error",
+    "permission-denied"
+  ],
+  "requiredLiveVerification": [
+    "db",
+    "api",
+    "browser",
+    "screenshot",
+    "trace",
+    "logs",
+    "rollout"
+  ],
+  "scopeModes": [
+    "platform",
+    "group-all",
+    "org-selected",
+    "own-dashboard",
+    "denied-cross-scope"
+  ],
+  "personas": [
+    {
+      "personaId": "platform-admin",
+      "displayName": "Platform administrator",
+      "orgSlug": "platform",
+      "groupSlug": null,
+      "roleProfile": ["PLATFORM_ADMIN", "SUPER_ADMIN"],
+      "scopeModes": ["platform", "denied-cross-scope"],
+      "routeGroups": ["platform", "identity", "group-org"],
+      "e2eSpecs": [
+        "e2e/specs/plat-01-tenants-health.spec.ts",
+        "e2e/specs/plat-04-neg-tenant-api.spec.ts",
+        "e2e/specs/tenant-neg-platform.spec.ts"
+      ],
+      "denialPaths": ["tenant-private data denial", "metadata-only platform support access", "non-platform platform-console denial"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: platform console tenant/group/account/logs view plus denied tenant-private detail path.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "group-admin",
+      "displayName": "그룹 관리자 / consolidated group operator",
+      "orgSlug": "coss",
+      "groupSlug": "그룹사",
+      "roleProfile": ["GROUP_ADMIN", "ADMIN", "EXECUTIVE"],
+      "scopeModes": ["group-all", "org-selected", "denied-cross-scope"],
+      "routeGroups": ["group-org", "workflow", "assets", "collaboration", "finance-reporting"],
+      "e2eSpecs": [
+        "e2e/specs/admin-sadmin-elevated.spec.ts",
+        "e2e/specs/admin-21-work-hub.spec.ts",
+        "e2e/specs/admin-25-policy-studio.spec.ts"
+      ],
+      "denialPaths": ["outside-group subsidiary denial", "policy edit without step-up denial", "org-switch private-data boundary"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: group-all overview, selected subsidiary scope, and denied outside-group operation.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "knl-mechanic",
+      "displayName": "KNL field mechanic / equipment operator",
+      "orgSlug": "knl",
+      "groupSlug": "그룹사",
+      "roleProfile": ["MECHANIC", "EMPLOYEE"],
+      "scopeModes": ["own-dashboard", "org-selected", "denied-cross-scope"],
+      "routeGroups": ["workflow", "assets", "collaboration", "identity"],
+      "e2eSpecs": [
+        "e2e/specs/mech-00-login.spec.ts",
+        "e2e/specs/mech-11-messenger.spec.ts",
+        "e2e/specs/mech-neg-nav.spec.ts"
+      ],
+      "denialPaths": ["admin-only route denial", "other mechanic work-order denial", "cross-org asset denial"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: own work dashboard, messenger thread, and denied admin route.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "cheongun-hr-manager",
+      "displayName": "청운HR HR manager",
+      "orgSlug": "cheongun-hr",
+      "groupSlug": "그룹사",
+      "roleProfile": ["HR_MANAGER", "ORG_ADMIN"],
+      "scopeModes": ["org-selected", "own-dashboard", "denied-cross-scope"],
+      "routeGroups": ["group-org", "identity", "import-export"],
+      "e2eSpecs": [
+        "e2e/specs/admin-24-hr-core.spec.ts",
+        "e2e/specs/admin-01-03-users.spec.ts",
+        "e2e/specs/admin-27-data-import-governance.spec.ts"
+      ],
+      "denialPaths": ["payroll sensitive field denial", "cross-org employee denial", "terminated-user destructive-delete denial"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: employee lifecycle list, import mapping preview, and masked payroll/PII denial.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "cheongun-logis-dispatcher",
+      "displayName": "청운로지스 dispatcher",
+      "orgSlug": "cheongun-logis",
+      "groupSlug": "그룹사",
+      "roleProfile": ["DISPATCHER", "OFFICE_WORKER"],
+      "scopeModes": ["org-selected", "own-dashboard", "denied-cross-scope"],
+      "routeGroups": ["workflow", "assets", "collaboration"],
+      "e2eSpecs": [
+        "e2e/specs/admin-09-dispatch.spec.ts",
+        "e2e/specs/admin-14-substitution.spec.ts",
+        "e2e/specs/mech-01-02-dispatch.spec.ts"
+      ],
+      "denialPaths": ["other-org dispatch denial", "asset ownership-transfer denial", "mechanic-only action denial"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: dispatch board, substitution panel, and denied cross-org dispatch action.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "cnl-office-manager",
+      "displayName": "씨앤엘 office manager",
+      "orgSlug": "cnl",
+      "groupSlug": "그룹사",
+      "roleProfile": ["OFFICE_MANAGER", "ORG_ADMIN"],
+      "scopeModes": ["org-selected", "own-dashboard", "denied-cross-scope"],
+      "routeGroups": ["workflow", "public-cx", "collaboration"],
+      "e2eSpecs": [
+        "e2e/specs/recp-01-core.spec.ts",
+        "e2e/specs/recp-02-messenger-support.spec.ts",
+        "e2e/specs/recp-neg-nav.spec.ts"
+      ],
+      "denialPaths": ["executive-only KPI denial", "cross-org support ticket denial", "policy-admin denial"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: reception work queue, support handoff, messenger, and denied executive/admin paths.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "dsl-asset-manager",
+      "displayName": "디에스엘 asset manager",
+      "orgSlug": "dsl",
+      "groupSlug": "그룹사",
+      "roleProfile": ["ASSET_MANAGER", "ORG_ADMIN"],
+      "scopeModes": ["org-selected", "own-dashboard", "denied-cross-scope"],
+      "routeGroups": ["assets", "finance-reporting", "workflow"],
+      "e2eSpecs": [
+        "e2e/specs/admin-05-equipment.spec.ts",
+        "e2e/specs/admin-19-asset-lifecycle-cost.spec.ts",
+        "e2e/specs/admin-23-equipment-timeline-graph.spec.ts"
+      ],
+      "denialPaths": ["legal owner change without approval denial", "other-org asset detail denial", "finance-private margin denial"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: equipment list/detail, lifecycle cost panel, timeline graph, and denied ownership mutation.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "elso-finance-manager",
+      "displayName": "엘소 finance and procurement manager",
+      "orgSlug": "elso",
+      "groupSlug": "그룹사",
+      "roleProfile": ["FINANCE_MANAGER", "PROCUREMENT_MANAGER"],
+      "scopeModes": ["org-selected", "own-dashboard", "denied-cross-scope"],
+      "routeGroups": ["finance-reporting", "workflow", "import-export"],
+      "e2eSpecs": [
+        "e2e/specs/admin-13-financial.spec.ts",
+        "e2e/specs/exec-03-purchase-final-approve.spec.ts",
+        "e2e/specs/admin-15-reporting.spec.ts"
+      ],
+      "denialPaths": ["payroll bank-field denial", "purchase final approve without role denial", "cross-org finance ledger denial"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: finance command center, purchase approval line, reporting export, and denied sensitive ledger.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    },
+    {
+      "personaId": "jy-tech-inventory-manager",
+      "displayName": "제이와이테크 inventory and import manager",
+      "orgSlug": "jy-tech",
+      "groupSlug": "그룹사",
+      "roleProfile": ["INVENTORY_MANAGER", "DATA_IMPORT_MANAGER"],
+      "scopeModes": ["org-selected", "own-dashboard", "denied-cross-scope"],
+      "routeGroups": ["import-export", "assets", "finance-reporting"],
+      "e2eSpecs": [
+        "e2e/specs/admin-27-data-import-governance.spec.ts",
+        "e2e/specs/admin-20-excel-browser-parity.spec.ts",
+        "e2e/specs/neg-nav-catalog.spec.ts"
+      ],
+      "denialPaths": ["employee-to-asset mapping denial", "raw PII export denial", "catalog admin denial without role"],
+      "uiStates": ["loading", "empty", "error", "permission-denied"],
+      "screenshotTraceEvidence": "Required screenshot and trace: import mapping grid, Excel parity preview, catalog denial, and standardized export path.",
+      "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
+    }
+  ],
+  "browserEvidenceContract": {
+    "traceMode": "Playwright trace must be on for retries and attached for any failing or maturity-claiming persona story.",
+    "screenshotMode": "Every persona/module maturity claim must include at least one successful screenshot and one denial/error-state screenshot.",
+    "liveLadder": "For live claims, collect DB row count or row identity, API response, browser-rendered content, screenshot, trace, relevant logs, and Argo rollout revision/health.",
+    "privacyBoundary": "Screenshots and traces for HR/payroll/contact/location data must mask PII before committing or posting to GitHub. Raw artifacts stay local unless sanitized."
+  }
+}

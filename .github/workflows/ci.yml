@@ -219,6 +219,24 @@ jobs:
       - name: Enterprise UX parity / no-text-wall gate
         run: npm run check:enterprise-ux-parity
 
+      - name: Browser persona E2E matrix gate
+        run: npm run check:browser-persona-matrix
+
+      - name: G004 identity group org people policy foundation gate
+        run: npm run check:g004-identity-foundation
+
+      - name: G005 workflow approval Work Hub lifecycle gate
+        run: npm run check:g005-workflow-lifecycle
+
+      - name: G006 asset equipment dispatch lifecycle gate
+        run: npm run check:g006-asset-dispatch-lifecycle
+
+      - name: G007 collaboration mail calendar poll mobile lifecycle gate
+        run: npm run check:g007-collaboration-mobile-lifecycle
+
+      - name: G008 import HR payroll readiness gate
+        run: npm run check:g008-payroll-readiness
+
       - name: People HR lifecycle maturity gate
         run: npm run check:people-hr-maturity
 

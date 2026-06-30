@@ -99,8 +99,8 @@ requireIncludes(
 );
 requireIncludes(
   "docs/benchmarks/enterprise-ui-route-audit.json",
-  "G026-cx-sales-support-reporting-bi-and-ex",
-  "enterprise route audit assigns CX/BI routes to G026",
+  "G008-import-export-hr-payroll-finance-erp",
+  "enterprise route audit assigns CX/BI routes to current G008",
 );
 requireIncludes(
   "package.json",

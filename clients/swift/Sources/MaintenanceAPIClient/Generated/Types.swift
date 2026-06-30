@@ -7971,6 +7971,39 @@ public enum Components {
             public var leaveUsed: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Employee/leave_remaining`.
             public var leaveRemaining: Swift.String?
+            /// Non-PII strategy used to keep same-name employees from being merged by name alone.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Employee/identity_resolution_strategy`.
+            @frozen public enum IdentityResolutionStrategyPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case employeeNumber = "employee_number"
+                case legalIdentifierHash = "legal_identifier_hash"
+                case birthHireFingerprint = "birth_hire_fingerprint"
+                case sourceRowFingerprint = "source_row_fingerprint"
+            }
+            /// Non-PII strategy used to keep same-name employees from being merged by name alone.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Employee/identity_resolution_strategy`.
+            public var identityResolutionStrategy: Components.Schemas.Employee.IdentityResolutionStrategyPayload
+            /// Confidence derived from the accepted identity strategy; never from user-supplied labels.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Employee/identity_resolution_confidence`.
+            @frozen public enum IdentityResolutionConfidencePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case high = "high"
+                case medium = "medium"
+                case low = "low"
+            }
+            /// Confidence derived from the accepted identity strategy; never from user-supplied labels.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Employee/identity_resolution_confidence`.
+            public var identityResolutionConfidence: Components.Schemas.Employee.IdentityResolutionConfidencePayload
+            /// True when HR must manually verify the employee identity before account linkage or duplicate cleanup.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Employee/identity_review_required`.
+            public var identityReviewRequired: Swift.Bool
+            /// Always false; name-only merging is not allowed because different people can share a name.
+            ///
+            /// - Remark: Generated from `#/components/schemas/Employee/identity_name_only_merge`.
+            public var identityNameOnlyMerge: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/Employee/created_at`.
             public var createdAt: Components.Schemas.Timestamp
             /// - Remark: Generated from `#/components/schemas/Employee/updated_at`.
@@ -7993,6 +8026,10 @@ public enum Components {
             ///   - leaveAccrued:
             ///   - leaveUsed:
             ///   - leaveRemaining:
+            ///   - identityResolutionStrategy: Non-PII strategy used to keep same-name employees from being merged by name alone.
+            ///   - identityResolutionConfidence: Confidence derived from the accepted identity strategy; never from user-supplied labels.
+            ///   - identityReviewRequired: True when HR must manually verify the employee identity before account linkage or duplicate cleanup.
+            ///   - identityNameOnlyMerge: Always false; name-only merging is not allowed because different people can share a name.
             ///   - createdAt:
             ///   - updatedAt:
             public init(
@@ -8011,6 +8048,10 @@ public enum Components {
                 leaveAccrued: Swift.String? = nil,
                 leaveUsed: Swift.String? = nil,
                 leaveRemaining: Swift.String? = nil,
+                identityResolutionStrategy: Components.Schemas.Employee.IdentityResolutionStrategyPayload,
+                identityResolutionConfidence: Components.Schemas.Employee.IdentityResolutionConfidencePayload,
+                identityReviewRequired: Swift.Bool,
+                identityNameOnlyMerge: Swift.Bool,
                 createdAt: Components.Schemas.Timestamp,
                 updatedAt: Components.Schemas.Timestamp
             ) {
@@ -8029,6 +8070,10 @@ public enum Components {
                 self.leaveAccrued = leaveAccrued
                 self.leaveUsed = leaveUsed
                 self.leaveRemaining = leaveRemaining
+                self.identityResolutionStrategy = identityResolutionStrategy
+                self.identityResolutionConfidence = identityResolutionConfidence
+                self.identityReviewRequired = identityReviewRequired
+                self.identityNameOnlyMerge = identityNameOnlyMerge
                 self.createdAt = createdAt
                 self.updatedAt = updatedAt
             }
@@ -8048,6 +8093,10 @@ public enum Components {
                 case leaveAccrued = "leave_accrued"
                 case leaveUsed = "leave_used"
                 case leaveRemaining = "leave_remaining"
+                case identityResolutionStrategy = "identity_resolution_strategy"
+                case identityResolutionConfidence = "identity_resolution_confidence"
+                case identityReviewRequired = "identity_review_required"
+                case identityNameOnlyMerge = "identity_name_only_merge"
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
             }
