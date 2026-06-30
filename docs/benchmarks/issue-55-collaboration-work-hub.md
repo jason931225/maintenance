@@ -86,12 +86,12 @@ It currently aggregates:
 - `/api/daily-work-plans` for daily-plan workflow.
 - `/api/messenger/threads` for conversation/work-thread context.
 - `/api/v1/support/tickets` for ticket/action blockers.
-- `/settings/email` as the current mail-account administration surface, while the full work-mail client remains a separate required capability.
+- `/mail` as the platform-operated mailbox surface; mail server host/port/password configuration is intentionally not exposed to tenants.
 
 The page is role-aware:
 
 - Mechanics default to `assigned_to=me` work-order scope.
-- Admin/super-admin sessions see approval and mail-admin affordances.
+- Admin/super-admin sessions see approval affordances; mail opens as a normal MailUse-gated mailbox, not as a server-settings task.
 - Daily-plan cards only render as active for roles that hold the daily-plan capability.
 - Partial backend failures are non-blank: loaded sources remain visible and the failed source list is shown with retry.
 

@@ -20,13 +20,7 @@
       "path": "/mail",
       "routeGroup": "mailbox",
       "mustContainOwnerGoal": "G007",
-      "requiredStory": "Mail client must support configured corporate mailbox folders, unread filters, safe HTML, attachments, send/reply/forward threading, read-state lifecycle, and permission denial."
-    },
-    {
-      "path": "/settings/email",
-      "routeGroup": "mail-admin",
-      "mustContainOwnerGoal": "G007",
-      "requiredStory": "Mail server settings must support write-only SMTP/IMAP credentials, test connection, validation, rate/error surfacing, and admin-only account management."
+      "requiredStory": "Mail client must support platform-operated corporate mailbox folders, unread filters, safe HTML, attachments, send/reply/forward threading, read-state lifecycle, auto-provisioning/readiness states, and permission denial without tenant SMTP/IMAP server configuration."
     }
   ],
   "dependencyRoutes": [
@@ -263,7 +257,7 @@
     },
     {
       "file": "web/src/pages/MailPage.tsx",
-      "contract": "Mail UI must implement folders, unread filter, safe body rendering, attachments, compose/send/reply/forward, read-state toggles, and unavailable/permission states.",
+      "contract": "Mail UI must implement folders, unread filter, safe body rendering, attachments, compose/send/reply/forward, read-state toggles, and platform-operated auto-provisioning/readiness states without SMTP/IMAP server configuration links.",
       "requiredSnippets": [
         "/api/v1/mail/folders",
         "/api/v1/mail/threads",
@@ -275,21 +269,9 @@
         "/api/v1/mail/attachments/{id}/download",
         "sanitizeMailHtml",
         "fileToMailAttachment",
-        "MAX_OUTBOUND_ATTACHMENT_BYTES"
-      ]
-    },
-    {
-      "file": "web/src/pages/EmailSettingsPage.tsx",
-      "contract": "Mail settings UI must validate SMTP/IMAP configuration, keep passwords write-only, support save/test, and surface 503/rate-limit states without exposing secrets.",
-      "requiredSnippets": [
-        "/api/v1/mail/account",
-        "/api/v1/mail/account/test",
-        "has_smtp_password",
-        "has_imap_password",
-        "smtp_password",
-        "imap_password",
-        "testRateLimited",
-        "passwordKeepPlaceholder"
+        "MAX_OUTBOUND_ATTACHMENT_BYTES",
+        "notConfiguredSteps",
+        "notConfiguredBody"
       ]
     },
     {
@@ -314,6 +296,15 @@
         "FORBID_ATTR",
         "href",
         "noopener noreferrer"
+      ]
+    },
+    {
+      "file": "web/src/components/shell/nav.ts",
+      "contract": "Navigation must expose corporate mail only as a MailUse-gated mailbox and must hide the legacy external SMTP/IMAP server configuration route because mailbox hosting is platform-operated.",
+      "requiredSnippets": [
+        "[\"mail\", MAIL_USE_ROLES]",
+        "[\"email\", []]",
+        "tenant-visible SMTP/IMAP server configuration nav item"
       ]
     },
     {
@@ -448,8 +439,8 @@
     "@mention text is rendered as mentions without breaking safe display or raw UUID fallbacks.",
     "Messenger read receipt transitions must zero unread counts for selected threads and increment unread only for other-user realtime messages in unselected threads.",
     "Mail HTML must be sanitized and attachment downloads must use backend-issued download URLs only.",
-    "Mail credentials are write-only; UI and DTOs expose has_smtp_password/has_imap_password instead of secret material.",
-    "Mail send/reply/forward is MailUse-gated and rate-limited per org/user; account settings are MailAccountManage-gated.",
+    "Corporate mail is platform-operated out of the box; tenant users and admins must not enter SMTP/IMAP hostnames, ports, or passwords in the console.",
+    "Mail send/reply/forward is MailUse-gated and rate-limited per org/user; mailbox readiness is shown in /mail without exposing a separate server-settings route.",
     "Calendar scopes must distinguish PERSONAL, TEAM, DEPARTMENT, ORG, and TENANT with explicit policy metadata and object links.",
     "Poll votes must preserve eligibility/anonymity/audit semantics and prevent duplicate/invalid option voting server-side.",
     "Mobile approval and poll vote actions require passkey step-up envelopes before sensitive actions are replayed.",
@@ -470,7 +461,6 @@
     "web/src/features/messenger/messenger-state.test.ts",
     "web/src/features/messenger/realtime.test.ts",
     "web/src/pages/MailPage.test.tsx",
-    "web/src/pages/EmailSettingsPage.test.tsx",
     "web/src/lib/mailHtml.test.ts",
     "web/src/pages/WorkHubPage.test.tsx",
     "web/src/components/shell/nav.test.ts"

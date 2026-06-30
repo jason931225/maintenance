@@ -658,38 +658,16 @@
         "finance",
         "hr"
       ],
-      "roleStoryEvidence": "work mail inbox/thread/reply/forward/read state; G007 web collaboration evidence",
+      "roleStoryEvidence": "platform-operated work mail inbox/thread/reply/forward/read state plus auto-provisioning/readiness without tenant SMTP/IMAP config; G007 web collaboration evidence",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
       "ownerLane": "G007 collaboration mail calendar poll mobile suite with G005 object/workflow integration",
       "dataClass": "message, mail, calendar event, poll, attachment, unread state, mention, notification, retention/export metadata",
-      "sourceObject": "conversation, work-mail thread, shared calendar event, poll, notification, object-linked comment, or attachment",
+      "sourceObject": "conversation, platform-operated work-mail thread, shared calendar event, poll, notification, object-linked comment, or attachment",
       "lifecycleStates": "draft, sent, unread, read, mentioned, archived, replied, forwarded, scheduled, voted, closed, retained",
       "e2eSpec": "Required browser/mobile story: send/read/search/mention/mail/calendar/poll with object links and badge lifecycle",
       "denialScopeTest": "Private thread/mail/calendar denial, shared mailbox permission denial, poll eligibility denial, retention export scope test",
       "screenshotTraceEvidence": "Pending G003/G007 collaboration screenshots and traces; prior focused tests must be refreshed in live persona matrix",
-      "groupScopeStory": "Group and subsidiary scopes must separate shared mailboxes, channels, calendars, polls, and notification fanout"
-    },
-    {
-      "rawPath": "/settings/email",
-      "canonicalPath": "/settings/email",
-      "epRows": [
-        "EP-006",
-        "EP-009"
-      ],
-      "personas": [
-        "admin",
-        "platform-admin"
-      ],
-      "roleStoryEvidence": "mail account provisioning setup state with explicit admin next step; EmailSettingsPage tests",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
-      "ownerLane": "G007 collaboration mail calendar poll mobile suite with G005 object/workflow integration",
-      "dataClass": "message, mail, calendar event, poll, attachment, unread state, mention, notification, retention/export metadata",
-      "sourceObject": "conversation, work-mail thread, shared calendar event, poll, notification, object-linked comment, or attachment",
-      "lifecycleStates": "draft, sent, unread, read, mentioned, archived, replied, forwarded, scheduled, voted, closed, retained",
-      "e2eSpec": "Required browser/mobile story: send/read/search/mention/mail/calendar/poll with object links and badge lifecycle",
-      "denialScopeTest": "Private thread/mail/calendar denial, shared mailbox permission denial, poll eligibility denial, retention export scope test",
-      "screenshotTraceEvidence": "Pending G003/G007 collaboration screenshots and traces; prior focused tests must be refreshed in live persona matrix",
-      "groupScopeStory": "Group and subsidiary scopes must separate shared mailboxes, channels, calendars, polls, and notification fanout"
+      "groupScopeStory": "Group and subsidiary scopes must separate shared mailboxes, mailbox aliases, channels, calendars, polls, and notification fanout without per-tenant server settings"
     },
     {
       "rawPath": "/support",

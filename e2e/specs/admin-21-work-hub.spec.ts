@@ -9,7 +9,7 @@ const TARGET_CHANGE_ID = "00000000-0000-0000-0000-0000000cc021";
  * ADMIN-21 — Work Hub is the enterprise action inbox for issue #55.
  *
  * This verifies the Slack/SAP/ServiceNow-style landing surface in a real browser:
- * existing work, approval, daily-plan, messenger, support, and mail-admin modules
+ * existing work, approval, daily-plan, messenger, support, and platform-operated mailbox modules
  * are promoted as one workflow hub with no route-error fallback.
  */
 test("ADMIN-21 admin opens the Work Hub action inbox", async ({
