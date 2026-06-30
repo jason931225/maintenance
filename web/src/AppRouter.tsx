@@ -133,11 +133,6 @@ const AdminSettingsPage = lazy(() =>
     default: m.AdminSettingsPage,
   })),
 );
-const EmailSettingsPage = lazy(() =>
-  import("./pages/EmailSettingsPage").then((m) => ({
-    default: m.EmailSettingsPage,
-  })),
-);
 const UsersPage = lazy(() =>
   import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })),
 );
@@ -354,7 +349,10 @@ export function AppRouter() {
             <Route path="/settings/users" element={<UsersPage />} />
             <Route path="/settings/org" element={<OrgPage />} />
             <Route path="/settings/sites" element={<SitesPage />} />
-            <Route path="/settings/email" element={<EmailSettingsPage />} />
+            <Route
+              path="/settings/email"
+              element={<Navigate to="/mail" replace />}
+            />
             <Route path="/settings/security" element={<AdminSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/work-hub" replace />} />

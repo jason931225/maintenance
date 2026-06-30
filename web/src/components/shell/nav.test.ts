@@ -60,7 +60,6 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "users",
     "policy",
     "workflows",
-    "email",
     "security",
     "profile",
   ],
@@ -89,7 +88,6 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "location",
     "employees",
     "users",
-    "email",
     "security",
     "profile",
   ],
@@ -169,7 +167,6 @@ describe("nav role gating", () => {
       expect(isNavItemVisible("users", [role])).toBe(false);
       expect(isNavItemVisible("org", [role])).toBe(false);
       expect(isNavItemVisible("sites", [role])).toBe(false);
-      expect(isNavItemVisible("email", [role])).toBe(false);
       expect(isNavItemVisible("policy", [role])).toBe(false);
       expect(isNavItemVisible("workflows", [role])).toBe(false);
     }
@@ -203,15 +200,11 @@ describe("nav role gating", () => {
     }
   });
 
-  it("shows the mail-account config (MailAccountManage) only to ADMIN and SUPER_ADMIN", () => {
-    expect(isNavItemVisible("email", [ROLES.ADMIN])).toBe(true);
-    expect(isNavItemVisible("email", [ROLES.SUPER_ADMIN])).toBe(true);
-    expect(isNavItemVisible("email", [ROLES.EXECUTIVE])).toBe(false);
-    expect(isNavItemVisible("email", [ROLES.MECHANIC])).toBe(false);
-    expect(isNavItemVisible("email", [ROLES.RECEPTIONIST])).toBe(false);
-    expect(isNavItemVisible("email", [ROLES.MEMBER])).toBe(false);
+  it("hides the legacy mail-server config entry because corporate mail is platform-operated", () => {
+    expect(ALL_ITEM_KEYS).not.toContain("email");
+    expect(isNavItemVisible("email", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("email", [ROLES.SUPER_ADMIN])).toBe(false);
   });
-
 
   it("shows the employee directory to ADMIN, EXECUTIVE, and SUPER_ADMIN", () => {
     expect(isNavItemVisible("employees", [ROLES.ADMIN])).toBe(true);

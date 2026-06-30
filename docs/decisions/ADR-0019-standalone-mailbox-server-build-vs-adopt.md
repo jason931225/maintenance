@@ -7,20 +7,20 @@ Accepted
 2026-06-30
 
 ## Context
-The platform needs a standalone corporate mailbox server, not only the existing external SMTP/IMAP webmail mirror. Required target capability includes authoritative MX inbound SMTP, IMAP, JMAP Mail, domain/mailbox administration, group/org policy integration, passkey step-up for sensitive mail-admin actions, audit, retention/legal hold, and OCI/free-tier-aware operations.
+The platform needs a standalone corporate mailbox server, not only the existing external SMTP/IMAP webmail mirror. Required target capability includes authoritative MX inbound SMTP, IMAP, JMAP Mail, domain/mailbox administration, group/org policy integration, passkey step-up for sensitive mail-admin actions, audit, retention/legal hold, OCI/free-tier-aware operations, and out-of-the-box mailbox availability without tenant-visible SMTP/IMAP server configuration.
 
 Stalwart is the strongest product benchmark for modern mail-server capabilities: SMTP, IMAP, JMAP, collaboration protocols, DKIM/SPF/DMARC/ARC, MTA-STS/TLS-RPT/DANE, spam/phishing controls, queue management, and Kubernetes support. However, Stalwart is AGPL-3.0 upstream, which does not satisfy the current MIT/Apache-only dependency constraint for product adoption.
 
 ## Decision
 Use Stalwart as a feature benchmark only. Do not embed, fork, copy source, copy assets, or derive implementation from Stalwart.
 
-Default path: build a clean-room Rust-native mailbox foundation inside the platform and keep public MX disabled until production gates pass. The first accepted slice is:
+Default path: build a clean-room Rust-native mailbox foundation inside the platform and keep public MX disabled until production gates pass. The console must expose domain/DNS readiness, mailbox lifecycle, aliases, delegation, retention, and policy; it must not expose a generic mail-server configuration form to tenants. The first accepted slice is:
 
 - `mnt-comms-mailbox`: pure Rust value objects and SMTP transaction state machine that enforces local-domain recipient resolution, no-open-relay behavior, command ordering, message-size bounds, recipient limits, DATA dot handling, and reset semantics.
 - `0079_create_mailbox_server_spine.sql`: group/org-aware domain, mailbox, alias, message, and delivery/queue metadata with RLS and immutable-org triggers.
 - `docs/specs/standalone-corporate-mailbox-server.md`: Stalwart parity matrix, adoption-candidate matrix, target architecture, phases, and production gates.
 
-Run a bounded adoption spike for Apache James only if we need an off-the-shelf full-protocol server sooner than the native implementation can mature. Apache James is Apache-2.0 and supports SMTP, IMAP, JMAP, POP3, and distributed deployment options, but it may be too heavy for the OCI A1/free-tier posture and would still need identity/policy/audit integration work.
+Run a bounded adoption spike for Apache James only if we need an off-the-shelf full-protocol server sooner than the native implementation can mature. Apache James is Apache-2.0 and supports SMTP, IMAP, JMAP, POP3, and distributed deployment options, but it may be too heavy for the OCI A1/free-tier posture and would still need identity/policy/audit integration work. Any adopted server remains an internal platform component, not something tenants configure through host/port/password forms.
 
 ## Alternatives considered
 
@@ -35,7 +35,7 @@ Run a bounded adoption spike for Apache James only if we need an off-the-shelf f
 
 - Public MX remains gated. No production port 25 exposure is authorized by this ADR.
 - JMAP and IMAP must be implemented or integrated over the same mailbox store; the product should prefer JMAP/app-native access for web/mobile clients.
-- Mailbox administration must remain platform-native: group/org aware, policy-controlled, audited, and passkey-step-up gated for sensitive actions.
+- Mailbox administration must remain platform-native: group/org aware, policy-controlled, audited, passkey-step-up gated for sensitive actions, and focused on domains/mailboxes/policy rather than SMTP/IMAP server settings.
 - Future code review must reject non-permissive copied mail-server code, including Stalwart source/assets/types.
 
 ## References

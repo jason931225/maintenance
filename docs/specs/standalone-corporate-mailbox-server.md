@@ -10,6 +10,7 @@ This is not just the existing tenant-configured webmail mirror. The existing web
 - **No open relay:** SMTP must reject relay abuse by default. RCPT acceptance is only for verified, enabled local domains or authenticated submission.
 - **No live MX exposure until gates pass:** port 25 must not be exposed on `knllogistic.com` / `console.knllogistic.com` until DNS, TLS, queueing, abuse, monitoring, backup, and rollback gates pass.
 - **Cloud-native/free-tier aware:** resource footprint must fit the OCI A1 operating model before production rollout.
+- **Out-of-the-box operation:** tenants and group/org admins must not configure SMTP/IMAP hostnames, ports, passwords, or mail-server credentials in the console. The platform owns the mailbox service; admins manage domains, DNS readiness, mailbox lifecycle, aliases, delegation, retention, and policy.
 - **Identity-native:** mailbox users are platform users/employees scoped by group/org/department/team/role/policy; sensitive mail-admin actions require passkey step-up and audit.
 - **Data safety:** mail content and metadata are personal/corporate data. Retention, deletion, legal hold, purpose, access logs, masking, and export must be explicit.
 
@@ -20,7 +21,7 @@ This is not just the existing tenant-configured webmail mirror. The existing web
   - `mnt-comms-adapter-imap`: inbound IMAP sync client from a configured tenant IMAP server.
   - `mnt-comms-adapter-postgres`: stores mirrored mail accounts/folders/threads/messages.
 - Existing migrations `0053..0057` create `email_accounts`, `email_folders`, `email_threads`, `email_messages`, and related webmail support.
-- That model is **external-account webmail**, not authoritative mailbox hosting. A standalone server needs domain/mailbox/routing/queue/protocol tables and service roles.
+- That model is **external-account webmail**, not authoritative mailbox hosting. A standalone server needs domain/mailbox/routing/queue/protocol tables and service roles. The old SMTP/IMAP server-settings UI must be treated as legacy/migration-only and removed from normal navigation; product users should see an automatically provisioned mailbox or a platform readiness state, not a server configuration form.
 
 ## Stalwart parity baseline
 Stalwart is the feature/capability benchmark because its upstream README positions it as a secure, scalable mail and collaboration server with IMAP, JMAP, SMTP, CalDAV, CardDAV, WebDAV, DKIM/SPF/DMARC/ARC, DANE/MTA-STS/TLS-RPT, queue management, spam/phishing controls, and Kubernetes support.
@@ -38,7 +39,7 @@ We should measure our mailbox server against these capability groups:
 | Transport security | STARTTLS/TLS, DANE, MTA-STS, TLS-RPT | STARTTLS/TLS required; MTA-STS/TLS-RPT before production; DANE when DNSSEC path is operationally ready | P0/P1 |
 | Spam/phishing | Spam classifier, phishing protection, traps, rate limit | Start with Rspamd-style integration point or internal policy engine; quarantine/junk training; no silent drops | P1 |
 | Storage/search | Mailbox folders, metadata, full text, attachments | Postgres metadata + OCI/Object storage raw MIME + future search index; quotas, retention, legal hold | P0/P1 |
-| Admin | Domains, aliases, users, policies, DNS status | Group/org-aware domain/mailbox/admin UI, aliases, shared mailboxes, ownership, passkey step-up | P0 |
+| Admin | Domains, aliases, users, policies, DNS status | Group/org-aware domain, mailbox, alias, shared-mailbox, DNS-readiness, retention, delegation, and ownership UI. No tenant SMTP/IMAP server configuration UI. | P0 |
 | Collaboration | Contacts/calendar/file sharing protocols | Mail first. Calendar/contact integration via platform calendar/people modules; protocol parity later if needed | P2 |
 | Observability | Metrics, logs, queue/admin visibility | Prometheus metrics, structured redacted logs, audit trail, queue depth, delivery rejection reasons, alerting | P0 |
 | Kubernetes/HA | Cloud/orchestrator support | Dedicated `mnt-mailbox` workload, health/readiness, safe rollouts, internal-only until gates pass | P0 |
@@ -62,11 +63,11 @@ We should measure our mailbox server against these capability groups:
 Use a **two-track decision**:
 
 1. **Product-native track (default): build our own clean-room Rust mailbox foundation.**
-   - Reason: no MIT/Apache candidate currently gives the exact combination of Stalwart-like MX + IMAP + JMAP plus deep platform tenancy, passkey, policy, audit, OCI object storage, workflow, group/org, and Korean compliance integration with low OCI A1 footprint.
+   - Reason: no MIT/Apache candidate currently gives the exact combination of Stalwart-like MX + IMAP + JMAP plus deep platform tenancy, passkey, policy, audit, OCI object storage, workflow, group/org, Korean compliance integration, no tenant-visible server configuration, and low OCI A1 footprint.
    - Benchmark Stalwart, Mox, Apache James, Mailu, docker-mailserver, Gmail/Proton UI, and Slack-style workflow integrations, but do not copy non-permissive implementation code.
 
 2. **Adoption spike track (parallel, bounded): evaluate Apache James as the only current permissive full-protocol server candidate.**
-   - Pass criteria: runs within free-tier A1 budget, supports required JMAP/IMAP/SMTP flows, can delegate identity to our platform or safely sync users/mailboxes, exposes observable delivery/audit signals, and can store/backup data safely.
+   - Pass criteria: runs within free-tier A1 budget, supports required JMAP/IMAP/SMTP flows, can delegate identity to our platform or safely sync users/mailboxes, stays hidden behind platform-native admin/domain UX with no tenant server-config form, exposes observable delivery/audit signals, and can store/backup data safely.
    - Fail criteria: too heavy, too hard to integrate with group/org/policy/passkey/audit, or creates a second source of truth for employees/mailboxes.
 
 If the business needs a public MX faster than our native JMAP server can mature, the pragmatic stopgap is **Mox or Mailu/docker-mailserver for MX/IMAP only**, plus our app-native JMAP/webmail bridge later. That is not full requested parity and must be labelled as a temporary adoption choice.
@@ -101,6 +102,7 @@ If the business needs a public MX faster than our native JMAP server can mature,
 
 ### Security and compliance
 - Passkey step-up for domain changes, mailbox delegation, alias/shared mailbox changes, retention/legal-hold changes, export, purge, and impersonation/break-glass.
+- Console UX exposes mailbox administration, not mail-server plumbing: users never enter SMTP/IMAP passwords, hostnames, or ports for the corporate mailbox.
 - Redacted logs: never log full addresses, subject, body, or attachment names outside explicit audit views.
 - Every admin action produces audit events tied to the human principal, org/group scope, IP/device/session, and step-up state.
 - Retention/legal hold must be policy-driven before enabling broad mailbox export/delete.
