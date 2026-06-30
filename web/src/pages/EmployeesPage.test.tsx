@@ -193,7 +193,9 @@ describe("EmployeesPage", () => {
     expect(
       await screen.findByRole("heading", { name: "인사 설정 대시보드" }),
     ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "피플 운영 관제" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "피플 운영 관제" }),
+    ).toBeVisible();
     expect(screen.getByText("그룹 전체")).toBeVisible();
     expect(screen.getByRole("link", { name: "사용자 관리" })).toHaveAttribute(
       "href",
@@ -222,14 +224,19 @@ describe("EmployeesPage", () => {
     expect(
       screen.queryByRole("columnheader", { name: "원본 행" }),
     ).not.toBeInTheDocument();
-    expect(within(row as HTMLElement).queryByText("12")).not.toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).queryByText("12"),
+    ).not.toBeInTheDocument();
     expect(within(row as HTMLElement).getByText("인천센터")).toBeVisible();
     expect(within(row as HTMLElement).getByText("정비")).toBeVisible();
     expect(within(row as HTMLElement).getByText("대리")).toBeVisible();
     expect(within(row as HTMLElement).getByText("2024-01-02")).toBeVisible();
     expect(within(row as HTMLElement).getByText("ACTIVE")).toBeVisible();
 
-    await userEvent.selectOptions(screen.getByLabelText("회사"), "한울로지스");
+    await userEvent.selectOptions(
+      screen.getByLabelText("회사 필터"),
+      "한울로지스",
+    );
     expect(screen.queryByText("A-001")).not.toBeInTheDocument();
     expect(screen.getByText("이퇴사")).toBeVisible();
   });
@@ -333,12 +340,16 @@ describe("EmployeesPage", () => {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "미리보기 생성" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "미리보기 생성" }),
+    );
 
     await waitFor(() => {
       expect(sawPreview).toBe(true);
     });
-    expect(screen.getByRole("heading", { name: "가져오기 검토" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "가져오기 검토" }),
+    ).toBeVisible();
     expect(screen.getAllByText("계좌번호").length).toBeGreaterThan(0);
     expect(screen.getAllByText("기본시급").length).toBeGreaterThan(0);
     expect(screen.getAllByText("퇴직금 중간정산").length).toBeGreaterThan(0);
@@ -397,7 +408,10 @@ describe("EmployeesPage", () => {
     ).toBeVisible();
     expect(screen.getByText("입사 원장 확인")).toBeVisible();
 
-    await userEvent.selectOptions(screen.getByLabelText("전환 유형"), "TERMINATE");
+    await userEvent.selectOptions(
+      screen.getByLabelText("전환 유형"),
+      "TERMINATE",
+    );
     await userEvent.type(screen.getByLabelText("효력일"), "2026-06-30");
     await userEvent.type(
       screen.getByLabelText("사유 및 근거"),
@@ -407,7 +421,9 @@ describe("EmployeesPage", () => {
     await userEvent.click(screen.getByLabelText("근로기준법·취업규칙 확인"));
     await userEvent.click(screen.getByLabelText("급여 마감 영향 확인"));
     await userEvent.click(screen.getByLabelText("퇴직금 정산 필요성 확인"));
-    await userEvent.click(screen.getByRole("button", { name: "생애주기 기록" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "생애주기 기록" }),
+    );
 
     await waitFor(() => {
       expect(lifecycleBody).toMatchObject({
@@ -424,7 +440,9 @@ describe("EmployeesPage", () => {
       });
     });
     expect(await screen.findByText("권고사직 협의 완료")).toBeVisible();
-    expect(screen.getByText("기록자: admin-user · 기록 시각: 2026-06-29T12:00:00Z")).toBeVisible();
+    expect(
+      screen.getByText("기록자: admin-user · 기록 시각: 2026-06-29T12:00:00Z"),
+    ).toBeVisible();
     expect(screen.getAllByText("확인").length).toBeGreaterThanOrEqual(4);
   });
 
@@ -478,7 +496,9 @@ describe("EmployeesPage", () => {
     await userEvent.click(screen.getByLabelText("근로기준법·취업규칙 확인"));
     await userEvent.click(screen.getByLabelText("급여 마감 영향 확인"));
     await userEvent.click(screen.getByLabelText("퇴직금 정산 필요성 확인"));
-    await userEvent.click(screen.getByRole("button", { name: "생애주기 기록" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "생애주기 기록" }),
+    );
 
     await waitFor(() => {
       expect(lifecycleBody).toMatchObject({

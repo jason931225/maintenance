@@ -84,8 +84,8 @@ requireIncludes(
 );
 requireIncludes(
   "docs/benchmarks/enterprise-ui-route-audit.json",
-  "G025-finance-procurement-accounting-and-a",
-  "enterprise route audit assigns finance route to G025",
+  "G008-import-export-hr-payroll-finance-erp",
+  "enterprise route audit assigns finance route to current G008",
 );
 requireIncludes(
   "package.json",

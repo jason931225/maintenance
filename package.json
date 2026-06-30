@@ -40,7 +40,13 @@
     "check:payroll-release-gate": "node scripts/check-payroll-release-gate.mjs",
     "check:financial-maturity": "node scripts/check-financial-maturity.mjs",
     "check:cx-reporting-maturity": "node scripts/check-cx-reporting-maturity.mjs",
-    "check:operations-intelligence-maturity": "node scripts/check-operations-intelligence-maturity.mjs"
+    "check:operations-intelligence-maturity": "node scripts/check-operations-intelligence-maturity.mjs",
+    "check:browser-persona-matrix": "node scripts/check-browser-persona-matrix.mjs",
+    "check:g004-identity-foundation": "node scripts/check-g004-identity-foundation.mjs",
+    "check:g005-workflow-lifecycle": "node scripts/check-g005-workflow-lifecycle.mjs",
+    "check:g006-asset-dispatch-lifecycle": "node scripts/check-g006-asset-dispatch-lifecycle.mjs",
+    "check:g007-collaboration-mobile-lifecycle": "node scripts/check-g007-collaboration-mobile-lifecycle.mjs",
+    "check:g008-payroll-readiness": "node scripts/check-g008-payroll-readiness.mjs"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",

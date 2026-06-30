@@ -106,8 +106,8 @@ requireIncludes(
 );
 requireIncludes(
   "docs/benchmarks/enterprise-ui-route-audit.json",
-  "G027-people-hr-lifecycle-org-scope-ui-mat",
-  "G027 ownership in enterprise UI audit",
+  "G004-identity-group-org-people-policy-fou",
+  "G004 ownership in enterprise UI audit",
 );
 
 requireAbsent(

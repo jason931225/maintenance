@@ -33,7 +33,8 @@ import { formatListCount } from "../lib/utils";
 const EMPLOYEE_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 
 type ReadState = "loading" | "idle" | "error";
-type UploadState = "idle" | "previewing" | "dryRunning" | "applying" | "exporting" | "error";
+type UploadState =
+  "idle" | "previewing" | "dryRunning" | "applying" | "exporting" | "error";
 const LIFECYCLE_EVENT_TYPES = [
   "ONBOARD",
   "OFFBOARD",
@@ -356,7 +357,9 @@ function PeopleOperationsPanel({
   const t = ko.employees.operations;
   const statusCounts = countEmploymentStatuses(visibleEmployees);
   const scopeLabel =
-    selectedCompany === "all" ? t.groupScope : `${selectedCompany} ${t.orgScope}`;
+    selectedCompany === "all"
+      ? t.groupScope
+      : `${selectedCompany} ${t.orgScope}`;
   const cards = [
     {
       title: t.scope.title,
@@ -380,7 +383,9 @@ function PeopleOperationsPanel({
     },
     {
       title: t.importControls.title,
-      value: canImport ? t.importControls.adminValue : t.importControls.readValue,
+      value: canImport
+        ? t.importControls.adminValue
+        : t.importControls.readValue,
       meta: t.importControls.meta,
     },
   ];
@@ -690,9 +695,9 @@ function EmployeeLifecyclePanel({
 }) {
   const t = ko.employees.lifecycle;
   const [events, setEvents] = useState<EmployeeLifecycleEvent[]>([]);
-  const [state, setState] = useState<"loading" | "idle" | "submitting" | "error">(
-    "loading",
-  );
+  const [state, setState] = useState<
+    "loading" | "idle" | "submitting" | "error"
+  >("loading");
   const [eventType, setEventType] =
     useState<EmployeeLifecycleEventType>("TRANSFER");
   const [effectiveDate, setEffectiveDate] = useState("");
@@ -1166,6 +1171,7 @@ function ImportPreview({
   onApply: () => void;
 }) {
   const t = ko.employees.import.previewPanel;
+  const mappingCounts = employeeImportMappingCounts(preview.columns);
   return (
     <section className="grid gap-3 rounded-lg border border-line bg-muted-panel/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1173,7 +1179,9 @@ function ImportPreview({
           <h3 className="font-semibold text-ink">{t.title}</h3>
           <p className="text-sm text-steel">
             {preview.source_filename} · {t.hash}{" "}
-            <code className="font-mono text-xs">{preview.source_sha256.slice(0, 12)}</code>
+            <code className="font-mono text-xs">
+              {preview.source_sha256.slice(0, 12)}
+            </code>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1194,6 +1202,44 @@ function ImportPreview({
           </Button>
         </div>
       </div>
+      <dl
+        aria-label={t.mappingSummary}
+        className="grid gap-2 text-sm sm:grid-cols-4"
+      >
+        {(
+          [
+            [
+              t.mappedColumns,
+              mappingCounts.canonical,
+              "bg-emerald-50 text-emerald-800",
+            ],
+            [
+              t.maskedColumns,
+              mappingCounts.restricted,
+              "bg-amber-50 text-amber-800",
+            ],
+            [
+              t.locationColumns,
+              mappingCounts.location,
+              "bg-blue-50 text-blue-800",
+            ],
+            [
+              t.rawOnlyColumns,
+              mappingCounts.retained,
+              "bg-slate-100 text-slate-800",
+            ],
+          ] as const
+        ).map(([label, value, className]) => (
+          <div key={label} className="rounded border border-line bg-white p-3">
+            <dt className="text-xs font-semibold text-steel">{label}</dt>
+            <dd
+              className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${className}`}
+            >
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
       <dl className="grid gap-2 text-sm sm:grid-cols-3">
         <div>
           <dt className="font-semibold text-steel">{t.inputRows}</dt>
@@ -1224,10 +1270,16 @@ function ImportPreview({
                   {column.source_header || column.normalized_header}
                 </td>
                 <td className="px-3 py-2 text-steel">
-                  {column.target ?? t.rawOnly}
+                  <span className="font-medium text-ink">
+                    {employeeImportTargetLabel(column.target)}
+                  </span>
                 </td>
-                <td className="px-3 py-2 text-steel">
-                  {column.preview_allowed ? t.previewAllowed : t.masked}
+                <td className="px-3 py-2">
+                  <span
+                    className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${employeeImportPolicyClass(column.classification)}`}
+                  >
+                    {employeeImportPolicyLabel(column.classification)}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -1255,7 +1307,10 @@ function ImportPreview({
                 </td>
                 <td className="px-3 py-2 text-steel">{row.row_status}</td>
                 {preview.columns.slice(0, 8).map((column) => (
-                  <td key={column.normalized_header} className="px-3 py-2 text-steel">
+                  <td
+                    key={column.normalized_header}
+                    className="px-3 py-2 text-steel"
+                  >
                     {textValue(row.values[column.normalized_header])}
                   </td>
                 ))}
@@ -1266,6 +1321,59 @@ function ImportPreview({
       </div>
     </section>
   );
+}
+
+type EmployeeImportColumn = EmployeeImportPreview["columns"][number];
+
+function employeeImportMappingCounts(columns: EmployeeImportColumn[]) {
+  return columns.reduce(
+    (counts, column) => {
+      const classification = column.classification as keyof typeof counts;
+      if (classification in counts) counts[classification] += 1;
+      return counts;
+    },
+    { canonical: 0, restricted: 0, location: 0, retained: 0 },
+  );
+}
+
+function employeeImportTargetLabel(
+  target: EmployeeImportColumn["target"],
+): string {
+  if (!target) return ko.employees.import.previewPanel.rawOnly;
+  return (
+    (
+      {
+        name: "성명",
+        employee_number: "사번",
+        org_unit: "부서/팀",
+        job: "업무/직무",
+        position: "직책/직급",
+        worksite_name: "근무지",
+        worksite_address: "근무지 주소",
+        hire_date: "입사일",
+        exit_date: "퇴사일",
+        leave_accrued: "발생연차",
+        leave_used: "사용연차",
+        leave_remaining: "잔여연차",
+        company: "회사/법인",
+      } as Record<string, string>
+    )[target] ?? target
+  );
+}
+
+function employeeImportPolicyLabel(classification: string): string {
+  const t = ko.employees.import.previewPanel;
+  if (classification === "canonical") return t.previewAllowed;
+  if (classification === "restricted") return t.masked;
+  if (classification === "location") return t.locationMasked;
+  return t.rawOnly;
+}
+
+function employeeImportPolicyClass(classification: string): string {
+  if (classification === "canonical") return "bg-emerald-50 text-emerald-800";
+  if (classification === "restricted") return "bg-amber-50 text-amber-800";
+  if (classification === "location") return "bg-blue-50 text-blue-800";
+  return "bg-slate-100 text-slate-800";
 }
 
 function ImportDryRunSummary({ summary }: { summary: EmployeeImportDryRun }) {
@@ -1358,7 +1466,11 @@ function lifecycleToStatus(
 
 function textValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return String(value);
   }
   return JSON.stringify(value);

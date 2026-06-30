@@ -1,34 +1,31 @@
-# Ultragoal Brief — Remaining Backlog Clearance
+# Ultragoal brief — platform maturity E2E completion
 
-Use the approved ralplan artifacts as the authoritative source:
-- PRD: `.omx/plans/remaining-backlog-clearance-prd-20260629T083137Z.md`
-- Test spec: `.omx/plans/remaining-backlog-clearance-test-spec-20260629T083137Z.md`
-- Handoff: `.omx/state/ralplan/remaining-backlog-clearance-20260629T083137Z.json`
+Created: 2026-06-30T00:09:54Z
 
-Create a durable aggregate Codex objective for this plan and track only these execution stories. Do not split principles, risks, pros/cons, or acceptance bullets into separate goals. Every story must preserve: no stubs/placeholders, no premature AI, Korean legal/privacy/labor boundaries, passkey step-up for sensitive actions, PBAC/ABAC/RBAC policy discipline, object-centered workflow, import dry-run/PII governance, PR→review→fix→merge→CI/security/Trivy→Argo/live evidence, and issue/comment traceability.
+Use the approved ralplan consensus handoff as the source of truth.
 
-G001 — Wave 0 backlog ledger and dispatch contracts. Produce the canonical backlog clearance ledger for GitHub issues #6-#19/#55/#56 and session backlog items; reconcile merged PRs #61-#86; classify every item as shipped/valid-planned/rejected/gated/future; create the lane ownership/no-touch matrix, generated-client rules, and evidence/signoff columns. This is the mandatory gate before domain implementation.
+Source artifacts:
+- Durable handoff: .omx/state/ralplan/platform-maturity-e2e-completion-20260629T215449Z.json
+- PRD: .omx/plans/platform-maturity-e2e-completion-prd-20260629T215449Z.md
+- Test spec: .omx/plans/platform-maturity-e2e-completion-test-spec-20260629T215449Z.md
+- Architect APPROVE: .omx/plans/platform-maturity-e2e-completion-architect-review-20260629T215449Z-iter2.md
+- Critic APPROVE: .omx/plans/platform-maturity-e2e-completion-critic-review-20260629T215449Z-final.md
 
-G002 — W1A0/W1I/W1UX foundation gates. Establish the policy/audit/passkey contract baseline, CI/CD/security/release baseline, and UI shell/design/i18n/a11y baseline. Verify the installed `omx team 6:executor` launch path and ensure W1A-W1H cannot start until these gates are green.
+Goal:
+Drive the maintenance platform from WIP to enterprise production maturity against best-in-class products with live rollout and browser E2E verification. The platform is a full corporate/enterprise operations OS, not only maintenance/logistics.
 
-G003 — Identity, passkey, account lifecycle, and configurable policy. Implement and verify W1A: desktop passkey, desktop QR-to-mobile handoff, mobile passkey, OTP-limited setup, multiple passkeys/account settings, sensitive-action passkey step-up, group/org/tenant/user lifecycle status, and configurable PBAC/ABAC/RBAC with audit/RLS tests.
+Non-negotiable constraints from ralplan:
+1. A capability is complete only when merged to main, CI/security/mobile/browser checks are green, image/release discipline is respected, Argo is Synced/Healthy, and live smoke/browser evidence exists.
+2. Work must be object-centered: source object, relationships, lifecycle, activity rail, workflow state, audit trail, and scope are visible/actionable.
+3. Policy-safe PBAC/RBAC/ABAC, RLS, group/org/department/team/position/custom-role scope, denial reasons, passkey step-up for signing-equivalent actions, and audit actor attribution are enforced.
+4. UX must be mature: no text walls, no stub/demo/placeholder paths, no raw UUID labels, production loading/empty/error/partial states, accessibility/keyboard/responsive behavior, clear next action.
+5. E2E must cover platform admin, group admin, and at least one persona from every live org in 그룹사: dsl, cnl, elso, cheongun-hr, cheongun-logis, knl, coss, jy-tech, plus platform vendor tier.
+6. GitHub issues/comments and session backlog must be refreshed before work, mapped as shipped/valid-planned/rejected/gated/future, and updated after PR/live rollout.
+7. Korean legal/privacy/labor/payroll/location/mail/import compliance claims must be gated: no blanket legal compliance claim without official-source refresh, golden tests where relevant, and counsel/management signoff for regulated payroll/tax/labor release.
+8. Team workers must not own Ultragoal state; leader checkpoints from team evidence.
 
-G004 — Ontology/workflow builder, approvals, planned work, and notifications. Implement and verify W1B: no-code workflow authoring, approval/payment lines, comments/evidence/image visibility, queue/badge lifecycle, planned work from source work order, work-order detail dispatch/edit surface, urgent notifications, object timelines, and audit trails.
-
-G005 — Import/export and data governance. Implement and verify W1C: raw import ledger, spreadsheet/folder classification, preview/table mapping UI, server-side schema/entity-type allowlist, PII/payroll/location masking, safe diff/dry-run/apply, standardized export, and workbook row-count to DB/API/browser parity.
-
-G006 — Group/org/people/HR/payroll lifecycle. Implement and verify W1D: tenant/group/org separation, group consolidated/per-org switching, org graph, departments/teams/positions/custom roles, onboarding/offboarding/termination/intra-group transfer workflows, payroll/HR masking, Korean labor/privacy/payroll signoff gates.
-
-G007 — Assets/equipment/sites/dispatch lifecycle. Implement and verify W1E: owner vs operator, group-admin selected legal owner, cross-org two-party transfer approval with legal/accounting signoff, equipment search parity, detail popup/edit, maintenance history/cost/residual/warranty/contract, address/geocode/site persistence, geofence/map pins, dispatch Kanban, substitute recommendation.
-
-G008 — Collaboration, mail, calendar, polls, Work Hub, and mobile app. Implement and verify W1F/W1G: mature messenger/mail/calendar/poll UX, unread/read/mentions/search/attachments/object links, role-aware Work Hub, mobile employee app for clock-in/passkey/signing/notifications/approvals/comms/calendar/polls, generated Swift/Kotlin drift and mobile build/smoke.
-
-G009 — Public landing, CX, sales/rental marketplace, and support pipeline. Implement and verify W1H: public landing with privacy/cookie/footer/copyright/semver, public sale/rental asset listings and filters, customer inquiry to internal CX/support/sales queues, support lifecycle, billing/subscription only behind legal/security/merchant gate.
-
-G010 — Security, observability, CI/CD, backup/DR, and release discipline. Implement and verify W1I production hardening: digest deploy, admission verification/audit mode, global limits/timeouts/tracing layers, secrets GitOps path, monitoring/runbooks within OCI free-tier constraints, backup/restore/object-store lifecycle, Argo rollout, no false HA claims.
-
-G011 — Enterprise module maturity and UI/UX parity closure. After W1 foundations are green, mature HR/payroll, procurement/purchasing, finance/accounting, CX/sales, reporting/BI, executive dashboards, and all screens against the parity matrix; remove text walls/dead screens; verify role stories and accessibility.
-
-G012 — Operations intelligence, MES, optimization, and governed AI readiness. Only after trusted master data/workflow/policy/observability foundations are production-grade, implement deterministic analytics foundations for rental pricing, margin, maintenance cycles, sell/keep, reserve parts/equipment, workforce/SLO planning, purchasing/bidding analytics, MES future scope, and AI/LLM/RL/ML as governed recommendation/draft assistants only.
-
-Final quality gate: before marking the aggregate complete, run targeted verification, ai-slop-cleaner on changed files, architecture invariant audit, independent code-reviewer and architect review, and checkpoint with quality-gate JSON as required by the Ultragoal skill.
+Execution strategy:
+- Start with Wave 0 + Wave 1 only: route/persona/generated route-audit schema, issue/comment ledger, compliance lane, policy/auth/passkey contract, workflow builder/approval contract, ontology/activity rail contract, import/export contract, observability/release contract, and browser persona harness.
+- Do not start broad module implementation until Wave 0+1 hard gates are green.
+- Then execute Wave 2+ module slices: identity/account lifecycle; group/org/people/HR/payroll; workflow builder/approvals/Work Hub; equipment/assets/inventory/dispatch; collaboration/mail/calendar/polls; data exchange; public/CX; finance/procurement/ERP; reporting/intelligence; mobile.
+- Final story requires ai-slop-cleaner, verification rerun, architecture-invariant audit, independent code-reviewer and architect approval, and quality-gate JSON before marking Codex goal complete.

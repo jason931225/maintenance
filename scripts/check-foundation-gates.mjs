@@ -33,6 +33,15 @@ function requireIncludes(path, needle, label) {
   }
 }
 
+function requireNotIncludes(path, needle, label) {
+  const text = read(path);
+  if (!text.includes(needle)) {
+    passes.push(label);
+  } else {
+    failures.push(`${label}: ${path} must not include ${JSON.stringify(needle)}`);
+  }
+}
+
 function requireAny(path, needles, label) {
   const text = read(path);
   if (needles.some((needle) => text.includes(needle))) {
@@ -58,8 +67,16 @@ requireIncludes("docs/specs/backlog-clearance-ledger.md", "## Generated-client a
 requireIncludes("docs/specs/backlog-clearance-ledger.md", "## Evidence and signoff columns required", "G001 evidence/signoff columns");
 requireFile("docs/specs/foundation-gates.md", "G002 foundation-gates contract");
 requireIncludes("docs/specs/foundation-gates.md", "FOUNDATION-GATE-READY: true", "foundation gate readiness marker");
-requireIncludes("docs/specs/foundation-gates.md", "W1A-W1H must not start", "downstream domain-lane block");
+requireIncludes("docs/specs/foundation-gates.md", "G002-wave-1-shared-contracts-and-hard-gat", "current G002 goal id recorded");
+requireIncludes("docs/specs/foundation-gates.md", "Domain goals G003-G009 must not claim completion", "downstream domain-lane block");
+requireIncludes("docs/specs/foundation-gates.md", "## Gate B — workflow/approval/action lifecycle baseline", "workflow/action lifecycle gate recorded");
+requireIncludes("docs/specs/foundation-gates.md", "## Gate C — ontology/import/export/object-lineage baseline", "ontology/import/export gate recorded");
+requireIncludes("docs/specs/foundation-gates.md", "## Gate E — UI shell/design/i18n/a11y/no-text-wall baseline", "UI no-text-wall gate recorded");
 requireIncludes("docs/specs/foundation-gates.md", "omx team 6:executor", "supported team launch path recorded");
+
+for (const staleGoal of ["G011", "G012", "G013", "G014", "G015", "G016", "G017", "G018", "G019", "G020", "G021", "G022", "G023", "G024", "G025", "G026", "G027", "G028", "G029", "G030", "W1A-W1H"]) {
+  requireNotIncludes("docs/specs/foundation-gates.md", staleGoal, `foundation gate has no stale ${staleGoal} plan reference`);
+}
 
 // Policy/audit/passkey baseline.
 for (const gate of [

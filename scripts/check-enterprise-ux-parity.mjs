@@ -109,6 +109,21 @@ for (const needle of [
 }
 
 const epIds = Array.from({ length: 17 }, (_, index) => `EP-${String(index + 1).padStart(3, "0")}`);
+const currentGoalIds = [
+  "G001-wave-0-route-backlog-compliance-ledg",
+  "G002-wave-1-shared-contracts-and-hard-gat",
+  "G003-browser-e2e-persona-harness",
+  "G004-identity-group-org-people-policy-fou",
+  "G005-workflow-builder-approvals-work-hub",
+  "G006-assets-equipment-inventory-dispatch",
+  "G007-collaboration-mail-calendar-poll-mob",
+  "G008-import-export-hr-payroll-finance-erp",
+  "G009-pr-ci-argo-live-rollout-issue-closur",
+  "G010-final-cleanup-review-and-invariant-g",
+];
+function referencesCurrentGoal(value) {
+  return typeof value === "string" && currentGoalIds.some((goalId) => value.includes(goalId));
+}
 for (const ep of epIds) {
   assert(new RegExp(`^\\| ${ep} \\|`, "m").test(matrix), `${ep}: matrix table row`, `${matrixPath}: missing table row for ${ep}`);
   assert(new RegExp(`^### ${ep} \\u2014`, "m").test(matrix), `${ep}: matrix detail section`, `${matrixPath}: missing detail section for ${ep}`);
@@ -159,6 +174,22 @@ for (const row of audit.routeCoverage) {
   assert(Array.isArray(row.personas) && row.personas.length > 0, `route ${key}: persona coverage`, `${auditPath}: ${key} missing personas`);
   assert(typeof row.roleStoryEvidence === "string" && row.roleStoryEvidence.length >= 16, `route ${key}: role-story evidence`, `${auditPath}: ${key} missing roleStoryEvidence`);
   assert(typeof row.accessibilityEvidence === "string" && row.accessibilityEvidence.length >= 16, `route ${key}: accessibility evidence`, `${auditPath}: ${key} missing accessibilityEvidence`);
+  for (const field of [
+    "ownerLane",
+    "dataClass",
+    "sourceObject",
+    "lifecycleStates",
+    "e2eSpec",
+    "denialScopeTest",
+    "screenshotTraceEvidence",
+    "groupScopeStory",
+  ]) {
+    assert(
+      typeof row[field] === "string" && row[field].length >= 16,
+      `route ${key}: ${field}`,
+      `${auditPath}: ${key} missing ${field}`,
+    );
+  }
 }
 for (const route of actualRoutes) {
   assert(coveredRoutes.has(route), `AppRouter route ${route}: covered`, `${auditPath}: missing routeCoverage for AppRouter route ${route}`);
@@ -175,12 +206,14 @@ for (const ep of epIds) {
     for (const key of ["ownerGoalId", "benchmarkTrace", "roleStoryEvidence", "accessibilityEvidence", "gapHandling"]) {
       assert(typeof row[key] === "string" && row[key].length >= 12, `${ep}: ${key}`, `${auditPath}: ${ep} missing ${key}`);
     }
+    assert(referencesCurrentGoal(row.ownerGoalId), `${ep}: current ultragoal ownerGoalId`, `${auditPath}: ${ep} ownerGoalId must reference one of the current G001-G010 ultragoal ids`);
   }
 }
 for (const gap of audit.trackedGaps) {
   assert(typeof gap.id === "string" && gap.id.length > 0, `tracked gap ${gap.id ?? "<missing>"}: id`, `${auditPath}: tracked gap missing id`);
   assert(Array.isArray(gap.epRows) && gap.epRows.every((ep) => epIds.includes(ep)), `tracked gap ${gap.id}: EP rows`, `${auditPath}: tracked gap ${gap.id} has invalid epRows`);
   assert(typeof gap.ownerGoalId === "string" && gap.ownerGoalId.startsWith("G"), `tracked gap ${gap.id}: owner goal`, `${auditPath}: tracked gap ${gap.id} missing ownerGoalId`);
+  assert(referencesCurrentGoal(gap.ownerGoalId), `tracked gap ${gap.id}: current ultragoal owner`, `${auditPath}: tracked gap ${gap.id} ownerGoalId must reference one of the current G001-G010 ultragoal ids`);
   assert(typeof gap.rule === "string" && gap.rule.length >= 24, `tracked gap ${gap.id}: rule`, `${auditPath}: tracked gap ${gap.id} missing rule`);
 }
 
@@ -218,7 +251,10 @@ requireIncludes("web/src/pages/WorkHubPage.test.tsx", "not.toBeInTheDocument", "
 requireIncludes("web/src/pages/WorkHubPage.test.tsx", "actionable group-wide priority inbox without explanatory text walls", "Work Hub test asserts actionable queue pattern");
 requireNotIncludes("web/src/features/reporting/ReportingExport.tsx", "historyNote", "Reporting export has no backend-missing history note");
 requireIncludes("web/src/pages/ReportingPage.test.tsx", "백엔드에서 아직 제공되지", "Reporting test preserves dead-copy regression guard");
-requireIncludes("docs/benchmarks/enterprise-ui-route-audit.json", "G023-enterprise-ui-parity-audit-and-no-te", "route audit owned by G023");
+requireIncludes("docs/benchmarks/enterprise-ui-route-audit.json", "G002-wave-1-shared-contracts-and-hard-gat", "route audit owned by current G002 shared hard gate");
+for (const staleGoal of ["G011", "G012", "G013", "G014", "G015", "G016", "G017", "G018", "G019", "G020", "G021", "G022", "G023", "G024", "G025", "G026", "G027", "G028", "G029", "G030"]) {
+  requireNotIncludes("docs/benchmarks/enterprise-ui-route-audit.json", staleGoal, `route audit has no stale ${staleGoal} owner references`);
+}
 
 if (failures.length) {
   console.error("Enterprise UX parity check failed:\n" + failures.map((failure) => `- ${failure}`).join("\n"));

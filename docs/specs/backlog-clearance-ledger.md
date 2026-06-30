@@ -1,14 +1,21 @@
-# Backlog Clearance Ledger — Issues #6-#19/#55/#56 and PR #61-#86
+# Backlog Clearance Ledger — Platform Maturity Ultragoal Wave 0
 
-Generated: 2026-06-29T09:10Z
+Generated: 2026-06-29T09:10Z; refreshed for Ultragoal G001 on 2026-06-30T00:20Z.
 
 Source evidence:
 - GitHub issue/comment pull: `.omx/context/backlog-ledger/issues-6-19-55-56-20260629T0906Z.json` (16 issues, 72 comments)
 - GitHub PR reconciliation pull: `.omx/context/backlog-ledger/prs-61-86-gh-20260629T090935Z.json` (26 PRs in #61-#86)
-- Planning source: `.omx/plans/remaining-backlog-clearance-prd-20260629T083137Z.md`
+- G001 refreshed issue/comment pull: `.omx/context/platform-maturity-g001/issues-detail-20260630T0012Z.json` (18 issues, 91 comments, including closed #20/#54 residual review)
+- G001 refreshed issue summary: `.omx/context/platform-maturity-g001/issues-summary-20260630T0012Z.json`
+- G001 live production baseline: `.omx/context/platform-maturity-g001/live-baseline-20260630T0017Z.txt`
+- G001 route-audit hard gate RED/GREEN: `.omx/context/platform-maturity-g001/red-route-audit-gate-20260630T0014Z.txt`, `.omx/context/platform-maturity-g001/green-route-audit-gate-20260630T0016Z.txt`
+- Planning source: `.omx/plans/platform-maturity-e2e-completion-prd-20260629T215449Z.md`
+- Test source: `.omx/plans/platform-maturity-e2e-completion-test-spec-20260629T215449Z.md`
 - Session backlog source: `docs/specs/session-backlog-2026-06-29.md`
 
-This is the canonical Wave 0 gate ledger for the remaining backlog clearance ultragoal. It is intentionally redacted: phone numbers, emails, raw spreadsheet rows, payroll/personnel values, attachments containing PII, and GitHub issue bodies with contact details must not be copied into committed docs or routine logs. Raw issue payloads stay in `.omx/context/backlog-ledger/` as local execution evidence, not product documentation.
+This is the canonical Wave 0 gate ledger for the platform-maturity ultragoal. It is intentionally redacted: phone numbers, emails, raw spreadsheet rows, payroll/personnel values, attachments containing PII, and GitHub issue bodies with contact details must not be copied into committed docs or routine logs. Raw issue payloads stay in `.omx/context/` as local execution evidence, not product documentation.
+
+G001 is an ownership and evidence gate, not a claim that the platform is mature. It assigns every accepted backlog item to one primary lane, records no-touch boundaries, and requires later lanes to prove DB/API/browser/mobile behavior before claiming completion.
 
 ## Status taxonomy
 
@@ -23,59 +30,73 @@ This is the canonical Wave 0 gate ledger for the remaining backlog clearance ult
 
 | Lane | Ultragoal | Scope | No-touch / guardrail |
 | --- | --- | --- | --- |
-| W0 | G001 | Ledger, issue/PR reconciliation, lane contracts, signoff columns | Documentation/evidence only; no domain implementation. |
-| W1A0 | G002 | Policy/audit/passkey baseline contract | Blocks W1A-W1H until green; no bypass of passkey step-up for signing-equivalent actions. |
-| W1I | G010 | CI/CD, Trivy, Argo, backup/DR, observability, secrets, OCI free-tier discipline | No false HA/DR claims; no production secret leakage; no paid infra without approval. |
-| W1UX | G011 | Design system, i18n/a11y, shell/navigation, screen/story matrix | No decorative text-wall replacement; UI must expose next action/state/scope. |
-| W1A | G003 | Identity, passkey, OTP setup, account lifecycle, PBAC/ABAC/RBAC | OTP never grants full access without required passkey setup; sensitive actions need fresh passkey. |
-| W1B | G004 | Ontology/workflow builder, approvals, planned work, notifications | Workflows are object-centered and auditable; approval/payment lines cannot be cosmetic. |
-| W1C | G005 | Import/export, raw ledger, mapping UI, standardized schemas | Entity-type allowlist; employee data cannot map into equipment/site schemas; PII masking required. |
-| W1D | G006 | Group/org/tenant, HR, payroll, people lifecycle | Separate tenant/group/org; lawful retention/offboarding and Korean labor/privacy gates. |
-| W1E | G007 | Assets/equipment/sites/dispatch/geodata lifecycle | Owner/operator separation; cross-org transfers need two-party/legal/accounting approval. |
-| W1F | G008 | Web collaboration: messenger, mail, calendar, polls, Work Hub | No demo/stub comms; unread/mentions/search/object links must work across scopes. |
-| W1G | G008 | Swift/Kotlin employee app and generated clients | Do not hand-edit generated Swift/Kotlin clients; regenerate via scripts and verify mobile builds/smoke. |
-| W1H | G009 | Public landing, CX/support, sale/rental marketplace | Payments/subscriptions behind merchant/legal/security/tax gate. |
-| W2 | G011/G012 | Enterprise modules, analytics, MES, AI/optimization | Only after W1 foundations; AI/RL/LLM are governed recommendations/drafts, not opaque decisions. |
+| W0 | G001 | Route/backlog/compliance/live-baseline ledger; issue/comment refresh; owner/no-touch map. | Documentation/evidence only; no domain implementation; do not mark broad scope done from merged slices alone. |
+| W1 | G002 | Shared contracts and hard gates: policy/auth/passkey, workflow/approval/action lifecycle, ontology/activity rail, import/export, observability/release, route audit, UI no-text-wall contracts. | Blocks domain completion claims until contract tests are green; no bypass of passkey step-up for signing-equivalent actions. |
+| E2E | G003 | Browser persona harness across platform admin, group admins, org admins, employee/operator/mechanic/manager/executive personas and every active org. | No route/module may be called mature without scope, denial, lifecycle, screenshot/trace, and live evidence. |
+| ID/GOV | G004 — `G004-identity-group-org-people-policy-fou` | Identity, account lifecycle, desktop/mobile/QR passkey, OTP setup, group/tenant/org separation, PBAC/RBAC/ABAC, people/org graph, onboarding/offboarding/transfer. | OTP never grants full access without required passkey setup; destructive deletion is rejected by default; Korean HR/privacy gates apply. |
+| WF | G005-workflow-builder-approvals-work-hub | Workflow Builder, approvals/payment lines, Work Hub, planned work, work-order lifecycle, comments/evidence/images, urgent notifications/badges, timelines/audit. | Workflow cannot be cosmetic text; payment/approval lines require explicit actor, state, comment, evidence, and terminal queue removal. |
+| ASSET | G006-assets-equipment-inventory-dispatch | Assets/equipment/inventory/sites/dispatch/geodata lifecycle, owner/operator split, cross-org transfers, legal/accounting signoff, search parity, maintenance cost/lifecycle. | Cross-org movement/ownership change needs two-party/legal/accounting workflow; KNL operation of affiliate-owned equipment must preserve owner/operator distinction. |
+| COLLAB | G007 — `G007-collaboration-mail-calendar-poll-mob` | Messenger, mail server/client, calendar, polls, notifications, @mentions, read/unread/badges, Swift/Kotlin/RN employee app communications and approvals. | No demo/stub comms; mail/messenger/calendar must be object-linked, searchable, scoped, auditable, and integrated with workflow/approval. |
+| ERP/CX | G008 | Governed import/export, raw-cell lineage, Korean encoding, HR/payroll/legal gates, finance/procurement/accounting, rental/pricing, public/CX/support/sales, BI/reporting, deterministic intelligence/MES/AI future gates. | Entity-type allowlists and PII masking required; do not claim legal compliance or AI autonomy without counsel/management and deterministic foundations. |
+| SHIP | G009 | PR/review/fix/merge, CI/security/Trivy, release image, Argo rollout, live hosts, live DB/API/browser/mobile parity, observability/logs, issue comments/branch cleanup. | Green local checks are not enough; production-impacting changes need rollout and live verification evidence. |
+| FINAL | G010 | ai-slop-cleaner, final verification, architecture invariant audit, independent code-reviewer and architect review, final quality-gate JSON. | No final Codex goal completion until review/invariant gates are clean. |
+
+## Owner/no-touch hard gates
+
+1. **Single primary owner per change:** each backlog item must cite one primary lane and any downstream consumers. Shared contracts belong to G002; live rollout/issue closure belongs to G009.
+2. **Route evidence required:** every `AppRouter` route must have `ownerLane`, `dataClass`, `sourceObject`, `lifecycleStates`, `e2eSpec`, `denialScopeTest`, `screenshotTraceEvidence`, and `groupScopeStory` in `docs/benchmarks/enterprise-ui-route-audit.json` before implementation lanes claim maturity.
+3. **Production verification ladder:** live claims require DB readback, API response, browser/mobile behavior, rollout health, and relevant logs/observability where applicable.
+4. **Compliance language:** Korean legal/privacy/labor items are engineering guardrails only unless counsel/management signoff exists; use official-source anchors and never claim blanket legal compliance.
+5. **PII/data-import boundary:** raw spreadsheets, payroll, employee/contact data, attachments, and sensitive issue bodies stay out of committed docs and routine logs; import lanes preserve raw lineage with masking and typed mapping.
+6. **UI/UX maturity boundary:** explanatory text walls do not count as functionality; every screen must expose state, next action, scope, ownership, errors, empty/loading states, and workflow consequences.
+7. **Closed issue caveat:** closed #20/#54 were refreshed for residual validity; #54 has no current domain backlog, while #20 residuals remain planned below despite the closed thread.
 
 ## Issue decision ledger
 
 | Issue | Title | Decision status | Lane / goal | Comments | Accepted scope | Gate / rejection rationale |
 | --- | --- | --- | --- | ---: | --- | --- |
-| #6 | Additional Function #1 | valid-planned | G009 / W1H | 2 | Public sale/rental/add-on catalogue for third-party marketing/advertising; must feed internal CX/sales/rental queues. | No direct payment or merchant subscription until legal/security/billing gate is approved. |
-| #7 | Additional Function #2 | valid-planned | G004+G005 / W1B+W1C | 1 | Daily maintenance/preventive-work reporting and downloadable internal approval package. | Use canonical reporting/export schema; approval evidence and signer audit required. |
-| #8 | Additional Function #3 | valid-planned | G007+G012 / W1E+future analytics | 1 | Integrated equipment master, lifecycle, residual value/cost ledger, maintenance documents, quote inputs. | Benchmark only; do not clone paid vendor UI. Analytics depend on trusted asset/maintenance data. |
-| #9 | Additional Function #4 | valid-planned | G005 / W1C | 0 | Daily work-progress board export compatible with existing spreadsheet workflows. | Export must be generated from normalized data, not ad-hoc screen scraping. |
-| #10 | Landing Page | valid-planned with gated payment | G009 / W1H | 0 | Public landing with logo, login/logout, overview, inquiry, FAQ, privacy/cookie/footer/semver; subscription/payment as gated scope. | Credit-card subscription requires merchant, legal, security, audit, tax/accounting signoff first. |
-| #11 | Additional Function #5 | valid-planned | G003+G006 / W1A+W1D | 0 | User permissions, create/remove users, org folders/groups, edit details, mobile linkage, offboarding/disabled states. | Offboarding preserves lawful records; do not hard-delete employment/audit/payroll history by default. |
-| #12 | Additional Function #6 | valid-planned with ownership gate | G007 / W1E | 0 | Rental-service map by province/city, asset locations, asset displacement/movement, substitute suggestions. | Cross-org movement requires sender/receiver/legal/accounting approval, not a direct field edit. |
-| #13 | Additional Function #7 | valid-planned with privacy gate | G007+G006 / W1E+W1D | 0 | Customer/site registration, address/contact, dispatch-site selection, arrival/departure location events. | Location collection must be purpose-limited, consented, and not 24-hour tracking. |
-| #14 | Additional Function #8 | valid-planned; redacted | G004+G007 / W1B+W1E | 0 | Intake receipt with required fields and model derivation from equipment master list. | Original issue contains contact data; never reproduce raw PII in docs/logs; use secure import/contact fields. |
-| #15 | Additional Function #9 | valid-planned; partial future | G007+G008 / W1E+W1G | 2 | Equipment maintenance history, failure frequency warning, warranty/contracts; mobile-readable equipment tab. | Generic 3D fault visualization is future enhancement after reliable asset/failure taxonomy. |
-| #16 | Addtional Function #10 | future-gated | G012 / future intelligence | 0 | AI maintenance/work assistant, report generation, recommendations. | Only after deterministic workflow/data/policy/observability foundations; AI is draft/recommendation, not autonomous decision maker. |
-| #17 | Security/Update Process | valid-planned with infra/cost gates | G010 / W1I | 5 | Backups, update/release discipline, downtime/offline strategy, data-leak risk, GPS spoofing defenses. | Daily backup preferred if within free tier; VPN-only access and paid anti-spoof tools are not default until cost/usability approved. |
-| #18 | Issue Thread #1 | mixed: partly shipped, remaining valid | G003+G004+G007 / W1A+W1B+W1E | 2 | Admin OTP/QR/passkey setup regressions partly shipped by PR #82; remaining site/region/customer/equipment visibility and priority/search items continue. | Do not close until live browser verifies auth paths and remaining object-management flows. |
-| #19 | Issue Thread #2 | mixed: split across goals | G003-G010 | 18 | Equipment edit/detail, branch/address/geocode/GPS consent, imports, org chart, legal-entity addresses, intake/planned work/procurement/sales/substitute/support/PM/offboarding/auth. | Reject raw sensitive-data posting, local MSI installation dependency, hard-delete defaults, and privacy-invasive live tracking. |
-| #55 | Enterprise collaboration suite: Slack-grade messenger, mail, and work tracking | mixed: many slices shipped, broad scope open | G004+G008+G011+G006 | 37 | Slack-grade messenger/mail/work tracking, workflow/action inbox maturity, parity matrix, no text walls, group-wide enterprise operations, workflow/BPM/HRIS benchmarks. | Delivery comments #61/#63-#85 are evidence only; broader collaboration/workflow maturity remains open. |
-| #56 | Enterprise UX overhaul: SAP/Palantir-grade user stories and screen maturity | mixed: slices shipped, broad scope open | G011+G006+G007 | 4 | SAP/Palantir-grade screen/user-story overhaul, group-wide management, policy/role UX, work-order/dispatch/group-aware workflow. | PR #74/#85 ship vertical slices; do not claim full UX maturity until screen-by-screen e2e matrix is green. |
+| #6 | Additional Function #1 | valid-planned | G008+G009 / ERP/CX+SHIP | 2 | Public sale/rental/add-on catalogue for third-party marketing/advertising; must feed internal CX/sales/rental queues. | No direct payment or merchant subscription until legal/security/billing gate is approved and live rollout evidence exists. |
+| #7 | Additional Function #2 | valid-planned | G005+G008 / WF+ERP/CX | 1 | Daily maintenance/preventive-work reporting and downloadable internal approval package. | Use canonical reporting/export schema; approval evidence and signer audit required. |
+| #8 | Additional Function #3 | valid-planned | G006+G008 / ASSET+ERP/CX | 1 | Integrated equipment master, lifecycle, residual value/cost ledger, maintenance documents, quote inputs. | Benchmark only; do not clone paid vendor UI. Analytics depend on trusted asset/maintenance data. |
+| #9 | Additional Function #4 | valid-planned | G005+G008 / WF+ERP/CX | 0 | Daily work-progress board export compatible with existing spreadsheet workflows. | Export must be generated from normalized data, not ad-hoc screen scraping. |
+| #10 | Landing Page | valid-planned with gated payment | G008+G009 / ERP/CX+SHIP | 0 | Public landing with logo, login/logout, overview, inquiry, FAQ, privacy/cookie/footer/semver; subscription/payment as gated scope. | Credit-card subscription requires merchant, legal, security, audit, tax/accounting signoff first. |
+| #11 | Additional Function #5 | valid-planned | G004+G007 / ID/GOV+COLLAB | 0 | User permissions, create/remove users, org folders/groups, edit details, mobile linkage, offboarding/disabled states. | Offboarding preserves lawful records; do not hard-delete employment/audit/payroll history by default. |
+| #12 | Additional Function #6 | valid-planned with ownership gate | G006 / ASSET | 0 | Rental-service map by province/city, asset locations, asset displacement/movement, substitute suggestions. | Cross-org movement requires sender/receiver/legal/accounting approval, not a direct field edit. |
+| #13 | Additional Function #7 | valid-planned with privacy gate | G006+G008 / ASSET+ERP/CX | 0 | Customer/site registration, address/contact, dispatch-site selection, arrival/departure location events. | Location collection must be purpose-limited, consented, and not 24-hour tracking. |
+| #14 | Additional Function #8 | valid-planned; redacted | G005+G006+G008 / WF+ASSET+ERP/CX | 0 | Intake receipt with required fields and model derivation from equipment master list. | Original issue contains contact data; never reproduce raw PII in docs/logs; use secure import/contact fields. |
+| #15 | Additional Function #9 | valid-planned; partial future | G006+G007 / ASSET+COLLAB | 2 | Equipment maintenance history, failure frequency warning, warranty/contracts; mobile-readable equipment tab. | Generic 3D fault visualization is future enhancement after reliable asset/failure taxonomy. |
+| #16 | Addtional Function #10 | future-gated | G008 / ERP/CX future intelligence | 0 | AI maintenance/work assistant, report generation, recommendations. | Only after deterministic workflow/data/policy/observability foundations; AI is draft/recommendation, not autonomous decision maker. |
+| #17 | Security/Update Process | valid-planned with infra/cost gates | G002+G009 / W1+SHIP | 5 | Backups, update/release discipline, downtime/offline strategy, data-leak risk, GPS spoofing defenses. | Daily backup preferred if within free tier; VPN-only access and paid anti-spoof tools are not default until cost/usability approved. |
+| #18 | Issue Thread #1 | mixed: partly shipped, remaining valid | G004+G005+G006 / ID/GOV+WF+ASSET | 2 | Admin OTP/QR/passkey setup regressions partly shipped by PR #82/#85; remaining site/region/customer/equipment visibility and priority/search items continue. | Do not close until live browser verifies auth paths and remaining object-management flows. |
+| #19 | Issue Thread #2 | mixed: split across goals | G004-G009 | 18 | Equipment edit/detail, branch/address/geocode/GPS consent, imports, org chart, legal-entity addresses, intake/planned work/procurement/sales/substitute/support/PM/offboarding/auth. | Reject raw sensitive-data posting, local MSI installation dependency, hard-delete defaults, and privacy-invasive live tracking. |
+| #20 | Issue Thread #3 | valid-planned residuals from closed issue | G004+G005+G006+G008 / ID/GOV+WF+ASSET+ERP/CX | 17 | Dropdown/entity substitution UX; OTP/QR/passkey concurrency and desktop-mobile robustness; duplicate/inactive user handling; retention/RBAC; daily-plan visibility/flow; org/personnel tree and governance approval graph. | Closed thread is not proof of residual closure; old groupware framing is rejected in favor of enterprise governance/workflow and legal retention. |
+| #54 | GPS screen production error | shipped-verify; no current domain backlog | G009 / SHIP | 2 | Production GPS screen failure was handled as release/ops evidence; keep health/rollout/browser regression coverage. | No new product scope remains in this ledger unless live verification regresses again. |
+| #55 | Enterprise collaboration suite: Slack-grade messenger, mail, and work tracking | mixed: many slices shipped, broad scope open | G005+G007+G008+G003 / WF+COLLAB+ERP/CX+E2E | 37 | Slack-grade messenger/mail/work tracking, workflow/action inbox maturity, parity matrix, no text walls, group-wide enterprise operations, workflow/BPM/HRIS benchmarks. | Delivery comments #61/#63-#85 are evidence only; broader collaboration/workflow maturity remains open until e2e persona matrix and live proof are green. |
+| #56 | Enterprise UX overhaul: SAP/Palantir-grade user stories and screen maturity | mixed: slices shipped, broad scope open | G003+G004+G005+G006+G008 / E2E+domain lanes | 4 | SAP/Palantir-grade screen/user-story overhaul, group-wide management, policy/role UX, work-order/dispatch/group-aware workflow. | PR #74/#85 ship vertical slices; do not claim full UX maturity until screen-by-screen e2e matrix is green. |
 
 ## Session backlog mapping
 
 | Session backlog item | Decision | Goal/lane | Completion evidence required |
 | --- | --- | --- | --- |
-| Passkey-first desktop, QR-to-mobile, mobile auth; OTP-limited setup; multiple passkeys | valid-planned; PR #82 is shipped-verify, not final closure | G003/W1A | Unit + browser/mobile e2e for all three paths, live logs for setup status, audit actor proof. |
-| Sensitive actions require passkey confirmation | valid-planned | G002+G003/W1A0+W1A | Policy/audit contract tests; approval/ownership/role-grant e2e with passkey step-up. |
-| Configurable PBAC/ABAC/RBAC | valid-planned | G003/W1A | Policy UI tests, RLS/API negative tests, role/position/department/group custom-role stories. |
-| Approval/workflow lifecycle defects and Slack Workflow Builder-grade authoring | valid-planned; PR #85 is partial shipped-verify | G004/W1B | Builder spec, workflow versioning tests, approval queue/badge state e2e, comment/evidence/image audit. |
-| Planned work starts from received work order | valid-planned; PR #85 partial shipped-verify | G004/W1B | API requires work_order_id; UI source selector; approval shows source/equipment/site/action/history. |
-| Urgent notifications and badges | valid-planned | G004+G008/W1B+W1F/G | Web/mobile notification tests, badge decrement tests, live role-scoped verification. |
-| Equipment owner/operator, cross-org transfer, search, lifecycle, dispatch board | valid-planned | G007/W1E | Owner/org-selected create; two-party transfer workflow; search parity tests; dispatch board visual/e2e audit. |
-| 장비Master List and COSS Group ingestion | valid-planned with PII gate | G005+G007/W1C+W1E | Raw import ledger, dry-run/diff/apply, row-count DB/API/browser parity, masking checks. |
-| Group/org/tenant separation, people lifecycle, Korean legal boundaries | valid-planned | G006/W1D | Group consolidated/per-org switching, HR/payroll masking, onboarding/offboarding/transfer workflows, legal signoff. |
-| Messenger/mail/calendar/polls and role-aware Work Hub | valid-planned; PR #61/#70-#83 partial shipped-verify | G008/W1F/G | Slack/Gmail-grade story tests: Enter-send, latest autofocus, mentions, unread, search, attachments, calendars/polls. |
-| Landing/CX/sale/rental marketplace and privacy/cookie/footer/semver | valid-planned with payment gate | G009/W1H | Public e2e, support queue ingestion, privacy/cookie compliance review, no ungated payment flow. |
-| Swift/Kotlin employee app | valid-planned | G008/W1G | Generated client drift checks, iOS/Android builds, mobile auth/notifications/approvals/comms smoke. |
-| Operations intelligence, optimization, MES, governed AI | future-gated | G012/W2 | Deterministic analytics schemas and observability first; then recommendation/draft-only AI governance. |
-| PR -> review -> fix -> merge -> CI/Trivy/Argo discipline | required gate | G010/W1I plus every lane | PR checks, security scans, code review, release/image evidence, Argo live proof for production changes. |
+| Passkey-first desktop, QR-to-mobile, mobile auth; OTP-limited setup; multiple passkeys | valid-planned; PR #82/#85 are shipped-verify, not final closure | G004 + G003 | Unit + browser/mobile e2e for all three paths, live logs for setup status, audit actor proof. |
+| Sensitive actions require passkey confirmation | valid-planned | G002+G004 | Policy/audit contract tests; approval/ownership/role-grant e2e with passkey step-up. |
+| Configurable PBAC/ABAC/RBAC | valid-planned | G004 + G002 | Policy UI tests, RLS/API negative tests, role/position/department/group custom-role stories. |
+| Approval/workflow lifecycle defects and Slack Workflow Builder-grade authoring | valid-planned; PR #85 is partial shipped-verify | G005 + G002 | Builder spec, workflow versioning tests, approval queue/badge state e2e, comment/evidence/image audit. |
+| Planned work starts from received work order | valid-planned; PR #85 partial shipped-verify | G005 | API requires work_order_id; UI source selector; approval shows source/equipment/site/action/history. |
+| Urgent notifications and badges | valid-planned | G005+G007 | Web/mobile notification tests, badge decrement tests, live role-scoped verification. |
+| Equipment owner/operator, cross-org transfer, search, lifecycle, dispatch board | valid-planned | G006 + G005 | Owner/org-selected create; two-party transfer workflow; search parity tests; dispatch board visual/e2e audit. |
+| 장비Master List and COSS Group ingestion | valid-planned with PII gate | G008+G006 | Raw import ledger, dry-run/diff/apply, row-count DB/API/browser parity, masking checks. |
+| 장비Master flat Sheet2 import productization | valid-planned follow-up from 2026-06-30 verification | G008+G006 | The live KNL import was safely applied and verified, but the production import UI/API must support column-mapped flat equipment workbooks, target operating org/branch selection, legal-owner preservation, and `data_import_runs` lineage instead of relying on one-off SQL. |
+| Governed import standardization for variable Excel layouts | valid-planned; no hardcoded workbook assumptions | G008+G002 | Header detection must use an entity schema/catalog, user-reviewable mapping, entity-type guardrails, source file hash/lineage, masked sensitive fields, and exception reports. Non-flat/pivoted payroll/attendance/personnel workbooks need profile-aware parsers and reviewer signoff before apply. |
+| Equipment management UI polish from live smoke | valid-planned follow-up from 2026-06-30 verification | G006+G011 | Remove remaining English/generic labels such as `Object list`, reduce explanatory copy, and keep KNL/group asset scope self-evident with owner/operator/branch/sensitive-action consequences visible in the table/detail/edit flow. |
+| Group/org/tenant separation, people lifecycle, Korean legal boundaries | valid-planned | G004+G008 | Group consolidated/per-org switching, HR/payroll masking, onboarding/offboarding/transfer workflows, legal signoff. |
+| HR/payroll readiness from COSS Group import | valid-planned with legal/payroll gate | G008 | Live staging must remain `BLOCKED_LEGAL_GATE` until official NTS/rate artifacts, professional validation, passkey approval, wage-statement evidence, and HR review clear; annual-leave usage-promotion obligations must route through workflow/comms objects rather than ad-hoc notifications. |
+| Messenger/mail/calendar/polls and role-aware Work Hub | valid-planned; PR #61/#70-#83 partial shipped-verify | G007+G005 | Slack/Gmail-grade story tests: Enter-send, latest autofocus, mentions, unread, search, attachments, calendars/polls. |
+| Work Mail server/encryption readiness | valid-planned; ordered after core HR/payroll/equipment/assets/approval/workflow stabilization | G007+G009 | The current `메일 서버 또는 암호화 키가 아직 구성되지 않았습니다` state must be cleared by provisioning mail transport and encryption keys, with readiness health, secret rotation, E2E unread/send/receive tests, and live rollout evidence. Do not prioritize this ahead of the core operational workflows above. |
+| Landing/CX/sale/rental marketplace and privacy/cookie/footer/semver | valid-planned with payment gate | G008+G009 | Public e2e, support queue ingestion, privacy/cookie compliance review, no ungated payment flow. |
+| Swift/Kotlin employee app | valid-planned | G007 | Generated client drift checks, iOS/Android builds, mobile auth/notifications/approvals/comms smoke. |
+| Operations intelligence, optimization, MES, governed AI | future-gated | G008 future | Deterministic analytics schemas and observability first; then recommendation/draft-only AI governance. |
+| PR -> review -> fix -> merge -> CI/Trivy/Argo discipline | required gate | G009 plus every source-changing lane | PR checks, security scans, code review, release/image evidence, Argo live proof for production changes. |
 
 ## Rejected and gated requests
 
@@ -124,9 +145,9 @@ This is the canonical Wave 0 gate ledger for the remaining backlog clearance ult
 
 ## Comment coverage ledger
 
-Every fetched comment is accounted for below. Comment snippets are redacted and truncated; use the source JSON for local forensic work only.
+Every fetched comment is accounted for below. Comment snippets are redacted and truncated; use the source JSON for local forensic work only. The detailed comment rows preserve the original 2026-06-29 coverage labels for traceability; the issue decision ledger and session backlog mapping above are the current G001-G010 owner lanes.
 
-Total comments accounted: **72 / 72**.
+Initial detailed comment coverage accounted: **72 / 72** for #6-#19/#55/#56. G001 refreshed snapshot additionally captured closed #20/#54 residual review, bringing the local evidence payload to **91 comments** in `.omx/context/platform-maturity-g001/issues-detail-20260630T0012Z.json`; #20/#54 are summarized in the issue ledger rather than exhaustively expanded below.
 
 | Comment | Decision status | Lane / goal | Coverage decision | Link | Redacted snippet |
 | --- | --- | --- | --- | --- | --- |
