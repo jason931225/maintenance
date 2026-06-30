@@ -1,3 +1,8 @@
+-- Keep the already-applied 0059 migration immutable while extending the
+-- platform_force_remove_organization cascade for purchase-request Option A tables
+-- and DB-backed feature preferences created in 0079. This redefines the function
+-- after those tables exist, preserving sqlx migration checksums in production.
+
 -- FORCE tenant hard-removal for the PLATFORM (vendor) tier — the DESTRUCTIVE
 -- counterpart to the GUARDED removal in 0051.
 --
@@ -118,6 +123,13 @@ BEGIN
     DELETE FROM equipment_cost_ledger           WHERE org_id = p_id;
     DELETE FROM equipment_substitutions         WHERE org_id = p_id;
     DELETE FROM excel_export_logs               WHERE org_id = p_id;
+
+    DELETE FROM user_feature_preferences        WHERE org_id = p_id;
+
+    DELETE FROM financial_regular_purchase_prices WHERE org_id = p_id;
+    DELETE FROM financial_expense_ledger          WHERE org_id = p_id;
+    DELETE FROM financial_purchase_attachments    WHERE org_id = p_id;
+    DELETE FROM financial_purchase_request_lines  WHERE org_id = p_id;
 
     DELETE FROM financial_purchase_history      WHERE org_id = p_id;
     DELETE FROM financial_purchase_requests     WHERE org_id = p_id;
