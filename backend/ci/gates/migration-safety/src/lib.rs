@@ -202,11 +202,11 @@ fn check_migration_file(
     check_no_transaction_statement_count(file, content, statement_tokens.len(), result);
 
     for tokens in &statement_tokens {
-        check_drop_table(file, &tokens, audited_tables, result);
-        check_drop_column(file, &tokens, audited_tables, result);
-        check_concurrent_index_if_not_exists(file, &tokens, result);
-        check_audit_events_grants(file, &tokens, result);
-        check_audit_events_trigger(file, &tokens, result);
+        check_drop_table(file, tokens, audited_tables, result);
+        check_drop_column(file, tokens, audited_tables, result);
+        check_concurrent_index_if_not_exists(file, tokens, result);
+        check_audit_events_grants(file, tokens, result);
+        check_audit_events_trigger(file, tokens, result);
     }
 }
 
