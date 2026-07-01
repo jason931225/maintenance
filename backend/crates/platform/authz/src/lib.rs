@@ -654,9 +654,10 @@ pub fn permission_for(role: Role, feature: Feature) -> PermissionLevel {
 /// Authorize a principal for an org-wide feature read/action with no concrete
 /// resource branch in the request. This is the single source of truth for
 /// branch-omitted org-wide routes: callers must already have `BranchScope::All`,
-/// and custom-role grants must themselves be org-wide (`BranchScope::All`) to
-/// pass this gate. Branch-narrow custom grants may still authorize concrete
-/// branch requests through [`authorize`], but never widen into an all-branch read.
+/// built-in org-wide authority is limited to `SUPER_ADMIN`/`EXECUTIVE`, and
+/// custom-role grants must themselves be org-wide (`BranchScope::All`) to pass
+/// this gate. Branch-narrow custom grants may still authorize concrete branch
+/// requests through [`authorize`], but never widen into an all-branch read.
 pub fn authorize_org_wide(principal: &Principal, action: Action) -> Result<(), KernelError> {
     if principal.branch_scope != BranchScope::All {
         return Err(KernelError::forbidden(
@@ -664,15 +665,17 @@ pub fn authorize_org_wide(principal: &Principal, action: Action) -> Result<(), K
         ));
     }
 
-    let has_feature_permission = principal.roles.iter().any(|role| {
-        permission_for(*role, action.feature()).satisfies(action.required_permission())
-    }) || principal.effective_feature_grants.iter().any(|grant| {
+    let has_builtin_org_wide_permission = principal.roles.iter().any(|role| {
+        matches!(role, Role::SuperAdmin | Role::Executive)
+            && permission_for(*role, action.feature()).satisfies(action.required_permission())
+    });
+    let has_custom_org_wide_permission = principal.effective_feature_grants.iter().any(|grant| {
         grant.feature == action.feature()
             && grant.permission.satisfies(action.required_permission())
             && grant.branch_scope == BranchScope::All
     });
 
-    if !has_feature_permission {
+    if !(has_builtin_org_wide_permission || has_custom_org_wide_permission) {
         return Err(KernelError::forbidden("role is not allowed to use feature"));
     }
 

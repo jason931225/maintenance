@@ -9,7 +9,7 @@ use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, TraceContext};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
+use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -521,7 +521,7 @@ async fn list_attendance_summary(
     Extension(principal): Extension<Principal>,
     Query(query): Query<HrListQuery>,
 ) -> Result<Json<AttendanceSummaryPage>, HrError> {
-    authorize_org_feature(&principal, Feature::EmployeeDirectoryRead)?;
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
     record_hr_read("attendance_summary");
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
@@ -2859,18 +2859,6 @@ fn authorize_hr_org_wide(principal: &Principal, feature: Feature) -> Result<(), 
     authorize_org_wide(principal, Action::new(feature)).map_err(HrError::from_kernel)
 }
 
-fn authorize_org_feature(principal: &Principal, feature: Feature) -> Result<(), HrError> {
-    let representative = match &principal.branch_scope {
-        mnt_kernel_core::BranchScope::All => mnt_kernel_core::BranchId::new(),
-        mnt_kernel_core::BranchScope::Branches(branches) => {
-            branches.iter().next().copied().ok_or_else(|| {
-                HrError::from_kernel(KernelError::forbidden("principal has no branch scope"))
-            })?
-        }
-    };
-    authorize(principal, Action::new(feature), representative).map_err(HrError::from_kernel)
-}
-
 #[derive(Debug)]
 struct HrError {
     status: StatusCode,
@@ -3301,20 +3289,37 @@ mod tests {
     }
 
     #[test]
-    fn org_wide_hr_authorization_allows_org_wide_admins() -> Result<(), String> {
+    fn org_wide_hr_authorization_uses_core_org_wide_gate() -> Result<(), String> {
         use mnt_kernel_core::{OrgId, UserId};
         use mnt_platform_authz::Role;
         use std::collections::BTreeSet;
 
-        let principal = Principal::new(
+        let admin = Principal::new(
             UserId::new(),
             OrgId::new(),
             BTreeSet::from([Role::Admin]),
             BranchScope::All,
         );
 
-        authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)
-            .map_err(|err| format!("org-wide admin HR read was rejected: {}", err.message))?;
+        let admin_err = match authorize_hr_org_wide(&admin, Feature::EmployeeDirectoryRead) {
+            Ok(()) => {
+                return Err(
+                    "synthetic all-branch ADMIN authorized an org-wide employee surface".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
+        assert_eq!(admin_err.status, StatusCode::FORBIDDEN);
+
+        let executive = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Executive]),
+            BranchScope::All,
+        );
+
+        authorize_hr_org_wide(&executive, Feature::EmployeeDirectoryRead)
+            .map_err(|err| format!("org-wide executive HR read was rejected: {}", err.message))?;
         Ok(())
     }
 }

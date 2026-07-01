@@ -379,6 +379,29 @@ fn org_wide_authorize_uses_effective_grants_but_never_widens_branch_grants() {
 }
 
 #[test]
+fn org_wide_authorize_rejects_builtin_admin_even_with_all_branch_scope() {
+    let admin = principal(Role::Admin, BranchScope::All);
+    let admin_err = authorize_org_wide(&admin, Action::new(Feature::KpiRead))
+        .expect_err("ADMIN must not gain org-wide reads from an all-branch scope alone");
+    assert_eq!(admin_err.kind, ErrorKind::Forbidden);
+
+    let executive = principal(Role::Executive, BranchScope::All);
+    authorize_org_wide(&executive, Action::new(Feature::KpiRead))
+        .expect("EXECUTIVE remains an org-wide built-in role for KPI reads");
+
+    let super_admin = principal(Role::SuperAdmin, BranchScope::All);
+    authorize_org_wide(&super_admin, Action::new(Feature::KpiRead))
+        .expect("SUPER_ADMIN remains an org-wide built-in role for KPI reads");
+
+    let custom_all_actor =
+        principal(Role::Member, BranchScope::All).with_effective_feature_grants(vec![
+            EffectiveFeatureGrant::new(Feature::KpiRead, PermissionLevel::Allow, BranchScope::All),
+        ]);
+    authorize_org_wide(&custom_all_actor, Action::new(Feature::KpiRead))
+        .expect("tenant-owned custom All grants may authorize org-wide reads");
+}
+
+#[test]
 fn repository_filter_helper_is_default_deny_and_uses_binds() {
     let column = BranchColumn::new("work_orders.branch_id").unwrap();
 
