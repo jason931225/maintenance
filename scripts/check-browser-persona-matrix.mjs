@@ -63,10 +63,11 @@ const requiredOrgSlugs = [
   "cnl",
   "coss",
   "dsl",
-  "elso",
+  "lso",
   "jy-tech",
   "knl",
 ];
+const forbiddenLegacyOrgSlugs = ["elso"];
 const requiredStates = ["loading", "empty", "error", "permission-denied"];
 const requiredLadder = ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"];
 const requiredScopeModes = ["platform", "group-all", "org-selected", "own-dashboard", "denied-cross-scope"];
@@ -78,6 +79,10 @@ if (matrix) {
   assert(Array.isArray(matrix.liveOrgSlugs), "matrix liveOrgSlugs array", `${matrixPath}: liveOrgSlugs must be an array`);
   for (const org of requiredOrgSlugs) {
     assert(matrix.liveOrgSlugs?.includes(org), `live org ${org}: covered`, `${matrixPath}: liveOrgSlugs must include ${org}`);
+  }
+  for (const org of forbiddenLegacyOrgSlugs) {
+    assert(!matrix.liveOrgSlugs?.includes(org), `legacy org ${org}: absent`, `${matrixPath}: liveOrgSlugs must not include legacy slug ${org}`);
+    assert(!fixture.includes(`"${org}"`), `legacy org ${org}: fixture absent`, `${fixturePath}: LIVE_ORG_SLUGS must not include legacy slug ${org}`);
   }
   assert(Array.isArray(matrix.personas), "matrix personas array", `${matrixPath}: personas must be an array`);
   const personas = matrix.personas ?? [];
