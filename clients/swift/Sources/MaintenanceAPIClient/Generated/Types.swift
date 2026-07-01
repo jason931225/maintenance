@@ -19416,34 +19416,6 @@ public enum Components {
                 self.body = body
             }
         }
-        public struct MailUnavailable: Sendable, Hashable {
-            /// - Remark: Generated from `#/components/responses/MailUnavailable/content`.
-            @frozen public enum Body: Sendable, Hashable {
-                /// - Remark: Generated from `#/components/responses/MailUnavailable/content/application\/json`.
-                case json(Components.Schemas.ErrorBody)
-                /// The associated value of the enum case if `self` is `.json`.
-                ///
-                /// - Throws: An error if `self` is not `.json`.
-                /// - SeeAlso: `.json`.
-                public var json: Components.Schemas.ErrorBody {
-                    get throws {
-                        switch self {
-                        case let .json(body):
-                            return body
-                        }
-                    }
-                }
-            }
-            /// Received HTTP response body
-            public var body: Components.Responses.MailUnavailable.Body
-            /// Creates a new `MailUnavailable`.
-            ///
-            /// - Parameters:
-            ///   - body: Received HTTP response body
-            public init(body: Components.Responses.MailUnavailable.Body) {
-                self.body = body
-            }
-        }
         public struct ServiceUnavailable: Sendable, Hashable {
             /// - Remark: Generated from `#/components/responses/ServiceUnavailable/content`.
             @frozen public enum Body: Sendable, Hashable {
@@ -19469,6 +19441,34 @@ public enum Components {
             /// - Parameters:
             ///   - body: Received HTTP response body
             public init(body: Components.Responses.ServiceUnavailable.Body) {
+                self.body = body
+            }
+        }
+        public struct MailUnavailable: Sendable, Hashable {
+            /// - Remark: Generated from `#/components/responses/MailUnavailable/content`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/components/responses/MailUnavailable/content/application\/json`.
+                case json(Components.Schemas.ErrorBody)
+                /// The associated value of the enum case if `self` is `.json`.
+                ///
+                /// - Throws: An error if `self` is not `.json`.
+                /// - SeeAlso: `.json`.
+                public var json: Components.Schemas.ErrorBody {
+                    get throws {
+                        switch self {
+                        case let .json(body):
+                            return body
+                        }
+                    }
+                }
+            }
+            /// Received HTTP response body
+            public var body: Components.Responses.MailUnavailable.Body
+            /// Creates a new `MailUnavailable`.
+            ///
+            /// - Parameters:
+            ///   - body: Received HTTP response body
+            public init(body: Components.Responses.MailUnavailable.Body) {
                 self.body = body
             }
         }

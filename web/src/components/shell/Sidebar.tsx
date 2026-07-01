@@ -1,11 +1,19 @@
 import { ChevronsLeft, ChevronsRight, PanelsTopLeft } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 
-import { cn } from "../../lib/utils";
-import { ko } from "../../i18n/ko";
-import { NAV_GROUPS, isNavItemVisible } from "./nav";
-import { navGroupLabel, navItemLabel } from "./nav-labels";
+import type { components } from "@maintenance/api-client-ts";
 import type { AuthSession } from "../../context/auth";
+import { useAuth } from "../../context/auth";
+import { ko } from "../../i18n/ko";
+import { cn } from "../../lib/utils";
+import {
+  FEATURES,
+  hasAnyFeatureGrant,
+  NAV_GROUPS,
+  isNavItemVisible,
+} from "./nav";
+import { navGroupLabel, navItemLabel } from "./nav-labels";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -15,6 +23,36 @@ interface SidebarProps {
   session: AuthSession | undefined;
 }
 
+type SupportTicketSummary = components["schemas"]["SupportTicketSummary"];
+
+interface NavBadge {
+  primary: number;
+  secondary?: number;
+  ariaLabel: string;
+  secondaryLabel?: string;
+  tone?: "attention" | "neutral";
+}
+
+type NavCounts = Partial<Record<string, NavBadge>>;
+
+function badgeLabel(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
+
+function hasBadge(badge: NavBadge | undefined): badge is NavBadge {
+  return Boolean(badge && (badge.primary > 0 || (badge.secondary ?? 0) > 0));
+}
+
+function navBadgeAria(template: string, label: string, count: number): string {
+  return template.replace("{label}", label).replace("{count}", String(count));
+}
+
+function isOpenSupportTicket(ticket: Pick<SupportTicketSummary, "status">): boolean {
+  return ticket.status === "OPEN" || ticket.status === "IN_PROGRESS" || ticket.status === "ON_HOLD";
+}
+
+const MAIL_BADGE_FEATURES = [FEATURES.MAIL_USE] as const;
+
 export function Sidebar({
   collapsed,
   mobileOpen,
@@ -22,16 +60,132 @@ export function Sidebar({
   onMobileClose,
   session,
 }: SidebarProps) {
+  const { api } = useAuth();
   const roles = session?.roles;
   const groupRoles = session?.group_roles;
   const featureGrants = session?.feature_grants;
+  const [counts, setCounts] = useState<NavCounts>({});
 
-  const filteredGroups = NAV_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) =>
-      isNavItemVisible(item.key, roles, groupRoles, featureGrants),
-    ),
-  })).filter((group) => group.items.length > 0);
+  const filteredGroups = useMemo(
+    () =>
+      NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          isNavItemVisible(item.key, roles, groupRoles, featureGrants),
+        ),
+      })).filter((group) => group.items.length > 0),
+    [featureGrants, groupRoles, roles],
+  );
+  const visibleItemKeys = useMemo(
+    () => new Set(filteredGroups.flatMap((group) => group.items.map((item) => item.key))),
+    [filteredGroups],
+  );
+  const canLoadMailBadge = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
+
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadCounts() {
+      const next: NavCounts = {};
+      await Promise.all([
+        visibleItemKeys.has("approvals")
+          ? api
+              .GET("/api/approval-items", { params: { query: { limit: 100, offset: 0 } } })
+              .then((response) => {
+                const count = response.data?.total ?? response.data?.items.length ?? 0;
+                if (count > 0) {
+                  next.approvals = {
+                    primary: count,
+                    tone: "attention",
+                    ariaLabel: navBadgeAria(
+                      ko.shell.navBadges.pendingApprovals,
+                      navItemLabel("approvals"),
+                      count,
+                    ),
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+        visibleItemKeys.has("messenger")
+          ? api
+              .GET("/api/messenger/threads", { params: { query: { limit: 100 } } })
+              .then((response) => {
+                const count =
+                  response.data?.items.reduce(
+                    (sum, thread) => sum + Math.max(0, thread.unread_count),
+                    0,
+                  ) ?? 0;
+                if (count > 0) {
+                  next.messenger = {
+                    primary: count,
+                    tone: "attention",
+                    ariaLabel: navBadgeAria(
+                      ko.shell.navBadges.unreadMessages,
+                      navItemLabel("messenger"),
+                      count,
+                    ),
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+        visibleItemKeys.has("mail") && canLoadMailBadge
+          ? api
+              .GET("/api/v1/mail/folders")
+              .then((response) => {
+                const count =
+                  response.data?.reduce(
+                    (sum, folder) => sum + Math.max(0, folder.unread_count),
+                    0,
+                  ) ?? 0;
+                if (count > 0) {
+                  next.mail = {
+                    primary: count,
+                    tone: "attention",
+                    ariaLabel: navBadgeAria(
+                      ko.shell.navBadges.unreadMail,
+                      navItemLabel("mail"),
+                      count,
+                    ),
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+        visibleItemKeys.has("support")
+          ? api
+              .GET("/api/v1/support/tickets", {
+                params: { query: { include_untriaged: true, limit: 100 } },
+              })
+              .then((response) => {
+                const tickets = response.data?.items ?? [];
+                const open = tickets.filter(isOpenSupportTicket).length;
+                const customerUnread = tickets.filter(
+                  (ticket) => ticket.origin === "CUSTOMER" && isOpenSupportTicket(ticket),
+                ).length;
+                if (open > 0 || customerUnread > 0) {
+                  next.support = {
+                    primary: customerUnread,
+                    secondary: open,
+                    tone: customerUnread > 0 ? "attention" : "neutral",
+                    ariaLabel: ko.shell.navBadges.supportSummary
+                      .replace("{unread}", String(customerUnread))
+                      .replace("{open}", String(open)),
+                    secondaryLabel: ko.shell.navBadges.openShort,
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+      ]);
+      if (!ignore) setCounts(next);
+    }
+    void loadCounts();
+    return () => {
+      ignore = true;
+    };
+  }, [api, canLoadMailBadge, visibleItemKeys]);
 
   return (
     <>
@@ -81,22 +235,25 @@ export function Sidebar({
               <div className="grid gap-1">
                 {group.items.map((item) => {
                   const labelStr = navItemLabel(item.key);
+                  const badge = counts[item.key];
+                  const showBadge = hasBadge(badge);
                   return (
                     <NavLink
                       key={item.key}
                       to={item.href}
+                      aria-label={collapsed || showBadge ? `${labelStr}${showBadge ? `, ${badge.ariaLabel}` : ""}` : undefined}
                       onClick={() => {
                         if (mobileOpen) onMobileClose();
                       }}
                       className={({ isActive }) =>
                         cn(
-                          "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                          "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
                           isActive
                             ? "bg-muted-panel text-ink font-semibold"
                             : "text-steel hover:bg-muted-panel hover:text-ink",
                         )
                       }
-                      title={collapsed ? labelStr : undefined}
+                      title={collapsed ? (showBadge ? `${labelStr} · ${badge.ariaLabel}` : labelStr) : undefined}
                     >
                       <item.Icon
                         size={18}
@@ -104,8 +261,42 @@ export function Sidebar({
                         className="shrink-0"
                       />
                       {!collapsed && (
-                        <span className="truncate">{labelStr}</span>
+                        <span className="min-w-0 flex-1 truncate">{labelStr}</span>
                       )}
+                      {showBadge ? (
+                        <span
+                          className={cn(
+                            "ml-auto inline-flex min-w-10 justify-end gap-1",
+                            collapsed && "absolute right-1 top-1 ml-0 min-w-0",
+                          )}
+                          aria-label={badge.ariaLabel}
+                        >
+                          {badge.primary > 0 ? (
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none text-white",
+                                badge.tone === "neutral" ? "bg-steel" : "bg-red-600",
+                                collapsed && "min-h-4 min-w-4 px-1 text-[10px]",
+                              )}
+                            >
+                              {badgeLabel(badge.primary)}
+                            </span>
+                          ) : null}
+                          {(badge.secondary ?? 0) > 0 ? (
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-muted-panel px-1.5 text-[11px] font-bold leading-none text-steel ring-1 ring-line",
+                                collapsed && "hidden",
+                              )}
+                              title={badge.secondaryLabel}
+                            >
+                              {badgeLabel(badge.secondary ?? 0)}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : null}
                     </NavLink>
                   );
                 })}

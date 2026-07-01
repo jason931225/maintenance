@@ -201,10 +201,13 @@ describe("DailyPlanPage", () => {
     await user.clear(dateInput);
     await user.type(dateInput, "2026-06-16");
     await user.selectOptions(
-      await screen.findByLabelText("접수내용 1"),
+      await screen.findByLabelText("접수내용"),
       sourceWorkOrderId,
     );
     await user.type(screen.getByLabelText("작업 내용 1"), "오일 교환");
+    await user.click(screen.getByRole("button", { name: "항목 추가" }));
+    expect(screen.queryByLabelText("접수내용 2")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("작업 내용 2"), "누유 확인");
     await user.click(screen.getByRole("button", { name: "계획 생성" }));
 
     await waitFor(() => {
@@ -212,7 +215,10 @@ describe("DailyPlanPage", () => {
         branch_id: branchId,
         mechanic_id: primaryMechanicId,
         plan_date: "2026-06-16",
-        items: [{ work_order_id: sourceWorkOrderId, description: "오일 교환" }],
+        items: [
+          { work_order_id: sourceWorkOrderId, description: "오일 교환" },
+          { work_order_id: sourceWorkOrderId, description: "누유 확인" },
+        ],
       });
     });
     expect(await screen.findByText("작성 중")).toBeVisible();
@@ -261,7 +267,7 @@ describe("DailyPlanPage", () => {
       primaryMechanicId,
     );
     await user.selectOptions(
-      await screen.findByLabelText("접수내용 1"),
+      await screen.findByLabelText("접수내용"),
       sourceWorkOrderId,
     );
     await user.type(screen.getByLabelText("작업 내용 1"), "타이어 점검");

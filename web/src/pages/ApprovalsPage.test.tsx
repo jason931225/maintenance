@@ -207,7 +207,7 @@ describe("ApprovalsPage", () => {
     renderPage();
 
     expect(
-      await screen.findByRole("heading", { name: "승인 대기", level: 1 }),
+      await screen.findByRole("heading", { name: "전자결제 대기", level: 1 }),
     ).toBeVisible();
     expect(screen.queryByText("Workflow + Approval")).not.toBeInTheDocument();
     expect(
@@ -216,6 +216,9 @@ describe("ApprovalsPage", () => {
       ),
     ).not.toBeInTheDocument();
     expect(await screen.findByText("승인 액션 큐")).toBeVisible();
+    expect(screen.getByText("결재할 전자결제")).toBeVisible();
+    expect(screen.getByText("상신 전자문서")).toBeVisible();
+    expect(screen.getByText("결재완료")).toBeVisible();
     const commandCenter = screen.getByRole("region", {
       name: "승인 액션 큐",
     });

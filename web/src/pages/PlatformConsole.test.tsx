@@ -341,6 +341,60 @@ describe("Platform tenant list", () => {
 });
 
 describe("Platform group management", () => {
+  it("shows Elso's subsidiary slug as lso in group lists", async () => {
+    const elsoOrg = {
+      id: "33333333-3333-4333-8333-333333333333",
+      slug: "elso",
+      name: "(주)엘소",
+      status: "ACTIVE",
+      group_id: platformGroups[0].id,
+      group_slug: platformGroups[0].slug,
+      group_name: platformGroups[0].name,
+      created_at: "2026-03-01T00:00:00Z",
+    };
+    const elsoGroup = {
+      ...platformGroups[0],
+      member_count: 1,
+      members: [
+        {
+          id: elsoOrg.id,
+          slug: elsoOrg.slug,
+          name: elsoOrg.name,
+          status: elsoOrg.status,
+        },
+      ],
+    };
+
+    server.use(
+      http.get("*/api/platform/groups", () => HttpResponse.json([elsoGroup])),
+      http.get("*/api/platform/orgs", () => HttpResponse.json([elsoOrg])),
+      http.get("*/api/platform/groups/:groupId/accounts", () =>
+        HttpResponse.json([
+          {
+            user_id: "99999999-9999-4999-8999-999999999999",
+            display_name: "엘소 관리자",
+            phone: null,
+            tenant_roles: ["MEMBER"],
+            is_active: true,
+            has_passkey: true,
+            account_status: "ACTIVE",
+            org_id: elsoOrg.id,
+            org_slug: "elso",
+            org_name: elsoOrg.name,
+            group_roles: ["GROUP_ADMIN"],
+            created_at: "2026-03-01T00:00:00Z",
+          },
+        ]),
+      ),
+    );
+
+    renderPlatformPage(<PlatformGroupsPage />, "/platform/groups");
+
+    expect((await screen.findAllByText("(주)엘소"))[0]).toBeVisible();
+    expect(screen.getAllByText("lso").length).toBeGreaterThan(0);
+    expect(screen.queryByText("elso")).not.toBeInTheDocument();
+  });
+
   it("renders groups separately from tenancy and member organizations", async () => {
     server.use(
       http.get("*/api/platform/groups", () =>

@@ -35,7 +35,6 @@ const PLAN_REVIEW_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 type WriteState = "idle" | "busy" | "error";
 
 interface PlanItem {
-  workOrderId: string;
   description: string;
 }
 
@@ -110,8 +109,9 @@ export function DailyPlanPage() {
   );
   const [mechanicId, setMechanicId] = useState("");
   const [planDate, setPlanDate] = useState(today);
+  const [sourceWorkOrderId, setSourceWorkOrderId] = useState("");
   const [items, setItems] = useState<PlanItem[]>([
-    { workOrderId: "", description: "" },
+    { description: "" },
   ]);
   const [reviewMemo, setReviewMemo] = useState("");
   const [plan, setPlan] = useState<DailyPlanWithItems>();
@@ -211,12 +211,6 @@ export function DailyPlanPage() {
       .catch(() => undefined);
   }, [api, planIdParam]);
 
-  function setItemWorkOrder(index: number, workOrderId: string) {
-    setItems((prev) =>
-      prev.map((item, idx) => (idx === index ? { ...item, workOrderId } : item)),
-    );
-  }
-
   function setItemDescription(index: number, description: string) {
     setItems((prev) =>
       prev.map((item, idx) => (idx === index ? { ...item, description } : item)),
@@ -224,7 +218,7 @@ export function DailyPlanPage() {
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { workOrderId: "", description: "" }]);
+    setItems((prev) => [...prev, { description: "" }]);
   }
 
   function removeItem(index: number) {
@@ -241,22 +235,20 @@ export function DailyPlanPage() {
       setErrorKey(isMechanic ? "needMechanic" : "needMechanicAdmin");
       return;
     }
-    const candidates = items
-      .map((item) => ({
-        workOrderId: item.workOrderId.trim(),
-        description: item.description.trim(),
-      }))
-      .filter((item) => item.workOrderId.length > 0 || item.description.length > 0);
-    if (candidates.length === 0 || candidates.some((item) => item.workOrderId.length === 0)) {
+    const selectedSourceWorkOrderId = sourceWorkOrderId.trim();
+    if (!selectedSourceWorkOrderId) {
       setErrorKey("needWorkOrder");
       return;
     }
-    if (candidates.some((item) => item.description.length === 0)) {
+    const candidates = items
+      .map((item) => ({ description: item.description.trim() }))
+      .filter((item) => item.description.length > 0);
+    if (candidates.length === 0) {
       setErrorKey("needItem");
       return;
     }
     const cleanItems = candidates.map((item) => ({
-      work_order_id: item.workOrderId,
+      work_order_id: selectedSourceWorkOrderId,
       description: item.description,
     }));
     setWriteState("busy");
@@ -414,37 +406,37 @@ export function DailyPlanPage() {
               <span className="text-sm font-medium text-steel">
                 {ko.dailyPlan.items}
               </span>
+              <div className="grid gap-2 rounded-md border border-line p-3">
+                <label
+                  className="text-sm font-medium text-steel"
+                  htmlFor="plan-source-work-order"
+                >
+                  {ko.dailyPlan.sourceWorkOrder}
+                </label>
+                <Select
+                  id="plan-source-work-order"
+                  value={sourceWorkOrderId}
+                  onChange={(event) => {
+                    setSourceWorkOrderId(event.currentTarget.value);
+                  }}
+                >
+                  <option value="">
+                    {sourceWorkOrders.length === 0
+                      ? ko.dailyPlan.sourceWorkOrderEmpty
+                      : ko.dailyPlan.sourceWorkOrderPlaceholder}
+                  </option>
+                  {sourceWorkOrders.map((workOrder) => (
+                    <option key={workOrder.id} value={workOrder.id}>
+                      {formatWorkOrderOption(workOrder)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
               {items.map((item, index) => (
                 <div
                   key={index}
                   className="grid gap-3 rounded-md border border-line p-3"
                 >
-                  <div className="grid gap-2">
-                    <label
-                      className="text-sm font-medium text-steel"
-                      htmlFor={`plan-source-work-order-${String(index)}`}
-                    >
-                      {ko.dailyPlan.sourceWorkOrder} {String(index + 1)}
-                    </label>
-                    <Select
-                      id={`plan-source-work-order-${String(index)}`}
-                      value={item.workOrderId}
-                      onChange={(event) => {
-                        setItemWorkOrder(index, event.currentTarget.value);
-                      }}
-                    >
-                      <option value="">
-                        {sourceWorkOrders.length === 0
-                          ? ko.dailyPlan.sourceWorkOrderEmpty
-                          : ko.dailyPlan.sourceWorkOrderPlaceholder}
-                      </option>
-                      {sourceWorkOrders.map((workOrder) => (
-                        <option key={workOrder.id} value={workOrder.id}>
-                          {formatWorkOrderOption(workOrder)}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
                   <div className="flex items-end gap-2">
                     <div className="grid flex-1 gap-2">
                       <label

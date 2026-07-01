@@ -76,7 +76,6 @@ export function IntakeForm({
   const [serviceCategory, setServiceCategory] = useState<ServiceCategory | "">(
     "",
   );
-  const [targetDueAt, setTargetDueAt] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<
     "idle" | "saving" | "created" | "error" | "equipmentNotFound"
@@ -108,7 +107,6 @@ export function IntakeForm({
     setContactPhone("");
     setCustomerRequest("");
     setServiceCategory("");
-    setTargetDueAt("");
     setErrors({});
   }
 
@@ -156,9 +154,7 @@ export function IntakeForm({
         management_no: managementNo.trim(),
         symptom: symptom.trim(),
         customer_request: customerRequestValue,
-        target_due_at: targetDueAt
-          ? new Date(targetDueAt).toISOString()
-          : undefined,
+        target_due_at: undefined,
       });
       setStatus("created");
       setCreatedWorkOrder(created);
@@ -328,20 +324,6 @@ export function IntakeForm({
             value={customerRequest}
             onChange={(event) => {
               setCustomerRequest(event.currentTarget.value);
-            }}
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <label className="text-sm font-medium text-steel" htmlFor="target-due-at">
-            {ko.intake.targetDueAt}
-          </label>
-          <Input
-            id="target-due-at"
-            type="datetime-local"
-            value={targetDueAt}
-            onChange={(event) => {
-              setTargetDueAt(event.currentTarget.value);
             }}
           />
         </div>

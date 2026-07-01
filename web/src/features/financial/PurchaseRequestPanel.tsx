@@ -75,9 +75,8 @@ interface PurchasePreferences {
 
 const PURCHASE_TYPE_LABELS: Record<PurchaseTypeValue, string> = ko.financial.purchase.types;
 const PURCHASE_TEXT = ko.financial.purchase.optionA;
+const KNL_MAINTENANCE_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
 let lineIdCounter = 0;
-const KNL_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
-
 
 function newLineId() {
   lineIdCounter += 1;
@@ -189,7 +188,8 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const activeBranchId = useActiveBranchId();
   const { session } = useAuth();
   const requesterLabel = session?.display_name ?? session?.email ?? PURCHASE_TEXT.requesterFallback;
-  const isKnlOrg = session?.org_id === KNL_ORG_ID;
+  const isKnlMaintenanceOrg =
+    session?.org_id === KNL_MAINTENANCE_ORG_ID;
 
   const [requests, setRequests] = useState<PurchaseRequestSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -200,7 +200,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [density, setDensity] = useState<Density>("compact");
   const [preferencesSaved, setPreferencesSaved] = useState(false);
   const [form, setForm] = useState<CreateForm>(() =>
-    emptyCreateForm("ONE_OFF", isKnlOrg),
+    emptyCreateForm("ONE_OFF", isKnlMaintenanceOrg),
   );
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [createError, setCreateError] = useState<string>();
@@ -232,11 +232,11 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       if (preferences.density === "compact" || preferences.density === "comfortable") {
         setDensity(preferences.density);
       }
-      const preferredType = preferences.default_purchase_type;
-      if (preferredType && preferredType !== "LEGACY_MANUAL") {
+      const defaultPurchaseType = preferences.default_purchase_type;
+      if (defaultPurchaseType && defaultPurchaseType !== "LEGACY_MANUAL") {
         setForm((prev) => ({
           ...prev,
-          purchaseType: preferredType,
+          purchaseType: defaultPurchaseType,
         }));
       }
     }
@@ -246,12 +246,23 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     };
   }, [api]);
 
-
-
   const totalWon = useMemo(() => linesTotal(form.lines), [form.lines]);
-  const equipmentScoped = isKnlOrg || form.equipmentScoped;
+  const equipmentScoped = isKnlMaintenanceOrg || form.equipmentScoped;
   const branchId = equipmentScoped ? equipment?.branchId : activeBranchId;
   const attachmentIds = form.quoteAttachments.map((attachment) => attachment.id);
+  const vendorSuggestions = useMemo(
+    () => Array.from(new Set(requests.map((request) => request.vendor_name))).slice(0, 8),
+    [requests],
+  );
+  const trimmedVendor = form.vendorName.trim();
+  const vendorMatchesKnown =
+    trimmedVendor.length > 0 &&
+    vendorSuggestions.some((vendor) => vendor.toLowerCase() === trimmedVendor.toLowerCase());
+  const vendorStatus = trimmedVendor
+    ? vendorMatchesKnown
+      ? PURCHASE_TEXT.vendorExisting
+      : PURCHASE_TEXT.vendorNew
+    : PURCHASE_TEXT.vendorManualHint;
   const equipmentRequiredHint = PURCHASE_TEXT.equipmentRequiredHint;
   const policyMessages = [
     equipmentScoped ? PURCHASE_TEXT.policyEquipment : PURCHASE_TEXT.policyExpense,
@@ -264,7 +275,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     setForm(
       emptyCreateForm(
         form.purchaseType === "LEGACY_MANUAL" ? "ONE_OFF" : form.purchaseType,
-        isKnlOrg,
+        isKnlMaintenanceOrg,
       ),
     );
     setWriteState("idle");
@@ -538,13 +549,18 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
             </div>
 
             <div className="grid gap-3 md:grid-cols-[1fr_12rem_10rem]">
-              <Field
-                id="pr-vendor"
-                label={ko.financial.purchase.fields.vendorName}
-                placeholder={ko.financial.purchase.fields.vendorNamePlaceholder}
-                value={form.vendorName}
-                onChange={(value) => { setField("vendorName", value); }}
-              />
+              <div className="grid gap-1.5">
+                <Field
+                  id="pr-vendor"
+                  label={ko.financial.purchase.fields.vendorName}
+                  placeholder={ko.financial.purchase.fields.vendorNamePlaceholder}
+                  value={form.vendorName}
+                  onChange={(value) => { setField("vendorName", value); }}
+                  listId="purchase-vendor-options"
+                  datalistOptions={vendorSuggestions}
+                />
+                <p className="text-xs text-steel">{vendorStatus}</p>
+              </div>
               <SelectField
                 id="pr-purchase-type"
                 label={PURCHASE_TEXT.purchaseType}
@@ -568,40 +584,42 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
               />
             </div>
 
-            <div className="grid gap-2 rounded-md border border-line bg-muted-panel p-3">
-              <label className="flex items-center gap-2 text-sm font-semibold text-ink">
-                <input
-                  type="checkbox"
-                  checked={equipmentScoped}
-                  disabled={isKnlOrg}
-                  onChange={(event) => {
-                    setField("equipmentScoped", event.currentTarget.checked);
-                    if (!event.currentTarget.checked) {
-                      setEquipment(undefined);
-                      setField("statementEvidenceId", "");
-                    }
-                  }}
-                />
-                {PURCHASE_TEXT.equipmentScoped}
-              </label>
-              <p className="text-xs text-steel">{equipmentRequiredHint}</p>
-              {equipmentScoped ? (
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)]">
-                  <EquipmentSelector
-                    api={api}
-                    selected={equipment}
-                    onSelect={setEquipment}
+            {isKnlMaintenanceOrg ? (
+              <div className="grid gap-2 rounded-md border border-line bg-muted-panel p-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-ink">
+                  <input
+                    type="checkbox"
+                    checked={equipmentScoped}
+                    disabled={isKnlMaintenanceOrg}
+                    onChange={(event) => {
+                      setField("equipmentScoped", event.currentTarget.checked);
+                      if (!event.currentTarget.checked) {
+                        setEquipment(undefined);
+                        setField("statementEvidenceId", "");
+                      }
+                    }}
                   />
-                  <Field
-                    id="pr-evidence"
-                    label={ko.financial.purchase.fields.statementEvidenceId}
-                    placeholder={ko.financial.purchase.fields.statementEvidenceIdPlaceholder}
-                    value={form.statementEvidenceId}
-                    onChange={(value) => { setField("statementEvidenceId", value); }}
-                  />
-                </div>
-              ) : null}
-            </div>
+                  {PURCHASE_TEXT.equipmentScoped}
+                </label>
+                <p className="text-xs text-steel">{equipmentRequiredHint}</p>
+                {equipmentScoped ? (
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)]">
+                    <EquipmentSelector
+                      api={api}
+                      selected={equipment}
+                      onSelect={setEquipment}
+                    />
+                    <Field
+                      id="pr-evidence"
+                      label={ko.financial.purchase.fields.statementEvidenceId}
+                      placeholder={ko.financial.purchase.fields.statementEvidenceIdPlaceholder}
+                      value={form.statementEvidenceId}
+                      onChange={(value) => { setField("statementEvidenceId", value); }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <LineItemGrid
               lines={form.lines}
@@ -1219,7 +1237,6 @@ function PurchaseDetail({
 
       <SourceObjectRail request={request} />
 
-
       <dl className="grid gap-2 text-sm md:grid-cols-3">
         <Row label={ko.financial.purchase.vendor} value={request.vendor_name} />
         <Row label={PURCHASE_TEXT.requester} value={request.requester.display_name} />
@@ -1749,9 +1766,21 @@ interface FieldProps {
   placeholder?: string;
   inputMode?: "numeric" | "text";
   readOnly?: boolean;
+  listId?: string;
+  datalistOptions?: string[];
 }
 
-function Field({ id, label, value, onChange, placeholder, inputMode, readOnly }: FieldProps) {
+function Field({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  inputMode,
+  readOnly,
+  listId,
+  datalistOptions,
+}: FieldProps) {
   return (
     <div className="grid gap-1.5">
       <label className="text-sm font-medium text-steel" htmlFor={id}>{label}</label>
@@ -1761,8 +1790,16 @@ function Field({ id, label, value, onChange, placeholder, inputMode, readOnly }:
         placeholder={placeholder}
         inputMode={inputMode}
         readOnly={readOnly}
+        list={listId}
         onChange={(event) => { onChange(event.currentTarget.value); }}
       />
+      {listId && datalistOptions && datalistOptions.length > 0 ? (
+        <datalist id={listId}>
+          {datalistOptions.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      ) : null}
     </div>
   );
 }
@@ -1796,3 +1833,4 @@ function SelectField<T extends string>({
     </div>
   );
 }
+

@@ -1,3 +1,4 @@
+import { canonicalOrgSlug } from "../lib/orgSlug";
 import { getDeviceId } from "./device";
 import { isAuthPath, singleFlightRefresh } from "./refresh";
 
@@ -241,6 +242,44 @@ export interface TenantContextStartResponse {
   expires_at: string;
 }
 
+function normalizePlatformOrg(org: PlatformOrg): PlatformOrg {
+  return { ...org, slug: canonicalOrgSlug(org.slug) };
+}
+
+function normalizePlatformGroupMember(
+  member: PlatformGroupMember,
+): PlatformGroupMember {
+  return { ...member, slug: canonicalOrgSlug(member.slug) };
+}
+
+function normalizePlatformGroup(group: PlatformGroup): PlatformGroup {
+  return {
+    ...group,
+    members: group.members.map(normalizePlatformGroupMember),
+  };
+}
+
+function normalizePlatformGroupAccount(
+  account: PlatformGroupAccount,
+): PlatformGroupAccount {
+  return { ...account, org_slug: canonicalOrgSlug(account.org_slug) };
+}
+
+function normalizePlatformGroupAccountResponse(
+  response: CreatePlatformGroupAccountResponse,
+): CreatePlatformGroupAccountResponse {
+  return {
+    ...response,
+    account: normalizePlatformGroupAccount(response.account),
+  };
+}
+
+function normalizePlatformTenantHealth(
+  tenant: PlatformTenantHealth,
+): PlatformTenantHealth {
+  return { ...tenant, slug: canonicalOrgSlug(tenant.slug) };
+}
+
 /**
  * POST /api/platform/view-as — mint a SHORT-LIVED, READ-ONLY impersonation token
  * to view a tenant as a given role for troubleshooting. Platform-tier only; the
@@ -338,7 +377,7 @@ export async function getPlatformOps(
   });
   if (!response.ok) throw await parseError(response);
   const body = (await response.json()) as PlatformOpsResponse;
-  return body.tenants;
+  return body.tenants.map(normalizePlatformTenantHealth);
 }
 
 /** GET /platform/orgs â list every tenant organization. */
@@ -349,7 +388,8 @@ export async function listPlatformOrgs(
     method: "GET",
   });
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformOrg[];
+  const orgs = (await response.json()) as PlatformOrg[];
+  return orgs.map(normalizePlatformOrg);
 }
 
 /** POST /platform/orgs â onboard a tenant; returns the org + a one-time OTP. */
@@ -362,7 +402,8 @@ export async function onboardPlatformOrg(
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as OnboardOrgResponse;
+  const onboarded = (await response.json()) as OnboardOrgResponse;
+  return { ...onboarded, org: normalizePlatformOrg(onboarded.org) };
 }
 
 /** PATCH /platform/orgs/{id} â set a tenant's lifecycle status. */
@@ -380,7 +421,7 @@ export async function setPlatformOrgStatus(
     },
   );
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformOrg;
+  return normalizePlatformOrg((await response.json()) as PlatformOrg);
 }
 
 /**
@@ -435,7 +476,8 @@ export async function listPlatformGroups(
     method: "GET",
   });
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformGroup[];
+  const groups = (await response.json()) as PlatformGroup[];
+  return groups.map(normalizePlatformGroup);
 }
 
 /** POST /platform/groups — create a group identity, not a tenant. */
@@ -448,7 +490,7 @@ export async function createPlatformGroup(
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformGroup;
+  return normalizePlatformGroup((await response.json()) as PlatformGroup);
 }
 
 /** PATCH /platform/groups/{id} — update group slug/name/status. */
@@ -466,7 +508,7 @@ export async function updatePlatformGroup(
     },
   );
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformGroup;
+  return normalizePlatformGroup((await response.json()) as PlatformGroup);
 }
 
 /** GET /platform/groups/{id}/accounts — list tenant-anchored group accounts. */
@@ -480,7 +522,8 @@ export async function listPlatformGroupAccounts(
     { method: "GET" },
   );
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformGroupAccount[];
+  const accounts = (await response.json()) as PlatformGroupAccount[];
+  return accounts.map(normalizePlatformGroupAccount);
 }
 
 /** POST /platform/groups/{id}/accounts — create a tenant-anchored group account. */
@@ -498,7 +541,9 @@ export async function createPlatformGroupAccount(
     },
   );
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as CreatePlatformGroupAccountResponse;
+  return normalizePlatformGroupAccountResponse(
+    (await response.json()) as CreatePlatformGroupAccountResponse,
+  );
 }
 
 /** DELETE /platform/groups/{id}/accounts/{userId}/roles/{role} — revoke one group role. */
@@ -528,7 +573,7 @@ export async function assignPlatformOrgToGroup(
     { method: "PUT" },
   );
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformOrg;
+  return normalizePlatformOrg((await response.json()) as PlatformOrg);
 }
 
 /** DELETE /platform/groups/{id}/organizations/{orgId} — remove an org from a group. */
@@ -543,5 +588,5 @@ export async function removePlatformOrgFromGroup(
     { method: "DELETE" },
   );
   if (!response.ok) throw await parseError(response);
-  return (await response.json()) as PlatformOrg;
+  return normalizePlatformOrg((await response.json()) as PlatformOrg);
 }

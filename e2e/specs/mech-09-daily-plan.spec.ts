@@ -70,7 +70,7 @@ test("MECH-09 daily plan: create → request review → admin confirm", async ({
   // Link the plan item to an existing received/assigned work order. This is
   // the actual operating path: planned work starts from a concrete intake item,
   // not free-text alone.
-  const sourceWorkOrderSelect = page.getByLabel("접수내용 1");
+  const sourceWorkOrderSelect = page.getByLabel("접수내용");
   await expect(sourceWorkOrderSelect).toBeVisible({ timeout: 5_000 });
   await expect
     .poll(async () => await sourceWorkOrderSelect.locator("option").count(), {

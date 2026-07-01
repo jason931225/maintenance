@@ -1,3 +1,4 @@
+import { canonicalOrgSlug } from "../lib/orgSlug";
 import { getDeviceId } from "./device";
 import { isAuthPath, singleFlightRefresh } from "./refresh";
 
@@ -27,6 +28,19 @@ export interface GroupTenantContextStartResponse {
   acting_org_name: string;
   acting_role: "GROUP_ADMIN_DELEGATED_ADMIN";
   expires_at: string;
+}
+
+function normalizeGroupAdminMember(
+  member: GroupAdminMemberOrg,
+): GroupAdminMemberOrg {
+  return { ...member, slug: canonicalOrgSlug(member.slug) };
+}
+
+function normalizeGroupAdminGroup(group: GroupAdminGroup): GroupAdminGroup {
+  return {
+    ...group,
+    members: group.members.map(normalizeGroupAdminMember),
+  };
 }
 
 export class GroupAdminApiError extends Error {
@@ -122,7 +136,7 @@ export async function listGroupAdminGroups(
   );
   if (!response.ok) throw await parseError(response);
   const body = (await response.json()) as GroupAdminGroupsResponse;
-  return body.groups;
+  return body.groups.map(normalizeGroupAdminGroup);
 }
 
 export async function startGroupTenantContext(

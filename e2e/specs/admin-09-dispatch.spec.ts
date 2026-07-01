@@ -79,7 +79,7 @@ test("ADMIN-09 admin sets priority, requests schedule change, and multi-assigns"
   });
 
   // ── Schedule change request ──────────────────────────────────────────────────
-  await page.locator(`#schedule-${WO_ID}`).fill("2026-12-31T10:00");
+  await page.locator(`#schedule-${WO_ID}`).fill("2026-12-31");
   await page.getByLabel("변경 사유").fill("E2E 일정 변경 요청 사유");
   await page.getByRole("button", { name: "일정 변경 요청" }).click();
   await expect(page.getByText(/일정 변경을 요청했습니다\./)).toBeVisible({

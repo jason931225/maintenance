@@ -17,6 +17,7 @@ import {
 } from "../test/fixtures";
 import { todayInSeoul } from "../lib/utils";
 import { CollaborationPage } from "./CollaborationPage";
+import { FEATURES } from "../components/shell/nav";
 
 const apiRequests: URL[] = [];
 const approvalItemRequests: URL[] = [];
@@ -440,7 +441,11 @@ const baseSession: AuthSession = {
   roles: ["MECHANIC"],
   branches: [branchId],
 };
-const adminSession: AuthSession = { ...baseSession, roles: ["ADMIN"] };
+const adminSession: AuthSession = {
+  ...baseSession,
+  roles: ["ADMIN"],
+  feature_grants: [FEATURES.MAIL_USE],
+};
 const mechanicSession: AuthSession = { ...baseSession, roles: ["MECHANIC"] };
 
 describe("CollaborationPage", () => {

@@ -3456,15 +3456,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PurchaseRequestSummary'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/financial/purchase-requests/{purchaseRequestId}:
     get:
       operationId: getPurchaseRequest
@@ -3479,13 +3479,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PurchaseRequestSummary'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/financial/purchase-requests/{purchaseRequestId}/submit:
     post:
       operationId: submitPurchaseRequest
@@ -6410,16 +6410,16 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorBody'
-    MailUnavailable:
-      description: Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification
-        is not configured. The app is otherwise healthy.
+            $ref: "#/components/schemas/ErrorBody"
+    ServiceUnavailable:
+      description: Required storage or platform dependency is not configured.
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorBody'
-    ServiceUnavailable:
-      description: Required storage or platform dependency is not configured.
+            $ref: "#/components/schemas/ErrorBody"
+    MailUnavailable:
+      description: Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification
+        is not configured. The app is otherwise healthy.
       content:
         application/json:
           schema:
@@ -12314,24 +12314,24 @@ components:
         timeline:
           type: array
           items:
-            $ref: '#/components/schemas/CostLedgerEntrySummary'
+            $ref: "#/components/schemas/CostLedgerEntrySummary"
     CreatePurchaseRequest:
       type: object
       required:
-      - branch_id
-      - purchase_type
-      - vendor_name
-      - lines
-      - quote_attachment_ids
-      - memo
-      - config
+        - branch_id
+        - purchase_type
+        - vendor_name
+        - lines
+        - quote_attachment_ids
+        - memo
+        - config
       properties:
         branch_id:
           $ref: '#/components/schemas/Uuid'
         equipment_id:
           type:
-          - string
-          - 'null'
+            - string
+            - "null"
           format: uuid
         work_order_id:
           type:
@@ -12340,29 +12340,29 @@ components:
           format: uuid
         statement_evidence_id:
           type:
-          - string
-          - 'null'
+            - string
+            - "null"
           format: uuid
         purchase_type:
-          $ref: '#/components/schemas/PurchaseType'
+          $ref: "#/components/schemas/PurchaseType"
         vendor_name:
           type: string
           minLength: 1
         amount_won:
           type:
-          - integer
-          - 'null'
+            - integer
+            - "null"
           format: int64
           minimum: 1
         lines:
           type: array
           minItems: 1
           items:
-            $ref: '#/components/schemas/PurchaseRequestLineInput'
+            $ref: "#/components/schemas/PurchaseRequestLineInput"
         quote_attachment_ids:
           type: array
           items:
-            $ref: '#/components/schemas/Uuid'
+            $ref: "#/components/schemas/Uuid"
         memo:
           type: string
           minLength: 1
@@ -12371,23 +12371,23 @@ components:
     PurchaseRequestSummary:
       type: object
       required:
-      - id
-      - branch_id
-      - equipment_id
-      - work_order_id
-      - statement_evidence_id
-      - purchase_type
-      - vendor_name
-      - amount_won
-      - status
-      - requester
-      - lines
-      - quote_attachments
-      - policy
-      - expenditure_no
-      - rejection_memo
-      - created_at
-      - updated_at
+        - id
+        - branch_id
+        - equipment_id
+        - work_order_id
+        - statement_evidence_id
+        - purchase_type
+        - vendor_name
+        - amount_won
+        - status
+        - requester
+        - lines
+        - quote_attachments
+        - policy
+        - expenditure_no
+        - rejection_memo
+        - created_at
+        - updated_at
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
@@ -12395,8 +12395,8 @@ components:
           $ref: '#/components/schemas/Uuid'
         equipment_id:
           type:
-          - string
-          - 'null'
+            - string
+            - "null"
           format: uuid
         work_order_id:
           type:
@@ -12405,30 +12405,30 @@ components:
           format: uuid
         statement_evidence_id:
           type:
-          - string
-          - 'null'
+            - string
+            - "null"
           format: uuid
         purchase_type:
-          $ref: '#/components/schemas/PurchaseType'
+          $ref: "#/components/schemas/PurchaseType"
         vendor_name:
           type: string
         amount_won:
           type: integer
           format: int64
         status:
-          $ref: '#/components/schemas/PurchaseStatus'
+          $ref: "#/components/schemas/PurchaseStatus"
         requester:
-          $ref: '#/components/schemas/PurchaseRequesterSummary'
+          $ref: "#/components/schemas/PurchaseRequesterSummary"
         lines:
           type: array
           items:
-            $ref: '#/components/schemas/PurchaseRequestLineSummary'
+            $ref: "#/components/schemas/PurchaseRequestLineSummary"
         quote_attachments:
           type: array
           items:
-            $ref: '#/components/schemas/PurchaseAttachmentSummary'
+            $ref: "#/components/schemas/PurchaseAttachmentSummary"
         policy:
-          $ref: '#/components/schemas/PurchasePolicySummary'
+          $ref: "#/components/schemas/PurchasePolicySummary"
         expenditure_no:
           type:
           - string
@@ -12440,7 +12440,7 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
-          $ref: '#/components/schemas/Timestamp'
+          $ref: "#/components/schemas/Timestamp"
     PrepareExpenditureRequest:
       type: object
       required:
@@ -12460,30 +12460,30 @@ components:
     RestartPurchaseRequest:
       type: object
       required:
-      - lines
-      - quote_attachment_ids
-      - memo
+        - lines
+        - quote_attachment_ids
+        - memo
       properties:
         statement_evidence_id:
           type:
-          - string
-          - 'null'
+            - string
+            - "null"
           format: uuid
         amount_won:
           type:
-          - integer
-          - 'null'
+            - integer
+            - "null"
           format: int64
           minimum: 1
         lines:
           type: array
           minItems: 1
           items:
-            $ref: '#/components/schemas/PurchaseRequestLineInput'
+            $ref: "#/components/schemas/PurchaseRequestLineInput"
         quote_attachment_ids:
           type: array
           items:
-            $ref: '#/components/schemas/Uuid'
+            $ref: "#/components/schemas/Uuid"
         memo:
           type: string
           minLength: 1

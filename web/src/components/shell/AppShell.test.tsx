@@ -1,21 +1,37 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
 import { PageHeader } from "./PageHeader";
 import { AppShell } from "./AppShell";
+import { FEATURES } from "./nav";
 
-function makeAuthContext(roles: string[]): AuthContextValue {
+const server = setupServer();
+
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "bypass" });
+});
+afterEach(() => {
+  server.resetHandlers();
+});
+afterAll(() => {
+  server.close();
+});
+
+function makeAuthContext(roles: string[], featureGrants: string[] = []): AuthContextValue {
   const session: AuthSession = {
     access_token: "test-token",
     user_id: "user-1",
     display_name: "테스터",
     roles,
     branches: [],
+    feature_grants: featureGrants,
   };
   return {
     session,
@@ -41,9 +57,9 @@ function StubPage({ title, marker }: { title: string; marker: string }) {
   );
 }
 
-function renderShell(roles: string[], initialPath = "/dispatch") {
+function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: string[] = []) {
   return render(
-    <AuthContext.Provider value={makeAuthContext(roles)}>
+    <AuthContext.Provider value={makeAuthContext(roles, featureGrants)}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route element={<AppShell />}>
@@ -115,6 +131,73 @@ describe("AppShell navigation fabric", () => {
     expect(
       within(dialog).getByRole("button", { name: /권한 정책/ }),
     ).toBeVisible();
+  });
+
+  it("shows unread messenger, mail, support, and e-approval counts in the left nav", async () => {
+    server.use(
+      http.get("*/api/approval-items", () =>
+        HttpResponse.json({
+          items: [
+            { status: "REQUESTED" },
+            { status: "APPROVED" },
+          ],
+          sources: [
+            { key: "workOrders", label: "작업 보고", status: "ok", count: 2 },
+            { key: "dailyPlans", label: "계획업무", status: "ok", count: 1 },
+          ],
+          limit: 100,
+          offset: 0,
+          total: 3,
+        }),
+      ),
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({
+          items: [
+            { unread_count: 2 },
+            { unread_count: 3 },
+            { unread_count: 0 },
+          ],
+        }),
+      ),
+      http.get("*/api/v1/mail/folders", () =>
+        HttpResponse.json([
+          { id: "inbox", kind: "INBOX", name: "Inbox", unread_count: 4, total_count: 10 },
+          { id: "archive", kind: "ARCHIVE", name: "Archive", unread_count: 1, total_count: 8 },
+        ]),
+      ),
+      http.get("*/api/v1/support/tickets", () =>
+        HttpResponse.json({
+          items: [
+            { id: "open-1", status: "OPEN", origin: "CUSTOMER" },
+            { id: "hold-1", status: "ON_HOLD", origin: "INTERNAL" },
+            { id: "closed-1", status: "CLOSED", origin: "CUSTOMER" },
+          ],
+        }),
+      ),
+    );
+
+    renderShell(["ADMIN"], "/dispatch", [FEATURES.MAIL_USE]);
+
+    const nav = screen.getByRole("navigation", { name: "메인 내비게이션" });
+    const messenger = within(nav).getByRole("link", { name: /메신저/ });
+    const mail = within(nav).getByRole("link", { name: /메일함/ });
+    const support = within(nav).getByRole("link", { name: /고객지원/ });
+    const approvals = within(nav).getByRole("link", { name: /전자결제/ });
+
+    expect(await within(messenger).findByText("5")).toBeVisible();
+    expect(await within(mail).findByText("5")).toBeVisible();
+    expect(await within(support).findByText("1")).toBeVisible();
+    expect(await within(support).findByText("2")).toBeVisible();
+    expect(await within(approvals).findByText("3")).toBeVisible();
+    expect(support).toHaveAccessibleName(/읽지 않은 문의 1건, 열린 티켓 2건/);
+
+    fireEvent.click(await screen.findByRole("button", { name: "개인 알림 열기" }));
+    const notifications = screen.getByRole("dialog", { name: "개인별 실시간 알림" });
+    expect(within(notifications).getByText("결재할 전자결제")).toBeVisible();
+    expect(within(notifications).getByText("상신 전자문서")).toBeVisible();
+    expect(within(notifications).getByText("결재완료")).toBeVisible();
+    expect(within(notifications).getAllByText("3").length).toBeGreaterThan(0);
+    expect(within(notifications).getByText("읽지 않은 고객문의").nextSibling).toHaveTextContent("1");
   });
 
   it("keeps keyboard focus inside the command palette", async () => {

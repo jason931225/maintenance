@@ -560,7 +560,7 @@ describe("routing", () => {
     // /approvals is admin-only (RequireAdminRoute) — render with an admin session.
     renderAt("/approvals", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "승인 대기", level: 1 }),
+      await screen.findByRole("heading", { name: "전자결제 대기", level: 1 }),
     ).toBeVisible();
   });
 
@@ -649,10 +649,14 @@ describe("ApprovalsPage", () => {
     renderAt("/approvals", adminSession);
 
     await waitFor(() => {
-      expect(approvalRequests).toHaveLength(1);
-      expect(approvalRequests[0].pathname).toBe("/api/approval-items");
-      expect(approvalRequests[0].searchParams.get("limit")).toBe("100");
-      expect(approvalRequests[0].searchParams.get("offset")).toBe("0");
+      expect(
+        approvalRequests.some(
+          (url) =>
+            url.pathname === "/api/approval-items" &&
+            url.searchParams.get("limit") === "100" &&
+            url.searchParams.get("offset") === "0",
+        ),
+      ).toBe(true);
     });
   });
 

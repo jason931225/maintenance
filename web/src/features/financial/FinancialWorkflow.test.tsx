@@ -29,6 +29,8 @@ const purchaseId = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
 const quoteId = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 const evidenceId = "cccccccc-3333-4333-8333-cccccccccccc";
 const quoteAttachmentId = "99999999-9999-4999-8999-999999999999";
+const knlOrgId = "00000000-0000-0000-0000-0000000000a1";
+const nonKnlOrgId = "33333333-3333-3333-3333-333333333333";
 
 type PurchaseStatus = components["schemas"]["PurchaseStatus"];
 
@@ -188,12 +190,13 @@ function renderApp(ctx: AuthContextValue) {
   );
 }
 
-function session(roles: string[]): AuthSession {
+function session(roles: string[], orgId = knlOrgId): AuthSession {
   return {
     access_token: roles.join("-").toLowerCase(),
     user_id: "user-1",
     roles,
     branches: [branchId],
+    org_id: orgId,
   };
 }
 
@@ -413,12 +416,13 @@ describe("financial purchase request workflow", () => {
       }),
     );
 
-    renderApp(makeAuthContext(adminSession));
+    renderApp(makeAuthContext(session(["ADMIN"], nonKnlOrgId)));
 
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
 
     const intake = await screen.findByRole("form", { name: "구매요청 작성" });
     expect(within(intake).getByLabelText("거래처명")).toBeVisible();
+    expect(within(intake).getByText("거래처명을 입력하면 기존 후보와 새 거래처 여부를 표시합니다.")).toBeVisible();
     expect(within(intake).getByLabelText("구매유형")).toBeVisible();
     expect(within(intake).getByText("현재 사용자")).toBeVisible();
     expect(within(intake).getByText("정책 체크")).toBeVisible();
@@ -436,6 +440,7 @@ describe("financial purchase request workflow", () => {
 
     await user.selectOptions(within(intake).getByLabelText("구매유형"), "OTHER");
     await user.type(within(intake).getByLabelText("거래처명"), "비장비 공급사");
+    expect(within(intake).getByText("새 거래처로 수기 입력합니다.")).toBeVisible();
     await user.type(within(intake).getByLabelText("품목 1"), "사무실 소모품");
     await user.clear(within(intake).getByLabelText("수량 1"));
     await user.type(within(intake).getByLabelText("수량 1"), "2");
@@ -479,6 +484,65 @@ describe("financial purchase request workflow", () => {
     expect(screen.getByText("김요청")).toBeVisible();
     expect(screen.getByText("hanbit-quote.pdf")).toBeVisible();
     expect(screen.getByText(/견적서 업데이트가 필요/)).toBeVisible();
+  });
+  it("hides KNL-only equipment fields for non-KNL purchase requests", async () => {
+    const user = userEvent.setup();
+    const created = vi.fn();
+    const current = purchase("STATEMENT_ATTACHED", {
+      equipment_id: null,
+      statement_evidence_id: null,
+      requester: {
+        user_id: "user-1",
+        display_name: "김요청",
+      },
+      policy: {
+        equipment_required: false,
+        statement_evidence_required: false,
+        price_anomaly: false,
+        quote_update_required: false,
+        submit_blocked: false,
+        messages: [],
+      },
+    });
+
+    server.use(
+      http.post("*/api/v1/financial/purchase-requests", async ({ request }) => {
+        created(await request.json());
+        return HttpResponse.json(current, { status: 201 });
+      }),
+    );
+
+    renderApp(makeAuthContext(session(["ADMIN"], nonKnlOrgId)));
+    await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
+
+    const intake = await screen.findByRole("form", { name: "구매요청 작성" });
+    expect(within(intake).queryByLabelText("호기 연결 구매")).not.toBeInTheDocument();
+    expect(within(intake).queryByLabelText("호기 번호")).not.toBeInTheDocument();
+
+    await user.type(within(intake).getByLabelText("거래처명"), "비장비 공급사");
+    await user.type(within(intake).getByLabelText("품목 1"), "사무실 소모품");
+    await user.type(within(intake).getByLabelText("공급가액(단가) 1"), "100000");
+    await user.type(within(intake).getByLabelText("비고"), "호기 없는 타 법인 구매");
+    await user.click(within(intake).getByRole("button", { name: "작성" }));
+
+    await waitFor(() => {
+      expect(created).toHaveBeenCalledWith(
+        expect.objectContaining({
+          branch_id: branchId,
+          equipment_id: null,
+          statement_evidence_id: null,
+          amount_won: 110000,
+          lines: [
+            expect.objectContaining({
+              item: "사무실 소모품",
+              quantity: 1,
+              unit_supply_price_won: 100000,
+              vat_won: null,
+            }),
+          ],
+        }),
+      );
+    });
   });
 
   it("routes above-threshold requests through executive approval", async () => {

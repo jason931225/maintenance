@@ -27,6 +27,10 @@ const COMPACT_SECTION_CLASS =
   "grid gap-1 rounded-lg border border-line bg-muted-panel/30 p-2";
 const COMPACT_LABEL_CLASS = "text-xs font-medium text-steel";
 
+function dateOnlyToUtcIso(date: string): string {
+  return `${date}T00:00:00.000Z`;
+}
+
 export interface MechanicAssignmentInput {
   mechanic_id: string;
   role: "PRIMARY" | "SECONDARY";
@@ -92,11 +96,11 @@ export function WorkOrderDispatchControls({
   const [confirmingForce, setConfirmingForce] = useState(false);
   const [forcePending, setForcePending] = useState(false);
   const [startingP1, setStartingP1] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
   const [outsourceVendor, setOutsourceVendor] = useState("");
   const [outsourceContact, setOutsourceContact] = useState("");
   const [outsourceReason, setOutsourceReason] = useState("");
   const [creatingOutsource, setCreatingOutsource] = useState(false);
-  const [savingAll, setSavingAll] = useState(false);
 
   const { feedback, error, showFeedback, showError, clearFeedback, clearError } =
     useFeedback();
@@ -126,8 +130,8 @@ export function WorkOrderDispatchControls({
       showError(t.actionFailed);
       return;
     }
-    // datetime-local yields `YYYY-MM-DDTHH:mm`; send an RFC3339 instant.
-    const iso = new Date(scheduleAt).toISOString();
+    // The UI is date-only (YYYY-MM-DD); the API still expects an RFC3339 value.
+    const iso = dateOnlyToUtcIso(scheduleAt);
     const ok = await onRequestSchedule(workOrder.id, iso, scheduleReason.trim());
     if (ok) {
       showFeedback(t.scheduleRequested);
@@ -157,6 +161,7 @@ export function WorkOrderDispatchControls({
     });
   }
 
+
   async function handleAssign() {
     clearFeedback();
     if (!hasPrimaryAssignment) {
@@ -171,6 +176,7 @@ export function WorkOrderDispatchControls({
       showError(t.actionFailed);
     }
   }
+
 
   async function handleForceAssign() {
     if (!forceAssignDispatchId || !forceMechanicId) return;
@@ -249,7 +255,7 @@ export function WorkOrderDispatchControls({
       }
 
       if (hasCompleteSchedule) {
-        const iso = new Date(scheduleAt).toISOString();
+        const iso = dateOnlyToUtcIso(scheduleAt);
         const ok = await onRequestSchedule(
           workOrder.id,
           iso,
@@ -385,7 +391,7 @@ export function WorkOrderDispatchControls({
           <div className="grid gap-1 sm:grid-cols-[minmax(0,13rem)_1fr_auto]">
             <Input
               id={`schedule-${workOrder.id}`}
-              type="datetime-local"
+              type="date"
               aria-label={t.scheduleLabel}
               className={COMPACT_FIELD_CLASS}
               value={scheduleAt}
