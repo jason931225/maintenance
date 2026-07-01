@@ -196,32 +196,45 @@ describe("authenticated auth endpoints use the 401-retry path", () => {
     const refreshCalled = vi.fn().mockResolvedValue({ access_token: TOKEN_V2 });
     setupCallbacks({ onRefresh: refreshCalled });
 
+    const handoffBody = {
+      step_up: {
+        ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        credential: { id: "step-up-credential" },
+      },
+    };
     let handoffCallCount = 0;
     const retryAuthorizationHeaders: string[] = [];
+    const requestBodies: unknown[] = [];
     server.use(
-      http.post("*/api/v1/auth/passkey/enroll-handoff", ({ request }) => {
-        handoffCallCount += 1;
-        retryAuthorizationHeaders.push(
-          request.headers.get("authorization") ?? "",
-        );
-        if (handoffCallCount === 1) {
-          return HttpResponse.json(
-            { error: { code: "unauthorized", message: "invalid bearer token" } },
-            { status: 401 },
+      http.post(
+        "*/api/v1/auth/passkey/enroll-handoff",
+        async ({ request }) => {
+          handoffCallCount += 1;
+          requestBodies.push(await request.json());
+          retryAuthorizationHeaders.push(
+            request.headers.get("authorization") ?? "",
           );
-        }
-        return HttpResponse.json({
-          otp: "QR-123456",
-          enroll_url: "https://console.knllogistic.com/login#otp=QR-123456",
-          expires_at: "2099-01-01T00:00:00Z",
-          poll_token: "poll-token-redacted",
-        });
-      }),
+          if (handoffCallCount === 1) {
+            return HttpResponse.json(
+              {
+                error: { code: "unauthorized", message: "invalid bearer token" },
+              },
+              { status: 401 },
+            );
+          }
+          return HttpResponse.json({
+            otp: "QR-123456",
+            enroll_url: "https://console.knllogistic.com/login#otp=QR-123456",
+            expires_at: "2099-01-01T00:00:00Z",
+            poll_token: "poll-token-redacted",
+          });
+        },
+      ),
     );
 
     const client = createConsoleApiClient(TOKEN_V1);
     const result = await client.POST("/api/v1/auth/passkey/enroll-handoff", {
-      body: {},
+      body: handoffBody,
     });
 
     expect(result.response.status).toBe(200);
@@ -232,6 +245,7 @@ describe("authenticated auth endpoints use the 401-retry path", () => {
       `Bearer ${TOKEN_V1}`,
       `Bearer ${TOKEN_V2}`,
     ]);
+    expect(requestBodies).toEqual([handoffBody, handoffBody]);
   });
 });
 
