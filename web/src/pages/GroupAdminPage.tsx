@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -34,6 +35,7 @@ interface GroupAdminModule {
   key: string;
   label: string;
   href: string;
+  Icon: LucideIcon;
 }
 
 interface GroupAdminModuleGroup {
@@ -72,6 +74,7 @@ function buildGroupAdminModuleGroups(): GroupAdminModuleGroup[] {
       key: item.key,
       label: labelForKey(item.labelKey),
       href: item.href,
+      Icon: item.Icon,
     });
   }
   return groups;
@@ -90,6 +93,7 @@ export function GroupAdminPage() {
   const [readState, setReadState] = useState<ReadState>("loading");
   const [manageOrgId, setManageOrgId] = useState<string | undefined>();
   const [manageError, setManageError] = useState<string | undefined>();
+  const [openActionMenu, setOpenActionMenu] = useState<string | undefined>();
 
   const memberCount = useMemo(
     () => groups.reduce((sum, group) => sum + group.members.length, 0),
@@ -326,42 +330,79 @@ export function GroupAdminPage() {
                         <td className="px-4 py-3 text-steel">
                           {member.status}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="grid min-w-[34rem] gap-3">
-                            {GROUP_ADMIN_MODULE_GROUPS.map((moduleGroup) => (
-                              <div key={moduleGroup.key} className="grid gap-2">
-                                <p className="text-left text-xs font-semibold uppercase tracking-wide text-steel">
-                                  {moduleGroup.label}
-                                </p>
-                                <div className="flex flex-wrap justify-end gap-2">
-                                  {moduleGroup.modules.map((module) => (
-                                    <Button
-                                      key={module.key}
-                                      type="button"
-                                      size="sm"
-                                      variant={
-                                        module.key === "work-hub"
-                                          ? "default"
-                                          : "secondary"
-                                      }
-                                      disabled={manageOrgId === member.id}
-                                      aria-label={`${member.name} ${module.label}`}
-                                      onClick={() => {
-                                        void manageSubsidiary(
-                                          member,
-                                          module.href,
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {GROUP_ADMIN_MODULE_GROUPS.map((moduleGroup) => {
+                              const menuKey = `${member.id}:${moduleGroup.key}`;
+                              const menuOpen = openActionMenu === menuKey;
+                              return (
+                                <div
+                                  key={moduleGroup.key}
+                                  className="relative grid justify-items-end gap-2"
+                                >
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant={menuOpen ? "default" : "secondary"}
+                                    className="whitespace-normal text-left leading-snug"
+                                    aria-expanded={menuOpen}
+                                    aria-haspopup="true"
+                                    aria-label={ko.groupAdmin.actionMenuLabel
+                                      .replace("{org}", member.name)
+                                      .replace("{group}", moduleGroup.label)}
+                                    onClick={() => {
+                                      setOpenActionMenu(
+                                        menuOpen ? undefined : menuKey,
+                                      );
+                                    }}
+                                  >
+                                    <span>{moduleGroup.label}</span>
+                                    <span aria-hidden="true">
+                                      {menuOpen ? "▴" : "▾"}
+                                    </span>
+                                  </Button>
+                                  {menuOpen ? (
+                                    <div className="grid w-64 gap-1 rounded-md border border-line bg-white p-2 text-left shadow-sm">
+                                      {moduleGroup.modules.map((module) => {
+                                        const Icon = module.Icon;
+                                        return (
+                                          <Button
+                                            key={module.key}
+                                            type="button"
+                                            size="xs"
+                                            variant={
+                                              module.key === "work-hub"
+                                                ? "default"
+                                                : "secondary"
+                                            }
+                                            className="w-full justify-start whitespace-normal text-left leading-snug"
+                                            disabled={manageOrgId === member.id}
+                                            aria-label={`${member.name} ${module.label}`}
+                                            onClick={() => {
+                                              void manageSubsidiary(
+                                                member,
+                                                module.href,
+                                              );
+                                            }}
+                                          >
+                                            <Icon
+                                              aria-hidden="true"
+                                              className="h-4 w-4 shrink-0"
+                                            />
+                                            <span>
+                                              {manageOrgId === member.id &&
+                                              module.key === "work-hub"
+                                                ? ko.groupAdmin.managing
+                                                : module.label}
+                                            </span>
+                                          </Button>
                                         );
-                                      }}
-                                    >
-                                      {manageOrgId === member.id &&
-                                      module.key === "work-hub"
-                                        ? ko.groupAdmin.managing
-                                        : module.label}
-                                    </Button>
-                                  ))}
+                                      })}
+                                    </div>
+                                  ) : null}
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </td>
                       </tr>

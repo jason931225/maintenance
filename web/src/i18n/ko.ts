@@ -702,6 +702,7 @@ export const ko = {
     memberCountSuffix: "개 법인",
     manage: "관리",
     managing: "전환 중",
+    actionMenuLabel: "{org} {group} 바로가기",
     manageFailed: "선택한 법인 관리 콘솔로 전환하지 못했습니다.",
     command: {
       eyebrow: "Group Operations",

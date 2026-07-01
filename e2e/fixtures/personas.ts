@@ -6,7 +6,7 @@ export const LIVE_ORG_SLUGS = [
   "cnl",
   "coss",
   "dsl",
-  "elso",
+  "lso",
   "jy-tech",
   "knl",
 ] as const;
