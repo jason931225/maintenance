@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.30](https://github.com/jason931225/maintenance/compare/v0.1.29...v0.1.30) (2026-07-01)
+
+
+### Features
+
+* implement approved operations UI refinements ([c383527](https://github.com/jason931225/maintenance/commit/c383527b16bcc6a8d7acae9b0aa935e4be464612))
+
 ## [0.1.29](https://github.com/jason931225/maintenance/compare/v0.1.28...v0.1.29) (2026-06-30)
 
 
