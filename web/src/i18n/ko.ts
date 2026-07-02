@@ -38,6 +38,7 @@ export const ko = {
     sites: "고객·현장 관리",
     profile: "내 프로필",
     groups: {
+      personal: "개인/부서 업무",
       operations: "물류·정비 운영",
       executive: "경영·거버넌스",
       assets: "장비·영업",
