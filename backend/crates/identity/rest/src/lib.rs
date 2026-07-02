@@ -1620,7 +1620,7 @@ fn validate_policy_permissions(
     for permission in raw {
         let feature = Feature::from_str(&permission.feature_key)
             .map_err(|_| RestError::validation("unknown feature key"))?;
-        if is_elevated_policy_feature(feature) {
+        if !custom_role_runtime_feature_allowed(feature) {
             return Err(RestError::forbidden(
                 "custom roles cannot grant elevated or scope-widening policy features yet",
             ));
@@ -1834,7 +1834,7 @@ fn ensure_policy_roles_inside_actor_permission_ceiling(
             if matches!(requested, PermissionLevel::Deny) {
                 continue;
             }
-            if is_elevated_policy_feature(feature) {
+            if !custom_role_runtime_feature_allowed(feature) {
                 return Err(RestError::forbidden(
                     "custom roles cannot grant elevated or scope-widening policy features yet",
                 ));

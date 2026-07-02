@@ -275,10 +275,14 @@ export function PolicyStudioPage() {
     setConditionDrafts([]);
     setSelected(
       Object.fromEntries(
-        template.permissions.map((permission) => [
-          permission.feature_key,
-          permission.permission_level as PermissionLevel,
-        ]),
+        template.permissions
+          .filter((permission) =>
+            isPolicyStudioVisibleFeatureKey(permission.feature_key),
+          )
+          .map((permission) => [
+            permission.feature_key,
+            permission.permission_level as PermissionLevel,
+          ]),
       ),
     );
   }
@@ -304,10 +308,14 @@ export function PolicyStudioPage() {
     setDescription(role.description ?? "");
     setSelected(
       Object.fromEntries(
-        role.permissions.map((permission) => [
-          permission.feature_key,
-          permission.permission_level as PermissionLevel,
-        ]),
+        role.permissions
+          .filter((permission) =>
+            isPolicyStudioVisibleFeatureKey(permission.feature_key),
+          )
+          .map((permission) => [
+            permission.feature_key,
+            permission.permission_level as PermissionLevel,
+          ]),
       ),
     );
     setConditionDrafts(
@@ -1251,7 +1259,11 @@ function PolicyConditionEditor({
 function isPolicyStudioVisibleFeature(feature: PolicyFeatureResponse) {
   // ADR-0010/0016: ai_assist is a deferred port-only seam. Hide it defensively
   // even if an older backend returns the permission metadata.
-  return !DEFERRED_INTEGRATION_FEATURE_KEYS.has(feature.feature_key);
+  return isPolicyStudioVisibleFeatureKey(feature.feature_key);
+}
+
+function isPolicyStudioVisibleFeatureKey(featureKey: string) {
+  return !DEFERRED_INTEGRATION_FEATURE_KEYS.has(featureKey);
 }
 
 function FeatureCatalog({ features }: { features: PolicyFeatureResponse[] }) {
@@ -1956,7 +1968,8 @@ function buildRoleDefinitionDraft(
 ): PolicyRoleDefinitionDraft | undefined {
   const permissions = Object.entries(selected)
     .filter(
-      (entry): entry is [string, PermissionLevel] => entry[1] !== undefined,
+      (entry): entry is [string, PermissionLevel] =>
+        entry[1] !== undefined && isPolicyStudioVisibleFeatureKey(entry[0]),
     )
     .map(([feature_key, permission_level]) => ({
       feature_key,
