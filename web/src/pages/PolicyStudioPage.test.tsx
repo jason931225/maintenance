@@ -16,6 +16,7 @@ import {
 
 import { AppRouter } from "../AppRouter";
 import { createConsoleApiClient } from "../api/client";
+import { PolicyStudioPage } from "./PolicyStudioPage";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 
@@ -78,6 +79,17 @@ const features = [
   featureCatalogItem("daily_plan_review"),
   featureCatalogItem("mail_use"),
   featureCatalogItem("role_manage", true),
+];
+
+const featuresWithDeferredAiAssist = [
+  ...features,
+  {
+    feature_key: "ai_assist",
+    elevated: false,
+    default_permissions: [
+      { role_key: "SUPER_ADMIN", permission_level: "allow" },
+    ],
+  },
 ];
 
 const roleTemplates = [
@@ -567,6 +579,40 @@ describe("PolicyStudioPage", () => {
     ).toBeVisible();
     expect(
       within(card as HTMLElement).queryByLabelText("역할 정책 관리"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the deferred AI assistant permission from the catalog and role checklist", async () => {
+    server.use(
+      http.get("*/api/v1/policy/features", () =>
+        HttpResponse.json(featuresWithDeferredAiAssist),
+      ),
+      http.get("*/api/v1/policy/roles", () => HttpResponse.json(emptyCatalog)),
+      http.get("*/api/v1/policy/role-templates", () =>
+        HttpResponse.json(roleTemplates),
+      ),
+      http.get("*/api/v1/policy/audit-events", () =>
+        HttpResponse.json(policyAuditEvents),
+      ),
+    );
+
+    render(
+      <AuthContext.Provider value={makeAuthContext(superAdminSession)}>
+        <PolicyStudioPage />
+      </AuthContext.Provider>,
+    );
+    const form = await screen.findByRole("button", { name: "역할 만들기" });
+    const card = form.closest("aside");
+    expect(card).not.toBeNull();
+    expect(await screen.findByText("work_order_create")).toBeVisible();
+    expect(
+      await within(card as HTMLElement).findByLabelText("작업 생성"),
+    ).toBeVisible();
+
+    expect(screen.queryByText("AI 지원")).not.toBeInTheDocument();
+    expect(screen.queryByText("ai_assist")).not.toBeInTheDocument();
+    expect(
+      within(card as HTMLElement).queryByLabelText("AI 지원"),
     ).not.toBeInTheDocument();
   });
 
