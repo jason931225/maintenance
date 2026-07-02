@@ -56,28 +56,28 @@ afterAll(() => {
   server.close();
 });
 
+function featureCatalogItem(feature_key: string, elevated = false) {
+  return {
+    feature_key,
+    elevated,
+    default_permissions: [
+      { role_key: "SUPER_ADMIN", permission_level: "allow" },
+    ],
+  };
+}
+
 const features = [
-  {
-    feature_key: "work_order_create",
-    elevated: false,
-    default_permissions: [
-      { role_key: "SUPER_ADMIN", permission_level: "allow" },
-    ],
-  },
-  {
-    feature_key: "daily_plan_review",
-    elevated: false,
-    default_permissions: [
-      { role_key: "SUPER_ADMIN", permission_level: "allow" },
-    ],
-  },
-  {
-    feature_key: "role_manage",
-    elevated: true,
-    default_permissions: [
-      { role_key: "SUPER_ADMIN", permission_level: "allow" },
-    ],
-  },
+  featureCatalogItem("work_order_create"),
+  featureCatalogItem("work_order_edit_intake"),
+  featureCatalogItem("work_order_read_all"),
+  featureCatalogItem("work_order_start"),
+  featureCatalogItem("work_report_submit"),
+  featureCatalogItem("evidence_attach"),
+  featureCatalogItem("target_manage"),
+  featureCatalogItem("daily_plan_request"),
+  featureCatalogItem("daily_plan_review"),
+  featureCatalogItem("mail_use"),
+  featureCatalogItem("role_manage", true),
 ];
 
 const roleTemplates = [
@@ -90,6 +90,61 @@ const roleTemplates = [
     permissions: [
       { feature_key: "work_order_create", permission_level: "allow" },
       { feature_key: "daily_plan_review", permission_level: "limited" },
+    ],
+  },
+  {
+    template_key: "site_operations",
+    role_key: "site_operations",
+    display_name: "현장 운영 담당자",
+    category: "field_operations",
+    description: "현장 작업 진행, 작업 보고, 증빙 첨부, 일일 계획 요청을 담당합니다.",
+    permissions: [
+      { feature_key: "work_order_read_all", permission_level: "allow" },
+      { feature_key: "work_order_start", permission_level: "allow" },
+      { feature_key: "work_report_submit", permission_level: "allow" },
+      { feature_key: "evidence_attach", permission_level: "allow" },
+      { feature_key: "daily_plan_request", permission_level: "request_only" },
+    ],
+  },
+  {
+    template_key: "security_guard",
+    role_key: "security_guard",
+    display_name: "경비 담당자",
+    category: "security_operations",
+    description: "현장 출입·안전 이슈를 접수하고 제한된 작업 현황과 증빙을 기록합니다.",
+    permissions: [
+      { feature_key: "work_order_read_all", permission_level: "limited" },
+      { feature_key: "work_order_create", permission_level: "request_only" },
+      { feature_key: "work_report_submit", permission_level: "limited" },
+      { feature_key: "evidence_attach", permission_level: "limited" },
+    ],
+  },
+  {
+    template_key: "cleaning_staff",
+    role_key: "cleaning_staff",
+    display_name: "미화 담당자",
+    category: "cleaning_operations",
+    description: "미화 작업 배정을 확인하고 완료 보고와 현장 증빙을 남깁니다.",
+    permissions: [
+      { feature_key: "work_order_read_all", permission_level: "limited" },
+      { feature_key: "work_order_start", permission_level: "limited" },
+      { feature_key: "work_report_submit", permission_level: "allow" },
+      { feature_key: "evidence_attach", permission_level: "limited" },
+      { feature_key: "daily_plan_request", permission_level: "request_only" },
+    ],
+  },
+  {
+    template_key: "dispatch_office_staff",
+    role_key: "dispatch_office_staff",
+    display_name: "파견사무 담당자",
+    category: "dispatch_office",
+    description: "파견사무 접수, 작업 생성·수정, 현장 연락과 기본 대상 변경 요청을 담당합니다.",
+    permissions: [
+      { feature_key: "work_order_create", permission_level: "allow" },
+      { feature_key: "work_order_edit_intake", permission_level: "allow" },
+      { feature_key: "work_order_read_all", permission_level: "allow" },
+      { feature_key: "target_manage", permission_level: "request_only" },
+      { feature_key: "mail_use", permission_level: "allow" },
     ],
   },
 ];
@@ -392,6 +447,101 @@ describe("PolicyStudioPage", () => {
           { feature_key: "work_order_create", permission_level: "allow" },
           { feature_key: "daily_plan_review", permission_level: "limited" },
         ],
+      });
+    });
+  });
+
+  it("lists approved operational persona templates with Korean categories and safe grants", async () => {
+    const user = userEvent.setup();
+    const created = vi.fn();
+    const dispatchOfficeTemplate = roleTemplates.find(
+      (template) => template.template_key === "dispatch_office_staff",
+    );
+    expect(dispatchOfficeTemplate).toBeDefined();
+
+    server.use(
+      http.get("*/api/v1/policy/features", () => HttpResponse.json(features)),
+      http.get("*/api/v1/policy/roles", () => HttpResponse.json(emptyCatalog)),
+      http.get("*/api/v1/policy/role-templates", () =>
+        HttpResponse.json(roleTemplates),
+      ),
+      http.get("*/api/v1/policy/audit-events", () =>
+        HttpResponse.json(policyAuditEvents),
+      ),
+      http.post("*/api/v1/policy/roles", async ({ request }) => {
+        created(await request.json());
+        return HttpResponse.json(
+          {
+            id: "88888888-8888-4888-8888-888888888888",
+            role_key: dispatchOfficeTemplate?.role_key,
+            display_name: dispatchOfficeTemplate?.display_name,
+            description: dispatchOfficeTemplate?.description,
+            status: "DRAFT",
+            is_system: false,
+            permissions: dispatchOfficeTemplate?.permissions,
+            conditions: [],
+            created_at: "2026-06-26T00:00:00Z",
+            updated_at: "2026-06-26T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    renderApp("/settings/policy", makeAuthContext(superAdminSession));
+
+    const templateSelect = await screen.findByLabelText("시작 템플릿");
+    for (const optionName of [
+      "현장 운영 담당자 · 현장",
+      "경비 담당자 · 경비",
+      "미화 담당자 · 미화",
+      "파견사무 담당자 · 파견사무",
+    ]) {
+      expect(await screen.findByRole("option", { name: optionName })).toBeVisible();
+    }
+
+    const blockedFeatureKeys = new Set([
+      "role_manage",
+      "elevated_role_grant",
+      "user_manage",
+    ]);
+    for (const template of roleTemplates.filter((template) =>
+      [
+        "site_operations",
+        "security_guard",
+        "cleaning_staff",
+        "dispatch_office_staff",
+      ].includes(template.template_key),
+    )) {
+      expect(
+        template.permissions.some((permission) =>
+          blockedFeatureKeys.has(permission.feature_key),
+        ),
+      ).toBe(false);
+    }
+
+    await user.selectOptions(templateSelect, "dispatch_office_staff");
+    expect(screen.getByLabelText("역할 키")).toHaveValue("dispatch_office_staff");
+    expect(screen.getByLabelText("표시 이름")).toHaveValue("파견사무 담당자");
+    expect(screen.getByLabelText("설명")).toHaveValue(
+      "파견사무 접수, 작업 생성·수정, 현장 연락과 기본 대상 변경 요청을 담당합니다.",
+    );
+    expect(screen.getByLabelText("작업 생성")).toBeChecked();
+    expect(screen.getByLabelText("접수 수정")).toBeChecked();
+    expect(screen.getByLabelText("작업 조회")).toBeChecked();
+    expect(screen.getByLabelText("대상 변경")).toBeChecked();
+    expect(screen.getByLabelText("메일 사용")).toBeChecked();
+    expect(screen.queryByLabelText("역할 정책 관리")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "역할 만들기" }));
+
+    await waitFor(() => {
+      expect(created).toHaveBeenCalledWith({
+        role_key: "dispatch_office_staff",
+        display_name: "파견사무 담당자",
+        description:
+          "파견사무 접수, 작업 생성·수정, 현장 연락과 기본 대상 변경 요청을 담당합니다.",
+        permissions: dispatchOfficeTemplate?.permissions,
       });
     });
   });

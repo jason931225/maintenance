@@ -69,7 +69,7 @@ const server = setupServer(
     return HttpResponse.json(
       beforeMessageId
         ? { items: [firstMessage], next_cursor: null }
-        : { items: [secondMessage], next_cursor: firstMessageId },
+        : { items: [secondMessage, firstMessage], next_cursor: firstMessageId },
     );
   }),
   http.put(
@@ -172,6 +172,11 @@ describe("MessengerPanel", () => {
     );
 
     expect(await screen.findByText("현장 도착")).toBeVisible();
+    await waitFor(() => {
+      expect(readReceiptBodies[0]).toEqual({
+        last_read_message_id: secondMessageId,
+      });
+    });
     await user.click(
       screen.getByRole("button", { name: ko.messenger.loadOlder }),
     );
@@ -389,6 +394,8 @@ describe("MessengerPanel", () => {
       sender_name: "운영팀",
       body: "정비팀 주간 공지",
       attachment_evidence_ids: [],
+      read_count: 2,
+      read_target_count: 4,
       sent_at: "2026-06-12T08:30:00Z",
       created_at: "2026-06-12T08:30:00Z",
     };
@@ -497,6 +504,8 @@ function message(
     sender_name: "나",
     body,
     attachment_evidence_ids: attachmentEvidenceIds,
+    read_count: 1,
+    read_target_count: 2,
     sent_at: `2026-06-12T09:${String(minute).padStart(2, "0")}:00Z`,
     created_at: `2026-06-12T09:${String(minute).padStart(2, "0")}:00Z`,
   };

@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const generatorTag = "1.12.2";
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const cloneDir = resolve(root, `.cache/swift-openapi-generator-${generatorTag}`);
 const generatorBin = resolve(cloneDir, ".build/release/swift-openapi-generator");
 const outputDir = resolve(root, "clients/swift/Sources/MaintenanceAPIClient/Generated");

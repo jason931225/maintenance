@@ -1,8 +1,9 @@
 import { chmodSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const projectDir = resolve(root, "clients/kotlin");
 const gradlew = resolve(projectDir, process.platform === "win32" ? "gradlew.bat" : "gradlew");
 
@@ -25,7 +26,11 @@ if (spawnSync("java", ["-version"], { stdio: "ignore" }).status === 0) {
   if (process.platform !== "win32") {
     chmodSync(gradlew, 0o755);
   }
-  run(gradlew, ["build", "-x", "test"]);
+  if (process.platform === "win32") {
+    run("cmd.exe", ["/c", gradlew, "build", "-x", "test"]);
+  } else {
+    run(gradlew, ["build", "-x", "test"]);
+  }
 } else {
   run("docker", [
     "run",

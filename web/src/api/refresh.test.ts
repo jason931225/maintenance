@@ -6,7 +6,8 @@
  *      that succeeds — the caller receives the 200 response.
  *   2. Concurrent 401s share one refresh call (single-flight guarantee).
  *   3. Refresh failure clears the session (calls onUnauthenticated).
- *   4. Auth endpoints are NOT retried on 401 (no refresh loop).
+ *   4. Authenticated auth endpoints such as enroll-handoff refresh/retry on 401.
+ *   5. Primary auth endpoints are NOT retried on 401 (no refresh loop).
  */
 
 import { http, HttpResponse } from "msw";
@@ -188,9 +189,69 @@ describe("refresh failure clears session", () => {
   });
 });
 
-// ── Test 4: Auth endpoints are NOT retried on 401 ────────────────────────────
+// ── Test 4: Authenticated auth endpoints refresh/retry on 401 ────────────────
 
-describe("auth endpoints skip the 401-retry path", () => {
+describe("authenticated auth endpoints use the 401-retry path", () => {
+  it("refreshes and retries passkey enroll-handoff after a stale bearer 401", async () => {
+    const refreshCalled = vi.fn().mockResolvedValue({ access_token: TOKEN_V2 });
+    setupCallbacks({ onRefresh: refreshCalled });
+
+    const handoffBody = {
+      step_up: {
+        ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        credential: { id: "step-up-credential" },
+      },
+    };
+    let handoffCallCount = 0;
+    const retryAuthorizationHeaders: string[] = [];
+    const requestBodies: unknown[] = [];
+    server.use(
+      http.post(
+        "*/api/v1/auth/passkey/enroll-handoff",
+        async ({ request }) => {
+          handoffCallCount += 1;
+          requestBodies.push(await request.json());
+          retryAuthorizationHeaders.push(
+            request.headers.get("authorization") ?? "",
+          );
+          if (handoffCallCount === 1) {
+            return HttpResponse.json(
+              {
+                error: { code: "unauthorized", message: "invalid bearer token" },
+              },
+              { status: 401 },
+            );
+          }
+          return HttpResponse.json({
+            otp: "QR-123456",
+            enroll_url: "https://console.knllogistic.com/login#otp=QR-123456",
+            expires_at: "2099-01-01T00:00:00Z",
+            poll_token: "poll-token-redacted",
+          });
+        },
+      ),
+    );
+
+    const client = createConsoleApiClient(TOKEN_V1);
+    const result = await client.POST("/api/v1/auth/passkey/enroll-handoff", {
+      body: handoffBody,
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(result.data?.enroll_url).toContain("/login#otp=");
+    expect(handoffCallCount).toBe(2);
+    expect(refreshCalled).toHaveBeenCalledTimes(1);
+    expect(retryAuthorizationHeaders).toEqual([
+      `Bearer ${TOKEN_V1}`,
+      `Bearer ${TOKEN_V2}`,
+    ]);
+    expect(requestBodies).toEqual([handoffBody, handoffBody]);
+  });
+});
+
+// ── Test 5: Primary auth endpoints are NOT retried on 401 ────────────────────
+
+describe("primary auth endpoints skip the 401-retry path", () => {
   it("does not call refresh when the auth refresh endpoint itself returns 401", async () => {
     const refreshCalled = vi.fn().mockResolvedValue({ access_token: TOKEN_V2 });
     setupCallbacks({ onRefresh: refreshCalled });

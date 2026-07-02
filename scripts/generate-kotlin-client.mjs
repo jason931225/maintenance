@@ -8,9 +8,10 @@ import {
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { basename, extname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const generatorVersion = "7.23.0";
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const outputDir = resolve(root, "clients/kotlin");
 const inputSpec = resolve(root, "backend/openapi/openapi.yaml");
 const config = resolve(root, "clients/kotlin-generator-config.yaml");
@@ -22,7 +23,8 @@ function run(command, args, options = {}) {
     ...options,
   });
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit ${result.status}`);
+    const cause = result.error ? `: ${result.error.message}` : "";
+    throw new Error(`${command} ${args.join(" ")} failed with exit ${result.status}${cause}`);
   }
 }
 
@@ -122,7 +124,7 @@ if (forceDocker || !javaAvailable) {
     "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
   ]);
 } else {
-  run("npx", ["openapi-generator-cli", ...generatorArgs]);
+  run(process.execPath, [resolve(root, "node_modules/@openapitools/openapi-generator-cli/main.js"), ...generatorArgs]);
 }
 
 if (!existsSync(resolve(outputDir, "build.gradle"))) {

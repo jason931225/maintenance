@@ -242,8 +242,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, TraceContext, UserId};
-    use sqlx::PgPool;
+    use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
+    use sqlx::{PgPool, Row};
     use time::OffsetDateTime;
 
     use super::with_audit;
@@ -274,6 +274,75 @@ mod tests {
             OffsetDateTime::now_utc(),
         )
         .with_branch(BranchId::new())
+    }
+
+    struct SeededRehomeAuditRow {
+        event_id: uuid::Uuid,
+        org_id: uuid::Uuid,
+        branch_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+        before_snap: serde_json::Value,
+        after_snap: serde_json::Value,
+    }
+
+    async fn seed_rehome_audit_row(pool: &PgPool) -> SeededRehomeAuditRow {
+        let org_id = seed_org(pool).await;
+
+        let region_id: uuid::Uuid =
+            sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
+                .bind("Audit Rehome Region")
+                .bind(org_id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+
+        let branch_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(region_id)
+        .bind("Audit Rehome Branch")
+        .bind(org_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+        let user_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind("Audit Rehome User")
+        .bind(["SUPER_ADMIN"].as_slice())
+        .bind(org_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+        let before_snap = serde_json::json!({"status": "ACTIVE"});
+        let after_snap = serde_json::json!({"status": "ARCHIVED"});
+        let event = AuditEvent::new(
+            Some(UserId::from_uuid(user_id)),
+            AuditAction::new("test.rehome_reference").unwrap(),
+            "organizations",
+            org_id.to_string(),
+            TraceContext::generate(),
+            OffsetDateTime::now_utc(),
+        )
+        .with_org(OrgId::from_uuid(org_id))
+        .with_branch(BranchId::from_uuid(branch_id))
+        .with_snapshots(Some(before_snap.clone()), Some(after_snap.clone()));
+        let event_id = *event.id.as_uuid();
+
+        with_audit::<_, (), DbError>(pool, event, |_tx| Box::pin(async move { Ok(()) }))
+            .await
+            .unwrap();
+
+        SeededRehomeAuditRow {
+            event_id,
+            org_id,
+            branch_id,
+            user_id,
+            before_snap,
+            after_snap,
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -587,6 +656,188 @@ mod tests {
         .unwrap()
         .unwrap_or(0);
         assert_eq!(count, 1, "row should still exist after failed DELETE");
+    }
+
+    // -----------------------------------------------------------------------
+    // (c3) Re-home exception: reference release is guarded by app.audit_rehome.
+    // -----------------------------------------------------------------------
+    #[sqlx::test]
+    async fn audit_rehome_reference_update_requires_guard_guc(pool: PgPool) {
+        let seeded = seed_rehome_audit_row(&pool).await;
+        let platform_org = *OrgId::platform().as_uuid();
+
+        let result = sqlx::query(
+            "UPDATE audit_events SET org_id = $2, actor = NULL, branch_id = NULL WHERE id = $1",
+        )
+        .bind(seeded.event_id)
+        .bind(platform_org)
+        .execute(&pool)
+        .await;
+
+        assert!(
+            result.is_err(),
+            "reference re-home must be rejected unless app.audit_rehome is armed"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("append-only") || err_msg.contains("forbidden"),
+            "error message should mention append-only: {err_msg}"
+        );
+
+        let row = sqlx::query("SELECT org_id, actor, branch_id FROM audit_events WHERE id = $1")
+            .bind(seeded.event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            row.try_get::<Option<uuid::Uuid>, _>("org_id").unwrap(),
+            Some(seeded.org_id),
+            "org reference must remain unchanged after rejected re-home"
+        );
+        assert_eq!(
+            row.try_get::<Option<uuid::Uuid>, _>("actor").unwrap(),
+            Some(seeded.user_id),
+            "actor reference must remain unchanged after rejected re-home"
+        );
+        assert_eq!(
+            row.try_get::<Option<uuid::Uuid>, _>("branch_id").unwrap(),
+            Some(seeded.branch_id),
+            "branch reference must remain unchanged after rejected re-home"
+        );
+    }
+
+    #[sqlx::test]
+    async fn audit_rehome_guard_allows_reference_release_without_content_rewrite(pool: PgPool) {
+        let seeded = seed_rehome_audit_row(&pool).await;
+        let platform_org = *OrgId::platform().as_uuid();
+
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.audit_rehome', 'on', true)")
+            .execute(tx.as_mut())
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE audit_events SET org_id = $2, actor = NULL, branch_id = NULL WHERE id = $1",
+        )
+        .bind(seeded.event_id)
+        .bind(platform_org)
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+        sqlx::query("SELECT set_config('app.audit_rehome', 'off', true)")
+            .execute(tx.as_mut())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let row = sqlx::query(
+            r#"SELECT org_id, actor, branch_id, action, target_type, target_id,
+                      before_snap, after_snap
+               FROM audit_events WHERE id = $1"#,
+        )
+        .bind(seeded.event_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            row.try_get::<Option<uuid::Uuid>, _>("org_id").unwrap(),
+            Some(platform_org)
+        );
+        assert_eq!(row.try_get::<Option<uuid::Uuid>, _>("actor").unwrap(), None);
+        assert_eq!(
+            row.try_get::<Option<uuid::Uuid>, _>("branch_id").unwrap(),
+            None
+        );
+        assert_eq!(
+            row.try_get::<String, _>("action").unwrap(),
+            "test.rehome_reference"
+        );
+        assert_eq!(
+            row.try_get::<String, _>("target_type").unwrap(),
+            "organizations"
+        );
+        assert_eq!(
+            row.try_get::<String, _>("target_id").unwrap(),
+            seeded.org_id.to_string()
+        );
+        assert_eq!(
+            row.try_get::<Option<serde_json::Value>, _>("before_snap")
+                .unwrap(),
+            Some(seeded.before_snap)
+        );
+        assert_eq!(
+            row.try_get::<Option<serde_json::Value>, _>("after_snap")
+                .unwrap(),
+            Some(seeded.after_snap)
+        );
+    }
+
+    #[sqlx::test]
+    async fn audit_rehome_guard_still_rejects_content_updates(pool: PgPool) {
+        let seeded = seed_rehome_audit_row(&pool).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.audit_rehome', 'on', true)")
+            .execute(tx.as_mut())
+            .await
+            .unwrap();
+        let result =
+            sqlx::query("UPDATE audit_events SET action = 'tampered.action' WHERE id = $1")
+                .bind(seeded.event_id)
+                .execute(tx.as_mut())
+                .await;
+
+        assert!(
+            result.is_err(),
+            "app.audit_rehome must not allow audit content rewrites"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("append-only") || err_msg.contains("forbidden"),
+            "error message should mention append-only: {err_msg}"
+        );
+        let _ = tx.rollback().await;
+
+        let action: String = sqlx::query_scalar("SELECT action FROM audit_events WHERE id = $1")
+            .bind(seeded.event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(action, "test.rehome_reference");
+    }
+
+    #[sqlx::test]
+    async fn audit_rehome_guard_still_rejects_deletes(pool: PgPool) {
+        let seeded = seed_rehome_audit_row(&pool).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.audit_rehome', 'on', true)")
+            .execute(tx.as_mut())
+            .await
+            .unwrap();
+        let result = sqlx::query("DELETE FROM audit_events WHERE id = $1")
+            .bind(seeded.event_id)
+            .execute(tx.as_mut())
+            .await;
+
+        assert!(
+            result.is_err(),
+            "app.audit_rehome must not allow audit row deletion"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("append-only") || err_msg.contains("forbidden"),
+            "error message should mention append-only: {err_msg}"
+        );
+        let _ = tx.rollback().await;
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1")
+            .bind(seeded.event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1, "row should still exist after rejected DELETE");
     }
 
     // -----------------------------------------------------------------------

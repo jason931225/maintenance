@@ -2,8 +2,9 @@ import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { createServer } from "node:net";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const backendDir = resolve(root, "backend");
 const port = process.env.OPENAPI_DRIFT_PORT
   ? Number(process.env.OPENAPI_DRIFT_PORT)

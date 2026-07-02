@@ -139,6 +139,11 @@ pub struct MessageSummary {
     pub sender_name: Option<String>,
     pub body: String,
     pub attachment_evidence_ids: Vec<EvidenceId>,
+    /// Number of non-sender thread members whose read receipt has reached this
+    /// message. This is derived from thread-level receipts; no per-message rows.
+    pub read_count: i64,
+    /// Number of non-sender thread members who are expected to read this message.
+    pub read_target_count: i64,
     #[serde(with = "time::serde::rfc3339")]
     pub sent_at: Timestamp,
     #[serde(with = "time::serde::rfc3339")]

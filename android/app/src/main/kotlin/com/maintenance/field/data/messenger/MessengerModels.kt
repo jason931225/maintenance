@@ -31,6 +31,8 @@ data class MessengerMessage(
     val branchId: UUID,
     val senderId: UUID,
     val body: String,
+    val readCount: Long,
+    val readTargetCount: Long,
     val attachmentEvidenceIds: List<UUID>,
     val sentAt: OffsetDateTime,
     val createdAt: OffsetDateTime,

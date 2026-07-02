@@ -795,6 +795,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hr/attendance-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a direct attendance workbook or CSV through the governed import ledger
+         * @description Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in the response, and records coordinate-free attendance facts only after dry-run and apply. Imported rows are lineage for payroll readiness, not payable payroll lines.
+         */
+        post: operations["previewAttendanceImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/attendance-import/{run_id}/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve employees and branches for a direct attendance import without writing facts */
+        post: operations["dryRunAttendanceImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/attendance-import/{run_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a dry-run direct attendance import as append-only coordinate-free facts
+         * @description Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
+         */
+        post: operations["applyAttendanceImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/attendance-import/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List governed direct attendance import runs
+         * @description Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source rows.
+         */
+        get: operations["listAttendanceImportSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/attendance-records/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the signed-in employee's attendance records
+         * @description Returns only records for the employee row explicitly linked to the authenticated user account.
+         */
+        get: operations["listMyEmployeeAttendanceRecords"];
+        put?: never;
+        /**
+         * Record the signed-in employee's attendance transition
+         * @description Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+         */
+        post: operations["createMyEmployeeAttendanceRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/attendance-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List employee attendance records for HR/payroll review
+         * @description Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+         */
+        get: operations["listEmployeeAttendanceRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employees/import": {
         parameters: {
             query?: never;
@@ -4710,6 +4831,133 @@ export interface components {
             /** Format: int64 */
             offset: number;
         };
+        AttendanceImportColumn: {
+            source_header: string;
+            normalized_header: string;
+            /** @enum {string|null} */
+            target?: "employee_number" | "employee_name" | "branch_name" | "work_date" | "check_in_at" | "check_out_at" | "minutes_worked" | null;
+            /** @enum {string} */
+            classification: "canonical" | "retained" | "restricted";
+            preview_allowed: boolean;
+        };
+        AttendanceImportPreviewRow: {
+            source_sheet: string;
+            /** Format: int32 */
+            source_row: number;
+            /** @enum {string} */
+            row_status: "CANDIDATE" | "PRESERVED" | "ERROR";
+            values: {
+                [key: string]: unknown;
+            };
+            validation: {
+                [key: string]: unknown;
+            };
+        };
+        AttendanceImportPreviewResponse: {
+            run_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            entity_type: "attendance_direct";
+            source_filename: string;
+            source_sha256: string;
+            input_rows: number;
+            candidate_rows: number;
+            preserved_rows: number;
+            columns: components["schemas"]["AttendanceImportColumn"][];
+            sample_rows: components["schemas"]["AttendanceImportPreviewRow"][];
+            mapping_profile: {
+                [key: string]: unknown;
+            };
+        };
+        AttendanceImportRowError: {
+            source_sheet: string;
+            /** Format: int32 */
+            source_row: number;
+            source_key: string;
+            code: string;
+            message: string;
+        };
+        AttendanceImportDryRunSummary: {
+            run_id: components["schemas"]["Uuid"];
+            input_rows: number;
+            candidate_rows: number;
+            preserved_rows: number;
+            ready_rows: number;
+            error_rows: number;
+            duplicate_rows: number;
+            missing_employee_rows: number;
+            ambiguous_employee_rows: number;
+            row_errors: components["schemas"]["AttendanceImportRowError"][];
+        };
+        AttendanceImportApplyReport: {
+            run_id: components["schemas"]["Uuid"];
+            inserted: number;
+            skipped: number;
+            error_rows: number;
+        };
+        AttendanceImportSummaryItem: {
+            run_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "PREVIEWED" | "DRY_RUN" | "APPLIED" | "FAILED";
+            source_filename: string;
+            /** @enum {string} */
+            source_format: "xlsx" | "csv";
+            source_sha256: string;
+            /** Format: int32 */
+            input_rows: number;
+            /** Format: int32 */
+            candidate_rows: number;
+            /** Format: int32 */
+            preserved_rows: number;
+            dry_run_summary: {
+                [key: string]: unknown;
+            };
+            apply_summary: {
+                [key: string]: unknown;
+            };
+            created_at: components["schemas"]["Timestamp"];
+            applied_at?: components["schemas"]["Timestamp"] | null;
+        };
+        AttendanceImportSummaryPage: {
+            items: components["schemas"]["AttendanceImportSummaryItem"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
+        /** @enum {string} */
+        AttendanceRecordKind: "CLOCK_IN" | "OUT_FOR_WORK" | "BUSINESS_TRIP" | "RETURNED" | "CLOCK_OUT";
+        CreateEmployeeAttendanceRecordRequest: {
+            kind: components["schemas"]["AttendanceRecordKind"];
+            idempotency_key: string;
+            note?: string | null;
+        };
+        EmployeeAttendanceRecord: {
+            id: components["schemas"]["Uuid"];
+            employee_id: components["schemas"]["Uuid"];
+            employee_display_name: string;
+            kind: components["schemas"]["AttendanceRecordKind"];
+            occurred_at: components["schemas"]["Timestamp"];
+            /** Format: date */
+            work_date: string;
+            /** @enum {string} */
+            state_after: "CLOCKED_IN" | "OUT_FOR_WORK" | "BUSINESS_TRIP" | "OFF_DUTY";
+            note?: string | null;
+            payroll_material_ref_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            payroll_link_status: "LINKED";
+            duplicate: boolean;
+        };
+        EmployeeAttendanceRecordPage: {
+            items: components["schemas"]["EmployeeAttendanceRecord"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
         AssignmentSummary: {
             id: components["schemas"]["Uuid"];
             mechanic_id: components["schemas"]["Uuid"];
@@ -5442,6 +5690,16 @@ export interface components {
             sender_name: string | null;
             body: string;
             attachment_evidence_ids: components["schemas"]["Uuid"][];
+            /**
+             * Format: int64
+             * @description Non-sender thread members whose read receipt has reached this message.
+             */
+            read_count: number;
+            /**
+             * Format: int64
+             * @description Non-sender thread members expected to read this message.
+             */
+            read_target_count: number;
             sent_at: components["schemas"]["Timestamp"];
             created_at: components["schemas"]["Timestamp"];
         };
@@ -8354,6 +8612,197 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendanceSummaryPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    previewAttendanceImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Direct attendance .xlsx workbook or UTF-8 .csv file.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Attendance import preview with masked sample rows and mapping profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceImportPreviewResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    dryRunAttendanceImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attendance import row readiness and per-row rejection reasons. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceImportDryRunSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    applyAttendanceImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Apply counts for append-only direct attendance facts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceImportApplyReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAttendanceImportSummary: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Direct attendance import run summaries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceImportSummaryPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listMyEmployeeAttendanceRecords: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Self-service attendance records and payroll material refs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeAttendanceRecordPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createMyEmployeeAttendanceRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEmployeeAttendanceRecordRequest"];
+            };
+        };
+        responses: {
+            /** @description Created or idempotently replayed attendance record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeAttendanceRecord"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listEmployeeAttendanceRecords: {
+        parameters: {
+            query?: {
+                employee_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attendance records within the caller's HR review scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeAttendanceRecordPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];

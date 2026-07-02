@@ -59,6 +59,15 @@ src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequestAssignmen
 src/main/kotlin/com/maintenance/api/client/model/AssignmentRole.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignmentSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AttachmentStage.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportApplyReport.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportColumn.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportDryRunSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportPreviewResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportPreviewRow.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportRowError.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryItem.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryPage.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceRecordKind.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchSummary.kt
@@ -79,6 +88,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreateCalendarEventRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateCustomerRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequestItemsInner.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateEmployeeAttendanceRecordRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEmployeeLifecycleEventRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentResponse.kt
@@ -120,6 +130,8 @@ src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchResponseKind.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/Employee.kt
+src/main/kotlin/com/maintenance/api/client/model/EmployeeAttendanceRecord.kt
+src/main/kotlin/com/maintenance/api/client/model/EmployeeAttendanceRecordPage.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeImportColumn.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeImportCompanySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeImportDryRunSummary.kt

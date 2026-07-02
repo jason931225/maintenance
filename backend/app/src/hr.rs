@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
@@ -7,10 +7,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, TraceContext};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -29,6 +31,15 @@ pub const EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE: &str = "/api/v1/employees/{id
 pub const HR_ORG_CHART_PATH: &str = "/api/v1/hr/org-chart";
 pub const HR_LEAVE_BALANCES_PATH: &str = "/api/v1/hr/leave-balances";
 pub const HR_ATTENDANCE_SUMMARY_PATH: &str = "/api/v1/hr/attendance-summary";
+pub const HR_READINESS_SUMMARY_PATH: &str = "/api/v1/hr/readiness-summary";
+pub const HR_ATTENDANCE_IMPORT_PREVIEW_PATH: &str = "/api/v1/hr/attendance-import/preview";
+pub const HR_ATTENDANCE_IMPORT_DRY_RUN_PATH_TEMPLATE: &str =
+    "/api/v1/hr/attendance-import/{run_id}/dry-run";
+pub const HR_ATTENDANCE_IMPORT_APPLY_PATH_TEMPLATE: &str =
+    "/api/v1/hr/attendance-import/{run_id}/apply";
+pub const HR_ATTENDANCE_IMPORT_SUMMARY_PATH: &str = "/api/v1/hr/attendance-import/summary";
+pub const HR_MY_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records/me";
+pub const HR_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records";
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_IMPORT_HEADER_SCAN_ROWS: usize = 25;
 const DEFAULT_LIMIT: i64 = 500;
@@ -55,6 +66,28 @@ pub fn router(state: HrState) -> Router {
         .route(HR_ORG_CHART_PATH, get(get_hr_org_chart))
         .route(HR_LEAVE_BALANCES_PATH, get(list_leave_balances))
         .route(HR_ATTENDANCE_SUMMARY_PATH, get(list_attendance_summary))
+        .route(HR_READINESS_SUMMARY_PATH, get(get_hr_readiness_summary))
+        .route(
+            HR_ATTENDANCE_IMPORT_PREVIEW_PATH,
+            post(preview_attendance_import).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
+        )
+        .route(
+            HR_ATTENDANCE_IMPORT_DRY_RUN_PATH_TEMPLATE,
+            post(dry_run_attendance_import),
+        )
+        .route(
+            HR_ATTENDANCE_IMPORT_APPLY_PATH_TEMPLATE,
+            post(apply_attendance_import),
+        )
+        .route(
+            HR_ATTENDANCE_IMPORT_SUMMARY_PATH,
+            get(list_attendance_import_summary),
+        )
+        .route(
+            HR_MY_ATTENDANCE_RECORDS_PATH,
+            get(list_my_attendance_records).post(create_my_attendance_record),
+        )
+        .route(HR_ATTENDANCE_RECORDS_PATH, get(list_attendance_records))
         .route(
             EMPLOYEES_IMPORT_PATH,
             post(import_employees).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
@@ -221,6 +254,110 @@ struct AttendanceSummaryItem {
     last_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_event_at: Option<time::OffsetDateTime>,
+}
+#[derive(Debug, Deserialize)]
+struct AttendanceRecordsQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    employee_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateEmployeeAttendanceRecordRequest {
+    kind: String,
+    idempotency_key: String,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeAttendanceRecordPage {
+    items: Vec<EmployeeAttendanceRecordResponse>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EmployeeAttendanceRecordResponse {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_display_name: String,
+    kind: String,
+    occurred_at: time::OffsetDateTime,
+    work_date: String,
+    state_after: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    payroll_material_ref_id: Uuid,
+    payroll_link_status: String,
+    duplicate: bool,
+}
+
+#[derive(Debug, Clone)]
+struct LinkedEmployee {
+    employee_id: Uuid,
+    display_name: String,
+}
+
+#[derive(Debug, Serialize)]
+struct HrReadinessSummary {
+    imports: HrImportReadinessSummary,
+    payroll: HrPayrollReadinessSummary,
+    annual_leave: HrAnnualLeaveReadinessSummary,
+    attendance: HrAttendanceReadinessSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct HrImportReadinessSummary {
+    runs: i64,
+    applied_runs: i64,
+    input_rows: i64,
+    candidate_rows: i64,
+    preserved_rows: i64,
+    ledger_rows: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_import_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct HrPayrollReadinessSummary {
+    draft_runs: i64,
+    blocked_runs: i64,
+    calculation_enabled_runs: i64,
+    draft_lines: i64,
+    payroll_source_rows: i64,
+    attendance_source_rows: i64,
+    attendance_event_links: i64,
+    attendance_material_refs: i64,
+    gross_pay_source_lines: i64,
+    net_pay_source_lines: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_source_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_period_start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_period_end: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_updated_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct HrAnnualLeaveReadinessSummary {
+    obligations: i64,
+    usage_promotion_required: i64,
+    payout_review_required: i64,
+    needs_review: i64,
+    remaining_days: String,
+}
+
+#[derive(Debug, Serialize)]
+struct HrAttendanceReadinessSummary {
+    durable_events: i64,
+    self_service_records: i64,
+    payroll_material_refs: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -521,7 +658,7 @@ async fn list_attendance_summary(
     Extension(principal): Extension<Principal>,
     Query(query): Query<HrListQuery>,
 ) -> Result<Json<AttendanceSummaryPage>, HrError> {
-    authorize_org_feature(&principal, Feature::EmployeeDirectoryRead)?;
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
     record_hr_read("attendance_summary");
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
@@ -591,7 +728,718 @@ async fn list_attendance_summary(
         offset,
     }))
 }
+async fn list_my_attendance_records(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<AttendanceRecordsQuery>,
+) -> Result<Json<EmployeeAttendanceRecordPage>, HrError> {
+    record_hr_read("employee_attendance_self");
+    let org = principal.org_id;
+    let user_id = principal.user_id;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
 
+    let page = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let linked = load_linked_employee_for_user(tx, org, user_id, false).await?;
+            list_attendance_records_for_employee(tx, linked.employee_id, limit, offset).await
+        })
+    })
+    .await?;
+
+    Ok(Json(page))
+}
+
+async fn list_attendance_records(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<AttendanceRecordsQuery>,
+) -> Result<Json<EmployeeAttendanceRecordPage>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("employee_attendance_management");
+    let org = principal.org_id;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let employee_id = query.employee_id;
+
+    let page = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            if let Some(employee_id) = employee_id {
+                list_attendance_records_for_employee(tx, employee_id, limit, offset).await
+            } else {
+                list_attendance_records_for_org(tx, limit, offset).await
+            }
+        })
+    })
+    .await?;
+
+    Ok(Json(page))
+}
+
+async fn create_my_attendance_record(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<CreateEmployeeAttendanceRecordRequest>,
+) -> Result<Json<EmployeeAttendanceRecordResponse>, HrError> {
+    let org = principal.org_id;
+    let actor = principal.user_id;
+    let kind = normalize_attendance_kind(&body.kind)?;
+    let idempotency_key = normalize_idempotency_key(body.idempotency_key)?;
+    let note = normalize_attendance_note(body.note)?;
+
+    let response = with_audits::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let linked = load_linked_employee_for_user(tx, org, actor, true).await?;
+
+            if let Some(existing) =
+                load_attendance_record_by_idempotency_key(tx, linked.employee_id, &idempotency_key)
+                    .await?
+            {
+                if existing.kind.as_str() != kind || existing.note != note {
+                    return Err(HrError::from_kernel(KernelError::conflict(
+                        "idempotency key already used with different attendance payload",
+                    )));
+                }
+                return Ok((existing, Vec::new()));
+            }
+
+            let previous_state: Option<String> = sqlx::query_scalar(
+                r#"
+                SELECT state_after
+                FROM employee_attendance_records
+                WHERE employee_id = $1
+                ORDER BY occurred_at DESC, created_at DESC, id DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(linked.employee_id)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            let state_after = next_employee_attendance_state(previous_state.as_deref(), kind)?;
+
+            let record_row = sqlx::query(
+                r#"
+                INSERT INTO employee_attendance_records (
+                    org_id,
+                    employee_id,
+                    actor_user_id,
+                    kind,
+                    state_after,
+                    note,
+                    idempotency_key
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING
+                    id,
+                    employee_id,
+                    kind,
+                    occurred_at,
+                    work_date::TEXT AS work_date,
+                    state_after,
+                    note
+                "#,
+            )
+            .bind(*org.as_uuid())
+            .bind(linked.employee_id)
+            .bind(*actor.as_uuid())
+            .bind(kind)
+            .bind(state_after)
+            .bind(note)
+            .bind(&idempotency_key)
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let record_id: Uuid = record_row.try_get("id")?;
+            let work_date: String = record_row.try_get("work_date")?;
+            let digest = sha256_hex(
+                format!(
+                    "employee_self_service|{}|{}|{}|{}",
+                    org.as_uuid(),
+                    linked.employee_id,
+                    record_id,
+                    kind
+                )
+                .as_bytes(),
+            );
+
+            let ref_id: Uuid = sqlx::query_scalar(
+                r#"
+                INSERT INTO payroll_attendance_material_refs (
+                    org_id,
+                    attendance_record_id,
+                    employee_id,
+                    work_date,
+                    source_digest
+                )
+                VALUES ($1, $2, $3, $4::DATE, $5)
+                RETURNING id
+                "#,
+            )
+            .bind(*org.as_uuid())
+            .bind(record_id)
+            .bind(linked.employee_id)
+            .bind(&work_date)
+            .bind(digest)
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let response = employee_attendance_record_from_parts(
+                record_row,
+                linked.display_name,
+                ref_id,
+                false,
+            )?;
+
+            let attendance_audit = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("employee_attendance.record").map_err(HrError::from_kernel)?,
+                "employee_attendance_record",
+                record_id.to_string(),
+                TraceContext::generate(),
+                OffsetDateTime::now_utc(),
+            )
+            .with_org(org)
+            .with_snapshots(
+                None,
+                Some(json!({
+                    "employee_id": linked.employee_id,
+                    "kind": response.kind,
+                    "state_after": response.state_after,
+                    "work_date": response.work_date,
+                    "payroll_material_ref_id": ref_id,
+                })),
+            );
+            let payroll_audit = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("payroll_attendance.link").map_err(HrError::from_kernel)?,
+                "payroll_attendance_material_ref",
+                ref_id.to_string(),
+                TraceContext::generate(),
+                OffsetDateTime::now_utc(),
+            )
+            .with_org(org)
+            .with_snapshots(
+                None,
+                Some(json!({
+                    "attendance_record_id": record_id,
+                    "employee_id": linked.employee_id,
+                    "work_date": response.work_date,
+                    "source_type": "employee_self_service",
+                })),
+            );
+
+            Ok((response, vec![attendance_audit, payroll_audit]))
+        })
+    })
+    .await?;
+
+    Ok(Json(response))
+}
+
+async fn get_hr_readiness_summary(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<HrReadinessSummary>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("readiness_summary");
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+
+    let summary = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let import_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS runs,
+                    COUNT(*) FILTER (WHERE status = 'APPLIED')::BIGINT AS applied_runs,
+                    COALESCE(SUM(input_rows), 0)::BIGINT AS input_rows,
+                    COALESCE(SUM(candidate_rows), 0)::BIGINT AS candidate_rows,
+                    COALESCE(SUM(preserved_rows), 0)::BIGINT AS preserved_rows,
+                    MAX(COALESCE(applied_at, updated_at, created_at)) AS latest_import_at
+                FROM data_import_runs
+                WHERE entity_type = 'employee_hr'
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let ledger_rows: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*)::BIGINT
+                FROM data_import_rows r
+                JOIN data_import_runs run
+                  ON run.id = r.run_id
+                 AND run.org_id = r.org_id
+                WHERE run.entity_type = 'employee_hr'
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let payroll_run_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS draft_runs,
+                    COUNT(*) FILTER (WHERE status = 'BLOCKED_LEGAL_GATE')::BIGINT AS blocked_runs,
+                    COUNT(*) FILTER (WHERE calculation_enabled)::BIGINT AS calculation_enabled_runs,
+                    (ARRAY_AGG(status ORDER BY updated_at DESC, id DESC))[1] AS latest_status,
+                    (ARRAY_AGG(source_label ORDER BY updated_at DESC, id DESC))[1] AS latest_source_label,
+                    (ARRAY_AGG(period_start::TEXT ORDER BY updated_at DESC, id DESC))[1] AS latest_period_start,
+                    (ARRAY_AGG(period_end::TEXT ORDER BY updated_at DESC, id DESC))[1] AS latest_period_end,
+                    MAX(updated_at) AS latest_updated_at
+                FROM payroll_draft_runs
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let payroll_line_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS draft_lines,
+                    COALESCE(SUM(payroll_source_row_count), 0)::BIGINT AS payroll_source_rows,
+                    COALESCE(SUM(attendance_source_row_count), 0)::BIGINT AS attendance_source_rows,
+                    COALESCE(SUM(attendance_event_count), 0)::BIGINT AS attendance_event_links,
+                    COUNT(*) FILTER (WHERE gross_pay_source_present)::BIGINT AS gross_pay_source_lines,
+                    COUNT(*) FILTER (WHERE net_pay_source_present)::BIGINT AS net_pay_source_lines
+                FROM payroll_draft_lines
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let leave_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS obligations,
+                    COUNT(*) FILTER (WHERE status = 'USAGE_PROMOTION_DRAFT_REQUIRED')::BIGINT AS usage_promotion_required,
+                    COUNT(*) FILTER (WHERE status = 'PAYOUT_REVIEW_REQUIRED')::BIGINT AS payout_review_required,
+                    COUNT(*) FILTER (WHERE status = 'NEEDS_HR_REVIEW')::BIGINT AS needs_review,
+                    COALESCE(SUM(leave_remaining), 0)::TEXT AS remaining_days
+                FROM annual_leave_obligations
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let mut attendance_query =
+                QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM site_attendance_events l WHERE ");
+            push_attendance_branch_scope(&mut attendance_query, &scope);
+            let durable_events: i64 = attendance_query
+                .build_query_scalar()
+                .fetch_one(tx.as_mut())
+                .await?;
+            let self_service_records: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::BIGINT FROM employee_attendance_records",
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+            let attendance_material_refs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::BIGINT FROM payroll_attendance_material_refs",
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+
+            Ok(HrReadinessSummary {
+                imports: HrImportReadinessSummary {
+                    runs: import_row.try_get("runs")?,
+                    applied_runs: import_row.try_get("applied_runs")?,
+                    input_rows: import_row.try_get("input_rows")?,
+                    candidate_rows: import_row.try_get("candidate_rows")?,
+                    preserved_rows: import_row.try_get("preserved_rows")?,
+                    ledger_rows,
+                    latest_import_at: import_row.try_get("latest_import_at")?,
+                },
+                payroll: HrPayrollReadinessSummary {
+                    draft_runs: payroll_run_row.try_get("draft_runs")?,
+                    blocked_runs: payroll_run_row.try_get("blocked_runs")?,
+                    calculation_enabled_runs: payroll_run_row
+                        .try_get("calculation_enabled_runs")?,
+                    draft_lines: payroll_line_row.try_get("draft_lines")?,
+                    payroll_source_rows: payroll_line_row.try_get("payroll_source_rows")?,
+                    attendance_source_rows: payroll_line_row
+                        .try_get("attendance_source_rows")?,
+                    attendance_event_links: payroll_line_row.try_get("attendance_event_links")?,
+                    attendance_material_refs,
+                    gross_pay_source_lines: payroll_line_row
+                        .try_get("gross_pay_source_lines")?,
+                    net_pay_source_lines: payroll_line_row.try_get("net_pay_source_lines")?,
+                    latest_status: payroll_run_row.try_get("latest_status")?,
+                    latest_source_label: payroll_run_row.try_get("latest_source_label")?,
+                    latest_period_start: payroll_run_row.try_get("latest_period_start")?,
+                    latest_period_end: payroll_run_row.try_get("latest_period_end")?,
+                    latest_updated_at: payroll_run_row.try_get("latest_updated_at")?,
+                },
+                annual_leave: HrAnnualLeaveReadinessSummary {
+                    obligations: leave_row.try_get("obligations")?,
+                    usage_promotion_required: leave_row
+                        .try_get("usage_promotion_required")?,
+                    payout_review_required: leave_row.try_get("payout_review_required")?,
+                    needs_review: leave_row.try_get("needs_review")?,
+                    remaining_days: leave_row.try_get("remaining_days")?,
+                },
+                attendance: HrAttendanceReadinessSummary {
+                    durable_events,
+                    self_service_records,
+                    payroll_material_refs: attendance_material_refs,
+                },
+            })
+        })
+    })
+    .await?;
+
+    Ok(Json(summary))
+}
+
+async fn preview_attendance_import(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    multipart: Multipart,
+) -> Result<Json<AttendanceImportPreviewResponse>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let upload = read_attendance_upload(multipart).await?;
+    let source_sha256 = sha256_hex(&upload.bytes);
+    let parsed = parse_attendance_import_upload(&upload.filename, &upload.bytes)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+    let run_id = Uuid::new_v4();
+    let input_rows = i32::try_from(parsed.rows.len())
+        .map_err(|_| HrError::validation("attendance import row count exceeds i32"))?;
+    let candidate_rows = i32::try_from(
+        parsed
+            .rows
+            .iter()
+            .filter(|row| row.row_status == ImportRowStatus::Candidate)
+            .count(),
+    )
+    .map_err(|_| HrError::validation("attendance candidate row count exceeds i32"))?;
+    let preserved_rows = i32::try_from(
+        parsed
+            .rows
+            .iter()
+            .filter(|row| row.row_status != ImportRowStatus::Candidate)
+            .count(),
+    )
+    .map_err(|_| HrError::validation("attendance error row count exceeds i32"))?;
+    let filename = upload.filename.clone();
+    let source_format = attendance_source_format(&filename)?;
+    let columns = attendance_import_columns_from_rows(&parsed.rows);
+    let mapping_profile = attendance_import_mapping_profile(&columns);
+    let audit_after = json!({
+        "run_id": run_id,
+        "entity_type": "attendance_direct",
+        "source_filename": &filename,
+        "source_sha256": &source_sha256,
+        "input_rows": input_rows,
+        "candidate_rows": candidate_rows,
+        "preserved_rows": preserved_rows,
+        "sensitive_values_returned": false,
+        "payroll_effect": "lineage_only_not_payable"
+    });
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("attendance_import.preview").map_err(HrError::from_kernel)?,
+        "data_import_run",
+        run_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(None, Some(audit_after));
+
+    let preview = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        let filename = filename.clone();
+        let source_sha256 = source_sha256.clone();
+        let parsed = parsed.clone();
+        let mapping_profile = mapping_profile.clone();
+        Box::pin(async move {
+            sqlx::query(
+                r#"
+                INSERT INTO data_import_runs (
+                    id, org_id, entity_type, status, source_filename, source_format,
+                    source_sha256, mapping_profile, input_rows, candidate_rows,
+                    preserved_rows, created_by
+                )
+                VALUES ($1, $2, 'attendance_direct', 'PREVIEWED', $3, $4, $5, $6, $7, $8, $9, $10)
+                "#,
+            )
+            .bind(run_id)
+            .bind(org_uuid)
+            .bind(&filename)
+            .bind(source_format)
+            .bind(&source_sha256)
+            .bind(&mapping_profile)
+            .bind(input_rows)
+            .bind(candidate_rows)
+            .bind(preserved_rows)
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
+
+            for row in &parsed.rows {
+                sqlx::query(
+                    r#"
+                    INSERT INTO data_import_rows (
+                        org_id, run_id, source_sheet, source_row, source_key,
+                        row_status, raw_row, canonical_row, validation
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(run_id)
+                .bind(&row.source_sheet)
+                .bind(row.source_row)
+                .bind(&row.source_key)
+                .bind(row.row_status.as_str())
+                .bind(&row.raw_row)
+                .bind(attendance_canonical_row_json(row, &source_sha256))
+                .bind(attendance_validation_json(row))
+                .execute(tx.as_mut())
+                .await?;
+            }
+
+            Ok(AttendanceImportPreviewResponse::from_rows(
+                run_id,
+                filename,
+                source_sha256,
+                parsed.rows,
+            ))
+        })
+    })
+    .await?;
+
+    metrics::counter!("hr_attendance_import_runs_total", "stage" => "preview").increment(1);
+    Ok(Json(preview))
+}
+
+async fn dry_run_attendance_import(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<AttendanceImportDryRunSummary>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("attendance_import.dry_run").map_err(HrError::from_kernel)?,
+        "data_import_run",
+        run_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({ "run_id": run_id, "entity_type": "attendance_direct" })),
+    );
+
+    let summary = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let run = import_run_for_update(tx, org_uuid, run_id).await?;
+            ensure_attendance_import_run(&run, &["PREVIEWED", "DRY_RUN"])?;
+            let rows = load_attendance_import_rows(tx, org_uuid, run_id).await?;
+            let summary = resolve_attendance_import_rows(tx, org_uuid, run_id, &run, &rows).await?;
+            sqlx::query(
+                r#"
+                UPDATE data_import_runs
+                SET status = 'DRY_RUN', dry_run_summary = $3, updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(run_id)
+            .bind(json!(&summary))
+            .execute(tx.as_mut())
+            .await?;
+            Ok(summary)
+        })
+    })
+    .await?;
+
+    metrics::counter!("hr_attendance_import_runs_total", "stage" => "dry_run").increment(1);
+    Ok(Json(summary))
+}
+
+async fn apply_attendance_import(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<AttendanceImportApplyReport>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("attendance_import.apply").map_err(HrError::from_kernel)?,
+        "data_import_run",
+        run_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({ "run_id": run_id, "entity_type": "attendance_direct" })),
+    );
+
+    let report = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+            Box::pin(async move {
+                let run = import_run_for_update(tx, org_uuid, run_id).await?;
+                ensure_attendance_import_run(&run, &["DRY_RUN"])?;
+                let rows = load_attendance_import_rows(tx, org_uuid, run_id).await?;
+                let summary = resolve_attendance_import_rows(tx, org_uuid, run_id, &run, &rows).await?;
+                if !summary.row_errors.is_empty() {
+                    return Err(HrError::validation(
+                        "cannot apply attendance import with unresolved or invalid rows",
+                    ));
+                }
+
+                let mut inserted = 0usize;
+                for row in summary.ready_rows_for_apply {
+                    let insert_result = sqlx::query(
+                        r#"
+                        INSERT INTO attendance_direct_import_events (
+                            org_id, run_id, import_row_id, employee_id, branch_id,
+                            source_sheet, source_row, source_key, source_sha256,
+                            employee_number, employee_name, branch_name, work_date,
+                            check_in_at, check_out_at, minutes_worked, fact_key
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                        ON CONFLICT (org_id, fact_key) DO NOTHING
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(run_id)
+                    .bind(row.import_row_id)
+                    .bind(row.employee_id)
+                    .bind(row.branch_id)
+                    .bind(&row.source_sheet)
+                    .bind(row.source_row)
+                    .bind(&row.source_key)
+                    .bind(&run.source_sha256)
+                    .bind(&row.employee_number)
+                    .bind(&row.employee_name)
+                    .bind(&row.branch_name)
+                    .bind(&row.work_date)
+                    .bind(&row.check_in_at)
+                    .bind(&row.check_out_at)
+                    .bind(row.minutes_worked)
+                    .bind(&row.fact_key)
+                    .execute(tx.as_mut())
+                    .await?;
+                    inserted += usize::try_from(insert_result.rows_affected()).unwrap_or_default();
+                }
+
+                let report = AttendanceImportApplyReport {
+                    run_id,
+                    inserted,
+                    skipped: summary.ready_rows.saturating_sub(inserted),
+                    error_rows: 0,
+                };
+                sqlx::query(
+                    r#"
+                    UPDATE data_import_runs
+                    SET status = 'APPLIED', apply_summary = $3, applied_by = $4,
+                        applied_at = now(), updated_at = now()
+                    WHERE org_id = $1 AND id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(run_id)
+                .bind(json!(&report))
+                .bind(*actor.as_uuid())
+                .execute(tx.as_mut())
+                .await?;
+                Ok(report)
+            })
+        })
+    .await?;
+
+    metrics::counter!("hr_attendance_import_runs_total", "stage" => "apply").increment(1);
+    Ok(Json(report))
+}
+
+async fn list_attendance_import_summary(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<HrListQuery>,
+) -> Result<Json<AttendanceImportSummaryPage>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("attendance_import_summary");
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let (items, total) = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let total: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*)
+                FROM data_import_runs
+                WHERE org_id = $1 AND entity_type = 'attendance_direct'
+                "#,
+            )
+            .bind(org_uuid)
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let items = sqlx::query(
+                r#"
+                SELECT
+                    id, status, source_filename, source_format, source_sha256,
+                    input_rows, candidate_rows, preserved_rows,
+                    dry_run_summary, apply_summary, created_at, applied_at
+                FROM data_import_runs
+                WHERE org_id = $1 AND entity_type = 'attendance_direct'
+                ORDER BY created_at DESC, id DESC
+                LIMIT $2 OFFSET $3
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(tx.as_mut())
+            .await?
+            .into_iter()
+            .map(|row| {
+                Ok(AttendanceImportSummaryItem {
+                    run_id: row.try_get("id")?,
+                    status: row.try_get("status")?,
+                    source_filename: row.try_get("source_filename")?,
+                    source_format: row.try_get("source_format")?,
+                    source_sha256: row.try_get("source_sha256")?,
+                    input_rows: row.try_get("input_rows")?,
+                    candidate_rows: row.try_get("candidate_rows")?,
+                    preserved_rows: row.try_get("preserved_rows")?,
+                    dry_run_summary: row.try_get("dry_run_summary")?,
+                    apply_summary: row.try_get("apply_summary")?,
+                    created_at: row.try_get("created_at")?,
+                    applied_at: row.try_get("applied_at")?,
+                })
+            })
+            .collect::<Result<Vec<_>, HrError>>()?;
+
+            Ok((items, total))
+        })
+    })
+    .await?;
+
+    Ok(Json(AttendanceImportSummaryPage {
+        items,
+        total,
+        limit,
+        offset,
+    }))
+}
 async fn import_employees(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
@@ -1182,10 +2030,146 @@ struct EmployeeImportDryRunSummary {
     companies: Vec<CompanyImportSummary>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct AttendanceImportColumn {
+    source_header: String,
+    normalized_header: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    classification: String,
+    preview_allowed: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct AttendanceImportPreviewRow {
+    source_sheet: String,
+    source_row: i32,
+    row_status: String,
+    values: BTreeMap<String, Value>,
+    validation: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct AttendanceImportPreviewResponse {
+    run_id: Uuid,
+    entity_type: String,
+    source_filename: String,
+    source_sha256: String,
+    input_rows: usize,
+    candidate_rows: usize,
+    preserved_rows: usize,
+    columns: Vec<AttendanceImportColumn>,
+    sample_rows: Vec<AttendanceImportPreviewRow>,
+    mapping_profile: Value,
+}
+
+impl AttendanceImportPreviewResponse {
+    fn from_rows(
+        run_id: Uuid,
+        source_filename: String,
+        source_sha256: String,
+        rows: Vec<ParsedAttendanceImportRow>,
+    ) -> Self {
+        let columns = attendance_import_columns_from_rows(&rows);
+        let sample_rows = rows
+            .iter()
+            .take(12)
+            .map(|row| AttendanceImportPreviewRow {
+                source_sheet: row.source_sheet.clone(),
+                source_row: row.source_row,
+                row_status: row.row_status.as_str().to_owned(),
+                values: attendance_preview_values(&row.raw_row, &columns),
+                validation: attendance_validation_json(row),
+            })
+            .collect::<Vec<_>>();
+        let input_rows = rows.len();
+        let candidate_rows = rows
+            .iter()
+            .filter(|row| row.row_status == ImportRowStatus::Candidate)
+            .count();
+        let preserved_rows = rows
+            .iter()
+            .filter(|row| row.row_status != ImportRowStatus::Candidate)
+            .count();
+
+        Self {
+            run_id,
+            entity_type: "attendance_direct".to_owned(),
+            source_filename,
+            source_sha256,
+            input_rows,
+            candidate_rows,
+            preserved_rows,
+            columns: columns.clone(),
+            sample_rows,
+            mapping_profile: attendance_import_mapping_profile(&columns),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize)]
+struct AttendanceImportDryRunSummary {
+    run_id: Uuid,
+    input_rows: usize,
+    candidate_rows: usize,
+    preserved_rows: usize,
+    ready_rows: usize,
+    error_rows: usize,
+    duplicate_rows: usize,
+    missing_employee_rows: usize,
+    ambiguous_employee_rows: usize,
+    row_errors: Vec<AttendanceImportRowError>,
+    #[serde(skip_serializing)]
+    ready_rows_for_apply: Vec<ResolvedAttendanceImportRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AttendanceImportRowError {
+    source_sheet: String,
+    source_row: i32,
+    source_key: String,
+    code: String,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AttendanceImportApplyReport {
+    run_id: Uuid,
+    inserted: usize,
+    skipped: usize,
+    error_rows: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct AttendanceImportSummaryItem {
+    run_id: Uuid,
+    status: String,
+    source_filename: String,
+    source_format: String,
+    source_sha256: String,
+    input_rows: i32,
+    candidate_rows: i32,
+    preserved_rows: i32,
+    dry_run_summary: Value,
+    apply_summary: Value,
+    created_at: OffsetDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct AttendanceImportSummaryPage {
+    items: Vec<AttendanceImportSummaryItem>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
 #[derive(Debug)]
 struct DataImportRunRecord {
     entity_type: String,
     status: String,
+    source_sha256: String,
     input_rows: i32,
     candidate_rows: i32,
     preserved_rows: i32,
@@ -1246,6 +2230,48 @@ async fn read_xlsx_upload(mut multipart: Multipart) -> Result<XlsxUpload, HrErro
         if !filename.to_ascii_lowercase().ends_with(".xlsx") {
             return Err(HrError::validation(
                 "employee import currently accepts .xlsx workbooks only",
+            ));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = field
+            .chunk()
+            .await
+            .map_err(|err| HrError::validation(err.to_string()))?
+        {
+            if bytes.len() + chunk.len() > MAX_IMPORT_BYTES {
+                return Err(HrError::validation(
+                    "uploaded file exceeds the maximum import size",
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if bytes.is_empty() {
+            return Err(HrError::validation("uploaded file is empty"));
+        }
+        return Ok(XlsxUpload { filename, bytes });
+    }
+    Err(HrError::validation(
+        "multipart upload is missing the 'file' field",
+    ))
+}
+
+async fn read_attendance_upload(mut multipart: Multipart) -> Result<XlsxUpload, HrError> {
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| HrError::validation(err.to_string()))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let filename = field
+            .file_name()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "attendance.csv".to_owned());
+        let lower = filename.to_ascii_lowercase();
+        if !(lower.ends_with(".xlsx") || lower.ends_with(".csv")) {
+            return Err(HrError::validation(
+                "attendance import accepts .xlsx workbooks or .csv files only",
             ));
         }
         let mut bytes = Vec::new();
@@ -1365,6 +2391,7 @@ struct ParsedEmployeeImportRow {
 enum ImportRowStatus {
     Candidate,
     Preserved,
+    Error,
 }
 
 impl ImportRowStatus {
@@ -1372,7 +2399,549 @@ impl ImportRowStatus {
         match self {
             Self::Candidate => "CANDIDATE",
             Self::Preserved => "PRESERVED",
+            Self::Error => "ERROR",
         }
+    }
+
+    fn from_db(value: &str) -> Result<Self, HrError> {
+        match value {
+            "CANDIDATE" => Ok(Self::Candidate),
+            "PRESERVED" => Ok(Self::Preserved),
+            "ERROR" => Ok(Self::Error),
+            _ => Err(HrError::validation("stored import row has invalid status")),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ParsedAttendanceImportUpload {
+    rows: Vec<ParsedAttendanceImportRow>,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedAttendanceImportRow {
+    source_sheet: String,
+    source_row: i32,
+    source_key: String,
+    raw_row: Value,
+    employee_number: Option<String>,
+    employee_name: Option<String>,
+    branch_name: Option<String>,
+    work_date: Option<String>,
+    check_in_at: Option<String>,
+    check_out_at: Option<String>,
+    minutes_worked: Option<i32>,
+    row_status: ImportRowStatus,
+    validation_errors: Vec<String>,
+}
+
+impl ParsedAttendanceImportRow {
+    fn duplicate_fingerprint(&self) -> Option<String> {
+        Some(format!(
+            "employee:{}|name:{}|branch:{}|date:{}|in:{}|out:{}|minutes:{}",
+            self.employee_number
+                .as_deref()
+                .or(self.employee_name.as_deref())?,
+            self.employee_name.as_deref().unwrap_or_default(),
+            self.branch_name.as_deref()?,
+            self.work_date.as_deref()?,
+            self.check_in_at.as_deref().unwrap_or_default(),
+            self.check_out_at.as_deref().unwrap_or_default(),
+            self.minutes_worked
+                .map(|value| value.to_string())
+                .unwrap_or_default()
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct AttendanceImportHeader {
+    zero_based_row: usize,
+    normalized_headers: Vec<String>,
+    columns: Vec<AttendanceImportColumn>,
+}
+
+#[derive(Debug)]
+struct AttendanceImportFieldDefinition {
+    target: &'static str,
+    aliases: &'static [&'static str],
+    required: bool,
+}
+
+const ATTENDANCE_IMPORT_FIELD_DEFINITIONS: &[AttendanceImportFieldDefinition] = &[
+    AttendanceImportFieldDefinition {
+        target: "employee_number",
+        aliases: &[
+            "사번",
+            "직원번호",
+            "임직원번호",
+            "employee_number",
+            "employeenumber",
+        ],
+        required: false,
+    },
+    AttendanceImportFieldDefinition {
+        target: "employee_name",
+        aliases: &[
+            "성명",
+            "이름",
+            "직원명",
+            "사원명",
+            "근로자명",
+            "employee_name",
+            "employeename",
+        ],
+        required: false,
+    },
+    AttendanceImportFieldDefinition {
+        target: "branch_name",
+        aliases: &[
+            "지점",
+            "지점명",
+            "근무지",
+            "사업장",
+            "branch",
+            "branch_name",
+            "branchname",
+        ],
+        required: true,
+    },
+    AttendanceImportFieldDefinition {
+        target: "work_date",
+        aliases: &[
+            "근무일",
+            "일자",
+            "날짜",
+            "출근일",
+            "work_date",
+            "workdate",
+            "date",
+        ],
+        required: true,
+    },
+    AttendanceImportFieldDefinition {
+        target: "check_in_at",
+        aliases: &[
+            "출근",
+            "출근시간",
+            "시작시간",
+            "clock_in",
+            "check_in",
+            "checkin",
+        ],
+        required: false,
+    },
+    AttendanceImportFieldDefinition {
+        target: "check_out_at",
+        aliases: &[
+            "퇴근",
+            "퇴근시간",
+            "종료시간",
+            "clock_out",
+            "check_out",
+            "checkout",
+        ],
+        required: false,
+    },
+    AttendanceImportFieldDefinition {
+        target: "minutes_worked",
+        aliases: &[
+            "근무분",
+            "근무시간분",
+            "근무시간",
+            "minutes_worked",
+            "minutesworked",
+            "work_minutes",
+        ],
+        required: false,
+    },
+];
+
+fn parse_attendance_import_upload(
+    filename: &str,
+    bytes: &[u8],
+) -> Result<ParsedAttendanceImportUpload, HrError> {
+    let lower = filename.to_ascii_lowercase();
+    let mut rows = if lower.ends_with(".csv") {
+        let text = std::str::from_utf8(bytes)
+            .map_err(|_| HrError::workbook("attendance CSV must be valid UTF-8"))?;
+        parse_attendance_csv(filename, text)?
+    } else if lower.ends_with(".xlsx") {
+        parse_attendance_xlsx(filename, bytes)?
+    } else {
+        return Err(HrError::validation(
+            "attendance import accepts .xlsx workbooks or .csv files only",
+        ));
+    };
+
+    mark_duplicate_attendance_rows(&mut rows);
+    if rows.is_empty() {
+        return Err(HrError::workbook(
+            "attendance import did not contain any non-empty data rows",
+        ));
+    }
+    Ok(ParsedAttendanceImportUpload { rows })
+}
+
+fn parse_attendance_xlsx(
+    filename: &str,
+    bytes: &[u8],
+) -> Result<Vec<ParsedAttendanceImportRow>, HrError> {
+    let mut workbook =
+        Xlsx::new(Cursor::new(bytes)).map_err(|err| HrError::workbook(err.to_string()))?;
+    let mut rows = Vec::new();
+    for sheet in workbook.sheet_names().to_owned() {
+        let range = workbook
+            .worksheet_range(&sheet)
+            .map_err(|err| HrError::workbook(err.to_string()))?;
+        let values = range
+            .rows()
+            .map(|row| row.iter().map(cell_json).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        rows.extend(parse_attendance_tabular_sheet(
+            filename, &sheet, &values, false,
+        )?);
+    }
+    Ok(rows)
+}
+
+fn parse_attendance_csv(
+    filename: &str,
+    text: &str,
+) -> Result<Vec<ParsedAttendanceImportRow>, HrError> {
+    let rows = parse_csv_rows(text)?
+        .into_iter()
+        .map(|row| row.into_iter().map(Value::String).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    parse_attendance_tabular_sheet(filename, "CSV", &rows, true)
+}
+
+fn parse_attendance_tabular_sheet(
+    _filename: &str,
+    sheet: &str,
+    rows: &[Vec<Value>],
+    require_header: bool,
+) -> Result<Vec<ParsedAttendanceImportRow>, HrError> {
+    let Some(header) = detect_attendance_import_header(rows) else {
+        return if require_header {
+            Err(HrError::workbook(
+                "attendance import is missing required headers",
+            ))
+        } else {
+            Ok(Vec::new())
+        };
+    };
+
+    let mut parsed = Vec::new();
+    for (zero_based_idx, row) in rows
+        .iter()
+        .enumerate()
+        .skip(header.zero_based_row.saturating_add(1))
+    {
+        if !row.iter().any(|cell| json_value_text(cell).is_some()) {
+            continue;
+        }
+        let source_row = i32::try_from(zero_based_idx + 1)
+            .map_err(|_| HrError::workbook("source row does not fit i32"))?;
+        let raw_row = attendance_raw_row(row, &header.normalized_headers);
+        let employee_number =
+            raw_text_for_attendance_target(&raw_row, &header.columns, "employee_number");
+        let employee_name =
+            raw_text_for_attendance_target(&raw_row, &header.columns, "employee_name");
+        let branch_name = raw_text_for_attendance_target(&raw_row, &header.columns, "branch_name");
+        let work_date_raw = raw_text_for_attendance_target(&raw_row, &header.columns, "work_date");
+        let (work_date, invalid_work_date) = match work_date_raw.as_deref() {
+            Some(value) => match normalized_work_date(value) {
+                Ok(date) => (Some(date), false),
+                Err(_) => (None, true),
+            },
+            None => (None, false),
+        };
+        let check_in_raw = raw_text_for_attendance_target(&raw_row, &header.columns, "check_in_at");
+        let (check_in_at, invalid_check_in_at) = match check_in_raw.as_deref() {
+            Some(value) => match normalized_attendance_time(value) {
+                Ok(time) => (Some(time), false),
+                Err(_) => (None, true),
+            },
+            None => (None, false),
+        };
+        let check_out_raw =
+            raw_text_for_attendance_target(&raw_row, &header.columns, "check_out_at");
+        let (check_out_at, invalid_check_out_at) = match check_out_raw.as_deref() {
+            Some(value) => match normalized_attendance_time(value) {
+                Ok(time) => (Some(time), false),
+                Err(_) => (None, true),
+            },
+            None => (None, false),
+        };
+        let minutes_raw =
+            raw_text_for_attendance_target(&raw_row, &header.columns, "minutes_worked");
+        let (minutes_worked, invalid_minutes) = match minutes_raw.as_deref() {
+            Some(value) => match normalized_minutes_worked(value) {
+                Ok(minutes) => (Some(minutes), false),
+                Err(_) => (None, true),
+            },
+            None => (None, false),
+        };
+
+        let mut validation_errors = Vec::new();
+        if employee_number.is_none() && employee_name.is_none() {
+            validation_errors.push("missing_employee_identifier".to_owned());
+        }
+        if branch_name.is_none() {
+            validation_errors.push("missing_branch_name".to_owned());
+        }
+        if work_date.is_none() {
+            validation_errors.push("missing_work_date".to_owned());
+        }
+        if invalid_work_date {
+            validation_errors.push("invalid_work_date".to_owned());
+        }
+        if invalid_minutes {
+            validation_errors.push("invalid_minutes_worked".to_owned());
+        }
+        if invalid_check_in_at {
+            validation_errors.push("invalid_check_in_at".to_owned());
+        }
+        if invalid_check_out_at {
+            validation_errors.push("invalid_check_out_at".to_owned());
+        }
+        if check_in_at.is_none() && check_out_at.is_none() && minutes_worked.is_none() {
+            validation_errors.push("missing_attendance_time".to_owned());
+        }
+
+        let row_status = if validation_errors.is_empty() {
+            ImportRowStatus::Candidate
+        } else {
+            ImportRowStatus::Error
+        };
+        parsed.push(ParsedAttendanceImportRow {
+            source_sheet: sheet.to_owned(),
+            source_row,
+            source_key: format!("sheet:{sheet}|row:{source_row}"),
+            raw_row,
+            employee_number,
+            employee_name,
+            branch_name,
+            work_date,
+            check_in_at,
+            check_out_at,
+            minutes_worked,
+            row_status,
+            validation_errors,
+        });
+    }
+    Ok(parsed)
+}
+
+fn detect_attendance_import_header(rows: &[Vec<Value>]) -> Option<AttendanceImportHeader> {
+    for (zero_based_row, row) in rows.iter().enumerate().take(MAX_IMPORT_HEADER_SCAN_ROWS) {
+        let normalized_headers = row
+            .iter()
+            .map(|cell| {
+                json_value_text(cell)
+                    .map_or_else(String::new, |value| normalize_header_label(&value))
+            })
+            .collect::<Vec<_>>();
+        let targets = normalized_headers
+            .iter()
+            .filter_map(|header| attendance_import_target_for_header(header))
+            .collect::<BTreeSet<_>>();
+        let has_employee = targets.contains("employee_number") || targets.contains("employee_name");
+        let has_required = ATTENDANCE_IMPORT_FIELD_DEFINITIONS
+            .iter()
+            .filter(|field| field.required)
+            .all(|field| targets.contains(field.target));
+        if has_employee && has_required {
+            let columns = normalized_headers
+                .iter()
+                .filter(|header| !header.is_empty())
+                .map(|header| attendance_import_column(header, header))
+                .collect::<Vec<_>>();
+            return Some(AttendanceImportHeader {
+                zero_based_row,
+                normalized_headers,
+                columns,
+            });
+        }
+    }
+    None
+}
+
+fn attendance_raw_row(row: &[Value], normalized_headers: &[String]) -> Value {
+    let mut raw = Map::new();
+    for (idx, header_label) in normalized_headers.iter().enumerate() {
+        if header_label.is_empty() {
+            continue;
+        }
+        raw.insert(
+            header_label.clone(),
+            row.get(idx).cloned().unwrap_or(Value::Null),
+        );
+    }
+    Value::Object(raw)
+}
+
+fn mark_duplicate_attendance_rows(rows: &mut [ParsedAttendanceImportRow]) {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for row in rows.iter() {
+        if row.row_status == ImportRowStatus::Candidate
+            && let Some(key) = row.duplicate_fingerprint()
+        {
+            *counts.entry(key).or_default() += 1;
+        }
+    }
+    for row in rows.iter_mut() {
+        let Some(key) = row.duplicate_fingerprint() else {
+            continue;
+        };
+        if counts.get(&key).copied().unwrap_or_default() > 1 {
+            row.row_status = ImportRowStatus::Error;
+            row.validation_errors
+                .push("duplicate_row_in_file".to_owned());
+        }
+    }
+}
+
+fn parse_csv_rows(text: &str) -> Result<Vec<Vec<String>>, HrError> {
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut field = String::new();
+    let mut chars = text.chars().peekable();
+    let mut in_quotes = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' if in_quotes && chars.peek() == Some(&'"') => {
+                field.push('"');
+                chars.next();
+            }
+            '"' => {
+                in_quotes = !in_quotes;
+            }
+            ',' if !in_quotes => {
+                row.push(field.trim().to_owned());
+                field.clear();
+            }
+            '\n' if !in_quotes => {
+                row.push(field.trim().to_owned());
+                field.clear();
+                if row.iter().any(|value| !value.is_empty()) {
+                    rows.push(std::mem::take(&mut row));
+                } else {
+                    row.clear();
+                }
+            }
+            '\r' if !in_quotes => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                row.push(field.trim().to_owned());
+                field.clear();
+                if row.iter().any(|value| !value.is_empty()) {
+                    rows.push(std::mem::take(&mut row));
+                } else {
+                    row.clear();
+                }
+            }
+            _ => field.push(ch),
+        }
+    }
+
+    if in_quotes {
+        return Err(HrError::workbook(
+            "attendance CSV has an unclosed quoted field",
+        ));
+    }
+    row.push(field.trim().to_owned());
+    if row.iter().any(|value| !value.is_empty()) {
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+fn normalized_minutes_worked(value: &str) -> Result<i32, HrError> {
+    let cleaned = value.replace(',', "").trim().to_owned();
+    let minutes = cleaned
+        .parse::<i32>()
+        .map_err(|_| HrError::validation("minutes_worked must be a whole number"))?;
+    if minutes < 0 {
+        return Err(HrError::validation("minutes_worked must not be negative"));
+    }
+    Ok(minutes)
+}
+
+fn normalized_work_date(value: &str) -> Result<String, HrError> {
+    let cleaned = value.trim().replace(['.', '/'], "-");
+    let parts = cleaned.split('-').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(HrError::validation("work_date must use YYYY-MM-DD"));
+    }
+    let year = parts[0]
+        .parse::<u16>()
+        .map_err(|_| HrError::validation("work_date year must be numeric"))?;
+    let month = parts[1]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("work_date month must be numeric"))?;
+    let day = parts[2]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("work_date day must be numeric"))?;
+    if !(1900..=2100).contains(&year) || month == 0 || month > 12 {
+        return Err(HrError::validation(
+            "work_date is outside the supported date range",
+        ));
+    }
+    let max_day = days_in_month(year, month);
+    if day == 0 || day > max_day {
+        return Err(HrError::validation("work_date day is invalid"));
+    }
+    Ok(format!("{year:04}-{month:02}-{day:02}"))
+}
+
+fn normalized_attendance_time(value: &str) -> Result<String, HrError> {
+    let cleaned = value.trim();
+    let parts = cleaned.split(':').collect::<Vec<_>>();
+    if parts.len() != 2 {
+        return Err(HrError::validation("attendance time must use HH:MM"));
+    }
+    let hour = parts[0]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("attendance time hour must be numeric"))?;
+    let minute = parts[1]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("attendance time minute must be numeric"))?;
+    if hour > 23 || minute > 59 {
+        return Err(HrError::validation(
+            "attendance time is outside the supported range",
+        ));
+    }
+    Ok(format!("{hour:02}:{minute:02}"))
+}
+
+fn days_in_month(year: u16, month: u8) -> u8 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+fn is_leap_year(year: u16) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+}
+
+fn attendance_source_format(filename: &str) -> Result<&'static str, HrError> {
+    let lower = filename.to_ascii_lowercase();
+    if lower.ends_with(".xlsx") {
+        Ok("xlsx")
+    } else if lower.ends_with(".csv") {
+        Ok("csv")
+    } else {
+        Err(HrError::validation(
+            "attendance import accepts .xlsx workbooks or .csv files only",
+        ))
     }
 }
 
@@ -2035,10 +3604,192 @@ fn masked_preview_values(
 fn safe_preview_value(value: &Value) -> Value {
     match value {
         Value::String(value) if value.len() > 80 => {
-            json!(format!("{}…", value.chars().take(80).collect::<String>()))
+            json!(format!(
+                "{}…",
+                neutralize_spreadsheet_formula(&value.chars().take(80).collect::<String>())
+            ))
         }
-        Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::Null => value.clone(),
+        Value::String(value) => json!(neutralize_spreadsheet_formula(value)),
+        Value::Number(_) | Value::Bool(_) | Value::Null => value.clone(),
         Value::Array(_) | Value::Object(_) => json!("복합 값"),
+    }
+}
+
+fn attendance_import_target_for_header(header: &str) -> Option<&'static str> {
+    let key = import_header_match_key(header);
+    ATTENDANCE_IMPORT_FIELD_DEFINITIONS
+        .iter()
+        .find(|field| {
+            field
+                .aliases
+                .iter()
+                .any(|alias| import_header_match_key(alias) == key)
+        })
+        .map(|field| field.target)
+}
+
+fn attendance_import_column(
+    source_header: &str,
+    normalized_header: &str,
+) -> AttendanceImportColumn {
+    let target = attendance_import_target_for_header(normalized_header).map(ToOwned::to_owned);
+    let classification = if target.is_some() {
+        "canonical"
+    } else if is_restricted_attendance_import_header(normalized_header) {
+        "restricted"
+    } else {
+        "retained"
+    };
+    AttendanceImportColumn {
+        source_header: source_header.trim().to_owned(),
+        normalized_header: normalized_header.to_owned(),
+        target,
+        classification: classification.to_owned(),
+        preview_allowed: classification == "canonical",
+    }
+}
+
+fn is_restricted_attendance_import_header(header: &str) -> bool {
+    let restricted_fragments = [
+        "주민",
+        "급여",
+        "시급",
+        "수당",
+        "보험",
+        "소득세",
+        "은행",
+        "계좌",
+        "전화",
+        "연락처",
+        "휴대폰",
+        "주소",
+        "개인",
+    ];
+    restricted_fragments
+        .iter()
+        .any(|fragment| header.contains(fragment))
+}
+
+fn attendance_import_columns_from_rows(
+    rows: &[ParsedAttendanceImportRow],
+) -> Vec<AttendanceImportColumn> {
+    let mut columns = BTreeMap::<String, AttendanceImportColumn>::new();
+    for row in rows {
+        let Some(object) = row.raw_row.as_object() else {
+            continue;
+        };
+        for key in object.keys() {
+            columns
+                .entry(key.clone())
+                .or_insert_with(|| attendance_import_column(key, key));
+        }
+    }
+    columns.into_values().collect()
+}
+
+fn attendance_import_mapping_profile(columns: &[AttendanceImportColumn]) -> Value {
+    let target_allowlist = ATTENDANCE_IMPORT_FIELD_DEFINITIONS
+        .iter()
+        .map(|field| field.target)
+        .collect::<Vec<_>>();
+    let target_catalog = ATTENDANCE_IMPORT_FIELD_DEFINITIONS
+        .iter()
+        .map(|field| {
+            json!({
+                "target": field.target,
+                "aliases": field.aliases,
+                "required": field.required
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "entity_type": "attendance_direct",
+        "target_allowlist": target_allowlist,
+        "target_catalog": target_catalog,
+        "columns": columns,
+        "policy": {
+            "unknown_columns": "retain_raw_only",
+            "restricted_columns": "retain_raw_mask_preview",
+            "header_detection": {
+                "strategy": "attendance_schema_catalog_first_required_row",
+                "scan_rows": MAX_IMPORT_HEADER_SCAN_ROWS
+            },
+            "employee_resolution": ["employee_number_unique", "employee_name_unique_or_ambiguous_row_error"],
+            "server_side_entity_allowlist": ["attendance_direct"],
+            "payroll_effect": "lineage_only_not_payable"
+        }
+    })
+}
+
+fn attendance_preview_values(
+    raw_row: &Value,
+    columns: &[AttendanceImportColumn],
+) -> BTreeMap<String, Value> {
+    let Some(object) = raw_row.as_object() else {
+        return BTreeMap::new();
+    };
+    columns
+        .iter()
+        .filter_map(|column| {
+            let value = object.get(&column.normalized_header)?;
+            let masked = if column.preview_allowed {
+                safe_preview_value(value)
+            } else if value.is_null() {
+                Value::Null
+            } else {
+                json!("••••")
+            };
+            Some((column.normalized_header.clone(), masked))
+        })
+        .collect()
+}
+
+fn raw_text_for_attendance_target(
+    raw_row: &Value,
+    columns: &[AttendanceImportColumn],
+    target: &str,
+) -> Option<String> {
+    let object = raw_row.as_object()?;
+    columns
+        .iter()
+        .filter(|column| column.target.as_deref() == Some(target))
+        .find_map(|column| {
+            let value = object.get(&column.normalized_header)?;
+            json_value_text(value)
+        })
+}
+
+fn attendance_canonical_row_json(row: &ParsedAttendanceImportRow, source_sha256: &str) -> Value {
+    json!({
+        "source_sheet": &row.source_sheet,
+        "source_row": row.source_row,
+        "source_key": &row.source_key,
+        "source_sha256": source_sha256,
+        "canonical": {
+            "employee_number": &row.employee_number,
+            "employee_name": &row.employee_name,
+            "branch_name": &row.branch_name,
+            "work_date": &row.work_date,
+            "check_in_at": &row.check_in_at,
+            "check_out_at": &row.check_out_at,
+            "minutes_worked": row.minutes_worked
+        }
+    })
+}
+
+fn attendance_validation_json(row: &ParsedAttendanceImportRow) -> Value {
+    match row.row_status {
+        ImportRowStatus::Candidate => json!({ "status": "ok", "errors": [], "warnings": [] }),
+        ImportRowStatus::Preserved => json!({
+            "status": "preserved",
+            "errors": [],
+            "warnings": ["row_preserved_raw_only"]
+        }),
+        ImportRowStatus::Error => json!({
+            "status": "error",
+            "errors": &row.validation_errors,
+            "warnings": []
+        }),
     }
 }
 
@@ -2071,6 +3822,11 @@ fn import_validation_json(row: &ParsedEmployeeImportRow) -> Value {
             "status": "preserved",
             "errors": [],
             "warnings": ["missing_name_preserved_raw_only"]
+        }),
+        ImportRowStatus::Error => json!({
+            "status": "error",
+            "errors": ["invalid_employee_import_row"],
+            "warnings": []
         }),
     }
 }
@@ -2185,7 +3941,7 @@ async fn import_run_for_update(
 ) -> Result<DataImportRunRecord, HrError> {
     let row = sqlx::query(
         r#"
-        SELECT entity_type, status, input_rows, candidate_rows, preserved_rows
+        SELECT entity_type, status, source_sha256, input_rows, candidate_rows, preserved_rows
         FROM data_import_runs
         WHERE org_id = $1 AND id = $2
         FOR UPDATE
@@ -2200,6 +3956,7 @@ async fn import_run_for_update(
     Ok(DataImportRunRecord {
         entity_type: row.try_get("entity_type")?,
         status: row.try_get("status")?,
+        source_sha256: row.try_get("source_sha256")?,
         input_rows: row.try_get("input_rows")?,
         candidate_rows: row.try_get("candidate_rows")?,
         preserved_rows: row.try_get("preserved_rows")?,
@@ -2272,6 +4029,479 @@ fn required_json_i32(value: &Value, key: &'static str) -> Result<i32, HrError> {
         .ok_or_else(|| HrError::validation(format!("stored import row is missing {key}")))?;
     i32::try_from(number)
         .map_err(|_| HrError::validation(format!("stored import row {key} does not fit i32")))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct AttendanceCanonicalFields {
+    employee_number: Option<String>,
+    employee_name: Option<String>,
+    branch_name: Option<String>,
+    work_date: Option<String>,
+    check_in_at: Option<String>,
+    check_out_at: Option<String>,
+    minutes_worked: Option<i32>,
+}
+
+#[derive(Debug)]
+struct StoredAttendanceImportRow {
+    import_row_id: Uuid,
+    source_sheet: String,
+    source_row: i32,
+    source_key: String,
+    row_status: ImportRowStatus,
+    canonical: AttendanceCanonicalFields,
+    validation_errors: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedAttendanceImportRow {
+    import_row_id: Uuid,
+    employee_id: Uuid,
+    branch_id: Uuid,
+    source_sheet: String,
+    source_row: i32,
+    source_key: String,
+    employee_number: Option<String>,
+    employee_name: String,
+    branch_name: String,
+    work_date: String,
+    check_in_at: Option<String>,
+    check_out_at: Option<String>,
+    minutes_worked: Option<i32>,
+    fact_key: String,
+}
+
+struct AttendanceEmployeeResolution {
+    id: Uuid,
+    name: String,
+    employee_number: Option<String>,
+}
+
+enum AttendanceEmployeeLookup {
+    Matched(AttendanceEmployeeResolution),
+    Missing,
+    Ambiguous,
+}
+
+struct AttendanceBranchResolution {
+    id: Uuid,
+    name: String,
+}
+
+enum AttendanceBranchLookup {
+    Matched(AttendanceBranchResolution),
+    Missing,
+    Ambiguous,
+}
+
+async fn load_attendance_import_rows(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    run_id: Uuid,
+) -> Result<Vec<StoredAttendanceImportRow>, HrError> {
+    sqlx::query(
+        r#"
+        SELECT id, source_sheet, source_row, source_key, row_status, canonical_row, validation
+        FROM data_import_rows
+        WHERE org_id = $1 AND run_id = $2
+        ORDER BY source_sheet ASC, source_row ASC
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(run_id)
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(stored_attendance_import_row)
+    .collect()
+}
+
+fn stored_attendance_import_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<StoredAttendanceImportRow, HrError> {
+    let canonical_row: Value = row.try_get("canonical_row")?;
+    let validation: Value = row.try_get("validation")?;
+    let canonical = serde_json::from_value::<AttendanceCanonicalFields>(
+        canonical_row
+            .get("canonical")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+    )
+    .map_err(|err| {
+        HrError::validation(format!(
+            "stored attendance import canonical row is invalid: {err}"
+        ))
+    })?;
+    let row_status_raw: String = row.try_get("row_status")?;
+    let validation_errors = validation
+        .get("errors")
+        .and_then(Value::as_array)
+        .map(|errors| {
+            errors
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(StoredAttendanceImportRow {
+        import_row_id: row.try_get("id")?,
+        source_sheet: row.try_get("source_sheet")?,
+        source_row: row.try_get("source_row")?,
+        source_key: row.try_get("source_key")?,
+        row_status: ImportRowStatus::from_db(&row_status_raw)?,
+        canonical,
+        validation_errors,
+    })
+}
+
+fn ensure_attendance_import_run(
+    run: &DataImportRunRecord,
+    allowed_statuses: &[&str],
+) -> Result<(), HrError> {
+    if run.entity_type != "attendance_direct" {
+        return Err(HrError::from_kernel(KernelError::conflict(
+            "import run is not an attendance_direct run",
+        )));
+    }
+    if !allowed_statuses.iter().any(|status| *status == run.status) {
+        return Err(HrError::from_kernel(KernelError::conflict(format!(
+            "attendance import run status {} is not allowed for this transition",
+            run.status
+        ))));
+    }
+    Ok(())
+}
+
+async fn resolve_attendance_import_rows(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    run_id: Uuid,
+    run: &DataImportRunRecord,
+    rows: &[StoredAttendanceImportRow],
+) -> Result<AttendanceImportDryRunSummary, HrError> {
+    let source_keys = rows
+        .iter()
+        .map(|row| row.source_key.clone())
+        .collect::<Vec<_>>();
+    let existing_keys = if source_keys.is_empty() {
+        BTreeSet::new()
+    } else {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT source_key
+            FROM attendance_direct_import_events
+            WHERE org_id = $1 AND source_sha256 = $2 AND source_key = ANY($3)
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(&run.source_sha256)
+        .bind(&source_keys)
+        .fetch_all(tx.as_mut())
+        .await?
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+    };
+
+    let mut summary = AttendanceImportDryRunSummary {
+        run_id,
+        input_rows: usize::try_from(run.input_rows).unwrap_or_default(),
+        candidate_rows: usize::try_from(run.candidate_rows).unwrap_or_default(),
+        preserved_rows: usize::try_from(run.preserved_rows).unwrap_or_default(),
+        ..AttendanceImportDryRunSummary::default()
+    };
+
+    let mut resolved_fact_keys = BTreeSet::<String>::new();
+
+    for row in rows {
+        if row.row_status != ImportRowStatus::Candidate {
+            summary.error_rows += 1;
+            if row.validation_errors.is_empty() {
+                summary.row_errors.push(attendance_row_error(
+                    row,
+                    "invalid_row",
+                    "attendance import row is not a candidate",
+                ));
+            } else {
+                for code in &row.validation_errors {
+                    summary
+                        .row_errors
+                        .push(attendance_row_error(row, code, code));
+                }
+            }
+            continue;
+        }
+
+        if existing_keys.contains(&row.source_key) {
+            summary.error_rows += 1;
+            summary.duplicate_rows += 1;
+            summary.row_errors.push(attendance_row_error(
+                row,
+                "duplicate_import_row",
+                "attendance import row source key was already applied",
+            ));
+            continue;
+        }
+
+        let employee = match resolve_attendance_employee(tx, org_uuid, row).await? {
+            AttendanceEmployeeLookup::Matched(employee) => employee,
+            AttendanceEmployeeLookup::Missing => {
+                summary.error_rows += 1;
+                summary.missing_employee_rows += 1;
+                summary.row_errors.push(attendance_row_error(
+                    row,
+                    "missing_employee",
+                    "no employee matched the attendance row identifier",
+                ));
+                continue;
+            }
+            AttendanceEmployeeLookup::Ambiguous => {
+                summary.error_rows += 1;
+                summary.ambiguous_employee_rows += 1;
+                summary.row_errors.push(attendance_row_error(
+                    row,
+                    "ambiguous_employee",
+                    "attendance row identifier matched multiple employees",
+                ));
+                continue;
+            }
+        };
+        let branch = match resolve_attendance_branch(tx, org_uuid, row).await? {
+            AttendanceBranchLookup::Matched(branch) => branch,
+            AttendanceBranchLookup::Missing => {
+                summary.error_rows += 1;
+                summary.row_errors.push(attendance_row_error(
+                    row,
+                    "missing_branch",
+                    "no branch matched the attendance row branch name",
+                ));
+                continue;
+            }
+            AttendanceBranchLookup::Ambiguous => {
+                summary.error_rows += 1;
+                summary.row_errors.push(attendance_row_error(
+                    row,
+                    "ambiguous_branch",
+                    "attendance row branch name matched multiple branches",
+                ));
+                continue;
+            }
+        };
+
+        let employee_number = row
+            .canonical
+            .employee_number
+            .clone()
+            .or(employee.employee_number.clone());
+        let Some(work_date) = row.canonical.work_date.clone() else {
+            summary.error_rows += 1;
+            summary.row_errors.push(attendance_row_error(
+                row,
+                "missing_work_date",
+                "work_date is required",
+            ));
+            continue;
+        };
+
+        let fact_key = attendance_fact_key(
+            employee.id,
+            branch.id,
+            &work_date,
+            row.canonical.check_in_at.as_deref(),
+            row.canonical.check_out_at.as_deref(),
+            row.canonical.minutes_worked,
+        );
+        if !resolved_fact_keys.insert(fact_key.clone()) {
+            summary.error_rows += 1;
+            summary.duplicate_rows += 1;
+            summary.row_errors.push(attendance_row_error(
+                row,
+                "duplicate_attendance_fact_in_file",
+                "attendance fact is duplicated within this import run",
+            ));
+            continue;
+        }
+        if attendance_fact_exists(tx, org_uuid, &fact_key).await? {
+            summary.error_rows += 1;
+            summary.duplicate_rows += 1;
+            summary.row_errors.push(attendance_row_error(
+                row,
+                "duplicate_attendance_fact",
+                "attendance fact was already imported",
+            ));
+            continue;
+        }
+
+        summary
+            .ready_rows_for_apply
+            .push(ResolvedAttendanceImportRow {
+                import_row_id: row.import_row_id,
+                employee_id: employee.id,
+                branch_id: branch.id,
+                source_sheet: row.source_sheet.clone(),
+                source_row: row.source_row,
+                source_key: row.source_key.clone(),
+                employee_number,
+                employee_name: employee.name,
+                branch_name: branch.name,
+                work_date,
+                check_in_at: row.canonical.check_in_at.clone(),
+                check_out_at: row.canonical.check_out_at.clone(),
+                minutes_worked: row.canonical.minutes_worked,
+                fact_key,
+            });
+    }
+
+    summary.ready_rows = summary.ready_rows_for_apply.len();
+    Ok(summary)
+}
+
+async fn resolve_attendance_employee(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    row: &StoredAttendanceImportRow,
+) -> Result<AttendanceEmployeeLookup, HrError> {
+    let records = if let Some(employee_number) = row.canonical.employee_number.as_deref() {
+        sqlx::query(
+            r#"
+            SELECT id, name, employee_number
+            FROM employees
+            WHERE org_id = $1 AND employee_number = $2
+            ORDER BY id
+            LIMIT 2
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(employee_number)
+        .fetch_all(tx.as_mut())
+        .await?
+    } else if let Some(employee_name) = row.canonical.employee_name.as_deref() {
+        sqlx::query(
+            r#"
+            SELECT id, name, employee_number
+            FROM employees
+            WHERE org_id = $1 AND name = $2
+            ORDER BY id
+            LIMIT 2
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(employee_name)
+        .fetch_all(tx.as_mut())
+        .await?
+    } else {
+        return Ok(AttendanceEmployeeLookup::Missing);
+    };
+
+    if records.is_empty() {
+        return Ok(AttendanceEmployeeLookup::Missing);
+    }
+    if records.len() > 1 {
+        return Ok(AttendanceEmployeeLookup::Ambiguous);
+    }
+    let Some(row) = records.into_iter().next() else {
+        return Ok(AttendanceEmployeeLookup::Missing);
+    };
+    Ok(AttendanceEmployeeLookup::Matched(
+        AttendanceEmployeeResolution {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            employee_number: row.try_get("employee_number")?,
+        },
+    ))
+}
+
+async fn resolve_attendance_branch(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    row: &StoredAttendanceImportRow,
+) -> Result<AttendanceBranchLookup, HrError> {
+    let Some(branch_name) = row.canonical.branch_name.as_deref() else {
+        return Ok(AttendanceBranchLookup::Missing);
+    };
+    let records = sqlx::query(
+        r#"
+        SELECT id, name
+        FROM branches
+        WHERE org_id = $1 AND name = $2
+        ORDER BY id
+        LIMIT 2
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(branch_name)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    if records.is_empty() {
+        return Ok(AttendanceBranchLookup::Missing);
+    }
+    if records.len() > 1 {
+        return Ok(AttendanceBranchLookup::Ambiguous);
+    }
+    let Some(row) = records.into_iter().next() else {
+        return Ok(AttendanceBranchLookup::Missing);
+    };
+    Ok(AttendanceBranchLookup::Matched(
+        AttendanceBranchResolution {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+        },
+    ))
+}
+
+async fn attendance_fact_exists(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    fact_key: &str,
+) -> Result<bool, HrError> {
+    let exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM attendance_direct_import_events
+            WHERE org_id = $1 AND fact_key = $2
+        )
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(fact_key)
+    .fetch_one(tx.as_mut())
+    .await?;
+    Ok(exists)
+}
+
+fn attendance_fact_key(
+    employee_id: Uuid,
+    branch_id: Uuid,
+    work_date: &str,
+    check_in_at: Option<&str>,
+    check_out_at: Option<&str>,
+    minutes_worked: Option<i32>,
+) -> String {
+    format!(
+        "employee:{employee_id}|branch:{branch_id}|date:{work_date}|in:{}|out:{}|minutes:{}",
+        check_in_at.unwrap_or_default(),
+        check_out_at.unwrap_or_default(),
+        minutes_worked
+            .map(|value| value.to_string())
+            .unwrap_or_default()
+    )
+}
+
+fn attendance_row_error(
+    row: &StoredAttendanceImportRow,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) -> AttendanceImportRowError {
+    AttendanceImportRowError {
+        source_sheet: row.source_sheet.clone(),
+        source_row: row.source_row,
+        source_key: row.source_key.clone(),
+        code: code.into(),
+        message: message.into(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2548,6 +4778,292 @@ async fn load_employee_for_lifecycle(
         position: row.try_get("position")?,
         employment_status: row.try_get("employment_status")?,
     })
+}
+async fn load_linked_employee_for_user(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org: OrgId,
+    user_id: UserId,
+    lock_user: bool,
+) -> Result<LinkedEmployee, HrError> {
+    let sql = if lock_user {
+        r#"
+        SELECT u.employee_id, e.name AS employee_name
+        FROM users u
+        LEFT JOIN employees e
+          ON e.id = u.employee_id
+         AND e.org_id = u.org_id
+        WHERE u.id = $1
+          AND u.org_id = $2
+        FOR UPDATE OF u
+        "#
+    } else {
+        r#"
+        SELECT u.employee_id, e.name AS employee_name
+        FROM users u
+        LEFT JOIN employees e
+          ON e.id = u.employee_id
+         AND e.org_id = u.org_id
+        WHERE u.id = $1
+          AND u.org_id = $2
+        "#
+    };
+
+    let row = sqlx::query(sql)
+        .bind(*user_id.as_uuid())
+        .bind(*org.as_uuid())
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| {
+            HrError::from_kernel(KernelError::forbidden("linked employee account required"))
+        })?;
+
+    let employee_id = row
+        .try_get::<Option<Uuid>, _>("employee_id")?
+        .ok_or_else(|| {
+            HrError::from_kernel(KernelError::forbidden("linked employee account required"))
+        })?;
+    let display_name = row
+        .try_get::<Option<String>, _>("employee_name")?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            HrError::from_kernel(KernelError::forbidden("linked employee record required"))
+        })?;
+
+    Ok(LinkedEmployee {
+        employee_id,
+        display_name,
+    })
+}
+
+async fn list_attendance_records_for_employee(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    employee_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<EmployeeAttendanceRecordPage, HrError> {
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::BIGINT FROM employee_attendance_records WHERE employee_id = $1",
+    )
+    .bind(employee_id)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            r.id,
+            r.employee_id,
+            e.name AS employee_display_name,
+            r.kind,
+            r.occurred_at,
+            r.work_date::TEXT AS work_date,
+            r.state_after,
+            r.note,
+            pmr.id AS payroll_material_ref_id
+        FROM employee_attendance_records r
+        JOIN employees e
+          ON e.id = r.employee_id
+         AND e.org_id = r.org_id
+        JOIN payroll_attendance_material_refs pmr
+          ON pmr.attendance_record_id = r.id
+         AND pmr.org_id = r.org_id
+        WHERE r.employee_id = $1
+        ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(employee_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(|row| employee_attendance_record_from_joined_row(row, false))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(EmployeeAttendanceRecordPage {
+        items,
+        total,
+        limit,
+        offset,
+    })
+}
+
+async fn list_attendance_records_for_org(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    limit: i64,
+    offset: i64,
+) -> Result<EmployeeAttendanceRecordPage, HrError> {
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM employee_attendance_records")
+        .fetch_one(tx.as_mut())
+        .await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            r.id,
+            r.employee_id,
+            e.name AS employee_display_name,
+            r.kind,
+            r.occurred_at,
+            r.work_date::TEXT AS work_date,
+            r.state_after,
+            r.note,
+            pmr.id AS payroll_material_ref_id
+        FROM employee_attendance_records r
+        JOIN employees e
+          ON e.id = r.employee_id
+         AND e.org_id = r.org_id
+        JOIN payroll_attendance_material_refs pmr
+          ON pmr.attendance_record_id = r.id
+         AND pmr.org_id = r.org_id
+        ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC
+        LIMIT $1 OFFSET $2
+        "#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(|row| employee_attendance_record_from_joined_row(row, false))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(EmployeeAttendanceRecordPage {
+        items,
+        total,
+        limit,
+        offset,
+    })
+}
+
+async fn load_attendance_record_by_idempotency_key(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    employee_id: Uuid,
+    idempotency_key: &str,
+) -> Result<Option<EmployeeAttendanceRecordResponse>, HrError> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            r.id,
+            r.employee_id,
+            e.name AS employee_display_name,
+            r.kind,
+            r.occurred_at,
+            r.work_date::TEXT AS work_date,
+            r.state_after,
+            r.note,
+            pmr.id AS payroll_material_ref_id
+        FROM employee_attendance_records r
+        JOIN employees e
+          ON e.id = r.employee_id
+         AND e.org_id = r.org_id
+        JOIN payroll_attendance_material_refs pmr
+          ON pmr.attendance_record_id = r.id
+         AND pmr.org_id = r.org_id
+        WHERE r.employee_id = $1
+          AND r.idempotency_key = $2
+        "#,
+    )
+    .bind(employee_id)
+    .bind(idempotency_key)
+    .fetch_optional(tx.as_mut())
+    .await?;
+
+    row.map(|row| employee_attendance_record_from_joined_row(row, true))
+        .transpose()
+}
+
+fn employee_attendance_record_from_joined_row(
+    row: sqlx::postgres::PgRow,
+    duplicate: bool,
+) -> Result<EmployeeAttendanceRecordResponse, HrError> {
+    Ok(EmployeeAttendanceRecordResponse {
+        id: row.try_get("id")?,
+        employee_id: row.try_get("employee_id")?,
+        employee_display_name: row.try_get("employee_display_name")?,
+        kind: row.try_get("kind")?,
+        occurred_at: row.try_get("occurred_at")?,
+        work_date: row.try_get("work_date")?,
+        state_after: row.try_get("state_after")?,
+        note: row.try_get("note")?,
+        payroll_material_ref_id: row.try_get("payroll_material_ref_id")?,
+        payroll_link_status: "LINKED".to_owned(),
+        duplicate,
+    })
+}
+
+fn employee_attendance_record_from_parts(
+    row: sqlx::postgres::PgRow,
+    employee_display_name: String,
+    payroll_material_ref_id: Uuid,
+    duplicate: bool,
+) -> Result<EmployeeAttendanceRecordResponse, HrError> {
+    Ok(EmployeeAttendanceRecordResponse {
+        id: row.try_get("id")?,
+        employee_id: row.try_get("employee_id")?,
+        employee_display_name,
+        kind: row.try_get("kind")?,
+        occurred_at: row.try_get("occurred_at")?,
+        work_date: row.try_get("work_date")?,
+        state_after: row.try_get("state_after")?,
+        note: row.try_get("note")?,
+        payroll_material_ref_id,
+        payroll_link_status: "LINKED".to_owned(),
+        duplicate,
+    })
+}
+
+fn normalize_attendance_kind(raw: &str) -> Result<&'static str, HrError> {
+    match raw.trim().to_ascii_uppercase().as_str() {
+        "CLOCK_IN" => Ok("CLOCK_IN"),
+        "OUT_FOR_WORK" => Ok("OUT_FOR_WORK"),
+        "BUSINESS_TRIP" => Ok("BUSINESS_TRIP"),
+        "RETURNED" => Ok("RETURNED"),
+        "CLOCK_OUT" => Ok("CLOCK_OUT"),
+        _ => Err(HrError::validation("unsupported attendance record kind")),
+    }
+}
+
+fn normalize_idempotency_key(value: String) -> Result<String, HrError> {
+    let value = normalize_optional_text(Some(value))
+        .ok_or_else(|| HrError::validation("idempotency key is required"))?;
+    if value.chars().count() > 128 {
+        return Err(HrError::validation(
+            "idempotency key must be 128 characters or fewer",
+        ));
+    }
+    Ok(value)
+}
+
+fn normalize_attendance_note(value: Option<String>) -> Result<Option<String>, HrError> {
+    match normalize_optional_text(value) {
+        Some(value) if value.chars().count() > 500 => Err(HrError::validation(
+            "attendance note must be 500 characters or fewer",
+        )),
+        value => Ok(value),
+    }
+}
+
+fn next_employee_attendance_state(
+    previous_state: Option<&str>,
+    kind: &str,
+) -> Result<&'static str, HrError> {
+    match (previous_state.unwrap_or("OFF_DUTY"), kind) {
+        ("OFF_DUTY", "CLOCK_IN") => Ok("CLOCKED_IN"),
+        ("CLOCKED_IN", "OUT_FOR_WORK") => Ok("OUT_FOR_WORK"),
+        ("CLOCKED_IN", "BUSINESS_TRIP") => Ok("BUSINESS_TRIP"),
+        ("CLOCKED_IN", "CLOCK_OUT") => Ok("OFF_DUTY"),
+        ("OUT_FOR_WORK", "RETURNED") | ("BUSINESS_TRIP", "RETURNED") => Ok("CLOCKED_IN"),
+        ("OUT_FOR_WORK", "CLOCK_OUT") | ("BUSINESS_TRIP", "CLOCK_OUT") => Ok("OFF_DUTY"),
+        (_, _) => Err(HrError::from_kernel(KernelError::invalid_transition(
+            "invalid employee attendance transition",
+        ))),
+    }
 }
 
 fn employee_lifecycle_event_from_row(
@@ -2859,18 +5375,6 @@ fn authorize_hr_org_wide(principal: &Principal, feature: Feature) -> Result<(), 
     authorize_org_wide(principal, Action::new(feature)).map_err(HrError::from_kernel)
 }
 
-fn authorize_org_feature(principal: &Principal, feature: Feature) -> Result<(), HrError> {
-    let representative = match &principal.branch_scope {
-        mnt_kernel_core::BranchScope::All => mnt_kernel_core::BranchId::new(),
-        mnt_kernel_core::BranchScope::Branches(branches) => {
-            branches.iter().next().copied().ok_or_else(|| {
-                HrError::from_kernel(KernelError::forbidden("principal has no branch scope"))
-            })?
-        }
-    };
-    authorize(principal, Action::new(feature), representative).map_err(HrError::from_kernel)
-}
-
 #[derive(Debug)]
 struct HrError {
     status: StatusCode,
@@ -2997,6 +5501,535 @@ mod tests {
         };
 
         assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(err.code, "workbook");
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_import_csv_parses_valid_rows_and_masks_preview_values() -> Result<(), String> {
+        let csv = "\
+사번,성명,지점,근무일,출근시간,퇴근시간,근무분,급여메모
+E-001,=홍길동,본사,2026-07-01,09:00,18:00,540,=cmd|' /C calc'!A0
+";
+        let parsed = parse_attendance_import_upload("attendance.csv", csv.as_bytes())
+            .map_err(|err| format!("expected attendance CSV to parse, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 1);
+        assert_eq!(parsed.rows[0].row_status, ImportRowStatus::Candidate);
+        assert_eq!(parsed.rows[0].employee_number.as_deref(), Some("E-001"));
+        assert_eq!(parsed.rows[0].employee_name.as_deref(), Some("=홍길동"));
+        assert_eq!(parsed.rows[0].branch_name.as_deref(), Some("본사"));
+        assert_eq!(parsed.rows[0].minutes_worked, Some(540));
+        assert_eq!(parsed.rows[0].work_date.as_deref(), Some("2026-07-01"));
+        assert_eq!(parsed.rows[0].source_key, "sheet:CSV|row:2");
+
+        let response = AttendanceImportPreviewResponse::from_rows(
+            Uuid::nil(),
+            "attendance.csv".to_owned(),
+            "0".repeat(64),
+            parsed.rows,
+        );
+        let values = &response.sample_rows[0].values;
+        assert_eq!(values.get("성명"), Some(&json!("'=홍길동")));
+        assert_eq!(values.get("급여메모"), Some(&json!("••••")));
+        assert_eq!(
+            response.mapping_profile["policy"]["payroll_effect"],
+            json!("lineage_only_not_payable")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_import_marks_missing_employee_and_duplicate_rows() -> Result<(), String> {
+        let missing_employee_csv = "\
+사번,성명,지점,근무일,출근시간
+,,본사,2026-07-01,09:00
+";
+        let parsed =
+            parse_attendance_import_upload("attendance.csv", missing_employee_csv.as_bytes())
+                .map_err(|err| format!("expected row-level validation, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 1);
+        assert_eq!(parsed.rows[0].row_status, ImportRowStatus::Error);
+        assert!(
+            parsed.rows[0]
+                .validation_errors
+                .contains(&"missing_employee_identifier".to_owned())
+        );
+
+        let duplicate_csv = "\
+사번,성명,지점,근무일,출근시간,퇴근시간
+E-001,홍길동,본사,2026-07-01,09:00,18:00
+E-001,홍길동,본사,2026-07-01,09:00,18:00
+";
+        let duplicate = parse_attendance_import_upload("attendance.csv", duplicate_csv.as_bytes())
+            .map_err(|err| format!("expected duplicate row validation, got {err:?}"))?;
+
+        assert_eq!(duplicate.rows.len(), 2);
+        assert!(
+            duplicate
+                .rows
+                .iter()
+                .all(|row| row.row_status == ImportRowStatus::Error)
+        );
+        assert!(duplicate.rows.iter().all(|row| {
+            row.validation_errors
+                .contains(&"duplicate_row_in_file".to_owned())
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_import_rejects_invalid_work_date() -> Result<(), String> {
+        let csv = "\
+사번,성명,지점,근무일,출근시간
+E-001,홍길동,본사,45500,09:00
+";
+        let parsed = parse_attendance_import_upload("attendance.csv", csv.as_bytes())
+            .map_err(|err| format!("expected row-level work-date validation, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 1);
+        assert_eq!(parsed.rows[0].row_status, ImportRowStatus::Error);
+        assert!(
+            parsed.rows[0]
+                .validation_errors
+                .contains(&"invalid_work_date".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_import_rejects_invalid_attendance_time() -> Result<(), String> {
+        let csv = "\
+사번,성명,지점,근무일,출근시간
+E-001,홍길동,본사,2026-07-01,25:99
+";
+        let parsed = parse_attendance_import_upload("attendance.csv", csv.as_bytes())
+            .map_err(|err| format!("expected row-level time validation, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 1);
+        assert_eq!(parsed.rows[0].row_status, ImportRowStatus::Error);
+        assert!(
+            parsed.rows[0]
+                .validation_errors
+                .contains(&"invalid_check_in_at".to_owned())
+        );
+        Ok(())
+    }
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn attendance_import_resolves_dedups_and_enforces_runtime_guards(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let org_id = Uuid::new_v4();
+        let branch_id = Uuid::new_v4();
+        let region_id = Uuid::new_v4();
+        let employee_id = Uuid::new_v4();
+        let run_id = Uuid::new_v4();
+        let ready_row_id = Uuid::new_v4();
+        let duplicate_row_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let mailbox_domain_id = Uuid::new_v4();
+        let mailbox_id = Uuid::new_v4();
+        let mailbox_alias_id = Uuid::new_v4();
+        let mailbox_message_id = Uuid::new_v4();
+        let mailbox_delivery_id = Uuid::new_v4();
+        let source_sha256 = "a".repeat(64);
+
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(org_id)
+            .bind(format!("attendance-{}", &org_id.to_string()[..8]))
+            .bind("Attendance Import Test")
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed organization failed: {err}"))?;
+        sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
+            .bind(region_id)
+            .bind(format!("Attendance Region {}", &region_id.to_string()[..8]))
+            .bind(org_id)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed region failed: {err}"))?;
+        sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
+            .bind(branch_id)
+            .bind(region_id)
+            .bind("본사")
+            .bind(org_id)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed branch failed: {err}"))?;
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY['ADMIN']::TEXT[], true, $3)",
+        )
+        .bind(user_id)
+        .bind("Mailbox Force Remove Owner")
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox owner user failed: {err}"))?;
+        let mailbox_domain = format!("attendance-{}.example.test", &org_id.to_string()[..8]);
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_domains (
+                id, org_id, domain, created_by
+            )
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(mailbox_domain_id)
+        .bind(org_id)
+        .bind(&mailbox_domain)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox domain failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailboxes (
+                id, org_id, domain_id, local_part, display_name, mailbox_kind, created_by
+            )
+            VALUES ($1, $2, $3, 'ops', 'Ops Mailbox', 'SHARED', $4)
+            "#,
+        )
+        .bind(mailbox_id)
+        .bind(org_id)
+        .bind(mailbox_domain_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_aliases (
+                id, org_id, domain_id, target_mailbox_id, local_part, created_by
+            )
+            VALUES ($1, $2, $3, $4, 'alias', $5)
+            "#,
+        )
+        .bind(mailbox_alias_id)
+        .bind(org_id)
+        .bind(mailbox_domain_id)
+        .bind(mailbox_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox alias failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_messages (
+                id, org_id, mailbox_id, domain_id, direction,
+                raw_object_key, raw_size_bytes, received_at
+            )
+            VALUES ($1, $2, $3, $4, 'IN', 'raw-object-12345678', 0, now())
+            "#,
+        )
+        .bind(mailbox_message_id)
+        .bind(org_id)
+        .bind(mailbox_id)
+        .bind(mailbox_domain_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox message failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_deliveries (
+                id, org_id, mailbox_message_id, direction, status,
+                recipient_domain, recipient_local_part, queue_key,
+                accepted_at, completed_at
+            )
+            VALUES ($1, $2, $3, 'IN', 'STORED', $4, 'ops', $5, now(), now())
+            "#,
+        )
+        .bind(mailbox_delivery_id)
+        .bind(org_id)
+        .bind(mailbox_message_id)
+        .bind(&mailbox_domain)
+        .bind(format!("queue-{}", mailbox_delivery_id))
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox delivery failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employees (
+                id, org_id, company, name, employee_number, source_filename,
+                source_sheet, source_row, source_key, raw_row, source_metadata
+            )
+            VALUES ($1, $2, '테스트', '홍길동', NULL, 'employees.xlsx', '직원', 2, 'employee-row-2', '{}', '{}')
+            "#,
+        )
+        .bind(employee_id)
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed employee failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employee_lifecycle_events (
+                org_id, employee_id, event_type, to_status, effective_date, comment, created_by
+            )
+            VALUES ($1, $2, 'ONBOARD', 'ACTIVE', '2026-07-01', 'force-remove test lifecycle event', $3)
+            "#,
+        )
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed lifecycle event failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO data_import_runs (
+                id, org_id, entity_type, status, source_filename, source_format,
+                source_sha256, mapping_profile, input_rows, candidate_rows, preserved_rows
+            )
+            VALUES ($1, $2, 'attendance_direct', 'DRY_RUN', 'attendance.csv', 'csv', $3, '{}', 2, 2, 0)
+            "#,
+        )
+        .bind(run_id)
+        .bind(org_id)
+        .bind(&source_sha256)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed import run failed: {err}"))?;
+
+        let ready_canonical = json!({
+            "source_sheet": "CSV",
+            "source_row": 2,
+            "source_key": "sheet:CSV|row:2",
+            "source_sha256": source_sha256,
+            "canonical": {
+                "employee_number": null,
+                "employee_name": "홍길동",
+                "branch_name": "본사",
+                "work_date": "2026-07-01",
+                "check_in_at": "09:00",
+                "check_out_at": "18:00",
+                "minutes_worked": 540
+            }
+        });
+        let duplicate_canonical = json!({
+            "source_sheet": "CSV",
+            "source_row": 3,
+            "source_key": "sheet:CSV|row:3",
+            "source_sha256": source_sha256,
+            "canonical": {
+                "employee_number": null,
+                "employee_name": "홍길동",
+                "branch_name": "본사",
+                "work_date": "2026-07-02",
+                "check_in_at": "09:00",
+                "check_out_at": "18:00",
+                "minutes_worked": 540
+            }
+        });
+        for (row_id, source_row, source_key, canonical) in [
+            (ready_row_id, 2, "sheet:CSV|row:2", ready_canonical),
+            (duplicate_row_id, 3, "sheet:CSV|row:3", duplicate_canonical),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO data_import_rows (
+                    id, org_id, run_id, source_sheet, source_row, source_key,
+                    row_status, raw_row, canonical_row, validation
+                )
+                VALUES ($1, $2, $3, 'CSV', $4, $5, 'CANDIDATE', '{}', $6, '{"status":"ok","errors":[],"warnings":[]}')
+                "#,
+            )
+            .bind(row_id)
+            .bind(org_id)
+            .bind(run_id)
+            .bind(source_row)
+            .bind(source_key)
+            .bind(canonical)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed import row {source_key} failed: {err}"))?;
+        }
+        let existing_fact_key = attendance_fact_key(
+            employee_id,
+            branch_id,
+            "2026-07-02",
+            Some("09:00"),
+            Some("18:00"),
+            Some(540),
+        );
+        sqlx::query(
+            r#"
+            INSERT INTO attendance_direct_import_events (
+                org_id, run_id, import_row_id, employee_id, branch_id,
+                source_sheet, source_row, source_key, source_sha256, fact_key,
+                employee_number, employee_name, branch_name, work_date,
+                check_in_at, check_out_at, minutes_worked
+            )
+            VALUES ($1, $2, $3, $4, $5, 'CSV', 99, 'sheet:CSV|row:99', $6, $7,
+                    NULL, '홍길동', '본사', '2026-07-02', '09:00', '18:00', 540)
+            "#,
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .bind(duplicate_row_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .bind(&source_sha256)
+        .bind(&existing_fact_key)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed existing attendance event failed: {err}"))?;
+
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin dry-run transaction failed: {err}"))?;
+        let run = import_run_for_update(&mut tx, org_id, run_id)
+            .await
+            .map_err(|err| format!("load import run failed: {err:?}"))?;
+        ensure_attendance_import_run(&run, &["DRY_RUN"])
+            .map_err(|err| format!("status gate failed: {err:?}"))?;
+        let rows = load_attendance_import_rows(&mut tx, org_id, run_id)
+            .await
+            .map_err(|err| format!("load import rows failed: {err:?}"))?;
+        let summary = resolve_attendance_import_rows(&mut tx, org_id, run_id, &run, &rows)
+            .await
+            .map_err(|err| format!("resolve import rows failed: {err:?}"))?;
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback dry-run transaction failed: {err}"))?;
+
+        assert_eq!(summary.ready_rows, 1);
+        assert_eq!(summary.duplicate_rows, 1);
+        assert_eq!(summary.error_rows, 1);
+        assert_eq!(summary.ready_rows_for_apply[0].employee_id, employee_id);
+        assert_eq!(summary.ready_rows_for_apply[0].employee_number, None);
+        assert!(
+            summary
+                .row_errors
+                .iter()
+                .any(|error| error.code == "duplicate_attendance_fact")
+        );
+
+        let update_result = sqlx::query(
+            "UPDATE attendance_direct_import_events SET employee_name = '위조' WHERE org_id = $1 AND run_id = $2",
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+        assert!(
+            update_result.is_err(),
+            "append-only attendance import events must reject UPDATE"
+        );
+
+        let mut rls_tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin rls transaction failed: {err}"))?;
+        sqlx::query("SET LOCAL ROLE mnt_rt")
+            .execute(rls_tx.as_mut())
+            .await
+            .map_err(|err| format!("set runtime role failed: {err}"))?;
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_id.to_string())
+            .execute(rls_tx.as_mut())
+            .await
+            .map_err(|err| format!("set current org failed: {err}"))?;
+        let visible_rows: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM attendance_direct_import_events")
+                .fetch_one(rls_tx.as_mut())
+                .await
+                .map_err(|err| format!("runtime select failed: {err}"))?;
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(Uuid::new_v4().to_string())
+            .execute(rls_tx.as_mut())
+            .await
+            .map_err(|err| format!("set other org failed: {err}"))?;
+        let hidden_rows: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM attendance_direct_import_events")
+                .fetch_one(rls_tx.as_mut())
+                .await
+                .map_err(|err| format!("runtime isolation select failed: {err}"))?;
+        rls_tx
+            .rollback()
+            .await
+            .map_err(|err| format!("rollback rls transaction failed: {err}"))?;
+
+        assert_eq!(visible_rows, 1);
+        assert_eq!(hidden_rows, 0);
+        sqlx::query("UPDATE organizations SET status = 'ARCHIVED' WHERE id = $1")
+            .bind(org_id)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("archive organization failed: {err}"))?;
+        let force_remove_result: String =
+            sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("force-remove organization failed: {err}"))?;
+        assert_eq!(force_remove_result, "removed");
+        let remaining_import_rows: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM data_import_rows WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("count remaining import rows failed: {err}"))?;
+        let remaining_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM attendance_direct_import_events WHERE org_id = $1",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count remaining attendance events failed: {err}"))?;
+        let remaining_mailbox_rows: i64 = sqlx::query_scalar(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM mailbox_deliveries WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailbox_messages WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailbox_aliases WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailboxes WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailbox_domains WHERE org_id = $1)
+            "#,
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count remaining mailbox rows failed: {err}"))?;
+        let remaining_lifecycle_events: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM employee_lifecycle_events WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("count remaining lifecycle events failed: {err}"))?;
+        assert_eq!(remaining_import_rows, 0);
+        assert_eq!(remaining_events, 0);
+        assert_eq!(remaining_mailbox_rows, 0);
+        assert_eq!(remaining_lifecycle_events, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_import_keeps_invalid_minutes_as_row_error() -> Result<(), String> {
+        let csv = "\
+사번,성명,지점,근무일,근무분
+E-001,홍길동,본사,2026-07-01,abc
+";
+        let parsed = parse_attendance_import_upload("attendance.csv", csv.as_bytes())
+            .map_err(|err| format!("expected row-level minutes validation, got {err:?}"))?;
+
+        assert_eq!(parsed.rows.len(), 1);
+        assert_eq!(parsed.rows[0].row_status, ImportRowStatus::Error);
+        assert!(
+            parsed.rows[0]
+                .validation_errors
+                .contains(&"invalid_minutes_worked".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_import_rejects_unclosed_csv_quote() -> Result<(), String> {
+        let err = match parse_csv_rows("\"unterminated") {
+            Ok(rows) => return Err(format!("unclosed quote unexpectedly parsed as {rows:?}")),
+            Err(err) => err,
+        };
         assert_eq!(err.code, "workbook");
         Ok(())
     }
@@ -3301,20 +6334,104 @@ mod tests {
     }
 
     #[test]
-    fn org_wide_hr_authorization_allows_org_wide_admins() -> Result<(), String> {
+    fn org_wide_hr_authorization_uses_core_org_wide_gate() -> Result<(), String> {
         use mnt_kernel_core::{OrgId, UserId};
         use mnt_platform_authz::Role;
         use std::collections::BTreeSet;
 
-        let principal = Principal::new(
+        let admin = Principal::new(
             UserId::new(),
             OrgId::new(),
             BTreeSet::from([Role::Admin]),
             BranchScope::All,
         );
 
-        authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)
-            .map_err(|err| format!("org-wide admin HR read was rejected: {}", err.message))?;
+        let admin_err = match authorize_hr_org_wide(&admin, Feature::EmployeeDirectoryRead) {
+            Ok(()) => {
+                return Err(
+                    "synthetic all-branch ADMIN authorized an org-wide employee surface".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
+        assert_eq!(admin_err.status, StatusCode::FORBIDDEN);
+
+        let executive = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Executive]),
+            BranchScope::All,
+        );
+
+        authorize_hr_org_wide(&executive, Feature::EmployeeDirectoryRead)
+            .map_err(|err| format!("org-wide executive HR read was rejected: {}", err.message))?;
         Ok(())
+    }
+    #[test]
+    fn employee_attendance_state_machine_accepts_mobile_pc_workday_flow() -> Result<(), String> {
+        assert_eq!(
+            next_employee_attendance_state(None, "CLOCK_IN").map_err(|err| err.message.clone())?,
+            "CLOCKED_IN"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("CLOCKED_IN"), "OUT_FOR_WORK")
+                .map_err(|err| err.message.clone())?,
+            "OUT_FOR_WORK"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("OUT_FOR_WORK"), "RETURNED")
+                .map_err(|err| err.message.clone())?,
+            "CLOCKED_IN"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("CLOCKED_IN"), "BUSINESS_TRIP")
+                .map_err(|err| err.message.clone())?,
+            "BUSINESS_TRIP"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("BUSINESS_TRIP"), "CLOCK_OUT")
+                .map_err(|err| err.message.clone())?,
+            "OFF_DUTY"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn employee_attendance_state_machine_rejects_invalid_duplicate_punches() -> Result<(), String> {
+        let err = match next_employee_attendance_state(None, "CLOCK_OUT") {
+            Ok(state) => return Err(format!("clock-out before clock-in returned {state}")),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
+
+        let err = match next_employee_attendance_state(Some("CLOCKED_IN"), "CLOCK_IN") {
+            Ok(state) => return Err(format!("duplicate clock-in returned {state}")),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_input_normalization_bounds_mobile_retry_fields() {
+        let kind = normalize_attendance_kind(" business_trip ")
+            .map_err(|err| err.message)
+            .unwrap_or("invalid");
+        assert_eq!(kind, "BUSINESS_TRIP");
+
+        let idempotency_key = normalize_idempotency_key(" retry-1 ".to_owned())
+            .map_err(|err| err.message)
+            .unwrap_or_default();
+        assert_eq!(idempotency_key, "retry-1");
+        assert!(
+            normalize_idempotency_key("   ".to_owned()).is_err(),
+            "blank idempotency keys must be rejected"
+        );
+        assert!(
+            normalize_attendance_note(Some("x".repeat(501))).is_err(),
+            "long attendance notes must be rejected before persistence"
+        );
     }
 }

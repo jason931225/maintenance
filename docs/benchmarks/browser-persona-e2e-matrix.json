@@ -16,7 +16,7 @@
     "cnl",
     "coss",
     "dsl",
-    "elso",
+    "lso",
     "jy-tech",
     "knl"
   ],
@@ -170,9 +170,9 @@
       "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
     },
     {
-      "personaId": "elso-finance-manager",
+      "personaId": "lso-finance-manager",
       "displayName": "엘소 finance and procurement manager",
-      "orgSlug": "elso",
+      "orgSlug": "lso",
       "groupSlug": "그룹사",
       "roleProfile": ["FINANCE_MANAGER", "PROCUREMENT_MANAGER"],
       "scopeModes": ["org-selected", "own-dashboard", "denied-cross-scope"],

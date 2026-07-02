@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-30",
+  "updatedAt": "2026-07-02",
   "purpose": "Machine-readable route-to-enterprise-parity coverage for the current G002 shared hard gate and G003 browser-persona evidence plan.",
   "qualityGateSource": "docs/benchmarks/enterprise-parity-matrix.md#quality-gates-for-every-future-slice",
   "routeCoverage": [
@@ -1104,6 +1104,81 @@
       "groupScopeStory": "Group finance may consolidate subsidiary cost/asset views while subsidiary finance keeps bounded operational scope"
     },
     {
+      "rawPath": "/payroll",
+      "canonicalPath": "/payroll",
+      "epRows": [
+        "EP-008",
+        "EP-010",
+        "EP-003",
+        "EP-013",
+        "EP-015"
+      ],
+      "personas": [
+        "hr",
+        "payroll-admin",
+        "manager",
+        "executive"
+      ],
+      "roleStoryEvidence": "payroll readiness console links employee ledger, attendance facts, leave/approval adjustments, KPI inputs, and guarded payroll calculation plan; PayrollPage/App routing/nav tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 people/org policy foundation with G008 HR/payroll import maturity, G005 approvals, and G008 KPI/reporting owners",
+      "dataClass": "employee ledger, attendance fact, annual leave obligation, approval adjustment, payroll source line, KPI payroll-sensitive metadata",
+      "sourceObject": "employee record, attendance event, leave/outside/travel approval, payroll preparation run, payroll source row, or KPI source fact",
+      "lifecycleStates": "loading, empty readiness, source imported, attendance linked, approval adjusted, legal gate blocked, calculation-ready, reviewed",
+      "e2eSpec": "Required browser/mobile story: registered employee clocks in on mobile or PC, approval adjusts time, HR reviews payroll readiness and KPI impact",
+      "denialScopeTest": "Payroll readiness route requires authorized employee-directory/payroll scope; payable payroll calculation stays blocked until legal and policy gates pass",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 payroll readiness screenshot and trace; current row is not a legal payroll compliance completion claim",
+      "groupScopeStory": "Group HR can consolidate subsidiary payroll-readiness counts while payroll details stay subsidiary and policy scoped"
+    },
+    {
+      "rawPath": "/hr/leave-management",
+      "canonicalPath": "/hr/leave-management",
+      "epRows": [
+        "EP-008",
+        "EP-010",
+        "EP-003"
+      ],
+      "personas": [
+        "hr",
+        "payroll-admin",
+        "manager"
+      ],
+      "roleStoryEvidence": "annual leave management console links employee ledger, approval outcomes, attendance facts, leave-use-plan notifications, and payroll readiness; LeaveManagementPage/App routing/nav tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + LeaveManagementPage component tests",
+      "ownerLane": "G004 people/org policy foundation with G008 HR/payroll legal readiness and G005 approval lifecycle owners",
+      "dataClass": "employee ledger, hire-date tenure, annual leave accrual, used leave, remaining leave, leave-use-plan notice, approval adjustment, payroll source metadata",
+      "sourceObject": "employee record, leave balance row, leave approval item, attendance event, leave-use-plan notification, or payroll readiness fact",
+      "lifecycleStates": "loading, empty ledger, accrued, used, remaining, promotion due, plan requested, approval-linked, payroll-reviewed, error/retry",
+      "e2eSpec": "Required browser/mobile story: HR reviews accrued/used/remaining annual leave, sends usage-plan notice, leave approval completes, and attendance/payroll readiness updates",
+      "denialScopeTest": "Leave-management route requires authorized employee-directory or HR/payroll scope; employee self-service cannot view another employee ledger",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 leave-management screenshot and trace; current row records ownership and required evidence, not final legal compliance certification",
+      "groupScopeStory": "Group HR can consolidate subsidiary leave obligations while employee-level sensitive leave details remain subsidiary and policy scoped"
+    },
+    {
+      "rawPath": "/hr/insurance",
+      "canonicalPath": "/hr/insurance",
+      "epRows": [
+        "EP-008",
+        "EP-010",
+        "EP-012"
+      ],
+      "personas": [
+        "hr",
+        "payroll-admin",
+        "finance"
+      ],
+      "roleStoryEvidence": "insurance filing assistant prepares acquisition/loss/change/material-package checklists from employee, payroll, and attendance readiness data; InsuranceAssistPage/App routing/nav tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + InsuranceAssistPage component tests",
+      "ownerLane": "G004 people/org policy foundation with G008 HR/payroll import maturity and G008 finance/legal reporting guardrails",
+      "dataClass": "employee employment episode, hire and termination dates, payroll-sensitive insurance enrollment fields, missing-field checklist, filing material package, audit metadata",
+      "sourceObject": "employee record, employment episode, payroll/insurance readiness row, filing checklist item, mail notice, or material package",
+      "lifecycleStates": "loading, no candidates, acquisition prepared, loss prepared, change review, missing-field blocked, mail notice drafted, filing package reviewed",
+      "e2eSpec": "Required browser story: HR filters insurance filing candidates, reviews acquisition/loss filing readiness, resolves missing fields, and opens an internal mail notice/material package",
+      "denialScopeTest": "Insurance-assist route requires authorized HR/payroll directory scope; resident-registration, wage, bank, and insurance details stay masked or blocked without dedicated permission",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 insurance-assist screenshot and trace; current row is filing-assistance readiness, not external agency submission proof",
+      "groupScopeStory": "Group HR can see subsidiary filing readiness counts while protected employee filing details stay subsidiary and policy scoped"
+    },
+    {
       "rawPath": "/settings",
       "canonicalPath": "/settings",
       "epRows": [
@@ -1144,6 +1219,29 @@
       "denialScopeTest": "Unauthenticated redirect, insufficient role denial, stale OTP rejection, passkey step-up required, and audit actor match",
       "screenshotTraceEvidence": "Pending G003/G004 auth trace and screenshots; current row evidence must not be treated as live closure",
       "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
+    },
+    {
+      "rawPath": "/attendance",
+      "canonicalPath": "/attendance",
+      "epRows": [
+        "EP-008",
+        "EP-010"
+      ],
+      "personas": [
+        "employee",
+        "hr",
+        "manager"
+      ],
+      "roleStoryEvidence": "Lane C/G004 employee self-service attendance records with payroll material refs; AttendancePage.test.tsx covers Korean controls, idempotent record creation, refreshed history, and unlinked-employee denial.",
+      "accessibilityEvidence": "AttendancePage semantic PageHeader, role/name action buttons for 출근/외출/출장/복귀/퇴근, table headings, PageError retry, web lint UI-string gate, and AttendancePage.test.tsx accessible queries.",
+      "ownerLane": "G004 employee attendance records and payroll linkage lane with G008 HR/payroll legal gates",
+      "dataClass": "employee attendance punch, out-of-office/business-trip state, work date, payroll material reference id, audit metadata",
+      "sourceObject": "employee self-service attendance record and payroll_attendance_material_refs lineage row",
+      "lifecycleStates": "unlinked denied, no latest record, clocked in, out for work, business trip, returned, off duty, payroll-linked, error/retry",
+      "e2eSpec": "Required browser story: employee opens 근태 기록, records 출근→외출/출장→복귀→퇴근, sees payroll material linkage, and unlinked accounts cannot view another employee record.",
+      "denialScopeTest": "RequireNavItemRoute gates my-attendance; backend self-service resolves users.employee_id only; 403 unlinked employee path is covered without exposing records.",
+      "screenshotTraceEvidence": "Pending Lane C live browser/CI evidence; current component tests and route audit gate are non-terminal until PR #142 CI passes.",
+      "groupScopeStory": "Self-service view is employee-scoped; HR/payroll management review uses the separate /api/v1/hr/attendance-records org-wide gate and does not widen personal nav access."
     },
     {
       "rawPath": "/settings/employees",

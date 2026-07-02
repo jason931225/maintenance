@@ -1514,6 +1514,242 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/hr/attendance-import/preview:
+    post:
+      operationId: previewAttendanceImport
+      summary: Preview a direct attendance workbook or CSV through the governed import ledger
+      description: Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in
+        the response, and records coordinate-free attendance facts only after dry-run and apply. Imported rows are lineage
+        for payroll readiness, not payable payroll lines.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Direct attendance .xlsx workbook or UTF-8 .csv file.
+      responses:
+        '200':
+          description: Attendance import preview with masked sample rows and mapping profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceImportPreviewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/hr/attendance-import/{run_id}/dry-run:
+    post:
+      operationId: dryRunAttendanceImport
+      summary: Resolve employees and branches for a direct attendance import without writing facts
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Attendance import row readiness and per-row rejection reasons.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceImportDryRunSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/hr/attendance-import/{run_id}/apply:
+    post:
+      operationId: applyAttendanceImport
+      summary: Apply a dry-run direct attendance import as append-only coordinate-free facts
+      description: Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving
+        attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Apply counts for append-only direct attendance facts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceImportApplyReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/hr/attendance-import/summary:
+    get:
+      operationId: listAttendanceImportSummary
+      summary: List governed direct attendance import runs
+      description: Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source
+        rows.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Direct attendance import run summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceImportSummaryPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/hr/attendance-records/me:
+    get:
+      operationId: listMyEmployeeAttendanceRecords
+      summary: List the signed-in employee's attendance records
+      description: Returns only records for the employee row explicitly linked to the authenticated user account.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Self-service attendance records and payroll material refs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeAttendanceRecordPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createMyEmployeeAttendanceRecord
+      summary: Record the signed-in employee's attendance transition
+      description: Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEmployeeAttendanceRecordRequest'
+      responses:
+        '200':
+          description: Created or idempotently replayed attendance record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeAttendanceRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/hr/attendance-records:
+    get:
+      operationId: listEmployeeAttendanceRecords
+      summary: List employee attendance records for HR/payroll review
+      description: Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: employee_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Attendance records within the caller's HR review scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeAttendanceRecordPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/employees/import:
     post:
       operationId: importEmployees
@@ -9121,6 +9357,363 @@ components:
         offset:
           type: integer
           format: int64
+    AttendanceImportColumn:
+      type: object
+      required:
+      - source_header
+      - normalized_header
+      - classification
+      - preview_allowed
+      properties:
+        source_header:
+          type: string
+        normalized_header:
+          type: string
+        target:
+          type: string
+          nullable: true
+          enum:
+          - employee_number
+          - employee_name
+          - branch_name
+          - work_date
+          - check_in_at
+          - check_out_at
+          - minutes_worked
+        classification:
+          type: string
+          enum:
+          - canonical
+          - retained
+          - restricted
+        preview_allowed:
+          type: boolean
+    AttendanceImportPreviewRow:
+      type: object
+      required:
+      - source_sheet
+      - source_row
+      - row_status
+      - values
+      - validation
+      properties:
+        source_sheet:
+          type: string
+        source_row:
+          type: integer
+          format: int32
+          minimum: 1
+        row_status:
+          type: string
+          enum:
+          - CANDIDATE
+          - PRESERVED
+          - ERROR
+        values:
+          type: object
+          additionalProperties: true
+        validation:
+          type: object
+          additionalProperties: true
+    AttendanceImportPreviewResponse:
+      type: object
+      required:
+      - run_id
+      - entity_type
+      - source_filename
+      - source_sha256
+      - input_rows
+      - candidate_rows
+      - preserved_rows
+      - columns
+      - sample_rows
+      - mapping_profile
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        entity_type:
+          type: string
+          enum:
+          - attendance_direct
+        source_filename:
+          type: string
+        source_sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        input_rows:
+          type: integer
+          minimum: 0
+        candidate_rows:
+          type: integer
+          minimum: 0
+        preserved_rows:
+          type: integer
+          minimum: 0
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceImportColumn'
+        sample_rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceImportPreviewRow'
+        mapping_profile:
+          type: object
+          additionalProperties: true
+    AttendanceImportRowError:
+      type: object
+      required:
+      - source_sheet
+      - source_row
+      - source_key
+      - code
+      - message
+      properties:
+        source_sheet:
+          type: string
+        source_row:
+          type: integer
+          format: int32
+          minimum: 1
+        source_key:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    AttendanceImportDryRunSummary:
+      type: object
+      required:
+      - run_id
+      - input_rows
+      - candidate_rows
+      - preserved_rows
+      - ready_rows
+      - error_rows
+      - duplicate_rows
+      - missing_employee_rows
+      - ambiguous_employee_rows
+      - row_errors
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        input_rows:
+          type: integer
+          minimum: 0
+        candidate_rows:
+          type: integer
+          minimum: 0
+        preserved_rows:
+          type: integer
+          minimum: 0
+        ready_rows:
+          type: integer
+          minimum: 0
+        error_rows:
+          type: integer
+          minimum: 0
+        duplicate_rows:
+          type: integer
+          minimum: 0
+        missing_employee_rows:
+          type: integer
+          minimum: 0
+        ambiguous_employee_rows:
+          type: integer
+          minimum: 0
+        row_errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceImportRowError'
+    AttendanceImportApplyReport:
+      type: object
+      required:
+      - run_id
+      - inserted
+      - skipped
+      - error_rows
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        inserted:
+          type: integer
+          minimum: 0
+        skipped:
+          type: integer
+          minimum: 0
+        error_rows:
+          type: integer
+          minimum: 0
+    AttendanceImportSummaryItem:
+      type: object
+      required:
+      - run_id
+      - status
+      - source_filename
+      - source_format
+      - source_sha256
+      - input_rows
+      - candidate_rows
+      - preserved_rows
+      - dry_run_summary
+      - apply_summary
+      - created_at
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+          enum:
+          - PREVIEWED
+          - DRY_RUN
+          - APPLIED
+          - FAILED
+        source_filename:
+          type: string
+        source_format:
+          type: string
+          enum:
+          - xlsx
+          - csv
+        source_sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        input_rows:
+          type: integer
+          format: int32
+          minimum: 0
+        candidate_rows:
+          type: integer
+          format: int32
+          minimum: 0
+        preserved_rows:
+          type: integer
+          format: int32
+          minimum: 0
+        dry_run_summary:
+          type: object
+          additionalProperties: true
+        apply_summary:
+          type: object
+          additionalProperties: true
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        applied_at:
+          allOf:
+          - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+    AttendanceImportSummaryPage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceImportSummaryItem'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+    AttendanceRecordKind:
+      type: string
+      enum:
+      - CLOCK_IN
+      - OUT_FOR_WORK
+      - BUSINESS_TRIP
+      - RETURNED
+      - CLOCK_OUT
+    CreateEmployeeAttendanceRecordRequest:
+      type: object
+      required:
+      - kind
+      - idempotency_key
+      properties:
+        kind:
+          $ref: '#/components/schemas/AttendanceRecordKind'
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+    EmployeeAttendanceRecord:
+      type: object
+      required:
+      - id
+      - employee_id
+      - employee_display_name
+      - kind
+      - occurred_at
+      - work_date
+      - state_after
+      - payroll_material_ref_id
+      - payroll_link_status
+      - duplicate
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        employee_id:
+          $ref: '#/components/schemas/Uuid'
+        employee_display_name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AttendanceRecordKind'
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+        work_date:
+          type: string
+          format: date
+        state_after:
+          type: string
+          enum:
+          - CLOCKED_IN
+          - OUT_FOR_WORK
+          - BUSINESS_TRIP
+          - OFF_DUTY
+        note:
+          type: string
+          nullable: true
+        payroll_material_ref_id:
+          $ref: '#/components/schemas/Uuid'
+        payroll_link_status:
+          type: string
+          enum:
+          - LINKED
+        duplicate:
+          type: boolean
+    EmployeeAttendanceRecordPage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeAttendanceRecord'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
     AssignmentSummary:
       type: object
       required:
@@ -10948,6 +11541,8 @@ components:
       - sender_name
       - body
       - attachment_evidence_ids
+      - read_count
+      - read_target_count
       - sent_at
       - created_at
       properties:
@@ -10971,6 +11566,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Uuid'
+        read_count:
+          type: integer
+          format: int64
+          description: Non-sender thread members whose read receipt has reached this message.
+        read_target_count:
+          type: integer
+          format: int64
+          description: Non-sender thread members expected to read this message.
         sent_at:
           $ref: '#/components/schemas/Timestamp'
         created_at:

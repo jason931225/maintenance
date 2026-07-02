@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   CalendarClock,
   CalendarDays,
+  Calculator,
   CheckSquare,
   ClipboardList,
   Inbox,
@@ -59,9 +60,14 @@ export type GroupRole = (typeof GROUP_ROLES)[keyof typeof GROUP_ROLES];
 export const FEATURES = {
   WORK_ORDER_READ_ALL: "work_order_read_all",
   WORK_ORDER_CREATE: "work_order_create",
+  WORK_ORDER_EDIT_INTAKE: "work_order_edit_intake",
+  WORK_ORDER_START: "work_order_start",
+  WORK_REPORT_SUBMIT: "work_report_submit",
+  EVIDENCE_ATTACH: "evidence_attach",
   COMPLETION_REVIEW: "completion_review",
   DAILY_PLAN_REQUEST: "daily_plan_request",
   DAILY_PLAN_REVIEW: "daily_plan_review",
+  TARGET_MANAGE: "target_manage",
   ORG_WIDE_QUEUE_TRIAGE: "org_wide_queue_triage",
   KPI_READ: "kpi_read",
   USER_MANAGE: "user_manage",
@@ -72,6 +78,7 @@ export const FEATURES = {
   PURCHASE_REQUEST_READ: "purchase_request_read",
   INSPECTION_SCHEDULE_MANAGE: "inspection_schedule_manage",
   AUDIT_LOG_READ: "audit_log_read",
+  EXCEL_DOWNLOAD: "excel_download",
   OPS_DASHBOARD_READ: "ops_dashboard_read",
   SALES_MANAGE: "sales_manage",
   INTEGRITY_FINDINGS_READ: "integrity_findings_read",
@@ -109,16 +116,18 @@ export function hasAnyFeatureGrant(
 }
 
 /**
- * A "pending" session: a just-signed-up user who holds no operational role yet —
- * either an empty/absent roles claim or the placeholder `["MEMBER"]`. The backend
- * default-denies every Feature but Login for this session, so the app routes it
- * to /pending and the nav default-denies every gated destination (only Profile
- * remains). Mirrors the backend authz reality so the nav never shows a 403 link.
+ * Legacy name for a session with no visible console destination beyond Profile.
+ * Group-admin and mapped runtime feature grants are access grants even when the
+ * built-in role claim is still the lowest-privilege MEMBER.
  */
-export function isPendingMember(roles: readonly string[] | undefined): boolean {
-  if (!roles || roles.length === 0) return true;
-  return roles.every((role) => role === ROLES.MEMBER);
+export function isPendingMember(
+  roles: readonly string[] | undefined,
+  groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
+): boolean {
+  return !hasGrantedConsoleAccess(roles, groupRoles, featureGrants);
 }
+
 
 const ADMIN_ROLES: readonly Role[] = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
 const ROLE_MANAGE_ROLES: readonly Role[] = [ROLES.SUPER_ADMIN];
@@ -134,6 +143,8 @@ const OPERATIONAL_ROLES: readonly Role[] = [
   ROLES.MECHANIC,
   ROLES.RECEPTIONIST,
 ];
+const LOGISTICS_MAINTENANCE_ROLES: readonly Role[] = OPERATIONAL_ROLES;
+const EQUIPMENT_SALES_ROLES: readonly Role[] = OPERATIONAL_ROLES;
 /**
  * Roles that can act on daily work plans. The page surfaces both the
  * DailyPlanRequest creators (MECHANIC/ADMIN/SUPER_ADMIN) and the DailyPlanReview
@@ -198,34 +209,37 @@ const MAIL_USE_ROLES: readonly Role[] = [
  *    matching the `RequireAdminRoute` guards on `/settings/users` & `/settings/org`.
  */
 const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
-  // Shared pages — visible to every granted role, but NOT to a bare MEMBER. The
-  // backend allows these for any operational role (e.g. WorkOrderReadAll /
-  // WorkOrderCreate / ExcelDownload / PurchaseRequestRead are at least Limited
-  // for all five), while default-denying them for a no-grant MEMBER. Gating to
-  // OPERATIONAL_ROLES mirrors that: the five roles still see them; a MEMBER does
-  // not (so the nav never advertises a destination the backend would 403).
+  // Personal/department work surfaces live outside the logistics-maintenance
+  // group. They remain feature/role-gated so a no-grant MEMBER is still routed
+  // to /pending, while custom grants can expose only the permitted personal
+  // surface without leaking logistics-maintenance or equipment-sales nav.
   ["work-hub", OPERATIONAL_ROLES],
-  ["dispatch", OPERATIONAL_ROLES],
-  ["dispatch-map", OPERATIONAL_ROLES],
-  // intake (WorkOrderCreate/EditIntake): the five operational roles, not MEMBER.
-  ["intake", OPERATIONAL_ROLES],
+  ["my-attendance", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
+  ["approvals", ADMIN_ROLES],
   // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied.
   // The platform operates the mail server out of the box; there is no
   // tenant-visible SMTP/IMAP server configuration nav item.
   ["mail", MAIL_USE_ROLES],
-  ["support", OPERATIONAL_ROLES],
-  ["reporting", OPERATIONAL_ROLES],
-  ["equipment", OPERATIONAL_ROLES],
+  // Logistics/maintenance operations — visible only to the current built-in
+  // personas that map to KNL maintenance, management/executive, or affiliate
+  // business-operations viewers, plus explicit per-item feature grants below.
+  ["dispatch", LOGISTICS_MAINTENANCE_ROLES],
+  ["dispatch-map", LOGISTICS_MAINTENANCE_ROLES],
+  ["intake", LOGISTICS_MAINTENANCE_ROLES],
+  ["support", LOGISTICS_MAINTENANCE_ROLES],
+  ["reporting", LOGISTICS_MAINTENANCE_ROLES],
+  ["collaboration", LOGISTICS_MAINTENANCE_ROLES],
+  // Equipment/sales surfaces use the same intended viewer set unless a narrower
+  // management guard below applies.
+  ["equipment", EQUIPMENT_SALES_ROLES],
   ["financial", OPERATIONAL_ROLES],
   ["location", OPERATIONAL_ROLES],
-  ["approvals", ADMIN_ROLES],
-  // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only,
-  // matching the `RequireAdminRoute` guard on `/catalog`.
+  // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only by
+  // built-in role, or an explicit SalesManage custom grant.
   ["catalog", ADMIN_ROLES],
   // daily-plan (DailyPlanRequest / DailyPlanReview): MECHANIC/ADMIN/SUPER_ADMIN.
   ["daily-plan", DAILY_PLAN_ROLES],
-  ["collaboration", OPERATIONAL_ROLES],
   ["kpi", KPI_ROLES],
   // intelligence (Operations Intelligence): same executive read gate as KPI.
   // It converts recommendations to governed workflows; mechanics/receptionists
@@ -240,6 +254,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
+  ["leave-management", EMPLOYEE_DIRECTORY_ROLES],
+  ["insurance-assist", EMPLOYEE_DIRECTORY_ROLES],
+  ["payroll", EMPLOYEE_DIRECTORY_ROLES],
   ["security", ADMIN_ROLES],
   // Legacy external-account configuration is intentionally hidden. Corporate
   // mailbox hosting is platform-operated; admins manage domains/mailboxes, not
@@ -257,11 +274,19 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["integrity", INTEGRITY_ROLES],
 ]);
 
+// Runtime custom-role feature grants are level-flattened for destination
+// visibility: any non-deny backend grant may expose the relevant nav entry, while
+// the backend still enforces request_only/limited/allow on the API operation.
 const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["work-hub", [FEATURES.WORK_ORDER_READ_ALL]],
+  ["my-attendance", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["messenger", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch-map", [FEATURES.WORK_ORDER_READ_ALL]],
   ["intake", [FEATURES.WORK_ORDER_CREATE]],
+  ["support", [FEATURES.WORK_ORDER_READ_ALL]],
+  ["reporting", [FEATURES.EXCEL_DOWNLOAD]],
+  ["collaboration", [FEATURES.WORK_ORDER_READ_ALL]],
   ["approvals", [FEATURES.COMPLETION_REVIEW]],
   [
     "daily-plan",
@@ -275,9 +300,15 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["intelligence", [FEATURES.KPI_READ]],
   ["mail", [FEATURES.MAIL_USE]],
   ["employees", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["leave-management", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["insurance-assist", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["payroll", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["policy", [FEATURES.ROLE_MANAGE]],
   ["workflows", [FEATURES.ROLE_MANAGE]],
+  ["equipment", [FEATURES.WORK_ORDER_READ_ALL]],
   ["equipment-manage", [FEATURES.EQUIPMENT_MANAGE]],
+  ["catalog", [FEATURES.SALES_MANAGE]],
+  ["inspection", [FEATURES.INSPECTION_SCHEDULE_MANAGE]],
   [
     "integrity",
     [FEATURES.INTEGRITY_FINDINGS_READ, FEATURES.INTEGRITY_FINDING_TRIAGE],
@@ -309,8 +340,8 @@ export function isNavItemVisible(
 
 export const NAV_GROUPS = [
   {
-    key: "operations",
-    label: "nav.groups.operations",
+    key: "personal",
+    label: "nav.groups.personal",
     items: [
       {
         key: "work-hub",
@@ -319,14 +350,44 @@ export const NAV_GROUPS = [
         Icon: Inbox,
       },
       {
+        key: "my-attendance",
+        href: "/attendance",
+        labelKey: "nav.my-attendance",
+        Icon: CalendarClock,
+      },
+      {
+        key: "approvals",
+        href: "/approvals",
+        labelKey: "nav.approvals",
+        Icon: CheckSquare,
+      },
+      {
+        key: "messenger",
+        href: "/messenger",
+        labelKey: "nav.messenger",
+        Icon: MessageSquare,
+      },
+      {
+        key: "mail",
+        href: "/mail",
+        labelKey: "nav.mail",
+        Icon: Mail,
+      },
+    ],
+  },
+  {
+    key: "operations",
+    label: "nav.groups.operations",
+    items: [
+      {
         key: "dispatch",
         href: "/dispatch",
         labelKey: "nav.dispatch",
         Icon: ClipboardList,
       },
       // dispatch-map (geographic dispatch view): its data read is
-      // WorkOrderReadAll, so it is gated to the five operational roles (not a
-      // bare MEMBER), like dispatch/intake/messenger/support.
+      // WorkOrderReadAll, so it is gated to intended logistics-maintenance
+      // viewers (not a bare MEMBER), like dispatch/intake/support.
       {
         key: "dispatch-map",
         href: "/dispatch-map",
@@ -338,12 +399,6 @@ export const NAV_GROUPS = [
         href: "/intake",
         labelKey: "nav.intake",
         Icon: FilePlus,
-      },
-      {
-        key: "approvals",
-        href: "/approvals",
-        labelKey: "nav.approvals",
-        Icon: CheckSquare,
       },
       {
         key: "daily-plan",
@@ -362,18 +417,6 @@ export const NAV_GROUPS = [
         href: "/inspection",
         labelKey: "nav.inspection",
         Icon: CalendarClock,
-      },
-      {
-        key: "messenger",
-        href: "/messenger",
-        labelKey: "nav.messenger",
-        Icon: MessageSquare,
-      },
-      {
-        key: "mail",
-        href: "/mail",
-        labelKey: "nav.mail",
-        Icon: Mail,
       },
       {
         key: "support",
@@ -449,9 +492,14 @@ export const NAV_GROUPS = [
     key: "finance",
     label: "nav.groups.finance",
     items: [
-      // Finance/procurement now. Payroll remains a separate high-sensitivity
-      // domain in the product architecture and must not be mislabeled here until
-      // the payroll module exists.
+      // Payroll readiness is high-sensitivity: expose only the audited HR read
+      // path and legal-blocked planning state for now, not payable payroll issuance.
+      {
+        key: "payroll",
+        href: "/payroll",
+        labelKey: "nav.payroll",
+        Icon: Calculator,
+      },
       {
         key: "financial",
         href: "/financial",
@@ -493,6 +541,18 @@ export const NAV_GROUPS = [
         href: "/settings/employees",
         labelKey: "nav.employees",
         Icon: Users,
+      },
+      {
+        key: "leave-management",
+        href: "/hr/leave-management",
+        labelKey: "nav.leave-management",
+        Icon: CalendarCheck,
+      },
+      {
+        key: "insurance-assist",
+        href: "/hr/insurance",
+        labelKey: "nav.insurance-assist",
+        Icon: ShieldCheck,
       },
     ],
   },
@@ -576,6 +636,16 @@ export function visibleNavItemsForRoles(
         groupLabelKey: group.label,
         Icon: item.Icon,
       })),
+  );
+}
+
+export function hasGrantedConsoleAccess(
+  roles: readonly string[] | undefined,
+  groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
+): boolean {
+  return visibleNavItemsForRoles(roles, groupRoles, featureGrants).some(
+    (item) => item.key !== "profile",
   );
 }
 

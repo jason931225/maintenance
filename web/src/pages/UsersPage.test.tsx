@@ -432,6 +432,55 @@ describe("UsersPage edit", () => {
     });
   });
 
+  it("shows and clears the MEMBER role when a self-signup user is elevated", async () => {
+    const user = userEvent.setup();
+    const pendingAdmin = {
+      ...users[0],
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      display_name: "고민지",
+      roles: ["MEMBER", "ADMIN"],
+      branch_ids: [BRANCH_A],
+    };
+    const patched = vi.fn();
+
+    server.use(
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json(userPage([pendingAdmin])),
+      ),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+      http.patch("*/api/v1/users/:id", async ({ request }) => {
+        patched(await request.json());
+        return HttpResponse.json({
+          ...pendingAdmin,
+          roles: ["ADMIN"],
+        });
+      }),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    const table = await screen.findByRole("table");
+    const row = within(table).getAllByRole("row")[1];
+    await user.click(within(row).getByRole("button", { name: "수정" }));
+
+    const drawer = within(await screen.findByRole("dialog"));
+    expect(drawer.getByLabelText("일반 멤버")).toBeChecked();
+    expect(drawer.getByLabelText("관리자")).toBeChecked();
+    await user.click(drawer.getByLabelText("일반 멤버"));
+    await user.click(drawer.getByRole("button", { name: "변경 저장" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({
+        display_name: "고민지",
+        phone: "010-1234-5678",
+        team: "MAINTENANCE",
+        roles: ["ADMIN"],
+        branch_ids: [BRANCH_A],
+        employee_id: null,
+      });
+    });
+  });
+
   it("lets an admin explicitly set and clear the linked 직원 record", async () => {
     const user = userEvent.setup();
     const patched = vi.fn();

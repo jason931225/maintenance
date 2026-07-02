@@ -8,9 +8,12 @@ import {
   hasAnyFeatureGrant,
   hasAnyRole,
   hasGroupAdminRole,
+  hasGrantedConsoleAccess,
   isNavItemVisible,
   isPendingMember,
+  visibleNavItemsForRoles,
 } from "./nav";
+import { navGroupLabel } from "./nav-labels";
 
 /** Every nav item key declared in NAV_GROUPS. */
 const ALL_ITEM_KEYS = NAV_GROUPS.flatMap((group) =>
@@ -34,15 +37,16 @@ function visibleItems(
 const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.SUPER_ADMIN]: [
     "work-hub",
+    "my-attendance",
+    "approvals",
+    "messenger",
+    "mail",
     "dispatch",
     "dispatch-map",
     "intake",
-    "approvals",
     "daily-plan",
     "collaboration",
     "inspection",
-    "messenger",
-    "mail",
     "support",
     "kpi",
     "intelligence",
@@ -52,11 +56,14 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment",
     "equipment-manage",
     "catalog",
+    "payroll",
     "financial",
     "org",
     "sites",
     "location",
     "employees",
+    "leave-management",
+    "insurance-assist",
     "users",
     "policy",
     "workflows",
@@ -65,15 +72,16 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   ],
   [ROLES.ADMIN]: [
     "work-hub",
+    "my-attendance",
+    "approvals",
+    "messenger",
+    "mail",
     "dispatch",
     "dispatch-map",
     "intake",
-    "approvals",
     "daily-plan",
     "collaboration",
     "inspection",
-    "messenger",
-    "mail",
     "support",
     "kpi",
     "intelligence",
@@ -82,25 +90,29 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment",
     "equipment-manage",
     "catalog",
+    "payroll",
     "financial",
     "org",
     "sites",
     "location",
     "employees",
+    "leave-management",
+    "insurance-assist",
     "users",
     "security",
     "profile",
   ],
-  // Executive: KPI yes; approvals/daily-plan/users/org/security no. Profile is
-  // shared; reporting (ExcelDownload) is allowed for every role.
+  // Executive: KPI/intelligence/integrity yes; approvals/daily-plan/users/org/security no.
+  // Equipment browse/manage remain visible, but sales catalog conversion stays admin-only.
   [ROLES.EXECUTIVE]: [
     "work-hub",
+    "my-attendance",
+    "messenger",
+    "mail",
     "dispatch",
     "dispatch-map",
     "intake",
     "collaboration",
-    "messenger",
-    "mail",
     "support",
     "kpi",
     "intelligence",
@@ -108,21 +120,25 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "integrity",
     "equipment",
     "equipment-manage",
+    "payroll",
     "financial",
     "location",
     "employees",
+    "leave-management",
+    "insurance-assist",
     "profile",
   ],
-  // Mechanic: operational pages only; daily-plan yes (DailyPlanRequest); no
-  // approvals/kpi/users/org/security. reporting is shared (ExcelDownload [A...]).
+  // Mechanic: maintenance operations and personal work surfaces; no mail,
+  // approvals/kpi/users/org/security, or equipment-sales management.
   [ROLES.MECHANIC]: [
     "work-hub",
+    "my-attendance",
+    "messenger",
     "dispatch",
     "dispatch-map",
     "intake",
     "daily-plan",
     "collaboration",
-    "messenger",
     "support",
     "reporting",
     "equipment",
@@ -130,15 +146,16 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "location",
     "profile",
   ],
-  // Receptionist: same surface as mechanic minus daily-plan (no DailyPlanRequest).
+  // Receptionist: affiliate business-operations surface plus mail; no daily-plan.
   [ROLES.RECEPTIONIST]: [
     "work-hub",
+    "my-attendance",
+    "messenger",
+    "mail",
     "dispatch",
     "dispatch-map",
     "intake",
     "collaboration",
-    "messenger",
-    "mail",
     "support",
     "reporting",
     "equipment",
@@ -159,6 +176,29 @@ describe("nav role gating", () => {
       expect(visibleItems([role])).toEqual(expected);
     },
   );
+
+  it("keeps personal and department work as the first standalone nav group", () => {
+    expect(NAV_GROUPS[0].key).toBe("personal");
+    expect(navGroupLabel("personal")).toBe("개인/부서 업무");
+    expect(NAV_GROUPS[0].items.map((item) => item.key)).toEqual([
+      "work-hub",
+      "my-attendance",
+      "approvals",
+      "messenger",
+      "mail",
+    ]);
+
+    const operations = NAV_GROUPS.find((group) => group.key === "operations");
+    const assets = NAV_GROUPS.find((group) => group.key === "assets");
+    expect(operations?.items.map((item) => item.key)).not.toEqual(
+      expect.arrayContaining(["work-hub", "approvals", "messenger", "mail"]),
+    );
+    expect(assets?.items.map((item) => item.key)).toEqual([
+      "equipment",
+      "equipment-manage",
+      "catalog",
+    ]);
+  });
 
   it("hides admin-only pages from every non-admin role", () => {
     for (const role of [ROLES.EXECUTIVE, ROLES.MECHANIC, ROLES.RECEPTIONIST]) {
@@ -184,6 +224,147 @@ describe("nav role gating", () => {
     ).toBe(true);
   });
 
+  it("does not leak logistics or equipment-sales nav to a mail-only custom grant", () => {
+    expect(
+      visibleItems([ROLES.MEMBER], undefined, [FEATURES.MAIL_USE]),
+    ).toEqual(["mail", "profile"]);
+    expect(
+      isNavItemVisible("dispatch", [ROLES.MEMBER], undefined, [
+        FEATURES.MAIL_USE,
+      ]),
+    ).toBe(false);
+    expect(
+      isNavItemVisible("equipment", [ROLES.MEMBER], undefined, [
+        FEATURES.MAIL_USE,
+      ]),
+    ).toBe(false);
+  });
+
+  it("maps operational persona custom grants to intended non-admin nav surfaces", () => {
+    const restrictedSurfaces = [
+      "approvals",
+      "inspection",
+      "kpi",
+      "intelligence",
+      "ops",
+      "reporting",
+      "integrity",
+      "equipment-manage",
+      "catalog",
+      "payroll",
+      "financial",
+      "org",
+      "sites",
+      "location",
+      "employees",
+      "leave-management",
+      "insurance-assist",
+      "users",
+      "policy",
+      "workflows",
+      "security",
+    ];
+
+    const cases = [
+      {
+        persona: "site_operations",
+        grants: [
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.WORK_ORDER_START,
+          FEATURES.WORK_REPORT_SUBMIT,
+          FEATURES.EVIDENCE_ATTACH,
+          FEATURES.DAILY_PLAN_REQUEST,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "dispatch",
+          "dispatch-map",
+          "daily-plan",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+      {
+        persona: "security_guard",
+        grants: [
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.WORK_ORDER_CREATE,
+          FEATURES.WORK_REPORT_SUBMIT,
+          FEATURES.EVIDENCE_ATTACH,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "dispatch",
+          "dispatch-map",
+          "intake",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+      {
+        persona: "cleaning_staff",
+        grants: [
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.WORK_ORDER_START,
+          FEATURES.WORK_REPORT_SUBMIT,
+          FEATURES.EVIDENCE_ATTACH,
+          FEATURES.DAILY_PLAN_REQUEST,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "dispatch",
+          "dispatch-map",
+          "daily-plan",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+      {
+        persona: "dispatch_office_staff",
+        grants: [
+          FEATURES.WORK_ORDER_CREATE,
+          FEATURES.WORK_ORDER_EDIT_INTAKE,
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.TARGET_MANAGE,
+          FEATURES.MAIL_USE,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "mail",
+          "dispatch",
+          "dispatch-map",
+          "intake",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+    ];
+
+    for (const { persona, grants, expected } of cases) {
+      expect(visibleItems([ROLES.MEMBER], undefined, grants), persona).toEqual(
+        expected,
+      );
+      for (const key of restrictedSurfaces) {
+        expect(
+          isNavItemVisible(key, [ROLES.MEMBER], undefined, grants),
+          `${persona}:${key}`,
+        ).toBe(false);
+      }
+    }
+  });
+
   it("shows policy and workflow studios to SUPER_ADMIN or an effective RoleManage custom grant", () => {
     for (const key of ["policy", "workflows"]) {
       expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
@@ -206,12 +387,32 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("email", [ROLES.SUPER_ADMIN])).toBe(false);
   });
 
-  it("shows the employee directory to ADMIN, EXECUTIVE, and SUPER_ADMIN", () => {
-    expect(isNavItemVisible("employees", [ROLES.ADMIN])).toBe(true);
-    expect(isNavItemVisible("employees", [ROLES.EXECUTIVE])).toBe(true);
-    expect(isNavItemVisible("employees", [ROLES.SUPER_ADMIN])).toBe(true);
-    expect(isNavItemVisible("employees", [ROLES.MECHANIC])).toBe(false);
-    expect(isNavItemVisible("employees", [ROLES.RECEPTIONIST])).toBe(false);
+  it("shows HR directory, leave management, and insurance assist to employee-directory readers", () => {
+    for (const key of ["employees", "leave-management", "insurance-assist"]) {
+      expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.MECHANIC])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.RECEPTIONIST])).toBe(false);
+      expect(
+        isNavItemVisible(key, [ROLES.MEMBER], undefined, [
+          FEATURES.EMPLOYEE_DIRECTORY_READ,
+        ]),
+      ).toBe(true);
+    }
+  });
+
+  it("shows payroll readiness to employee-directory readers only", () => {
+    expect(isNavItemVisible("payroll", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.EXECUTIVE])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("payroll", [ROLES.RECEPTIONIST])).toBe(false);
+    expect(
+      isNavItemVisible("payroll", [ROLES.MEMBER], undefined, [
+        FEATURES.EMPLOYEE_DIRECTORY_READ,
+      ]),
+    ).toBe(true);
   });
 
   it("shows user and org management only to ADMIN and SUPER_ADMIN", () => {
@@ -315,6 +516,7 @@ describe("nav role gating", () => {
         "reporting",
         "equipment",
         "financial",
+        "payroll",
         "location",
         "employees",
         "group",
@@ -335,6 +537,28 @@ describe("nav role gating", () => {
     expect(isPendingMember(["MEMBER"])).toBe(true);
     expect(isPendingMember(["MECHANIC"])).toBe(false);
     expect(isPendingMember(["MEMBER", "ADMIN"])).toBe(false);
+    expect(isPendingMember(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN])).toBe(false);
+    expect(isPendingMember(["MEMBER"], undefined, [FEATURES.MAIL_USE])).toBe(false);
+  });
+
+  it("treats mapped custom feature grants as console access for MEMBER sessions", () => {
+    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, [])).toBe(false);
+    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["role_manage"])).toBe(true);
+    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["user_manage"])).toBe(false);
+    expect(hasGrantedConsoleAccess(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], [])).toBe(true);
+  });
+
+  it("orders the first granted destination by the visible nav registry", () => {
+    expect(
+      visibleNavItemsForRoles(["MEMBER"], undefined, [FEATURES.MAIL_USE]).find(
+        (item) => item.key !== "profile",
+      )?.href,
+    ).toBe("/mail");
+    expect(
+      visibleNavItemsForRoles(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], []).find(
+        (item) => item.key !== "profile",
+      )?.href,
+    ).toBe("/settings/group");
   });
 
   it("respects multiple roles by unioning their entitlements", () => {

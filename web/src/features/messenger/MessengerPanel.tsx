@@ -33,7 +33,17 @@ import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { SkeletonCards } from "../../components/states/Skeleton";
 import { MentionText } from "../../components/text/MentionText";
+import {
+  createDevMessengerMessage,
+  createDevMessengerThread,
+  devMessengerMembers,
+  devMessengerMessagePage,
+  devMessengerThreads,
+  isDevPreviewEnabled,
+  searchDevMessengerMessages,
+} from "../../lib/dev-preview";
 import { cn, safeLabel } from "../../lib/utils";
+import { publishNotificationCountsInvalidated } from "../../lib/notification-events";
 import { ko } from "../../i18n/ko";
 import {
   createMessengerState,
@@ -92,6 +102,7 @@ export function MessengerPanel({
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [createError, setCreateError] = useState<string>();
+  const devPreview = isDevPreviewEnabled();
   const newThreadTitleId = useId();
   const cursorRef = useRef<string | undefined>(undefined);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -132,16 +143,28 @@ export function MessengerPanel({
 
   const markRead = useCallback(
     async (threadId: string, messageId: string) => {
+      if (devPreview) {
+        publishNotificationCountsInvalidated();
+        return;
+      }
       await api.PUT("/api/messenger/threads/{threadId}/read-receipt", {
         params: { path: { threadId } },
         body: { last_read_message_id: messageId },
       });
+      publishNotificationCountsInvalidated();
     },
-    [api],
+    [api, devPreview],
   );
 
   const loadMessages = useCallback(
     async (threadId: string, beforeMessageId?: string | null) => {
+      if (devPreview) {
+        const page = devMessengerMessagePage(threadId);
+        dispatch({ type: "messagesPageLoaded", threadId, page });
+        dispatch({ type: "threadRead", threadId });
+        publishNotificationCountsInvalidated();
+        return;
+      }
       const response = await api.GET(
         "/api/messenger/threads/{threadId}/messages",
         {
@@ -162,13 +185,13 @@ export function MessengerPanel({
         threadId,
         page: response.data,
       });
-      const lastMessage = response.data.items.at(-1);
-      if (lastMessage) {
-        await markRead(threadId, lastMessage.id);
+      const newestMessage = newestMessageInPage(response.data.items);
+      if (newestMessage) {
+        await markRead(threadId, newestMessage.id);
         dispatch({ type: "threadRead", threadId });
       }
     },
-    [api, markRead],
+    [api, devPreview, markRead],
   );
 
   const loadThreads = useCallback(async () => {
@@ -177,6 +200,16 @@ export function MessengerPanel({
     }
     setLoadState("loading");
     try {
+      if (devPreview) {
+        const threads = devMessengerThreads();
+        dispatch({ type: "threadsLoaded", threads });
+        const selectedId = threads.at(0)?.id;
+        if (selectedId !== undefined) {
+          await loadMessages(selectedId);
+        }
+        setLoadState("idle");
+        return;
+      }
       const response = await api.GET("/api/messenger/threads", {
         params: { query: { limit: 50 } },
       });
@@ -192,7 +225,7 @@ export function MessengerPanel({
     } catch {
       setLoadState("error");
     }
-  }, [accessToken, api, loadMessages]);
+  }, [accessToken, api, devPreview, loadMessages]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -205,6 +238,9 @@ export function MessengerPanel({
 
   useEffect(() => {
     if (!accessToken) {
+      return undefined;
+    }
+    if (devPreview) {
       return undefined;
     }
 
@@ -249,7 +285,7 @@ export function MessengerPanel({
       }
       connection?.close();
     };
-  }, [accessToken, apiBaseUrl, currentUserId, markRead]);
+  }, [accessToken, apiBaseUrl, currentUserId, devPreview, markRead]);
 
   async function handleSearch() {
     const query = searchQuery.trim();
@@ -260,6 +296,14 @@ export function MessengerPanel({
     }
     setIsSearching(true);
     try {
+      if (devPreview) {
+        dispatch({
+          type: "searchResultsLoaded",
+          results: searchDevMessengerMessages(query),
+        });
+        setHasSearched(true);
+        return;
+      }
       const response = await api.GET("/api/messenger/search", {
         params: { query: { q: query, limit: 20 } },
       });
@@ -281,6 +325,10 @@ export function MessengerPanel({
     setMembers([]);
     if (!branchId) {
       setCreateError(ko.messenger.branchRequired);
+      return;
+    }
+    if (devPreview) {
+      setMembers(devMessengerMembers());
       return;
     }
     setIsLoadingMembers(true);
@@ -320,6 +368,18 @@ export function MessengerPanel({
     setIsCreatingThread(true);
     try {
       const subject = newSubject.trim();
+      if (devPreview) {
+        dispatch({
+          type: "threadCreated",
+          thread: createDevMessengerThread({
+            branchId,
+            memberIds: selectedMemberIds,
+            title: subject,
+          }),
+        });
+        setIsComposingThread(false);
+        return;
+      }
       const response = await api.POST("/api/messenger/threads", {
         body: {
           branch_id: branchId,
@@ -347,6 +407,18 @@ export function MessengerPanel({
     setSendError(undefined);
     setIsSending(true);
     try {
+      if (devPreview) {
+        const message = createDevMessengerMessage({
+          thread: selectedThread,
+          body: composer.trim(),
+        });
+        dispatch({ type: "messageSent", message });
+        dispatch({ type: "threadRead", threadId: selectedThread.id });
+        publishNotificationCountsInvalidated();
+        setComposer("");
+        setAttachment(undefined);
+        return;
+      }
       const attachmentEvidenceIds = attachment
         ? [await uploadWorkOrderAttachment(selectedThread, attachment)]
         : [];
@@ -490,10 +562,11 @@ export function MessengerPanel({
                     );
                     return (
                       <MessageRow
-                        key={`search-${message.id}`}
-                        message={message}
-                        role="listitem"
-                        action={
+                      key={`search-${message.id}`}
+                      message={message}
+                      currentUserId={currentUserId}
+                      role="listitem"
+                      action={
                           sourceThread ? (
                             <Button
                               type="button"
@@ -610,6 +683,7 @@ export function MessengerPanel({
                     <MessageRow
                       key={message.id}
                       message={message}
+                      currentUserId={currentUserId}
                       articleRef={message.id === latestMessageId ? latestMessageRef : undefined}
                       isLatest={message.id === latestMessageId}
                     />
@@ -775,46 +849,82 @@ export function MessengerPanel({
 
 function MessageRow({
   message,
+  currentUserId,
   action,
   role,
   articleRef,
   isLatest = false,
 }: {
   message: MessengerMessageSummary;
+  currentUserId?: string;
   action?: ReactNode;
   role?: string;
   articleRef?: Ref<HTMLElement>;
   isLatest?: boolean;
 }) {
+  const showReadProgress =
+    currentUserId === message.sender_id && message.read_target_count > 0;
   return (
     <article
       ref={articleRef}
       role={role}
       tabIndex={isLatest ? -1 : undefined}
-      className="rounded-md border border-line bg-white p-3 focus:outline-none focus:ring-2 focus:ring-signal"
+      className={cn(
+        "grid gap-2 rounded-md border border-line bg-white p-3 focus:outline-none focus:ring-2 focus:ring-signal",
+        showReadProgress && "sm:grid-cols-[auto_1fr]",
+      )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-ink">
-          <MentionText text={message.body} />
-        </p>
-        {action}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-steel">
-        <span className="font-medium text-ink">
-          {safeLabel(message.sender_name)}
+      {showReadProgress ? (
+        <span
+          className="inline-flex h-fit w-fit items-center rounded-full border border-line bg-muted-panel px-2 py-0.5 text-[11px] font-semibold text-steel"
+          aria-label={ko.messenger.readProgressAria(
+            message.read_count,
+            message.read_target_count,
+          )}
+        >
+          {ko.messenger.readProgress(
+            message.read_count,
+            message.read_target_count,
+          )}
         </span>
-        <time dateTime={message.sent_at}>
-          {new Date(message.sent_at).toLocaleTimeString("ko-KR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </time>
-        {message.attachment_evidence_ids.length > 0 ? (
-          <Badge>{ko.messenger.attachment}</Badge>
-        ) : null}
+      ) : null}
+      <div>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="text-sm text-ink">
+            <MentionText text={message.body} />
+          </p>
+          {action}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-steel">
+          <span className="font-medium text-ink">
+            {safeLabel(message.sender_name)}
+          </span>
+          <time dateTime={message.sent_at}>
+            {new Date(message.sent_at).toLocaleTimeString("ko-KR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </time>
+          {message.attachment_evidence_ids.length > 0 ? (
+            <Badge>{ko.messenger.attachment}</Badge>
+          ) : null}
+        </div>
       </div>
     </article>
   );
+}
+
+function newestMessageInPage(messages: MessengerMessageSummary[]) {
+  return messages.reduce<MessengerMessageSummary | undefined>((newest, message) => {
+    if (!newest) {
+      return message;
+    }
+    const sentAt = message.sent_at.localeCompare(newest.sent_at);
+    if (sentAt > 0 || (sentAt === 0 && message.id.localeCompare(newest.id) > 0)) {
+      return message;
+    }
+    return newest;
+  }, undefined);
 }
 
 async function putEvidenceUpload(ticket: EvidencePresignResponse, file: File) {

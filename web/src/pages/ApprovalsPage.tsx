@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
+import type { ConsoleApiClient } from "../api/client";
 import type {
   ApprovalItemsPage,
+  HrReadinessSummary,
+  LeaveBalancePage,
   TargetChangeDecision,
   TargetChangeRequestSummary,
 } from "../api/types";
@@ -15,6 +18,7 @@ import { useAuth } from "../context/auth";
 import {
   ApprovalCommandCenter,
 } from "../features/approvals/ApprovalCommandCenter";
+import { ApprovalDocumentDesk } from "../features/approvals/ApprovalDocumentDesk";
 import { ApprovalQueue } from "../features/approvals/ApprovalQueue";
 import { TargetChangeReviewQueue } from "../features/approvals/TargetChangeReviewQueue";
 import { ko } from "../i18n/ko";
@@ -22,10 +26,28 @@ import { ko } from "../i18n/ko";
 type ReadState = "idle" | "loading" | "error";
 type WriteState = "idle" | "error";
 
+type ApprovalsApi = ConsoleApiClient & {
+  GET(
+    path: "/api/approval-items",
+    options: { params: { query: { limit: number; offset: number } } },
+  ): Promise<{ data?: ApprovalItemsPage }>;
+  GET(path: "/api/v1/hr/readiness-summary"): Promise<{
+    data?: HrReadinessSummary;
+  }>;
+  GET(
+    path: "/api/v1/hr/leave-balances",
+    options?: { params?: { query?: { limit?: number; offset?: number } } },
+  ): Promise<{ data?: LeaveBalancePage }>;
+};
+
 export function ApprovalsPage() {
   const { api } = useAuth();
+  const approvalsApi = api as ApprovalsApi;
   const location = useLocation();
   const [approvalPage, setApprovalPage] = useState<ApprovalItemsPage>();
+  const [readinessSummary, setReadinessSummary] =
+    useState<HrReadinessSummary>();
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalancePage>();
   const [readState, setReadState] = useState<ReadState>("loading");
   const [writeState, setWriteState] = useState<WriteState>("idle");
 
@@ -71,19 +93,29 @@ export function ApprovalsPage() {
   const loadData = useCallback(async () => {
     setReadState("loading");
     try {
-      const response = await api.GET("/api/approval-items", {
-        params: { query: { limit: 100, offset: 0 } },
-      });
+      const [response, readinessResponse, leaveResponse] = await Promise.all([
+        approvalsApi.GET("/api/approval-items", {
+          params: { query: { limit: 100, offset: 0 } },
+        }),
+        approvalsApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
+        approvalsApi
+          .GET("/api/v1/hr/leave-balances", {
+            params: { query: { limit: 1000, offset: 0 } },
+          })
+          .catch(() => undefined),
+      ]);
       if (!response.data) {
         setReadState("error");
         return;
       }
       setApprovalPage(response.data);
+      setReadinessSummary(readinessResponse?.data);
+      setLeaveBalances(leaveResponse?.data);
       setReadState("idle");
     } catch {
       setReadState("error");
     }
-  }, [api]);
+  }, [approvalsApi]);
 
   useEffect(() => {
     void Promise.resolve().then(loadData);
@@ -185,6 +217,11 @@ export function ApprovalsPage() {
               dailyPlans={dailyPlans}
               targetChanges={targetChanges}
               sources={approvalPage?.sources ?? []}
+            />
+            <ApprovalDocumentDesk
+              items={approvalPage?.items ?? []}
+              readinessSummary={readinessSummary}
+              leaveBalances={leaveBalances}
             />
             <div id="work-order-approval-queue" className="scroll-mt-24">
               <ApprovalQueue

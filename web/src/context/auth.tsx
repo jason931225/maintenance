@@ -11,6 +11,10 @@ import { createConsoleApiClient } from "../api/client";
 import type { ConsoleApiClient } from "../api/client";
 import { setRefreshCallbacks } from "../api/refresh";
 import {
+  createDevPreviewAccessToken,
+  isDevPreviewEnabled,
+} from "../lib/dev-preview";
+import {
   finishPasskeyLogin,
   logout as logoutWebAuthn,
   refreshToken as refreshTokenFn,
@@ -252,11 +256,16 @@ function sessionFromAccessToken(
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const devPreviewSession = isDevPreviewEnabled()
+    ? sessionFromAccessToken(createDevPreviewAccessToken())
+    : undefined;
   // The access token lives ONLY in memory; the refresh token never reaches JS
   // (it is an HttpOnly cookie). On boot there is therefore nothing to hydrate
   // synchronously — we recover the session via a silent cookie refresh instead.
-  const [session, setSession] = useState<AuthSession | undefined>(undefined);
-  const [restoring, setRestoring] = useState(true);
+  const [session, setSession] = useState<AuthSession | undefined>(
+    devPreviewSession,
+  );
+  const [restoring, setRestoring] = useState(!devPreviewSession);
   // Active read-only impersonation, if any. While set, the app runs as the
   // impersonated tenant/role (see `activeSession` below) and the banner shows.
   const [viewAs, setViewAs] = useState<ViewAsState | undefined>(undefined);
@@ -330,6 +339,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (booted.current) return;
     booted.current = true;
     cancelled.current = false;
+    if (isDevPreviewEnabled()) return;
     async function bootRefresh() {
       try {
         const tokens = await refreshTokenFn(bootApi);
@@ -342,7 +352,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
         }
       } catch {
-        if (!cancelled.current) setSession(undefined);
+        if (!cancelled.current) {
+          setSession(
+            isDevPreviewEnabled()
+              ? sessionFromAccessToken(createDevPreviewAccessToken())
+              : undefined,
+          );
+        }
       } finally {
         if (!cancelled.current) setRestoring(false);
       }
@@ -354,6 +370,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [bootApi]);
 
   async function login() {
+    if (isDevPreviewEnabled()) {
+      setSession(sessionFromAccessToken(createDevPreviewAccessToken()));
+      return;
+    }
     const ceremony = await startPasskeyLogin(api);
     const tokens = await finishPasskeyLogin(api, ceremony);
     setSession(

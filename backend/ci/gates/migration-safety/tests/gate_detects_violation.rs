@@ -195,6 +195,64 @@ fn gate_rejects_non_contiguous_migration_versions() -> Result<(), Box<dyn std::e
 }
 
 #[test]
+fn gate_rejects_concurrent_index_if_not_exists() -> Result<(), Box<dyn std::error::Error>> {
+    let ws = temp_workspace("concurrent-index-if-not-exists")?;
+    write_file(
+        &ws.join("crates/platform/db/migrations/0001_bad.sql"),
+        r#"
+-- no-transaction
+CREATE INDEX CONCURRENTLY IF NOT EXISTS work_orders_status_idx
+    ON work_orders (status);
+"#,
+    )?;
+
+    let result = check_migrations_root(&ws);
+    assert!(
+        !result.passed(),
+        "expected concurrent index IF NOT EXISTS violation"
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|v| v.kind == ViolationKind::ConcurrentIndexIfNotExists),
+        "expected ConcurrentIndexIfNotExists, got {:#?}",
+        result.violations
+    );
+    Ok(())
+}
+
+#[test]
+fn gate_rejects_multi_statement_no_transaction_migration() -> Result<(), Box<dyn std::error::Error>>
+{
+    let ws = temp_workspace("multi-statement-no-transaction")?;
+    write_file(
+        &ws.join("crates/platform/db/migrations/0001_bad.sql"),
+        r#"-- no-transaction
+CREATE INDEX CONCURRENTLY work_orders_status_idx
+    ON work_orders (status);
+CREATE INDEX CONCURRENTLY work_orders_created_idx
+    ON work_orders (created_at DESC);
+"#,
+    )?;
+
+    let result = check_migrations_root(&ws);
+    assert!(
+        !result.passed(),
+        "expected multi-statement no-transaction violation"
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|v| v.kind == ViolationKind::NoTransactionMigrationMultipleStatements),
+        "expected NoTransactionMigrationMultipleStatements, got {:#?}",
+        result.violations
+    );
+    Ok(())
+}
+
+#[test]
 fn gate_passes_safe_migration() -> Result<(), Box<dyn std::error::Error>> {
     let ws = temp_workspace("safe")?;
     write_file(

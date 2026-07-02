@@ -22,8 +22,10 @@ const apiProxy = {
   "/readyz": { target: proxyTarget, changeOrigin: true },
 };
 
+const plugins = [react(), tailwindcss()].flat() as never[];
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins,
   server: {
     proxy: apiProxy,
   },

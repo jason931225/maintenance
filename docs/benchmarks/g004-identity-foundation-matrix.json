@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "goalId": "G004-identity-group-org-people-policy-fou",
-  "updatedAt": "2026-06-30",
+  "updatedAt": "2026-07-02",
   "purpose": "Machine-readable identity/group/org/people/policy foundation contract for the platform-maturity ultragoal. This gate proves repo-local implementation, tests, route ownership, RLS/audit/passkey contracts, and no-false-live-claim evidence before downstream domain lanes depend on identity foundations.",
   "nonClaimPolicy": "G004 may prove local contract and regression coverage. Live rollout, production screenshot/trace closure, and Argo evidence remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a blocker for rollout claims, not as live closure.",
   "routePaths": [
@@ -100,6 +100,30 @@
       "routeGroup": "people",
       "mustContainOwnerGoal": "G004",
       "requiredStory": "employee lifecycle covers onboard/offboard/terminate/transfer with signoffs and policy-bound sensitive fields"
+    },
+    {
+      "path": "/payroll",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "HR and payroll owners review registered employee, mobile or PC attendance, leave, approval, and legal-gated payroll readiness without exposing unauthorized sensitive fields"
+    },
+    {
+      "path": "/hr/leave-management",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "HR and payroll owners review accrued, used, and remaining annual leave, issue leave-use-plan notices, and keep approvals linked to attendance and payroll facts"
+    },
+    {
+      "path": "/hr/insurance",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "HR and payroll owners prepare acquisition, loss, change, and material-package insurance filing checklists from policy-scoped employee lifecycle data"
+    },
+    {
+      "path": "/attendance",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "employee self-service records mobile or PC 출근, 외출/출장, 복귀, and 퇴근 punches with payroll material linkage"
     },
     {
       "path": "/settings/policy",

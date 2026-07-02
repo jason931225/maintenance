@@ -1,19 +1,58 @@
-import { Clock, UserCircle } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Clock, RefreshCw, UserCircle } from "lucide-react";
+import { useState } from "react";
+import { Link, Navigate } from "react-router-dom";
 
+import {
+  hasGrantedConsoleAccess,
+  visibleNavItemsForRoles,
+} from "../components/shell/nav";
+import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 
 /**
- * Landing page for a just-signed-up user who holds no role grant yet (an empty
- * roles claim or the placeholder `["MEMBER"]`). The backend default-denies every
- * Feature but Login for this session, so routing them onto /dispatch only yields
- * a 403 + a generic "load failed/retry". Instead we land them here with a clear
+ * Landing page for a just-signed-up user who holds no console grant yet (an empty
+ * roles claim or the placeholder `["MEMBER"]`, with no group-admin or runtime
+ * feature grants). The backend default-denies every Feature but Login for this
+ * session, so routing them onto /dispatch only yields a 403 + a generic
  * "account created — awaiting an admin grant" message, the admin-contact
  * guidance, and a link to Profile (the one surface they can use). The redirect to
  * this page is driven by ProtectedRoute.
  */
 export function PendingPage() {
+  const { refresh, session } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+
+  const pending = !hasGrantedConsoleAccess(
+    session?.roles,
+    session?.group_roles,
+    session?.feature_grants,
+  );
+
+  if (!pending) {
+    const destination =
+      visibleNavItemsForRoles(
+        session?.roles,
+        session?.group_roles,
+        session?.feature_grants,
+      ).find((item) => item.key !== "profile")?.href ?? "/settings/profile";
+    return <Navigate to={destination} replace />;
+  }
+
+  async function checkAccess() {
+    setRefreshFailed(false);
+    setRefreshing(true);
+    try {
+      await refresh();
+    } catch {
+      setRefreshFailed(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted-panel px-4 py-12">
       <div className="grid w-full max-w-md gap-6">
@@ -43,6 +82,23 @@ export function PendingPage() {
             <UserCircle size={18} aria-hidden="true" />
             {ko.pending.profileLink}
           </Link>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              void checkAccess();
+            }}
+            disabled={refreshing}
+          >
+            <RefreshCw size={18} aria-hidden="true" />
+            {refreshing ? ko.pending.checkingAccess : ko.pending.checkAccess}
+          </Button>
+
+          {refreshFailed ? (
+            <p role="alert" className="text-sm font-medium text-red-700">
+              {ko.pending.refreshFailed}
+            </p>
+          ) : null}
         </Card>
       </div>
     </div>

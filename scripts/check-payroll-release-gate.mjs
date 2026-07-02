@@ -89,8 +89,33 @@ requireIncludes(
 
 requireIncludes(
   "web/src/components/shell/nav.ts",
-  "Payroll remains a separate high-sensitivity",
-  "navigation does not mislabel finance as payroll",
+  "Payroll readiness is high-sensitivity",
+  "navigation separates payroll readiness from finance",
+);
+requireIncludes(
+  "web/src/AppRouter.tsx",
+  'itemKey="payroll"',
+  "payroll route uses nav-item authorization",
+);
+requireIncludes(
+  "web/src/AppRouter.tsx",
+  'path="/payroll"',
+  "payroll readiness route",
+);
+requireIncludes(
+  "web/src/pages/PayrollPage.tsx",
+  'GET(path: "/api/v1/hr/readiness-summary")',
+  "payroll readiness summary read path",
+);
+requireIncludes(
+  "web/src/pages/PayrollPage.tsx",
+  "calculation_enabled_runs",
+  "payroll calculation readiness gate surfaced",
+);
+requireIncludes(
+  "web/src/pages/PayrollPage.tsx",
+  "copy.status.blocked",
+  "payroll page defaults to legal blocked status",
 );
 requireIncludes(
   "web/src/pages/EmployeesPage.test.tsx",
@@ -135,9 +160,9 @@ requireIncludes(
 );
 
 requireAbsent(
-  "web/src/AppRouter.tsx",
-  /path=\"\/payroll\"|path=\"payroll\"/,
-  "payroll route before release gate",
+  "web/src/pages/PayrollPage.tsx",
+  /\.(POST|PUT|PATCH|DELETE)\(/,
+  "payroll readiness page mutation API calls",
 );
 requireAbsent(
   "web/src/pages/EmployeesPage.tsx",

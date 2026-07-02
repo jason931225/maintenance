@@ -117,6 +117,47 @@ const attendanceSummary = {
   offset: 0,
 };
 
+const readinessSummary = {
+  imports: {
+    runs: 2,
+    applied_runs: 1,
+    input_rows: 14,
+    candidate_rows: 2,
+    preserved_rows: 12,
+    ledger_rows: 14,
+    latest_import_at: "2026-07-01T12:00:00Z",
+  },
+  payroll: {
+    draft_runs: 1,
+    blocked_runs: 1,
+    calculation_enabled_runs: 0,
+    draft_lines: 2,
+    payroll_source_rows: 8,
+    attendance_source_rows: 4,
+    attendance_event_links: 0,
+    attendance_material_refs: 3,
+    gross_pay_source_lines: 1,
+    net_pay_source_lines: 1,
+    latest_status: "BLOCKED_LEGAL_GATE",
+    latest_source_label: "COSS Group 2026-05 live import",
+    latest_period_start: "2026-05-01",
+    latest_period_end: "2026-05-31",
+    latest_updated_at: "2026-07-01T13:00:00Z",
+  },
+  annual_leave: {
+    obligations: 2,
+    usage_promotion_required: 1,
+    payout_review_required: 0,
+    needs_review: 1,
+    remaining_days: "7.5",
+  },
+  attendance: {
+    durable_events: 5,
+    self_service_records: 3,
+    payroll_material_refs: 3,
+  },
+};
+
 const lifecycleEvents = {
   items: [
     {
@@ -149,6 +190,9 @@ const server = setupServer(
   ),
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json(attendanceSummary),
+  ),
+  http.get("*/api/v1/hr/readiness-summary", () =>
+    HttpResponse.json(readinessSummary),
   ),
   http.get("*/api/v1/employees/:id/lifecycle-events", () =>
     HttpResponse.json(lifecycleEvents),
@@ -226,6 +270,14 @@ describe("EmployeesPage", () => {
     expect(screen.getByRole("heading", { name: "근태 요약" })).toBeVisible();
     expect(screen.getByText("박근태")).toBeVisible();
 
+    expect(
+      screen.getByRole("heading", { name: "원장·급여준비 상태" }),
+    ).toBeVisible();
+    expect(screen.getByText("BLOCKED_LEGAL_GATE")).toBeVisible();
+    expect(screen.getByText("COSS Group 2026-05 live import")).toBeVisible();
+    expect(screen.getByText("2026-05-01 - 2026-05-31")).toBeVisible();
+    expect(screen.getByText("급여 원천 8행 · 근태 원천 4행 · 직접 근태 연결 3건")).toBeVisible();
+
     const row = (await screen.findByText("A-001")).closest("tr");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("김현장")).toBeVisible();
@@ -254,6 +306,10 @@ describe("EmployeesPage", () => {
     expect(screen.getByText("이퇴사")).toBeVisible();
     expect(screen.getByText("검토 필요")).toBeVisible();
     expect(screen.getByText("원천 행")).toBeVisible();
+    expect(screen.queryByLabelText("근태 가져올 파일")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "근태 파일 검토 시작" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows governed import controls only to admins and requires preview, dry-run, then apply", async () => {
@@ -383,6 +439,130 @@ describe("EmployeesPage", () => {
       expect(sawApply).toBe(true);
     });
     expect(screen.getByText("입력 행")).toBeVisible();
+  });
+  it("supports governed direct attendance import preview, dry-run, and append-only apply", async () => {
+    let sawPreview = false;
+    let sawDryRun = false;
+    let sawApply = false;
+    server.use(
+      http.post("*/api/v1/hr/attendance-import/preview", () => {
+        sawPreview = true;
+        return HttpResponse.json({
+          run_id: "22222222-2222-4222-8222-222222222222",
+          entity_type: "attendance_direct",
+          source_filename: "attendance.csv",
+          source_sha256: "b".repeat(64),
+          input_rows: 1,
+          candidate_rows: 1,
+          preserved_rows: 0,
+          columns: [
+            {
+              source_header: "사번",
+              normalized_header: "사번",
+              target: "employee_number",
+              classification: "canonical",
+              preview_allowed: true,
+            },
+            {
+              source_header: "근무일",
+              normalized_header: "근무일",
+              target: "work_date",
+              classification: "canonical",
+              preview_allowed: true,
+            },
+            {
+              source_header: "급여메모",
+              normalized_header: "급여메모",
+              target: null,
+              classification: "restricted",
+              preview_allowed: false,
+            },
+          ],
+          sample_rows: [
+            {
+              source_sheet: "CSV",
+              source_row: 2,
+              row_status: "CANDIDATE",
+              values: {
+                사번: "A-001",
+                근무일: "2026-07-01",
+                급여메모: "••••",
+              },
+              validation: { status: "ok", errors: [], warnings: [] },
+            },
+          ],
+          mapping_profile: {
+            entity_type: "attendance_direct",
+            policy: { payroll_effect: "lineage_only_not_payable" },
+          },
+        });
+      }),
+      http.post("*/api/v1/hr/attendance-import/:runId/dry-run", () => {
+        sawDryRun = true;
+        return HttpResponse.json({
+          run_id: "22222222-2222-4222-8222-222222222222",
+          input_rows: 1,
+          candidate_rows: 1,
+          preserved_rows: 0,
+          ready_rows: 1,
+          error_rows: 0,
+          duplicate_rows: 0,
+          missing_employee_rows: 0,
+          ambiguous_employee_rows: 0,
+          row_errors: [],
+        });
+      }),
+      http.post("*/api/v1/hr/attendance-import/:runId/apply", () => {
+        sawApply = true;
+        return HttpResponse.json({
+          run_id: "22222222-2222-4222-8222-222222222222",
+          inserted: 1,
+          skipped: 0,
+          error_rows: 0,
+        });
+      }),
+    );
+
+    renderApp("/settings/employees", ["ADMIN"]);
+
+    const input = await screen.findByLabelText("근태 가져올 파일");
+    await userEvent.upload(
+      input,
+      new File(["사번,근무일\nA-001,2026-07-01"], "attendance.csv", {
+        type: "text/csv",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "근태 파일 검토 시작" }),
+    );
+
+    await waitFor(() => {
+      expect(sawPreview).toBe(true);
+    });
+    expect(
+      screen.getByRole("heading", { name: "근태 가져오기 검토" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "급여 준비도에는 원천 계보로만 연결되며 지급 가능 급여가 생성되지 않습니다.",
+      ),
+    ).toBeVisible();
+    expect(screen.getAllByText("급여메모").length).toBeGreaterThan(0);
+    expect(screen.getByText("••••")).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "근태 드라이런" }));
+    await waitFor(() => {
+      expect(sawDryRun).toBe(true);
+    });
+    expect(screen.getByText("적용 가능")).toBeVisible();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "근태 검토 후 적용" }),
+    );
+    await waitFor(() => {
+      expect(sawApply).toBe(true);
+    });
+    expect(screen.getByText("건너뜀")).toBeVisible();
   });
 
   it("records audited Korean HR lifecycle signoffs before termination", async () => {

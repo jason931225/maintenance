@@ -71,10 +71,46 @@ export async function singleFlightRefresh(): Promise<string> {
   }
 }
 
-/** Whether a URL path is an auth endpoint (where we must NOT retry on 401). */
+const AUTH_REFRESH_BYPASS_PATHS = new Set([
+  // Refresh/login/logout/OTP/signup are primary auth ceremonies. A 401 on these
+  // means the ceremony failed or the refresh cookie is invalid; retrying them via
+  // the refresh interceptor would loop or mask the real auth error.
+  "/api/v1/auth/token/refresh",
+  "/api/v1/auth/logout",
+  "/api/v1/auth/otp/redeem",
+  "/api/v1/auth/signup",
+  "/api/v1/auth/passkey/login/start",
+  "/api/v1/auth/passkey/login/finish",
+  "/api/v1/auth/device-login/start",
+  "/api/v1/auth/device-login/poll",
+  "/api/v1/auth/device-login/approve",
+]);
+
+/**
+ * Whether a URL should bypass the 401 refresh/retry interceptor.
+ *
+ * Keep this list narrow: authenticated auth endpoints such as
+ * `/api/v1/auth/passkey/enroll-handoff`, passkey registration, privacy consent,
+ * passkey list/delete, and device-login approve-session still need refresh/retry
+ * because the access token is memory-only and can expire while the refresh cookie
+ * remains valid.
+ */
+export function shouldSkipAuthRefresh(url: string): boolean {
+  try {
+    const pathname = pathnameFromUrl(url);
+    return (
+      AUTH_REFRESH_BYPASS_PATHS.has(pathname) ||
+      pathname.startsWith("/api/platform/auth/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a URL is under an auth namespace (not necessarily retry-excluded). */
 export function isAuthPath(url: string): boolean {
   try {
-    const pathname = new URL(url).pathname;
+    const pathname = pathnameFromUrl(url);
     return (
       pathname.startsWith("/api/v1/auth/") ||
       pathname.startsWith("/api/platform/auth/")
@@ -82,4 +118,8 @@ export function isAuthPath(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+function pathnameFromUrl(url: string): string {
+  return new URL(url, "http://localhost").pathname;
 }

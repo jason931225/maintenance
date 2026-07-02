@@ -6,12 +6,27 @@ import {
 } from "../lib/contact";
 
 export const ko = {
+  devPreview: {
+    adminName: "로컬 미리보기 관리자",
+    messengerThreadTitle: "정비팀 메신저",
+    fieldTechnicianName: "김현장",
+    fieldTechnicianTeam: "정비1팀",
+    dispatcherName: "박배차",
+    dispatcherTeam: "운영지원",
+    messengerIncoming: "오늘 오전 정비 일정 확인했습니다.",
+    messengerReply: "확인했습니다. 현장 도착 후 사진도 같이 올려주세요.",
+    messengerReadProgressProbe:
+      "읽음 카운트가 실시간 메시지와 동일하게 표시되는지 확인용입니다.",
+  },
   nav: {
     "work-hub": "업무 허브",
+    "my-attendance": "근태 기록",
     dispatch: "배차",
     "dispatch-map": "배차 지도",
     intake: "접수",
     approvals: "전자결제",
+    "leave-management": "연차관리",
+    "insurance-assist": "보험신고 지원",
     "daily-plan": "계획업무",
     collaboration: "협업 허브",
     inspection: "정기 예방정비",
@@ -25,6 +40,7 @@ export const ko = {
     equipment: "장비 조회",
     "equipment-manage": "장비 설정·일괄작업",
     catalog: "판매·문의 관리",
+    payroll: "급여 준비",
     financial: "구매·정산",
     integrity: "이상 징후 검토",
     location: "GPS 위치 동의",
@@ -38,6 +54,7 @@ export const ko = {
     sites: "고객·현장 관리",
     profile: "내 프로필",
     groups: {
+      personal: "개인/부서 업무",
       operations: "물류·정비 운영",
       executive: "경영·거버넌스",
       assets: "장비·영업",
@@ -46,6 +63,113 @@ export const ko = {
       identity: "계정·권한",
       settings: "설정",
     },
+  },
+  payroll: {
+    title: "급여 준비",
+    description:
+      "등록 인원, 모바일·PC 출퇴근, 연차 의무, 급여 원천을 한 화면에서 확인하고 KPI·전자결재 연동 상태를 점검합니다.",
+    loadFailed: "급여 준비 데이터를 불러오지 못했습니다.",
+    status: {
+      enabled: "산출 준비 가능",
+      blocked: "법적 검토 게이트 차단",
+      noRun: "급여준비 실행 없음",
+    },
+    summary: {
+      employees: "등록 인원",
+      activeEmployees: "재직 인원",
+      payrollDraftLines: "급여준비 라인",
+      payrollSourceRows: "급여 원천 행",
+      attendanceRows: "근태 원천 행",
+      durableAttendance: "출퇴근 사실",
+      annualLeave: "연차 의무",
+      reviewNeeds: "검토 필요",
+    },
+    sections: {
+      readiness: "급여 산출 준비도",
+      readinessDescription:
+        "현재 구현된 원장·근태·연차·급여준비 테이블을 기준으로 민감한 금액 원문 없이 집계합니다.",
+      flow: "급여 데이터 흐름",
+      flowDescription:
+        "모바일 앱과 PC웹에서 쌓이는 출퇴근·전자결재 사실이 급여 산출과 KPI로 이어지는 운영 경로입니다.",
+      plan: "구현 계획",
+      planDescription:
+        "지금 보이는 수치가 실제 지급 급여 계산으로 확장될 때 필요한 연결 순서입니다.",
+    },
+    fields: {
+      latestSource: "최근 급여 원천",
+      period: "대상 기간",
+      latestImport: "최근 원장 반영",
+      latestPayrollUpdate: "최근 급여준비 갱신",
+      attendanceUsers: "근태 사용자",
+      attendanceLinks: "근태 연결",
+      grossLines: "총지급 원천",
+      netLines: "실지급 원천",
+      leavePromotion: "사용촉진 필요",
+      payoutReview: "수당·정산 검토",
+      blockedRuns: "차단 실행",
+    },
+    actions: {
+      employees: "직원 원장 보기",
+      approvals: "전자결재 보기",
+      kpi: "KPI 보기",
+      workflows: "워크플로 설계",
+      unavailable: "권한 필요",
+    },
+    units: {
+      rows: "행",
+      cases: "건",
+      lines: "라인",
+      people: "명",
+    },
+    flowItems: {
+      employeeLedger: {
+        title: "등록 인원 원장",
+        description:
+          "직원번호·소속·입퇴사·연차 기준이 급여 산출의 인원 기준점입니다.",
+      },
+      attendanceCapture: {
+        title: "모바일·PC 출퇴근",
+        description:
+          "핸드폰 앱과 PC웹에서 등록 인원이 출퇴근하면 근태 사실로 누적되고 급여 원천과 연결됩니다.",
+      },
+      approvalAdjustments: {
+        title: "휴가·연차·외출·출장 전자결재",
+        description:
+          "승인된 부재·출장 흐름은 근무시간 조정, 연차 차감, 수당 검토, KPI 예외 처리의 근거가 됩니다.",
+      },
+      calculationLock: {
+        title: "급여 산출 잠금",
+        description:
+          "법정요율·통상임금·공제·마감 승인이 확정되기 전에는 지급 가능한 급여로 열지 않습니다.",
+      },
+      kpiFeedback: {
+        title: "KPI 반영",
+        description:
+          "근태 누락, 초과근무, 휴가 사용, 인력 가동률은 KPI와 운영 인사이트의 입력값으로 연결됩니다.",
+      },
+    },
+    planItems: [
+      {
+        title: "출퇴근 입력 표준화",
+        description:
+          "모바일 앱과 PC웹의 출근·퇴근·외근·출장 입력을 동일한 근태 사실 테이블과 감사 로그로 기록합니다.",
+      },
+      {
+        title: "전자결재 객체 연결",
+        description:
+          "휴가, 연차, 외출, 출장 결재가 승인되면 급여 기간의 근무시간·유급/무급·KPI 예외 값으로 반영합니다.",
+      },
+      {
+        title: "급여 산출 엔진",
+        description:
+          "급여 기간 잠금, 통상임금, 초과근무, 4대보험·세액 공제, 지급/공제 라인을 검토 후 확정합니다.",
+      },
+      {
+        title: "KPI·보고서 반영",
+        description:
+          "인건비, 가동률, 결근/지각, 휴가 사용률, 부서별 인력 부하를 KPI와 보고서 원천으로 연결합니다.",
+      },
+    ],
   },
   intelligence: {
     title: "운영 인텔리전스",
@@ -731,6 +855,9 @@ export const ko = {
       "관리자가 권한을 부여할 때까지 기다려 주세요. 권한이 부여되면 콘솔의 기능을 사용할 수 있습니다.",
     contactGuidance: "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
     profileLink: "내 프로필 보기",
+    checkAccess: "권한 다시 확인",
+    checkingAccess: "권한 확인 중",
+    refreshFailed: "권한 상태를 확인하지 못했습니다. 잠시 후 다시 시도하세요.",
   },
   groupAdmin: {
     title: "그룹 관리",
@@ -742,6 +869,7 @@ export const ko = {
     memberCountSuffix: "개 법인",
     manage: "관리",
     managing: "전환 중",
+    actionMenuLabel: "{org} {group} 바로가기",
     manageFailed: "선택한 법인 관리 콘솔로 전환하지 못했습니다.",
     command: {
       eyebrow: "Group Operations",
@@ -838,6 +966,53 @@ export const ko = {
     noBranchesForUser: "사용자에게 소속 지점이 없어 코드를 발급할 수 없습니다.",
     forbidden: "이 작업을 수행할 권한이 없습니다.",
   },
+  attendance: {
+    title: "내 근태 기록",
+    description:
+      "모바일과 PC에서 출근, 외출, 출장, 복귀, 퇴근 사실을 직접 기록하고 급여준비 원천 연결 상태를 확인합니다.",
+    currentState: "현재 상태",
+    noLatest: "오늘 기록이 아직 없습니다.",
+    latestMeta: "최근 {kind} · {time}",
+    payrollLinked: "급여준비 원천 연결",
+    legalNotice:
+      "이 화면은 근태 사실과 원천 연결만 남깁니다. 급여 계산·세무 판단은 법적 검토 게이트가 열릴 때까지 활성화하지 않습니다.",
+    historyTitle: "최근 기록",
+    historyDescription: "본인 계정과 연결된 직원 기록만 표시합니다.",
+    loadFailed: "근태 기록을 불러오지 못했습니다.",
+    empty: "표시할 근태 기록이 없습니다.",
+    recording: "기록 중",
+    recordFailed: "{kind} 기록을 저장하지 못했습니다.",
+    retryRecord: "{kind} 기록 다시 시도",
+    duplicateReplay: "이미 저장된 근태 기록을 다시 확인했습니다.",
+    linked: "연결됨",
+    linkPending: "연결 대기",
+    actions: {
+      CLOCK_IN: "출근 기록",
+      OUT_FOR_WORK: "외출 기록",
+      BUSINESS_TRIP: "출장 기록",
+      RETURNED: "복귀 기록",
+      CLOCK_OUT: "퇴근 기록",
+    },
+    kinds: {
+      CLOCK_IN: "출근",
+      OUT_FOR_WORK: "외출",
+      BUSINESS_TRIP: "출장",
+      RETURNED: "복귀",
+      CLOCK_OUT: "퇴근",
+    },
+    states: {
+      OFF_DUTY: "근무 전/퇴근",
+      CLOCKED_IN: "근무 중",
+      OUT_FOR_WORK: "외출 중",
+      BUSINESS_TRIP: "출장 중",
+    },
+    columns: {
+      kind: "구분",
+      occurredAt: "기록 시각",
+      stateAfter: "이후 상태",
+      payroll: "급여자료",
+    },
+  },
   employees: {
     title: "인사·조직 관리",
     description:
@@ -856,6 +1031,8 @@ export const ko = {
       activeEmployees: "재직",
       leaveRemaining: "잔여 연차",
       attendanceUsers: "근태 기록 사용자",
+      importRows: "원장 행",
+      payrollDraftLines: "급여준비 라인",
     },
     operations: {
       title: "피플 운영 관제",
@@ -919,6 +1096,31 @@ export const ko = {
       departures: "이탈",
       lastEvent: "최근 기록",
       empty: "근태 기록이 없습니다.",
+    },
+    readiness: {
+      title: "원장·급여준비 상태",
+      description:
+        "현재 콘솔 범위의 가져오기 원장, 근태 사실, 급여준비, 연차 의무를 민감정보 없이 집계합니다.",
+      importLedger: "가져오기 원장",
+      importLedgerMeta: "실행 {runs}건 · 적용 {applied}건",
+      employeeCandidates: "직원 후보",
+      employeeCandidatesMeta: "원천만 보존 {preserved}행",
+      durableAttendance: "근태 업무 사실",
+      durableAttendanceMeta: "직접 기록 {selfRecords}건 · 급여 원천 연결 {materialRefs}건",
+      payrollDrafts: "급여준비",
+      payrollDraftsMeta:
+        "급여 원천 {payrollRows}행 · 근태 원천 {attendanceRows}행 · 직접 근태 연결 {materialRefs}건",
+      legalGate: "법적 검토 게이트",
+      legalGateMeta: "차단된 급여준비 실행 {blocked}건",
+      annualLeave: "연차 의무",
+      annualLeaveMeta: "사용촉진 필요 {promotion}건 · 잔여 {remaining}일",
+      enabled: "계산 가능",
+      blocked: "차단",
+      noPayrollRun: "급여준비 없음",
+      latestSource: "최근 급여 원천",
+      period: "대상 기간",
+      lastImport: "최근 원장 반영",
+      lastPayrollUpdate: "최근 급여준비 갱신",
     },
     columns: {
       name: "직원명",
@@ -1041,6 +1243,62 @@ export const ko = {
         inputRows: "입력 행",
         inserted: "추가",
         updated: "수정",
+        skipped: "건너뜀",
+        errors: "오류",
+      },
+    },
+    attendanceImport: {
+      title: "직접 근태 가져오기",
+      description:
+        "근태 엑셀(.xlsx) 또는 CSV를 직원 명부와 분리된 원천 원장으로 보존하고, 드라이런 후 좌표 없는 근태 사실만 적용합니다.",
+      fileLabel: "근태 가져올 파일",
+      preview: "근태 파일 검토 시작",
+      previewing: "근태 파일 검토 중",
+      noFile: "근태 파일을 선택하세요.",
+      failed: "근태 가져오기에 실패했습니다.",
+      previewPanel: {
+        title: "근태 가져오기 검토",
+        hash: "SHA-256",
+        inputRows: "원천 행",
+        candidateRows: "근태 후보",
+        preservedRows: "오류/보존 행",
+        sourceColumn: "원본 열",
+        targetField: "근태 필드",
+        policy: "정책",
+        rawOnly: "원천 보존",
+        previewAllowed: "표준 매핑",
+        masked: "민감정보 마스킹",
+        mappingSummary: "근태 매핑 요약",
+        mappedColumns: "표준화 열",
+        maskedColumns: "민감정보 열",
+        rawOnlyColumns: "원천 보존 열",
+        payrollLineageOnly: "급여 준비도에는 원천 계보로만 연결되며 지급 가능 급여가 생성되지 않습니다.",
+        targetLabels: {
+          employee_number: "사번",
+          employee_name: "직원명",
+          branch_name: "지점",
+          work_date: "근무일",
+          check_in_at: "출근시간",
+          check_out_at: "퇴근시간",
+          minutes_worked: "근무분",
+        },
+        row: "행",
+        status: "상태",
+        dryRun: "근태 드라이런",
+        dryRunning: "근태 드라이런 중",
+        apply: "근태 검토 후 적용",
+        applying: "근태 적용 중",
+      },
+      dryRun: {
+        readyRows: "적용 가능",
+        errorRows: "오류",
+        duplicateRows: "중복",
+        missingEmployeeRows: "직원 미해결",
+        ambiguousEmployeeRows: "직원 모호",
+        moreRowErrors: (count: number) => `외 ${String(count)}건 더`,
+      },
+      summary: {
+        inserted: "추가",
         skipped: "건너뜀",
         errors: "오류",
       },
@@ -1261,6 +1519,10 @@ export const ko = {
       people: "HR",
       assets: "자산",
       customer: "고객",
+      field_operations: "현장",
+      security_operations: "경비",
+      cleaning_operations: "미화",
+      dispatch_office: "파견사무",
     },
     roleKey: "역할 키",
     displayName: "표시 이름",
@@ -2610,6 +2872,10 @@ export const ko = {
     openSearchResult: (threadTitle: string) => `${threadTitle} 대화 열기`,
     memberCount: "명",
     unreadCount: (count: number) => `읽지 않음 ${String(count)}건`,
+    readProgress: (read: number, total: number) =>
+      `읽음 ${String(read)}/${String(total)}`,
+    readProgressAria: (read: number, total: number) =>
+      `${String(total)}명 중 ${String(read)}명이 메시지를 읽었습니다`,
     newThread: "새 대화",
     newThreadTitle: "새 대화 시작",
     subject: "제목",

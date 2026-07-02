@@ -13,6 +13,7 @@ import { RequireGroupAdminRoute } from "./components/RequireGroupAdminRoute";
 import { RequireIntegrityRoute } from "./components/RequireIntegrityRoute";
 import { RequireKpiRoute } from "./components/RequireKpiRoute";
 import { RequireMailUseRoute } from "./components/RequireMailUseRoute";
+import { RequireNavItemRoute } from "./components/RequireNavItemRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
 import { RequireRoleManageRoute } from "./components/RequireRoleManageRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
@@ -43,6 +44,9 @@ const PendingPage = lazy(() =>
 );
 const WorkHubPage = lazy(() =>
   import("./pages/WorkHubPage").then((m) => ({ default: m.WorkHubPage })),
+);
+const AttendancePage = lazy(() =>
+  import("./pages/AttendancePage").then((m) => ({ default: m.AttendancePage })),
 );
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
@@ -119,6 +123,19 @@ const EquipmentManagePage = lazy(() =>
 );
 const FinancialPage = lazy(() =>
   import("./pages/FinancialPage").then((m) => ({ default: m.FinancialPage })),
+);
+const PayrollPage = lazy(() =>
+  import("./pages/PayrollPage").then((m) => ({ default: m.PayrollPage })),
+);
+const LeaveManagementPage = lazy(() =>
+  import("./pages/LeaveManagementPage").then((m) => ({
+    default: m.LeaveManagementPage,
+  })),
+);
+const InsuranceAssistPage = lazy(() =>
+  import("./pages/InsuranceAssistPage").then((m) => ({
+    default: m.InsuranceAssistPage,
+  })),
 );
 const EmployeesPage = lazy(() =>
   import("./pages/EmployeesPage").then((m) => ({ default: m.EmployeesPage })),
@@ -285,17 +302,30 @@ export function AppRouter() {
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
         <Route element={<AppShell />}>
-          <Route path="/work-hub" element={<WorkHubPage />} />
-          <Route path="/dispatch" element={<DispatchPage />} />
-          {/* Work-order detail (read gate is WorkOrderReadAll = every role).
-              Write controls inside are gated to the assigned mechanic. */}
-          <Route path="/work-orders/:id" element={<WorkOrderDetailPage />} />
-          <Route path="/dispatch-map" element={<DispatchMapPage />} />
-          <Route path="/intake" element={<IntakePage />} />
+          <Route element={<RequireNavItemRoute itemKey="work-hub" />}>
+            <Route path="/work-hub" element={<WorkHubPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="my-attendance" />}>
+            <Route path="/attendance" element={<AttendancePage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
+            <Route path="/dispatch" element={<DispatchPage />} />
+            {/* Work-order detail (read gate is WorkOrderReadAll). Write controls
+                inside are gated to the assigned mechanic. */}
+            <Route path="/work-orders/:id" element={<WorkOrderDetailPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="dispatch-map" />}>
+            <Route path="/dispatch-map" element={<DispatchMapPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="intake" />}>
+            <Route path="/intake" element={<IntakePage />} />
+          </Route>
           <Route element={<RequireDailyPlanRoute />}>
             <Route path="/daily-plan" element={<DailyPlanPage />} />
           </Route>
-          <Route path="/collaboration" element={<CollaborationPage />} />
+          <Route element={<RequireNavItemRoute itemKey="collaboration" />}>
+            <Route path="/collaboration" element={<CollaborationPage />} />
+          </Route>
           <Route element={<RequireKpiRoute />}>
             <Route path="/kpi" element={<KpiPage />} />
             <Route
@@ -309,30 +339,56 @@ export function AppRouter() {
           <Route element={<RequireIntegrityRoute />}>
             <Route path="/integrity" element={<IntegrityPage />} />
           </Route>
-          <Route path="/reporting" element={<ReportingPage />} />
-          <Route path="/messenger" element={<MessengerPage />} />
+          <Route element={<RequireNavItemRoute itemKey="reporting" />}>
+            <Route path="/reporting" element={<ReportingPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="messenger" />}>
+            <Route path="/messenger" element={<MessengerPage />} />
+          </Route>
           <Route element={<RequireMailUseRoute />}>
             <Route path="/mail" element={<MailPage />} />
           </Route>
-          <Route path="/support" element={<SupportPage />} />
-          {/* /equipment: equipment browse list (all roles) */}
-          <Route path="/equipment" element={<EquipmentBrowsePage />} />
-          <Route path="/equipment/:id" element={<EquipmentDetailPage />} />
-          {/* /equipment/manage: equipment CRUD (EquipmentManage roles only) */}
-          <Route element={<RequireEquipmentManageRoute />}>
-            <Route path="/equipment/manage" element={<EquipmentManagePage />} />
+          <Route element={<RequireNavItemRoute itemKey="support" />}>
+            <Route path="/support" element={<SupportPage />} />
           </Route>
-          {/* Legacy equipment page: kept at /equipment/legacy during transition */}
-          <Route path="/equipment/legacy" element={<EquipmentPage />} />
-          <Route path="/financial" element={<FinancialPage />} />
+          {/* /equipment/manage: equipment CRUD (EquipmentManage roles only) */}
+          <Route
+            element={
+              <RequireNavItemRoute
+                itemKey="equipment-manage"
+                redirectTo="/equipment"
+              />
+            }
+          >
+            <Route element={<RequireEquipmentManageRoute />}>
+              <Route path="/equipment/manage" element={<EquipmentManagePage />} />
+            </Route>
+          </Route>
+          {/* /equipment: equipment browse list */}
+          <Route element={<RequireNavItemRoute itemKey="equipment" />}>
+            <Route path="/equipment" element={<EquipmentBrowsePage />} />
+            <Route path="/equipment/:id" element={<EquipmentDetailPage />} />
+            {/* Legacy equipment page: kept at /equipment/legacy during transition */}
+            <Route path="/equipment/legacy" element={<EquipmentPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="financial" />}>
+            <Route path="/financial" element={<FinancialPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="payroll" />}>
+            <Route path="/payroll" element={<PayrollPage />} />
+          </Route>
           <Route
             path="/settings"
             element={<Navigate to="/settings/profile" replace />}
           />
           <Route path="/settings/profile" element={<ProfilePage />} />
-          <Route path="/settings/location" element={<LocationSettingsPage />} />
+          <Route element={<RequireNavItemRoute itemKey="location" />}>
+            <Route path="/settings/location" element={<LocationSettingsPage />} />
+          </Route>
           <Route element={<RequireEmployeeDirectoryRoute />}>
             <Route path="/settings/employees" element={<EmployeesPage />} />
+            <Route path="/hr/leave-management" element={<LeaveManagementPage />} />
+            <Route path="/hr/insurance" element={<InsuranceAssistPage />} />
           </Route>
           <Route element={<RequireGroupAdminRoute />}>
             <Route path="/settings/group" element={<GroupAdminPage />} />
@@ -341,10 +397,16 @@ export function AppRouter() {
             <Route path="/settings/policy" element={<PolicyStudioPage />} />
             <Route path="/settings/workflows" element={<WorkflowStudioPage />} />
           </Route>
-          <Route element={<RequireAdminRoute />}>
+          <Route element={<RequireNavItemRoute itemKey="catalog" />}>
             <Route path="/catalog" element={<CatalogAdminPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="approvals" />}>
             <Route path="/approvals" element={<ApprovalsPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="inspection" />}>
             <Route path="/inspection" element={<InspectionPage />} />
+          </Route>
+          <Route element={<RequireAdminRoute />}>
             <Route path="/ops" element={<OpsDashboardPage />} />
             <Route path="/settings/users" element={<UsersPage />} />
             <Route path="/settings/org" element={<OrgPage />} />

@@ -85,6 +85,7 @@
 "messenger_load_older" = "이전 메시지";
 "messenger_selected" = "선택됨";
 "messenger_attachment" = "첨부";
+"messenger_read_progress_format" = "읽음 %lld/%lld";
 "messenger_member_count_format" = "%lld명";
 "messenger_send_pending" = "오프라인 메시지로 저장되었습니다.";
 "messenger_kind_work_order" = "작업";

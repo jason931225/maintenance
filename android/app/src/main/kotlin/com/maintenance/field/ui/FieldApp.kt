@@ -263,6 +263,7 @@ fun FieldApp(container: AppContainer) {
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var showCamera by rememberSaveable { mutableStateOf(false) }
     var busy by rememberSaveable { mutableStateOf(false) }
+    var currentUserId by rememberSaveable { mutableStateOf<UUID?>(null) }
     var messengerState by remember { mutableStateOf(MessengerState()) }
     var messengerSearchQuery by rememberSaveable { mutableStateOf("") }
     var messengerDraft by rememberSaveable { mutableStateOf("") }
@@ -425,6 +426,7 @@ fun FieldApp(container: AppContainer) {
                             busy = true
                             val state = container.auth.login(context, userId)
                             authenticated = state is LoginState.Authenticated
+                            currentUserId = if (authenticated) userId else null
                             busy = false
                             if (!authenticated) {
                                 snackbarHostState.showSnackbar(loginFailedMessage)
@@ -507,6 +509,7 @@ fun FieldApp(container: AppContainer) {
                             onLogout = {
                                 container.auth.clearSession()
                                 authenticated = false
+                                currentUserId = null
                                 selectedId = null
                                 messengerState = MessengerState()
                                 locationConsent = null
@@ -559,6 +562,7 @@ fun FieldApp(container: AppContainer) {
                         MessengerScreen(
                             state = messengerState,
                             busy = busy,
+                            currentUserId = currentUserId,
                             searchQuery = messengerSearchQuery,
                             draft = messengerDraft,
                             modifier = Modifier.weight(1f),
@@ -1315,6 +1319,7 @@ internal fun MessengerScreen(
     onSearch: () -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
+    currentUserId: UUID? = null,
 ) {
     LaunchedEffect(Unit) {
         if (state.threads.isEmpty()) {
@@ -1376,7 +1381,7 @@ internal fun MessengerScreen(
         ) {
             if (state.searchResults.isNotEmpty()) {
                 items(state.searchResults, key = { it.id }) { message ->
-                    MessengerMessageRow(message = message)
+                    MessengerMessageRow(message = message, currentUserId = currentUserId)
                 }
             }
             item {
@@ -1441,7 +1446,7 @@ internal fun MessengerScreen(
                     }
                 }
                 items(messages, key = { it.id }) { message ->
-                    MessengerMessageRow(message = message)
+                    MessengerMessageRow(message = message, currentUserId = currentUserId)
                 }
             }
         }
@@ -1517,16 +1522,25 @@ private fun MessengerThreadRow(
 }
 
 @Composable
-private fun MessengerMessageRow(message: MessengerMessage) {
+private fun MessengerMessageRow(message: MessengerMessage, currentUserId: UUID?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.small,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
+        val showReadProgress = currentUserId == message.senderId && message.readTargetCount > 0
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (showReadProgress) {
+                AssistChip(
+                    onClick = {},
+                    label = {
+                        Text(stringResource(R.string.messenger_read_progress_format, message.readCount, message.readTargetCount))
+                    },
+                )
+            }
             Text(
                 text = message.body,
                 style = MaterialTheme.typography.bodyMedium,

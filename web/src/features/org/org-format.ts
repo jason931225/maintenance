@@ -18,6 +18,7 @@ export const ASSIGNABLE_ROLES: readonly Role[] = [
   ROLES.EXECUTIVE,
   ROLES.MECHANIC,
   ROLES.RECEPTIONIST,
+  ROLES.MEMBER,
 ];
 
 export function teamLabel(team: Team): string {

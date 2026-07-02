@@ -38,6 +38,8 @@ import kotlinx.serialization.Contextual
  * @param senderName Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists.
  * @param body
  * @param attachmentEvidenceIds
+ * @param readCount Non-sender thread members whose read receipt has reached this message.
+ * @param readTargetCount Non-sender thread members expected to read this message.
  * @param sentAt
  * @param createdAt
  */
@@ -66,6 +68,14 @@ data class MessengerMessageSummary (
 
     @SerialName(value = "attachment_evidence_ids")
     val attachmentEvidenceIds: kotlin.collections.List<@Contextual java.util.UUID>,
+
+    /* Non-sender thread members whose read receipt has reached this message. */
+    @SerialName(value = "read_count")
+    val readCount: kotlin.Long,
+
+    /* Non-sender thread members expected to read this message. */
+    @SerialName(value = "read_target_count")
+    val readTargetCount: kotlin.Long,
 
     @Contextual @SerialName(value = "sent_at")
     val sentAt: java.time.OffsetDateTime,

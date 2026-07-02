@@ -176,6 +176,9 @@ describe("GroupAdminPage", () => {
     expect(screen.getByText("그룹 전체 운영 지휘")).toBeVisible();
     expect(screen.getAllByText("코스").length).toBeGreaterThan(0);
 
+    await user.click(
+      screen.getByRole("button", { name: "코스 물류·정비 운영 바로가기" }),
+    );
     await user.click(screen.getByRole("button", { name: "코스 전자결제" }));
 
     await waitFor(() => {
@@ -193,25 +196,80 @@ describe("GroupAdminPage", () => {
     );
   });
 
+  it("groups subsidiary module launchers into compact action menus without truncating labels", async () => {
+    const user = userEvent.setup();
+    installHandlers();
+
+    renderPage();
+
+    const identityMenu = await screen.findByRole("button", {
+      name: "코스 계정·권한 바로가기",
+    });
+    expect(identityMenu).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "코스 사용자 관리" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(identityMenu);
+
+    const usersButton = await screen.findByRole("button", {
+      name: "코스 사용자 관리",
+    });
+    expect(usersButton).toBeVisible();
+    expect(usersButton).toHaveTextContent("사용자 관리");
+
+    const assetsMenu = screen.getByRole("button", {
+      name: "코스 장비·영업 바로가기",
+    });
+    expect(assetsMenu).toBeVisible();
+
+    await user.click(assetsMenu);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "코스 장비 설정·일괄작업",
+      }),
+    ).toBeVisible();
+  });
+
   it("exposes the tenant admin module launcher for each subsidiary", async () => {
     const user = userEvent.setup();
     installHandlers();
 
     renderPage();
 
+    await user.click(
+      await screen.findByRole("button", { name: "코스 계정·권한 바로가기" }),
+    );
     expect(
       await screen.findByRole("button", { name: "코스 사용자 관리" }),
     ).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "코스 장비 설정·일괄작업" }),
-    ).toBeVisible();
-    expect(screen.getByRole("button", { name: "코스 메일함" })).toBeVisible();
     expect(
       screen.getByRole("button", { name: "코스 보안 설정" }),
     ).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "코스 권한 정책" }),
     ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "코스 장비·영업 바로가기" }),
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: "코스 장비 설정·일괄작업",
+      }),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "코스 개인/부서 업무 바로가기" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "코스 메일함" }),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "코스 계정·권한 바로가기" }),
+    );
 
     await user.click(screen.getByRole("button", { name: "코스 사용자 관리" }));
 
@@ -256,6 +314,9 @@ describe("GroupAdminPage", () => {
       api: createConsoleApiClient(delegatedSession.access_token),
     });
 
+    await user.click(
+      await screen.findByRole("button", { name: "코스 계정·권한 바로가기" }),
+    );
     expect(
       await screen.findByRole("button", { name: "코스 사용자 관리" }),
     ).toBeVisible();

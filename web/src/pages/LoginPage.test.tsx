@@ -9,6 +9,7 @@ import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
+import { setRefreshCallbacks } from "../api/refresh";
 
 const server = setupServer();
 
@@ -19,6 +20,10 @@ afterEach(() => {
   server.resetHandlers();
   window.history.replaceState(null, "", "/");
   window.sessionStorage.clear();
+  setRefreshCallbacks(
+    () => Promise.reject(new Error("unexpected refresh in LoginPage test")),
+    () => {},
+  );
 });
 afterAll(() => {
   server.close();
@@ -73,6 +78,25 @@ function usePrivacyConsentHandlers(initialAccepted = false) {
         accepted_at: "2026-06-25T00:00:00Z",
       });
     }),
+  );
+}
+
+function phoneQrHandoffResponse(otp = "Abcd1234") {
+  return {
+    otp,
+    expires_at: "2026-06-14T00:05:00Z",
+    enroll_url:
+      `https://console.knllogistic.com/login#otp=${otp}&desktop_approve=mnt_dla_` +
+      "d".repeat(64),
+    poll_token: `mnt_dlp_${"e".repeat(64)}`,
+  };
+}
+
+function usePendingDeviceLoginPoll() {
+  server.use(
+    http.post("*/api/v1/auth/device-login/poll", () =>
+      HttpResponse.json({ status: "pending" }),
+    ),
   );
 }
 
@@ -588,6 +612,164 @@ describe("OnboardingPage enrollment", () => {
     expect(
       screen.queryByRole("button", { name: /보안 키|데스크톱 \+ 휴대폰/ }),
     ).toBeNull();
+  });
+
+  it("mints the phone QR only after required agreements and renders the handoff link", async () => {
+    const user = userEvent.setup();
+    let accepted = false;
+    let handoffCalls = 0;
+    usePendingDeviceLoginPoll();
+    server.use(
+      http.post("*/api/v1/auth/privacy-consent/status", () =>
+        HttpResponse.json({
+          policy_version: "kr-pipa-v1-2026-06-25",
+          accepted,
+          accepted_at: accepted ? "2026-06-25T00:00:00Z" : null,
+        }),
+      ),
+      http.post("*/api/v1/auth/privacy-consent/accept", async ({ request }) => {
+        expect(await request.json()).toMatchObject({
+          privacy_collection: true,
+          terms_of_service: true,
+        });
+        accepted = true;
+        return HttpResponse.json({
+          policy_version: "kr-pipa-v1-2026-06-25",
+          accepted: true,
+          accepted_at: "2026-06-25T00:00:00Z",
+        });
+      }),
+      http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
+        handoffCalls += 1;
+        return HttpResponse.json(phoneQrHandoffResponse());
+      }),
+    );
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: { access_token: "a", requires_passkey_setup: true },
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "필수 개인정보 수집·이용 및 약관 동의",
+        level: 2,
+      }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /휴대폰으로 등록/ })).toBeNull();
+
+    await user.click(screen.getByLabelText(/\[필수\] 개인정보 수집·이용/));
+    await user.click(screen.getByLabelText(/\[필수\] 서비스 이용약관/));
+    await user.click(screen.getByRole("button", { name: "필수 동의 후 계속" }));
+    await user.click(
+      await screen.findByRole("button", { name: /휴대폰으로 등록/ }),
+    );
+
+    const link = await screen.findByRole("link");
+    expect(link).toHaveAttribute("href", phoneQrHandoffResponse().enroll_url);
+    expect(handoffCalls).toBe(1);
+  });
+
+  it("lets the user retry QR generation after a transient handoff failure", async () => {
+    const user = userEvent.setup();
+    let handoffCalls = 0;
+    usePrivacyConsentHandlers(true);
+    usePendingDeviceLoginPoll();
+    server.use(
+      http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
+        handoffCalls += 1;
+        if (handoffCalls === 1) {
+          return HttpResponse.json(
+            { error: { code: "internal", message: "temporary QR failure" } },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json(phoneQrHandoffResponse("Retry123"));
+      }),
+    );
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: { access_token: "a", requires_passkey_setup: true },
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /휴대폰으로 등록/ }),
+    );
+
+    expect(
+      await screen.findByText("QR 코드를 생성하지 못했습니다. 다시 시도하세요."),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "QR 코드 다시 생성" }),
+    );
+
+    const link = await screen.findByRole("link");
+    expect(link).toHaveAttribute(
+      "href",
+      phoneQrHandoffResponse("Retry123").enroll_url,
+    );
+    expect(handoffCalls).toBe(2);
+  });
+
+  it("refreshes a stale bearer before rendering the phone QR registration handoff", async () => {
+    const user = userEvent.setup();
+    const refreshCalled = vi.fn().mockResolvedValue({
+      access_token: "fresh-access",
+    });
+    const onUnauthenticated = vi.fn();
+    setRefreshCallbacks(refreshCalled, onUnauthenticated);
+    let handoffCalls = 0;
+    const authorizationHeaders: string[] = [];
+    usePrivacyConsentHandlers(true);
+    usePendingDeviceLoginPoll();
+    server.use(
+      http.post("*/api/v1/auth/passkey/enroll-handoff", ({ request }) => {
+        handoffCalls += 1;
+        authorizationHeaders.push(request.headers.get("authorization") ?? "");
+        if (handoffCalls === 1) {
+          return HttpResponse.json(
+            { error: { code: "unauthorized", message: "invalid bearer token" } },
+            { status: 401 },
+          );
+        }
+        return HttpResponse.json(phoneQrHandoffResponse("Fresh123"));
+      }),
+    );
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: {
+          access_token: "stale-access",
+          requires_passkey_setup: true,
+        },
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /휴대폰으로 등록/ }),
+    );
+
+    const link = await screen.findByRole("link");
+    expect(link).toHaveAttribute(
+      "href",
+      phoneQrHandoffResponse("Fresh123").enroll_url,
+    );
+    expect(handoffCalls).toBe(2);
+    expect(refreshCalled).toHaveBeenCalledTimes(1);
+    expect(onUnauthenticated).not.toHaveBeenCalled();
+    expect(authorizationHeaders).toEqual([
+      "Bearer stale-access",
+      "Bearer fresh-access",
+    ]);
+    expect(
+      screen.queryByText("QR 코드를 생성하지 못했습니다. 다시 시도하세요."),
+    ).not.toBeInTheDocument();
   });
 
   it("detects phone-QR enrollment completion on the desktop", async () => {

@@ -6,6 +6,7 @@ import type { components } from "@maintenance/api-client-ts";
 import type { AuthSession } from "../../context/auth";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { NOTIFICATION_COUNTS_INVALIDATED } from "../../lib/notification-events";
 import { cn } from "../../lib/utils";
 import {
   FEATURES,
@@ -182,8 +183,13 @@ export function Sidebar({
       if (!ignore) setCounts(next);
     }
     void loadCounts();
+    function reloadCounts() {
+      void loadCounts();
+    }
+    window.addEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadCounts);
     return () => {
       ignore = true;
+      window.removeEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadCounts);
     };
   }, [api, canLoadMailBadge, visibleItemKeys]);
 
