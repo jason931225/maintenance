@@ -1,7 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { PageSpinner } from "./states/PageSpinner";
-import { hasGroupAdminRole, isPendingMember } from "./shell/nav";
+import { hasGrantedConsoleAccess } from "./shell/nav";
 import { useAuth } from "../context/auth";
 
 /**
@@ -57,13 +57,16 @@ export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
     return <Navigate to="/platform" replace />;
   }
 
-  // A just-signed-up tenant user with no role grant yet (empty roles or
-  // `["MEMBER"]`) is default-denied every Feature but Login by the backend, so
-  // every gated destination 403s. Route them to /pending instead of onto a
-  // generic error screen; allow only /pending and their own profile.
+  // A just-signed-up tenant user with no role, group-admin, or runtime feature
+  // grant yet (empty roles or `["MEMBER"]`) is default-denied every Feature but
+  // Login by the backend, so every gated destination 403s. Route them to /pending
+  // instead of onto a generic error screen; allow only /pending and their profile.
   if (
-    isPendingMember(session.roles) &&
-    !hasGroupAdminRole(session.group_roles) &&
+    !hasGrantedConsoleAccess(
+      session.roles,
+      session.group_roles,
+      session.feature_grants,
+    ) &&
     !MEMBER_ALLOWED_PATHS.includes(location.pathname)
   ) {
     return <Navigate to="/pending" replace />;

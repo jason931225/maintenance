@@ -691,6 +691,9 @@ export const ko = {
       "관리자가 권한을 부여할 때까지 기다려 주세요. 권한이 부여되면 콘솔의 기능을 사용할 수 있습니다.",
     contactGuidance: "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
     profileLink: "내 프로필 보기",
+    checkAccess: "권한 다시 확인",
+    checkingAccess: "권한 확인 중",
+    refreshFailed: "권한 상태를 확인하지 못했습니다. 잠시 후 다시 시도하세요.",
   },
   groupAdmin: {
     title: "그룹 관리",

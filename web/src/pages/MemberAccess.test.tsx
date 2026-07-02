@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import userEvent from "@testing-library/user-event";
+import { useState, type ReactNode } from "react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
@@ -143,6 +144,94 @@ describe("MEMBER landing → /pending", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does NOT redirect a MEMBER with runtime feature grants to the pending page", async () => {
+    server.use(
+      http.get("*/api/v1/work-orders", () =>
+        HttpResponse.json({ items: [], total: 0 }),
+      ),
+    );
+
+    renderApp("/dispatch", {
+      access_token: "a",
+      roles: ["MEMBER"],
+      feature_grants: ["work_order_read_all"],
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "배차 보드", level: 1 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "계정이 생성되었습니다" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("re-checks a pending user's token after an admin grants a role", async () => {
+    const user = userEvent.setup();
+    const workOrderAuthHeaders: Array<string | null> = [];
+    server.use(
+      http.get("*/api/v1/work-orders", ({ request }) => {
+        workOrderAuthHeaders.push(request.headers.get("authorization"));
+        return HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 });
+      }),
+      http.get("*/api/v1/support/tickets", () =>
+        HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
+      ),
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({ items: [], total: 0 }),
+      ),
+      http.get("*/api/approval-items", () =>
+        HttpResponse.json({ items: [], total: 0 }),
+      ),
+      http.get("*/api/daily-work-plans", () =>
+        HttpResponse.json({ items: [], total: 0 }),
+      ),
+    );
+
+    function RefreshingApp() {
+      const [session, setSession] = useState<AuthSession | undefined>({
+        access_token: "member",
+        roles: ["MEMBER"],
+      });
+      const ctx: AuthContextValue = {
+        ...makeAuthContext(session),
+        refresh: () => {
+          setSession({
+            access_token: "admin",
+            roles: ["ADMIN"],
+            branches: ["11111111-1111-4111-8111-111111111111"],
+          });
+          return Promise.resolve();
+        },
+      };
+      return (
+        <AuthContext.Provider value={ctx}>
+          <MemoryRouter initialEntries={["/pending"]}>
+            <AppRouter />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+    }
+
+    render(<RefreshingApp />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "계정이 생성되었습니다",
+        level: 1,
+      }),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "권한 다시 확인" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "계정이 생성되었습니다" }),
+    ).not.toBeInTheDocument();
+    expect(workOrderAuthHeaders).toContain("Bearer admin");
+  });
+
   it("does NOT redirect a granted role off /dispatch", async () => {
     server.use(
       http.get("*/api/v1/work-orders", () =>
@@ -230,6 +319,43 @@ describe("Topbar identity", () => {
     // The raw UUID must never appear in the chrome.
     expect(
       screen.queryByText("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides location settings from group-admin-only MEMBER sessions", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/v1/group-admin/groups", () =>
+        HttpResponse.json({
+          groups: [
+            {
+              id: "90000000-0000-4000-8000-000000000001",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [],
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderApp("/settings/group", {
+      access_token: "a",
+      display_name: "그룹관리자",
+      roles: ["MEMBER"],
+      group_roles: ["GROUP_ADMIN"],
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "그룹 관리", level: 1 }),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "사용자 메뉴" }));
+
+    expect(screen.getByRole("menuitem", { name: "토큰 갱신" })).toBeVisible();
+    expect(
+      screen.queryByRole("menuitem", { name: "GPS 위치 동의" }),
     ).not.toBeInTheDocument();
   });
 });
