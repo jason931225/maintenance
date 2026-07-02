@@ -5051,7 +5051,6 @@ E-001,홍길동,본사,2026-07-01,25:99
         );
         Ok(())
     }
-    #[ignore]
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
     async fn attendance_import_resolves_dedups_and_enforces_runtime_guards(
         pool: sqlx::PgPool,
