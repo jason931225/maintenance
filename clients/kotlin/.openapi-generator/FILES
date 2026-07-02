@@ -59,6 +59,14 @@ src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequestAssignmen
 src/main/kotlin/com/maintenance/api/client/model/AssignmentRole.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignmentSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AttachmentStage.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportApplyReport.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportColumn.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportDryRunSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportPreviewResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportPreviewRow.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportRowError.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryItem.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchSummary.kt

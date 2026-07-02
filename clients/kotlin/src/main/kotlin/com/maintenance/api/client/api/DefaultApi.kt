@@ -42,6 +42,10 @@ import com.maintenance.api.client.model.AssetLifecycleCostSummary
 import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
+import com.maintenance.api.client.model.AttendanceImportApplyReport
+import com.maintenance.api.client.model.AttendanceImportDryRunSummary
+import com.maintenance.api.client.model.AttendanceImportPreviewResponse
+import com.maintenance.api.client.model.AttendanceImportSummaryPage
 import com.maintenance.api.client.model.AttendanceSummaryPage
 import com.maintenance.api.client.model.BranchSummary
 import com.maintenance.api.client.model.CalendarEventListResponse
@@ -1628,6 +1632,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/hr/attendance-import/{run_id}/apply
+     * Apply a dry-run direct attendance import as append-only coordinate-free facts
+     * Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
+     * @param runId
+     * @return AttendanceImportApplyReport
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun applyAttendanceImport(runId: java.util.UUID) : AttendanceImportApplyReport = withContext(Dispatchers.IO) {
+        val localVarResponse = applyAttendanceImportWithHttpInfo(runId = runId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceImportApplyReport
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/hr/attendance-import/{run_id}/apply
+     * Apply a dry-run direct attendance import as append-only coordinate-free facts
+     * Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
+     * @param runId
+     * @return ApiResponse<AttendanceImportApplyReport?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun applyAttendanceImportWithHttpInfo(runId: java.util.UUID) : ApiResponse<AttendanceImportApplyReport?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = applyAttendanceImportRequestConfig(runId = runId)
+
+        return@withContext request<Unit, AttendanceImportApplyReport>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation applyAttendanceImport
+     *
+     * @param runId
+     * @return RequestConfig
+     */
+    fun applyAttendanceImportRequestConfig(runId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/hr/attendance-import/{run_id}/apply".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }
@@ -5348,6 +5425,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/hr/attendance-import/{run_id}/dry-run
+     * Resolve employees and branches for a direct attendance import without writing facts
+     *
+     * @param runId
+     * @return AttendanceImportDryRunSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun dryRunAttendanceImport(runId: java.util.UUID) : AttendanceImportDryRunSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = dryRunAttendanceImportWithHttpInfo(runId = runId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceImportDryRunSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/hr/attendance-import/{run_id}/dry-run
+     * Resolve employees and branches for a direct attendance import without writing facts
+     *
+     * @param runId
+     * @return ApiResponse<AttendanceImportDryRunSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun dryRunAttendanceImportWithHttpInfo(runId: java.util.UUID) : ApiResponse<AttendanceImportDryRunSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = dryRunAttendanceImportRequestConfig(runId = runId)
+
+        return@withContext request<Unit, AttendanceImportDryRunSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation dryRunAttendanceImport
+     *
+     * @param runId
+     * @return RequestConfig
+     */
+    fun dryRunAttendanceImportRequestConfig(runId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/hr/attendance-import/{run_id}/dry-run".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/employees/import/{run_id}/dry-run
      * Compute employee import insert/update counts without writing employees
      *
@@ -8272,6 +8422,90 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/location/arrival-events",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/hr/attendance-import/summary
+     * List governed direct attendance import runs
+     * Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source rows.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return AttendanceImportSummaryPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listAttendanceImportSummary(limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : AttendanceImportSummaryPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listAttendanceImportSummaryWithHttpInfo(limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceImportSummaryPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/attendance-import/summary
+     * List governed direct attendance import runs
+     * Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source rows.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<AttendanceImportSummaryPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listAttendanceImportSummaryWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AttendanceImportSummaryPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listAttendanceImportSummaryRequestConfig(limit = limit, offset = offset)
+
+        return@withContext request<Unit, AttendanceImportSummaryPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listAttendanceImportSummary
+     *
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listAttendanceImportSummaryRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/attendance-import/summary",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -11791,6 +12025,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/financial/purchase-requests/attachments/presign",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/hr/attendance-import/preview
+     * Preview a direct attendance workbook or CSV through the governed import ledger
+     * Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in the response, and records coordinate-free attendance facts only after dry-run and apply. Imported rows are lineage for payroll readiness, not payable payroll lines.
+     * @param file The master-list .xlsx workbook.
+     * @return AttendanceImportPreviewResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun previewAttendanceImport(file: java.io.File) : AttendanceImportPreviewResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = previewAttendanceImportWithHttpInfo(file = file)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceImportPreviewResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/hr/attendance-import/preview
+     * Preview a direct attendance workbook or CSV through the governed import ledger
+     * Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in the response, and records coordinate-free attendance facts only after dry-run and apply. Imported rows are lineage for payroll readiness, not payable payroll lines.
+     * @param file The master-list .xlsx workbook.
+     * @return ApiResponse<AttendanceImportPreviewResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun previewAttendanceImportWithHttpInfo(file: java.io.File) : ApiResponse<AttendanceImportPreviewResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = previewAttendanceImportRequestConfig(file = file)
+
+        return@withContext request<Map<String, PartConfig<*>>, AttendanceImportPreviewResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation previewAttendanceImport
+     *
+     * @param file The master-list .xlsx workbook.
+     * @return RequestConfig
+     */
+    fun previewAttendanceImportRequestConfig(file: java.io.File) : RequestConfig<Map<String, PartConfig<*>>> {
+        val localVariableBody = mapOf(
+            "file" to PartConfig(body = file, headers = mutableMapOf()),)
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf("Content-Type" to "multipart/form-data")
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/hr/attendance-import/preview",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

@@ -6,6 +6,9 @@ import { Link } from "react-router-dom";
 import type { ConsoleApiClient } from "../api/client";
 import type {
   AttendanceSummaryPage,
+  AttendanceImportApplyReport,
+  AttendanceImportDryRun,
+  AttendanceImportPreview,
   CreateEmployeeLifecycleEventRequest,
   EmployeeImportDryRun,
   EmployeeLifecycleEvent,
@@ -91,6 +94,21 @@ type EmployeeApi = ConsoleApiClient & {
     path: "/api/v1/employees/import/{run_id}/apply",
     options: { params: { path: { run_id: string } } },
   ): Promise<{ data?: EmployeeImportSummary }>;
+  POST(
+    path: "/api/v1/hr/attendance-import/preview",
+    options: {
+      body: { file: string };
+      bodySerializer: (body: { file: string }) => FormData;
+    },
+  ): Promise<{ data?: AttendanceImportPreview }>;
+  POST(
+    path: "/api/v1/hr/attendance-import/{run_id}/dry-run",
+    options: { params: { path: { run_id: string } } },
+  ): Promise<{ data?: AttendanceImportDryRun }>;
+  POST(
+    path: "/api/v1/hr/attendance-import/{run_id}/apply",
+    options: { params: { path: { run_id: string } } },
+  ): Promise<{ data?: AttendanceImportApplyReport }>;
   POST(
     path: "/api/v1/employees/{id}/lifecycle-events",
     options: {
@@ -295,12 +313,15 @@ export function EmployeesPage() {
         ) : null}
 
         {canImport ? (
-          <EmployeeImportPanel
-            api={employeeApi}
-            onImported={() => {
-              void loadEmployees();
-            }}
-          />
+          <div className="grid gap-5 xl:grid-cols-2">
+            <EmployeeImportPanel
+              api={employeeApi}
+              onImported={() => {
+                void loadEmployees();
+              }}
+            />
+            <AttendanceImportPanel api={employeeApi} />
+          </div>
         ) : null}
       </div>
     </>
@@ -1357,6 +1378,393 @@ function EmployeeImportPanel({
   );
 }
 
+function AttendanceImportPanel({ api }: { api: EmployeeApi }) {
+  const t = ko.employees.attendanceImport;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File>();
+  const [state, setState] = useState<UploadState>("idle");
+  const [preview, setPreview] = useState<AttendanceImportPreview>();
+  const [dryRun, setDryRun] = useState<AttendanceImportDryRun>();
+  const [summary, setSummary] = useState<AttendanceImportApplyReport>();
+
+  async function previewFile() {
+    if (!file) {
+      setState("error");
+      return;
+    }
+    setState("previewing");
+    setPreview(undefined);
+    setDryRun(undefined);
+    setSummary(undefined);
+    const response = await api
+      .POST("/api/v1/hr/attendance-import/preview", {
+        body: { file: file as unknown as string },
+        bodySerializer(body: { file: string }) {
+          const form = new FormData();
+          form.append("file", body.file as unknown as File);
+          return form;
+        },
+      })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    setPreview(response.data);
+    setState("idle");
+  }
+
+  async function dryRunImport() {
+    if (!preview) return;
+    setState("dryRunning");
+    setDryRun(undefined);
+    setSummary(undefined);
+    const response = await api
+      .POST("/api/v1/hr/attendance-import/{run_id}/dry-run", {
+        params: { path: { run_id: preview.run_id } },
+      })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    setDryRun(response.data);
+    setState("idle");
+  }
+
+  async function applyImport() {
+    if (!preview || !dryRun) return;
+    setState("applying");
+    const response = await api
+      .POST("/api/v1/hr/attendance-import/{run_id}/apply", {
+        params: { path: { run_id: preview.run_id } },
+      })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    setSummary(response.data);
+    setState("idle");
+    setFile(undefined);
+    setPreview(undefined);
+    setDryRun(undefined);
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
+  return (
+    <Card className="grid gap-4">
+      <div>
+        <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+        <p className="text-sm text-steel">{t.description}</p>
+      </div>
+      {state === "error" ? (
+        <p role="alert" className="text-sm font-semibold text-red-700">
+          {file ? t.failed : t.noFile}
+        </p>
+      ) : null}
+      <div className="grid gap-2">
+        <label
+          className="text-sm font-medium text-steel"
+          htmlFor="attendance-import-file"
+        >
+          {t.fileLabel}
+        </label>
+        <input
+          ref={inputRef}
+          id="attendance-import-file"
+          data-testid="attendance-import-file"
+          type="file"
+          accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+          className="text-sm text-steel"
+          onChange={(event) => {
+            setFile(event.currentTarget.files?.[0]);
+            setState("idle");
+            setPreview(undefined);
+            setDryRun(undefined);
+            setSummary(undefined);
+          }}
+        />
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button
+          type="button"
+          disabled={!file || state === "previewing"}
+          onClick={() => {
+            void previewFile();
+          }}
+        >
+          <Upload aria-hidden="true" size={16} />
+          {state === "previewing" ? t.previewing : t.preview}
+        </Button>
+      </div>
+      {preview ? (
+        <AttendanceImportPreviewPanel
+          preview={preview}
+          dryRun={dryRun}
+          state={state}
+          onDryRun={() => {
+            void dryRunImport();
+          }}
+          onApply={() => {
+            void applyImport();
+          }}
+        />
+      ) : null}
+      {dryRun ? <AttendanceImportDryRunSummaryView summary={dryRun} /> : null}
+      {summary ? <AttendanceImportApplySummary summary={summary} /> : null}
+    </Card>
+  );
+}
+
+function AttendanceImportPreviewPanel({
+  preview,
+  dryRun,
+  state,
+  onDryRun,
+  onApply,
+}: {
+  preview: AttendanceImportPreview;
+  dryRun?: AttendanceImportDryRun;
+  state: UploadState;
+  onDryRun: () => void;
+  onApply: () => void;
+}) {
+  const t = ko.employees.attendanceImport.previewPanel;
+  const mappingCounts = attendanceImportMappingCounts(preview.columns);
+  return (
+    <section className="grid gap-3 rounded-lg border border-line bg-muted-panel/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-ink">{t.title}</h3>
+          <p className="text-sm text-steel">
+            {preview.source_filename} · {t.hash}{" "}
+            <code className="font-mono text-xs">
+              {preview.source_sha256.slice(0, 12)}
+            </code>
+          </p>
+          <p className="mt-1 text-xs font-semibold text-emerald-800">
+            {t.payrollLineageOnly}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={state === "dryRunning"}
+            onClick={onDryRun}
+          >
+            {state === "dryRunning" ? t.dryRunning : t.dryRun}
+          </Button>
+          <Button
+            type="button"
+            disabled={!dryRun || dryRun.error_rows > 0 || state === "applying"}
+            onClick={onApply}
+          >
+            {state === "applying" ? t.applying : t.apply}
+          </Button>
+        </div>
+      </div>
+      <dl
+        aria-label={t.mappingSummary}
+        className="grid gap-2 text-sm sm:grid-cols-3"
+      >
+        {(
+          [
+            [t.mappedColumns, mappingCounts.canonical, "bg-emerald-50 text-emerald-800"],
+            [t.maskedColumns, mappingCounts.restricted, "bg-amber-50 text-amber-800"],
+            [t.rawOnlyColumns, mappingCounts.retained, "bg-slate-100 text-slate-800"],
+          ] as const
+        ).map(([label, value, className]) => (
+          <div key={label} className="rounded border border-line bg-white p-3">
+            <dt className="text-xs font-semibold text-steel">{label}</dt>
+            <dd
+              className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${className}`}
+            >
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <dl className="grid gap-2 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="font-semibold text-steel">{t.inputRows}</dt>
+          <dd className="text-ink">{preview.input_rows}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.candidateRows}</dt>
+          <dd className="text-ink">{preview.candidate_rows}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.preservedRows}</dt>
+          <dd className="text-ink">{preview.preserved_rows}</dd>
+        </div>
+      </dl>
+      <div className="overflow-x-auto rounded-lg border border-line bg-white">
+        <table className="min-w-full divide-y divide-line text-sm">
+          <thead className="bg-muted-panel/60 text-left text-xs font-semibold uppercase tracking-wide text-steel">
+            <tr>
+              <th className="px-3 py-2">{t.sourceColumn}</th>
+              <th className="px-3 py-2">{t.targetField}</th>
+              <th className="px-3 py-2">{t.policy}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {preview.columns.map((column) => (
+              <tr key={column.normalized_header}>
+                <td className="px-3 py-2 font-medium text-ink">
+                  {column.source_header || column.normalized_header}
+                </td>
+                <td className="px-3 py-2 text-steel">
+                  <span className="font-medium text-ink">
+                    {attendanceImportTargetLabel(column.target)}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <span
+                    className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${attendanceImportPolicyClass(column.classification)}`}
+                  >
+                    {attendanceImportPolicyLabel(column.classification)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-line bg-white">
+        <table className="min-w-full divide-y divide-line text-sm">
+          <thead className="bg-muted-panel/60 text-left text-xs font-semibold uppercase tracking-wide text-steel">
+            <tr>
+              <th className="px-3 py-2">{t.row}</th>
+              <th className="px-3 py-2">{t.status}</th>
+              {preview.columns.slice(0, 8).map((column) => (
+                <th key={column.normalized_header} className="px-3 py-2">
+                  {column.normalized_header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {preview.sample_rows.map((row) => (
+              <tr key={`${row.source_sheet}-${String(row.source_row)}`}>
+                <td className="px-3 py-2 font-medium text-ink">
+                  {row.source_sheet} #{row.source_row}
+                </td>
+                <td className="px-3 py-2 text-steel">{row.row_status}</td>
+                {preview.columns.slice(0, 8).map((column) => (
+                  <td
+                    key={column.normalized_header}
+                    className="px-3 py-2 text-steel"
+                  >
+                    {textValue(row.values[column.normalized_header])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+type AttendanceImportColumn = AttendanceImportPreview["columns"][number];
+
+function attendanceImportMappingCounts(columns: AttendanceImportColumn[]) {
+  return columns.reduce(
+    (counts, column) => {
+      counts[column.classification] += 1;
+      return counts;
+    },
+    { canonical: 0, restricted: 0, retained: 0 },
+  );
+}
+
+function attendanceImportTargetLabel(
+  target: AttendanceImportColumn["target"],
+): string {
+  if (!target) return ko.employees.attendanceImport.previewPanel.rawOnly;
+  const { targetLabels } = ko.employees.attendanceImport.previewPanel;
+  return targetLabels[target];
+}
+
+function attendanceImportPolicyLabel(classification: string): string {
+  const t = ko.employees.attendanceImport.previewPanel;
+  if (classification === "canonical") return t.previewAllowed;
+  if (classification === "restricted") return t.masked;
+  return t.rawOnly;
+}
+
+function attendanceImportPolicyClass(classification: string): string {
+  if (classification === "canonical") return "bg-emerald-50 text-emerald-800";
+  if (classification === "restricted") return "bg-amber-50 text-amber-800";
+  return "bg-slate-100 text-slate-800";
+}
+
+function AttendanceImportDryRunSummaryView({
+  summary,
+}: {
+  summary: AttendanceImportDryRun;
+}) {
+  const t = ko.employees.attendanceImport.dryRun;
+  const rows: Array<[string, number]> = [
+    [t.readyRows, summary.ready_rows],
+    [t.errorRows, summary.error_rows],
+    [t.duplicateRows, summary.duplicate_rows],
+    [t.missingEmployeeRows, summary.missing_employee_rows],
+    [t.ambiguousEmployeeRows, summary.ambiguous_employee_rows],
+  ];
+  return (
+    <div className="grid gap-3 rounded-md border border-line bg-muted-panel p-3 text-sm">
+      <dl className="grid gap-2 sm:grid-cols-5">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt className="font-semibold text-steel">{label}</dt>
+            <dd className="text-ink">{String(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      {summary.row_errors.length > 0 ? (
+        <ul className="grid gap-1 text-xs text-red-700">
+          {summary.row_errors.slice(0, 5).map((error) => (
+            <li key={`${error.source_sheet}-${String(error.source_row)}-${error.code}`}>
+              {error.source_sheet} #{error.source_row} · {error.code}:{" "}
+              {error.message}
+            </li>
+          ))}
+          {summary.row_errors.length > 5 ? (
+            <li>{t.moreRowErrors(summary.row_errors.length - 5)}</li>
+          ) : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function AttendanceImportApplySummary({
+  summary,
+}: {
+  summary: AttendanceImportApplyReport;
+}) {
+  const t = ko.employees.attendanceImport.summary;
+  const rows: Array<[string, number]> = [
+    [t.inserted, summary.inserted],
+    [t.skipped, summary.skipped],
+    [t.errors, summary.error_rows],
+  ];
+
+  return (
+    <dl className="grid gap-2 rounded-md border border-line bg-muted-panel p-3 text-sm sm:grid-cols-3">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <dt className="font-semibold text-steel">{label}</dt>
+          <dd className="text-ink">{String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 function ImportPreview({
   preview,
   dryRun,
