@@ -123,6 +123,20 @@ describe("AppShell navigation fabric", () => {
     ).toBeVisible();
   });
 
+  it("renders the personal department group before restricted operations and assets", () => {
+    renderShell(["ADMIN"]);
+
+    const nav = screen.getByRole("navigation", { name: "메인 내비게이션" });
+    const groupLabels = within(nav)
+      .getAllByText(/개인\/부서 업무|물류·정비 운영|장비·영업/)
+      .map((node) => node.textContent);
+    expect(groupLabels).toEqual([
+      "개인/부서 업무",
+      "물류·정비 운영",
+      "장비·영업",
+    ]);
+  });
+
   it("surfaces privileged commands only to permitted roles", () => {
     renderShell(["SUPER_ADMIN"]);
 
