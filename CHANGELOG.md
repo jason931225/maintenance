@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.35](https://github.com/jason931225/maintenance/compare/v0.1.34...v0.1.35) (2026-07-02)
+
+
+### Bug Fixes
+
+* **security:** unblock quick-xml RUSTSEC audit ([#151](https://github.com/jason931225/maintenance/issues/151)) ([9619e4d](https://github.com/jason931225/maintenance/commit/9619e4d7b2377badd1e37f1c961acd2b4295c19e))
+
 ## [0.1.34](https://github.com/jason931225/maintenance/compare/v0.1.33...v0.1.34) (2026-07-02)
 
 
