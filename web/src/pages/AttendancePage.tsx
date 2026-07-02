@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type {
-  CreateEmployeeAttendanceRecordRequest,
-  EmployeeAttendanceRecord,
-} from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageEmpty } from "../components/states/PageEmpty";
@@ -23,7 +19,31 @@ const ATTENDANCE_KINDS = [
 ] as const;
 
 type AttendanceKind = (typeof ATTENDANCE_KINDS)[number];
+type AttendanceState =
+  | "CLOCKED_IN"
+  | "OUT_FOR_WORK"
+  | "BUSINESS_TRIP"
+  | "OFF_DUTY";
 type ReadState = "loading" | "idle" | "error";
+type ApiResult<T> = { data?: T; response: Response };
+
+interface CreateEmployeeAttendanceRecordRequest {
+  kind: AttendanceKind;
+  idempotency_key: string;
+}
+
+interface EmployeeAttendanceRecord {
+  id: string;
+  kind: AttendanceKind;
+  occurred_at: string;
+  state_after: AttendanceState;
+  payroll_material_ref_id: string;
+  duplicate: boolean;
+}
+
+interface EmployeeAttendanceRecordPage {
+  items: EmployeeAttendanceRecord[];
+}
 
 interface RecordFailure {
   kind: AttendanceKind;
@@ -44,17 +64,17 @@ export function AttendancePage() {
     setState("loading");
     setStatus(undefined);
     let failureStatus: number | undefined;
-    const response = await api
+    const response = (await api
       .GET("/api/v1/hr/attendance-records/me", {
         params: { query: { limit: 50, offset: 0 } },
       })
       .catch((error: unknown) => {
         failureStatus = errorStatus(error);
         return undefined;
-      });
+      })) as ApiResult<EmployeeAttendanceRecordPage> | undefined;
 
-    if (!response?.data) {
-      setStatus(response?.response.status ?? failureStatus);
+    if (response?.data === undefined) {
+      setStatus(response ? response.response.status : failureStatus);
       setState("error");
       return;
     }
@@ -90,19 +110,19 @@ export function AttendancePage() {
       setRecordFailure(undefined);
       setReplayedRecordId(undefined);
 
-      const response = await api
+      const response = (await api
         .POST("/api/v1/hr/attendance-records/me", { body })
         .catch((error: unknown) => {
           failureStatus = errorStatus(error);
           return undefined;
-        });
+        })) as ApiResult<EmployeeAttendanceRecord> | undefined;
       setAction(undefined);
 
-      if (!response?.data) {
+      if (response?.data === undefined) {
         setRecordFailure({
           kind,
           idempotencyKey,
-          status: response?.response.status ?? failureStatus,
+          status: response ? response.response.status : failureStatus,
         });
         return;
       }
