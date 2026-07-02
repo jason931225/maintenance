@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+* **auth:** refresh stale bearer for QR handoff ([#130](https://github.com/jason931225/maintenance/issues/130)) ([ea1000a](https://github.com/jason931225/maintenance/commit/ea1000a6f3e87a6609da675f8f138485d487a0f2))
 * **authz:** restrict org-wide built-in roles ([78d42f4](https://github.com/jason931225/maintenance/commit/78d42f43d5dc4674683142e789adb944c0936e10))
 * **web:** unblock granted pending members ([b408208](https://github.com/jason931225/maintenance/commit/b408208fa5f956d4bcbb6282b6a8f376899ba67c))
 
