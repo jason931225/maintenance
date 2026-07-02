@@ -2,6 +2,7 @@ import { chmodSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hasJava, hasRunningDocker } from "./lib/toolchain-checks.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const projectDir = resolve(root, "clients/kotlin");
@@ -18,13 +19,6 @@ function run(command, args, options = {}) {
   }
 }
 
-function hasJava() {
-  return spawnSync("java", ["-version"], { stdio: "ignore" }).status === 0;
-}
-
-function hasRunningDocker() {
-  return spawnSync("docker", ["info"], { stdio: "ignore", timeout: 10_000 }).status === 0;
-}
 
 if (!existsSync(gradlew)) {
   throw new Error("clients/kotlin/gradlew is missing; run npm run gen:api:kotlin first");

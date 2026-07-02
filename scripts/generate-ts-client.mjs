@@ -20,21 +20,35 @@ function run(command, args, options = {}) {
   }
 }
 
+function removeBackupBestEffort(backupDir) {
+  try {
+    rmSync(backupDir, { recursive: true, force: true });
+  } catch (error) {
+    console.warn(`Warning: failed to remove previous TypeScript client backup ${backupDir}: ${error.message}`);
+  }
+}
+
 function replaceFileFromStaging(stagingFile, targetFile) {
   mkdirSync(dirname(targetFile), { recursive: true });
-  const backupFile = resolve(stagingRoot, `schema-${process.pid}-${Date.now()}.d.ts.previous`);
+  const backupDir = mkdtempSync(resolve(stagingRoot, "ts-previous-"));
+  const backupFile = resolve(backupDir, "schema.d.ts.previous");
+  let swapped = false;
 
   try {
     if (existsSync(targetFile)) {
       renameSync(targetFile, backupFile);
     }
     renameSync(stagingFile, targetFile);
-    rmSync(backupFile, { force: true });
+    swapped = true;
   } catch (error) {
     if (!existsSync(targetFile) && existsSync(backupFile)) {
       renameSync(backupFile, targetFile);
     }
     throw error;
+  } finally {
+    if (swapped) {
+      removeBackupBestEffort(backupDir);
+    }
   }
 }
 
@@ -48,8 +62,6 @@ try {
     throw new Error("TypeScript client generation did not produce clients/ts/src/schema.d.ts");
   }
   replaceFileFromStaging(stagingFile, outputFile);
-} catch (error) {
-  throw error;
 } finally {
   rmSync(stagingDir, { recursive: true, force: true });
 }

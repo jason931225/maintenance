@@ -12,6 +12,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hasJava, hasRunningDocker } from "./lib/toolchain-checks.mjs";
 
 const generatorVersion = "7.23.0";
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -32,17 +33,6 @@ function run(command, args, options = {}) {
   }
 }
 
-function hasJava() {
-  return spawnSync("java", ["-version"], { stdio: "ignore" }).status === 0;
-}
-
-function hasRunningDocker() {
-  // `docker info` exits non-zero (and prints to stderr) when the CLI is present
-  // but no daemon is reachable. spawnSync.status is null when `docker` itself is
-  // not installed (ENOENT) — treat both as "no usable Docker". The timeout keeps
-  // a wedged daemon socket from stalling the preflight indefinitely.
-  return spawnSync("docker", ["info"], { stdio: "ignore", timeout: 10_000 }).status === 0;
-}
 
 function normalizeGeneratedTextFiles(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -73,21 +63,34 @@ function dockerPath(path) {
   return `/workspace/${relative(root, path).split(sep).join("/")}`;
 }
 
+function removeBackupBestEffort(backupDir) {
+  try {
+    rmSync(backupDir, { recursive: true, force: true });
+  } catch (error) {
+    console.warn(`Warning: failed to remove previous Kotlin client backup ${backupDir}: ${error.message}`);
+  }
+}
+
 function replaceDirectoryFromStaging(stagingDir, targetDir) {
   const backupDir = mkdtempSync(resolve(stagingRoot, "kotlin-previous-"));
   rmSync(backupDir, { recursive: true, force: true });
+  let swapped = false;
 
   try {
     if (existsSync(targetDir)) {
       renameSync(targetDir, backupDir);
     }
     renameSync(stagingDir, targetDir);
-    rmSync(backupDir, { recursive: true, force: true });
+    swapped = true;
   } catch (error) {
     if (!existsSync(targetDir) && existsSync(backupDir)) {
       renameSync(backupDir, targetDir);
     }
     throw error;
+  } finally {
+    if (swapped) {
+      removeBackupBestEffort(backupDir);
+    }
   }
 }
 
