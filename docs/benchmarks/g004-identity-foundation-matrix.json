@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "goalId": "G004-identity-group-org-people-policy-fou",
-  "updatedAt": "2026-06-30",
+  "updatedAt": "2026-07-02",
   "purpose": "Machine-readable identity/group/org/people/policy foundation contract for the platform-maturity ultragoal. This gate proves repo-local implementation, tests, route ownership, RLS/audit/passkey contracts, and no-false-live-claim evidence before downstream domain lanes depend on identity foundations.",
   "nonClaimPolicy": "G004 may prove local contract and regression coverage. Live rollout, production screenshot/trace closure, and Argo evidence remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a blocker for rollout claims, not as live closure.",
   "routePaths": [
@@ -100,6 +100,12 @@
       "routeGroup": "people",
       "mustContainOwnerGoal": "G004",
       "requiredStory": "employee lifecycle covers onboard/offboard/terminate/transfer with signoffs and policy-bound sensitive fields"
+    },
+    {
+      "path": "/payroll",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "HR and payroll owners review registered employee, mobile or PC attendance, leave, approval, and legal-gated payroll readiness without exposing unauthorized sensitive fields"
     },
     {
       "path": "/settings/policy",

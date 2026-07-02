@@ -473,7 +473,7 @@ export const NAV_GROUPS = [
     label: "nav.groups.finance",
     items: [
       // Payroll readiness is high-sensitivity: expose only the audited HR read
-      // path for now, not payable payroll issuance.
+      // path and legal-blocked planning state for now, not payable payroll issuance.
       {
         key: "payroll",
         href: "/payroll",
