@@ -121,6 +121,9 @@ const EquipmentManagePage = lazy(() =>
 const FinancialPage = lazy(() =>
   import("./pages/FinancialPage").then((m) => ({ default: m.FinancialPage })),
 );
+const PayrollPage = lazy(() =>
+  import("./pages/PayrollPage").then((m) => ({ default: m.PayrollPage })),
+);
 const EmployeesPage = lazy(() =>
   import("./pages/EmployeesPage").then((m) => ({ default: m.EmployeesPage })),
 );
@@ -354,6 +357,9 @@ export function AppRouter() {
           </Route>
           <Route element={<RequireNavItemRoute itemKey="financial" />}>
             <Route path="/financial" element={<FinancialPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="payroll" />}>
+            <Route path="/payroll" element={<PayrollPage />} />
           </Route>
           <Route
             path="/settings"

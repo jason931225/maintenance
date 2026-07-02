@@ -200,6 +200,53 @@ const server = setupServer(
   http.get("*/api/v1/users", () =>
     HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
   ),
+  http.get("*/api/v1/employees", () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: "employee-1",
+          name: "김현장",
+          company: "베스텍",
+          employee_number: "B-001",
+          org_unit: "물류팀",
+          worksite_name: "인천센터",
+          job: "정비",
+          position: "대리",
+          hire_date: "2024-01-02",
+          exit_date: null,
+          status: "ACTIVE",
+          leave_remaining: "7.5",
+          identity_resolution_strategy: "employee_number",
+          identity_resolution_confidence: "high",
+          identity_review_required: false,
+          identity_name_only_merge: false,
+        },
+      ],
+      limit: 1000,
+      offset: 0,
+      total: 1,
+    }),
+  ),
+  http.get("*/api/v1/hr/attendance-summary", () =>
+    HttpResponse.json({
+      items: [
+        {
+          user_id: "user-1",
+          display_name: "김현장",
+          arrivals: 3,
+          departures: 2,
+          last_kind: "ARRIVAL",
+          last_event_at: "2026-07-01T08:00:00Z",
+        },
+      ],
+      limit: 1000,
+      offset: 0,
+      total: 1,
+    }),
+  ),
+  http.get("*/api/v1/hr/readiness-summary", () =>
+    HttpResponse.json(hrReadinessSummary),
+  ),
   http.get("*/api/v1/location/arrival-events", () =>
     HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
   ),
@@ -336,6 +383,44 @@ const opsSummary = {
   active_substitutions: 1,
   pending_approvals: 2,
   open_support_tickets: 4,
+};
+
+const hrReadinessSummary = {
+  imports: {
+    runs: 2,
+    applied_runs: 1,
+    input_rows: 14,
+    candidate_rows: 2,
+    preserved_rows: 12,
+    ledger_rows: 14,
+    latest_import_at: "2026-07-01T12:00:00Z",
+  },
+  payroll: {
+    draft_runs: 1,
+    blocked_runs: 1,
+    calculation_enabled_runs: 0,
+    draft_lines: 2,
+    payroll_source_rows: 8,
+    attendance_source_rows: 4,
+    attendance_event_links: 3,
+    gross_pay_source_lines: 1,
+    net_pay_source_lines: 1,
+    latest_status: "BLOCKED_LEGAL_GATE",
+    latest_source_label: "COSS Group 2026-06 payroll import",
+    latest_period_start: "2026-06-01",
+    latest_period_end: "2026-06-30",
+    latest_updated_at: "2026-07-01T13:00:00Z",
+  },
+  annual_leave: {
+    obligations: 2,
+    usage_promotion_required: 1,
+    payout_review_required: 0,
+    needs_review: 1,
+    remaining_days: "7.5",
+  },
+  attendance: {
+    durable_events: 5,
+  },
 };
 
 function renderAt(
@@ -573,6 +658,17 @@ describe("routing", () => {
         level: 1,
       }),
     ).toBeVisible();
+  });
+
+  it("renders /payroll page", async () => {
+    renderAt("/payroll", adminSession);
+    expect(
+      await screen.findByRole("heading", { name: "급여 준비", level: 1 }),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "급여 산출 준비도" }),
+    ).toBeVisible();
+    expect(screen.getByText("COSS Group 2026-06 payroll import")).toBeVisible();
   });
 
   it("renders /messenger page", async () => {

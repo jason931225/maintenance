@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   CalendarClock,
   CalendarDays,
+  Calculator,
   CheckSquare,
   ClipboardList,
   Inbox,
@@ -247,6 +248,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
+  ["payroll", EMPLOYEE_DIRECTORY_ROLES],
   ["security", ADMIN_ROLES],
   // Legacy external-account configuration is intentionally hidden. Corporate
   // mailbox hosting is platform-operated; admins manage domains/mailboxes, not
@@ -286,6 +288,7 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["intelligence", [FEATURES.KPI_READ]],
   ["mail", [FEATURES.MAIL_USE]],
   ["employees", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["payroll", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["policy", [FEATURES.ROLE_MANAGE]],
   ["workflows", [FEATURES.ROLE_MANAGE]],
   ["equipment", [FEATURES.WORK_ORDER_READ_ALL]],
@@ -469,9 +472,14 @@ export const NAV_GROUPS = [
     key: "finance",
     label: "nav.groups.finance",
     items: [
-      // Finance/procurement now. Payroll remains a separate high-sensitivity
-      // domain in the product architecture and must not be mislabeled here until
-      // the payroll module exists.
+      // Payroll readiness is high-sensitivity: expose only the audited HR read
+      // path for now, not payable payroll issuance.
+      {
+        key: "payroll",
+        href: "/payroll",
+        labelKey: "nav.payroll",
+        Icon: Calculator,
+      },
       {
         key: "financial",
         href: "/financial",

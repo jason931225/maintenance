@@ -25,6 +25,7 @@ export const ko = {
     equipment: "장비 조회",
     "equipment-manage": "장비 설정·일괄작업",
     catalog: "판매·문의 관리",
+    payroll: "급여 준비",
     financial: "구매·정산",
     integrity: "이상 징후 검토",
     location: "GPS 위치 동의",
@@ -47,6 +48,113 @@ export const ko = {
       identity: "계정·권한",
       settings: "설정",
     },
+  },
+  payroll: {
+    title: "급여 준비",
+    description:
+      "등록 인원, 출퇴근 사실, 연차 의무, 급여 원천을 한 화면에서 확인하고 KPI·전자결재 연동 상태를 점검합니다.",
+    loadFailed: "급여 준비 데이터를 불러오지 못했습니다.",
+    status: {
+      enabled: "산출 준비 가능",
+      blocked: "법적 검토 게이트 차단",
+      noRun: "급여준비 실행 없음",
+    },
+    summary: {
+      employees: "등록 인원",
+      activeEmployees: "재직 인원",
+      payrollDraftLines: "급여준비 라인",
+      payrollSourceRows: "급여 원천 행",
+      attendanceRows: "근태 원천 행",
+      durableAttendance: "출퇴근 사실",
+      annualLeave: "연차 의무",
+      reviewNeeds: "검토 필요",
+    },
+    sections: {
+      readiness: "급여 산출 준비도",
+      readinessDescription:
+        "현재 구현된 원장·근태·연차·급여준비 테이블을 기준으로 민감한 금액 원문 없이 집계합니다.",
+      flow: "급여 데이터 흐름",
+      flowDescription:
+        "모바일 앱과 PC웹에서 쌓이는 출퇴근·전자결재 사실이 급여 산출과 KPI로 이어지는 운영 경로입니다.",
+      plan: "구현 계획",
+      planDescription:
+        "지금 보이는 수치가 실제 지급 급여 계산으로 확장될 때 필요한 연결 순서입니다.",
+    },
+    fields: {
+      latestSource: "최근 급여 원천",
+      period: "대상 기간",
+      latestImport: "최근 원장 반영",
+      latestPayrollUpdate: "최근 급여준비 갱신",
+      attendanceUsers: "근태 사용자",
+      attendanceLinks: "근태 연결",
+      grossLines: "총지급 원천",
+      netLines: "실지급 원천",
+      leavePromotion: "사용촉진 필요",
+      payoutReview: "수당·정산 검토",
+      blockedRuns: "차단 실행",
+    },
+    actions: {
+      employees: "직원 원장 보기",
+      approvals: "전자결재 보기",
+      kpi: "KPI 보기",
+      workflows: "워크플로 설계",
+      unavailable: "권한 필요",
+    },
+    units: {
+      rows: "행",
+      cases: "건",
+      lines: "라인",
+      people: "명",
+    },
+    flowItems: {
+      employeeLedger: {
+        title: "등록 인원 원장",
+        description:
+          "직원번호·소속·입퇴사·연차 기준이 급여 산출의 인원 기준점입니다.",
+      },
+      attendanceCapture: {
+        title: "모바일·PC 출퇴근",
+        description:
+          "핸드폰 앱과 PC웹에서 등록 인원이 출퇴근하면 근태 사실로 누적되고 급여 원천과 연결됩니다.",
+      },
+      approvalAdjustments: {
+        title: "휴가·연차·외출·출장 전자결재",
+        description:
+          "승인된 부재·출장 흐름은 근무시간 조정, 연차 차감, 수당 검토, KPI 예외 처리의 근거가 됩니다.",
+      },
+      calculationLock: {
+        title: "급여 산출 잠금",
+        description:
+          "법정요율·통상임금·공제·마감 승인이 확정되기 전에는 지급 가능한 급여로 열지 않습니다.",
+      },
+      kpiFeedback: {
+        title: "KPI 반영",
+        description:
+          "근태 누락, 초과근무, 휴가 사용, 인력 가동률은 KPI와 운영 인사이트의 입력값으로 연결됩니다.",
+      },
+    },
+    planItems: [
+      {
+        title: "출퇴근 입력 표준화",
+        description:
+          "모바일 앱과 PC웹의 출근·퇴근·외근·출장 입력을 동일한 근태 사실 테이블과 감사 로그로 기록합니다.",
+      },
+      {
+        title: "전자결재 객체 연결",
+        description:
+          "휴가, 연차, 외출, 출장 결재가 승인되면 급여 기간의 근무시간·유급/무급·KPI 예외 값으로 반영합니다.",
+      },
+      {
+        title: "급여 산출 엔진",
+        description:
+          "급여 기간 잠금, 통상임금, 초과근무, 4대보험·세액 공제, 지급/공제 라인을 검토 후 확정합니다.",
+      },
+      {
+        title: "KPI·보고서 반영",
+        description:
+          "인건비, 가동률, 결근/지각, 휴가 사용률, 부서별 인력 부하를 KPI와 보고서 원천으로 연결합니다.",
+      },
+    ],
   },
   intelligence: {
     title: "운영 인텔리전스",

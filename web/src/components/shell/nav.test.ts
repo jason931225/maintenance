@@ -55,6 +55,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment",
     "equipment-manage",
     "catalog",
+    "payroll",
     "financial",
     "org",
     "sites",
@@ -85,6 +86,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment",
     "equipment-manage",
     "catalog",
+    "payroll",
     "financial",
     "org",
     "sites",
@@ -111,6 +113,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "integrity",
     "equipment",
     "equipment-manage",
+    "payroll",
     "financial",
     "location",
     "employees",
@@ -254,6 +257,19 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("employees", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
+  it("shows payroll readiness to employee-directory readers only", () => {
+    expect(isNavItemVisible("payroll", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.EXECUTIVE])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("payroll", [ROLES.RECEPTIONIST])).toBe(false);
+    expect(
+      isNavItemVisible("payroll", [ROLES.MEMBER], undefined, [
+        FEATURES.EMPLOYEE_DIRECTORY_READ,
+      ]),
+    ).toBe(true);
+  });
+
   it("shows user and org management only to ADMIN and SUPER_ADMIN", () => {
     for (const key of ["users", "org", "sites"]) {
       expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
@@ -355,6 +371,7 @@ describe("nav role gating", () => {
         "reporting",
         "equipment",
         "financial",
+        "payroll",
         "location",
         "employees",
         "group",

@@ -41,6 +41,44 @@ const emptyConsentStatus = {
   updated_at: "2026-06-12T00:00:00Z",
 };
 
+const emptyHrReadinessSummary = {
+  imports: {
+    runs: 0,
+    applied_runs: 0,
+    input_rows: 0,
+    candidate_rows: 0,
+    preserved_rows: 0,
+    ledger_rows: 0,
+    latest_import_at: null,
+  },
+  payroll: {
+    draft_runs: 0,
+    blocked_runs: 0,
+    calculation_enabled_runs: 0,
+    draft_lines: 0,
+    payroll_source_rows: 0,
+    attendance_source_rows: 0,
+    attendance_event_links: 0,
+    gross_pay_source_lines: 0,
+    net_pay_source_lines: 0,
+    latest_status: null,
+    latest_source_label: null,
+    latest_period_start: null,
+    latest_period_end: null,
+    latest_updated_at: null,
+  },
+  annual_leave: {
+    obligations: 0,
+    usage_promotion_required: 0,
+    payout_review_required: 0,
+    needs_review: 0,
+    remaining_days: "0",
+  },
+  attendance: {
+    durable_events: 0,
+  },
+};
+
 const me = {
   id: USER_ID,
   display_name: "Cold Start Admin",
@@ -98,6 +136,15 @@ const server = setupServer(
   ),
   http.get("*/api/v1/users", () =>
     HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
+  ),
+  http.get("*/api/v1/employees", () =>
+    HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
+  ),
+  http.get("*/api/v1/hr/attendance-summary", () =>
+    HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
+  ),
+  http.get("*/api/v1/hr/readiness-summary", () =>
+    HttpResponse.json(emptyHrReadinessSummary),
   ),
   http.get("*/api/v1/inspections/schedules", () =>
     HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
@@ -227,6 +274,16 @@ describe("every page renders cleanly against an empty backend", () => {
       );
     });
   }
+
+  it("renders /payroll with zero readiness counts and no crash", async () => {
+    renderAt("/payroll");
+    expect(
+      await screen.findByRole("heading", { name: "급여 준비", level: 1 }),
+    ).toBeVisible();
+    expect(await screen.findByText("급여 산출 준비도")).toBeVisible();
+    expect(await screen.findByText("법적 검토 게이트 차단")).toBeVisible();
+    await waitForNetworkIdle();
+  });
 
   it("renders /equipment (no data assumed) without crashing", async () => {
     renderAt("/equipment");
