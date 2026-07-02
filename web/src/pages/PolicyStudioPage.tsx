@@ -64,6 +64,7 @@ type PolicyAssignmentPreviewRollup = {
 const DEFAULT_PERMISSION: PermissionLevel = "allow";
 const DEFAULT_CONDITION_ATTRIBUTE = "department";
 const DEFAULT_CONDITION_OPERATOR: PolicyConditionOperator = "equals";
+const DEFERRED_INTEGRATION_FEATURE_KEYS = new Set(["ai_assist"]);
 
 const CONDITION_ATTRIBUTES = [
   "group",
@@ -179,9 +180,13 @@ export function PolicyStudioPage() {
     void Promise.resolve().then(load);
   }, [load]);
 
-  const assignableFeatures = useMemo(
-    () => features.filter((feature) => !feature.elevated),
+  const visibleFeatures = useMemo(
+    () => features.filter(isPolicyStudioVisibleFeature),
     [features],
+  );
+  const assignableFeatures = useMemo(
+    () => visibleFeatures.filter((feature) => !feature.elevated),
+    [visibleFeatures],
   );
   const lockedStatusRoleId = statusChangingRoleId ?? statusPreview?.role_id;
 
@@ -576,7 +581,7 @@ export function PolicyStudioPage() {
             {readState === "loading" && features.length === 0 ? (
               <SkeletonTable rows={6} cols={3} />
             ) : (
-              <FeatureCatalog features={features} />
+              <FeatureCatalog features={visibleFeatures} />
             )}
           </Card>
 
@@ -1241,6 +1246,12 @@ function PolicyConditionEditor({
       </Button>
     </fieldset>
   );
+}
+
+function isPolicyStudioVisibleFeature(feature: PolicyFeatureResponse) {
+  // ADR-0010/0016: ai_assist is a deferred port-only seam. Hide it defensively
+  // even if an older backend returns the permission metadata.
+  return !DEFERRED_INTEGRATION_FEATURE_KEYS.has(feature.feature_key);
 }
 
 function FeatureCatalog({ features }: { features: PolicyFeatureResponse[] }) {
