@@ -82,4 +82,24 @@ describe("workflow canvas canonical model", () => {
       ]),
     );
   });
+
+  it("rejects drafts whose metadata object type diverges from the canonical trigger source", () => {
+    const definition = createLeaveRequestApprovalTemplate({
+      name: "휴가 신청 승인",
+      objectType: "leave_request",
+    });
+    definition.metadata.object_type = "work_order";
+
+    expect(validateWorkflowDefinition(definition)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "object_type_mismatch",
+          severity: "error",
+          message:
+            "Workflow metadata object type must match the form submission trigger source.",
+          nodeId: "node-trigger",
+        }),
+      ]),
+    );
+  });
 });

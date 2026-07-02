@@ -313,6 +313,35 @@ describe("WorkflowStudioPage", () => {
     ).toBeInTheDocument();
   }, 15000);
 
+  it("blocks saving when edited draft metadata would make the canonical graph inconsistent", async () => {
+    installBaseHandlers();
+    server.use(
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        createRequests.push(await request.json());
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: "33333333-3333-4333-8333-333333333333",
+        });
+      }),
+    );
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "워크플로 캔버스" })).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "휴가 신청 승인 템플릿 사용" }),
+    );
+    const objectTypeInput = await screen.findByLabelText("업무 객체");
+    await userEvent.clear(objectTypeInput);
+    await userEvent.type(objectTypeInput, "work_order");
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    expect(
+      await screen.findByText("캔버스 검증 오류를 해결하면 저장할 수 있습니다."),
+    ).toBeInTheDocument();
+    expect(createRequests).toHaveLength(0);
+  }, 15000);
+
   it("flags invalid edge attempts and disables save for invalid canvas drafts", async () => {
     installBaseHandlers();
 
@@ -344,6 +373,43 @@ describe("WorkflowStudioPage", () => {
     expect(
       screen.getByText("Leave request submitted requires a Submitted connection."),
     ).toBeInTheDocument();
+  });
+
+  it("lets users choose branch ports when connecting a blank no-code canvas", async () => {
+    installBaseHandlers();
+
+    renderApp();
+
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "워크플로 스튜디오" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "워크플로 캔버스" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "빈 캔버스 시작" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "노드 추가: Approval result condition" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "노드 추가: End state" }));
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("연결 시작 노드"),
+      "node-condition",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("연결 시작 포트"), "rejected");
+    await userEvent.selectOptions(
+      screen.getByLabelText("연결 대상 노드"),
+      "node-end",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("연결 대상 포트"), "in");
+    await userEvent.click(screen.getByRole("button", { name: "연결 추가" }));
+
+    expect(
+      await screen.findByText("node-condition:rejected → node-end:in"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("node-condition:approved → node-end:in")).not.toBeInTheDocument();
   });
 
   it("blocks publishing invalid canonical graphs before passkey step-up", async () => {

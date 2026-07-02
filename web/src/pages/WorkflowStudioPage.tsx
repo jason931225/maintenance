@@ -298,6 +298,15 @@ export function WorkflowStudioPage() {
           object_type: draftForm.objectType,
         },
       });
+      if (
+        validateWorkflowDefinition(definitionForSave).some(
+          (finding) => finding.severity === "error",
+        )
+      ) {
+        setCanvasDefinition(definitionForSave);
+        showError(ko.workflowStudio.canvas.fixValidationBeforeSave);
+        return;
+      }
       const response = await api.POST("/api/v1/workflow-studio/definitions", {
         body: {
           workflow_key: draftForm.workflowKey,

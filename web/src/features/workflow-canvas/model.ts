@@ -808,11 +808,33 @@ export function validateWorkflowDefinition(
     findings.push(...validateNodeConfig(node));
   }
 
+  if (!definition.metadata.name.trim()) {
+    findings.push(error("missing_workflow_name", "Workflow name is required."));
+  }
+  if (!snakeCase(definition.metadata.object_type)) {
+    findings.push(error("invalid_workflow_object_type", "Workflow object type must be snake case."));
+  }
+
   const triggerNodes = nodes.filter((node) => node.type === "trigger.form_submission");
   if (triggerNodes.length === 0) {
     findings.push(error("missing_trigger", "Exactly one form submission trigger is required."));
   } else if (triggerNodes.length > 1) {
     findings.push(error("too_many_triggers", "Only one trigger node is allowed in the MVP."));
+  }
+
+  for (const trigger of triggerNodes) {
+    if (
+      trigger.config.type === "trigger.form_submission" &&
+      trigger.config.source.object_type !== definition.metadata.object_type
+    ) {
+      findings.push(
+        error(
+          "object_type_mismatch",
+          "Workflow metadata object type must match the form submission trigger source.",
+          trigger.id,
+        ),
+      );
+    }
   }
 
   if (!nodes.some((node) => node.type === "end.state")) {
