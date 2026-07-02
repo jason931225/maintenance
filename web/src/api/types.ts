@@ -370,6 +370,7 @@ export interface HrReadinessSummary {
     payroll_source_rows: number;
     attendance_source_rows: number;
     attendance_event_links: number;
+    attendance_material_refs: number;
     gross_pay_source_lines: number;
     net_pay_source_lines: number;
     latest_status?: string | null;
@@ -387,6 +388,8 @@ export interface HrReadinessSummary {
   };
   attendance: {
     durable_events: number;
+    self_service_records: number;
+    payroll_material_refs: number;
   };
 }
 export type AttendanceImportPreview =

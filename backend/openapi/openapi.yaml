@@ -1646,6 +1646,110 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/hr/attendance-records/me:
+    get:
+      operationId: listMyEmployeeAttendanceRecords
+      summary: List the signed-in employee's attendance records
+      description: Returns only records for the employee row explicitly linked to the authenticated user account.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Self-service attendance records and payroll material refs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeAttendanceRecordPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createMyEmployeeAttendanceRecord
+      summary: Record the signed-in employee's attendance transition
+      description: Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEmployeeAttendanceRecordRequest'
+      responses:
+        '200':
+          description: Created or idempotently replayed attendance record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeAttendanceRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/hr/attendance-records:
+    get:
+      operationId: listEmployeeAttendanceRecords
+      summary: List employee attendance records for HR/payroll review
+      description: Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: employee_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Attendance records within the caller's HR review scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeAttendanceRecordPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/employees/import:
     post:
       operationId: importEmployees
@@ -9514,6 +9618,96 @@ components:
           type: integer
           format: int64
           minimum: 0
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+    AttendanceRecordKind:
+      type: string
+      enum:
+      - CLOCK_IN
+      - OUT_FOR_WORK
+      - BUSINESS_TRIP
+      - RETURNED
+      - CLOCK_OUT
+    CreateEmployeeAttendanceRecordRequest:
+      type: object
+      required:
+      - kind
+      - idempotency_key
+      properties:
+        kind:
+          $ref: '#/components/schemas/AttendanceRecordKind'
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+    EmployeeAttendanceRecord:
+      type: object
+      required:
+      - id
+      - employee_id
+      - employee_display_name
+      - kind
+      - occurred_at
+      - work_date
+      - state_after
+      - payroll_material_ref_id
+      - payroll_link_status
+      - duplicate
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        employee_id:
+          $ref: '#/components/schemas/Uuid'
+        employee_display_name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AttendanceRecordKind'
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+        work_date:
+          type: string
+          format: date
+        state_after:
+          type: string
+          enum:
+          - CLOCKED_IN
+          - OUT_FOR_WORK
+          - BUSINESS_TRIP
+          - OFF_DUTY
+        note:
+          type: string
+          nullable: true
+        payroll_material_ref_id:
+          $ref: '#/components/schemas/Uuid'
+        payroll_link_status:
+          type: string
+          enum:
+          - LINKED
+        duplicate:
+          type: boolean
+    EmployeeAttendanceRecordPage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeAttendanceRecord'
+        total:
+          type: integer
+          format: int64
         limit:
           type: integer
           format: int64

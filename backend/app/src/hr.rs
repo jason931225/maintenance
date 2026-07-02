@@ -7,10 +7,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, TraceContext};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -36,6 +38,8 @@ pub const HR_ATTENDANCE_IMPORT_DRY_RUN_PATH_TEMPLATE: &str =
 pub const HR_ATTENDANCE_IMPORT_APPLY_PATH_TEMPLATE: &str =
     "/api/v1/hr/attendance-import/{run_id}/apply";
 pub const HR_ATTENDANCE_IMPORT_SUMMARY_PATH: &str = "/api/v1/hr/attendance-import/summary";
+pub const HR_MY_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records/me";
+pub const HR_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records";
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_IMPORT_HEADER_SCAN_ROWS: usize = 25;
 const DEFAULT_LIMIT: i64 = 500;
@@ -79,6 +83,11 @@ pub fn router(state: HrState) -> Router {
             HR_ATTENDANCE_IMPORT_SUMMARY_PATH,
             get(list_attendance_import_summary),
         )
+        .route(
+            HR_MY_ATTENDANCE_RECORDS_PATH,
+            get(list_my_attendance_records).post(create_my_attendance_record),
+        )
+        .route(HR_ATTENDANCE_RECORDS_PATH, get(list_attendance_records))
         .route(
             EMPLOYEES_IMPORT_PATH,
             post(import_employees).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
@@ -246,6 +255,51 @@ struct AttendanceSummaryItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     last_event_at: Option<time::OffsetDateTime>,
 }
+#[derive(Debug, Deserialize)]
+struct AttendanceRecordsQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    employee_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateEmployeeAttendanceRecordRequest {
+    kind: String,
+    #[serde(default)]
+    idempotency_key: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeAttendanceRecordPage {
+    items: Vec<EmployeeAttendanceRecordResponse>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EmployeeAttendanceRecordResponse {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_display_name: String,
+    kind: String,
+    occurred_at: time::OffsetDateTime,
+    work_date: String,
+    state_after: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    payroll_material_ref_id: Uuid,
+    payroll_link_status: String,
+    duplicate: bool,
+}
+
+#[derive(Debug, Clone)]
+struct LinkedEmployee {
+    employee_id: Uuid,
+    display_name: String,
+}
 
 #[derive(Debug, Serialize)]
 struct HrReadinessSummary {
@@ -276,6 +330,7 @@ struct HrPayrollReadinessSummary {
     payroll_source_rows: i64,
     attendance_source_rows: i64,
     attendance_event_links: i64,
+    attendance_material_refs: i64,
     gross_pay_source_lines: i64,
     net_pay_source_lines: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -302,6 +357,8 @@ struct HrAnnualLeaveReadinessSummary {
 #[derive(Debug, Serialize)]
 struct HrAttendanceReadinessSummary {
     durable_events: i64,
+    self_service_records: i64,
+    payroll_material_refs: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -672,6 +729,208 @@ async fn list_attendance_summary(
         offset,
     }))
 }
+async fn list_my_attendance_records(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<AttendanceRecordsQuery>,
+) -> Result<Json<EmployeeAttendanceRecordPage>, HrError> {
+    record_hr_read("employee_attendance_self");
+    let org = principal.org_id;
+    let user_id = principal.user_id;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let page = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let linked = load_linked_employee_for_user(tx, org, user_id, false).await?;
+            list_attendance_records_for_employee(tx, linked.employee_id, limit, offset).await
+        })
+    })
+    .await?;
+
+    Ok(Json(page))
+}
+
+async fn list_attendance_records(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<AttendanceRecordsQuery>,
+) -> Result<Json<EmployeeAttendanceRecordPage>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("employee_attendance_management");
+    let org = principal.org_id;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let employee_id = query.employee_id;
+
+    let page = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            if let Some(employee_id) = employee_id {
+                list_attendance_records_for_employee(tx, employee_id, limit, offset).await
+            } else {
+                list_attendance_records_for_org(tx, limit, offset).await
+            }
+        })
+    })
+    .await?;
+
+    Ok(Json(page))
+}
+
+async fn create_my_attendance_record(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<CreateEmployeeAttendanceRecordRequest>,
+) -> Result<Json<EmployeeAttendanceRecordResponse>, HrError> {
+    let org = principal.org_id;
+    let actor = principal.user_id;
+    let kind = normalize_attendance_kind(&body.kind)?;
+    let idempotency_key = normalize_idempotency_key(body.idempotency_key)?;
+    let note = normalize_attendance_note(body.note)?;
+
+    let response = with_audits::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let linked = load_linked_employee_for_user(tx, org, actor, true).await?;
+
+            if let Some(key) = idempotency_key.as_deref()
+                && let Some(existing) =
+                    load_attendance_record_by_idempotency_key(tx, linked.employee_id, key).await?
+            {
+                return Ok((existing, Vec::new()));
+            }
+
+            let previous_state: Option<String> = sqlx::query_scalar(
+                r#"
+                SELECT state_after
+                FROM employee_attendance_records
+                WHERE employee_id = $1
+                ORDER BY occurred_at DESC, created_at DESC, id DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(linked.employee_id)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            let state_after = next_employee_attendance_state(previous_state.as_deref(), kind)?;
+
+            let record_row = sqlx::query(
+                r#"
+                INSERT INTO employee_attendance_records (
+                    org_id,
+                    employee_id,
+                    actor_user_id,
+                    kind,
+                    state_after,
+                    note,
+                    idempotency_key
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING
+                    id,
+                    employee_id,
+                    kind,
+                    occurred_at,
+                    work_date::TEXT AS work_date,
+                    state_after,
+                    note
+                "#,
+            )
+            .bind(*org.as_uuid())
+            .bind(linked.employee_id)
+            .bind(*actor.as_uuid())
+            .bind(kind)
+            .bind(state_after)
+            .bind(note)
+            .bind(idempotency_key)
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let record_id: Uuid = record_row.try_get("id")?;
+            let work_date: String = record_row.try_get("work_date")?;
+            let digest = sha256_hex(
+                format!(
+                    "employee_self_service|{}|{}|{}|{}",
+                    org.as_uuid(),
+                    linked.employee_id,
+                    record_id,
+                    kind
+                )
+                .as_bytes(),
+            );
+
+            let ref_id: Uuid = sqlx::query_scalar(
+                r#"
+                INSERT INTO payroll_attendance_material_refs (
+                    org_id,
+                    attendance_record_id,
+                    employee_id,
+                    work_date,
+                    source_digest
+                )
+                VALUES ($1, $2, $3, $4::DATE, $5)
+                RETURNING id
+                "#,
+            )
+            .bind(*org.as_uuid())
+            .bind(record_id)
+            .bind(linked.employee_id)
+            .bind(&work_date)
+            .bind(digest)
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let response = employee_attendance_record_from_parts(
+                record_row,
+                linked.display_name,
+                ref_id,
+                false,
+            )?;
+
+            let attendance_audit = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("employee_attendance.record").map_err(HrError::from_kernel)?,
+                "employee_attendance_record",
+                record_id.to_string(),
+                TraceContext::generate(),
+                OffsetDateTime::now_utc(),
+            )
+            .with_org(org)
+            .with_snapshots(
+                None,
+                Some(json!({
+                    "employee_id": linked.employee_id,
+                    "kind": response.kind,
+                    "state_after": response.state_after,
+                    "work_date": response.work_date,
+                    "payroll_material_ref_id": ref_id,
+                })),
+            );
+            let payroll_audit = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("payroll_attendance.link").map_err(HrError::from_kernel)?,
+                "payroll_attendance_material_ref",
+                ref_id.to_string(),
+                TraceContext::generate(),
+                OffsetDateTime::now_utc(),
+            )
+            .with_org(org)
+            .with_snapshots(
+                None,
+                Some(json!({
+                    "attendance_record_id": record_id,
+                    "employee_id": linked.employee_id,
+                    "work_date": response.work_date,
+                    "source_type": "employee_self_service",
+                })),
+            );
+
+            Ok((response, vec![attendance_audit, payroll_audit]))
+        })
+    })
+    .await?;
+
+    Ok(Json(response))
+}
 
 async fn get_hr_readiness_summary(
     State(state): State<HrState>,
@@ -766,6 +1025,17 @@ async fn get_hr_readiness_summary(
                 .build_query_scalar()
                 .fetch_one(tx.as_mut())
                 .await?;
+            let self_service_records: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::BIGINT FROM employee_attendance_records",
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+            let attendance_material_refs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::BIGINT FROM payroll_attendance_material_refs",
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
 
             Ok(HrReadinessSummary {
                 imports: HrImportReadinessSummary {
@@ -787,6 +1057,7 @@ async fn get_hr_readiness_summary(
                     attendance_source_rows: payroll_line_row
                         .try_get("attendance_source_rows")?,
                     attendance_event_links: payroll_line_row.try_get("attendance_event_links")?,
+                    attendance_material_refs,
                     gross_pay_source_lines: payroll_line_row
                         .try_get("gross_pay_source_lines")?,
                     net_pay_source_lines: payroll_line_row.try_get("net_pay_source_lines")?,
@@ -804,7 +1075,11 @@ async fn get_hr_readiness_summary(
                     needs_review: leave_row.try_get("needs_review")?,
                     remaining_days: leave_row.try_get("remaining_days")?,
                 },
-                attendance: HrAttendanceReadinessSummary { durable_events },
+                attendance: HrAttendanceReadinessSummary {
+                    durable_events,
+                    self_service_records,
+                    payroll_material_refs: attendance_material_refs,
+                },
             })
         })
     })
@@ -4500,6 +4775,290 @@ async fn load_employee_for_lifecycle(
         employment_status: row.try_get("employment_status")?,
     })
 }
+async fn load_linked_employee_for_user(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org: OrgId,
+    user_id: UserId,
+    lock_user: bool,
+) -> Result<LinkedEmployee, HrError> {
+    let sql = if lock_user {
+        r#"
+        SELECT u.employee_id, e.name AS employee_name
+        FROM users u
+        LEFT JOIN employees e
+          ON e.id = u.employee_id
+         AND e.org_id = u.org_id
+        WHERE u.id = $1
+          AND u.org_id = $2
+        FOR UPDATE OF u
+        "#
+    } else {
+        r#"
+        SELECT u.employee_id, e.name AS employee_name
+        FROM users u
+        LEFT JOIN employees e
+          ON e.id = u.employee_id
+         AND e.org_id = u.org_id
+        WHERE u.id = $1
+          AND u.org_id = $2
+        "#
+    };
+
+    let row = sqlx::query(sql)
+        .bind(*user_id.as_uuid())
+        .bind(*org.as_uuid())
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| {
+            HrError::from_kernel(KernelError::forbidden("linked employee account required"))
+        })?;
+
+    let employee_id = row
+        .try_get::<Option<Uuid>, _>("employee_id")?
+        .ok_or_else(|| {
+            HrError::from_kernel(KernelError::forbidden("linked employee account required"))
+        })?;
+    let display_name = row
+        .try_get::<Option<String>, _>("employee_name")?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            HrError::from_kernel(KernelError::forbidden("linked employee record required"))
+        })?;
+
+    Ok(LinkedEmployee {
+        employee_id,
+        display_name,
+    })
+}
+
+async fn list_attendance_records_for_employee(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    employee_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<EmployeeAttendanceRecordPage, HrError> {
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::BIGINT FROM employee_attendance_records WHERE employee_id = $1",
+    )
+    .bind(employee_id)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            r.id,
+            r.employee_id,
+            e.name AS employee_display_name,
+            r.kind,
+            r.occurred_at,
+            r.work_date::TEXT AS work_date,
+            r.state_after,
+            r.note,
+            pmr.id AS payroll_material_ref_id
+        FROM employee_attendance_records r
+        JOIN employees e
+          ON e.id = r.employee_id
+         AND e.org_id = r.org_id
+        JOIN payroll_attendance_material_refs pmr
+          ON pmr.attendance_record_id = r.id
+         AND pmr.org_id = r.org_id
+        WHERE r.employee_id = $1
+        ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(employee_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(|row| employee_attendance_record_from_joined_row(row, false))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(EmployeeAttendanceRecordPage {
+        items,
+        total,
+        limit,
+        offset,
+    })
+}
+
+async fn list_attendance_records_for_org(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    limit: i64,
+    offset: i64,
+) -> Result<EmployeeAttendanceRecordPage, HrError> {
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM employee_attendance_records")
+        .fetch_one(tx.as_mut())
+        .await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            r.id,
+            r.employee_id,
+            e.name AS employee_display_name,
+            r.kind,
+            r.occurred_at,
+            r.work_date::TEXT AS work_date,
+            r.state_after,
+            r.note,
+            pmr.id AS payroll_material_ref_id
+        FROM employee_attendance_records r
+        JOIN employees e
+          ON e.id = r.employee_id
+         AND e.org_id = r.org_id
+        JOIN payroll_attendance_material_refs pmr
+          ON pmr.attendance_record_id = r.id
+         AND pmr.org_id = r.org_id
+        ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC
+        LIMIT $1 OFFSET $2
+        "#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(|row| employee_attendance_record_from_joined_row(row, false))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(EmployeeAttendanceRecordPage {
+        items,
+        total,
+        limit,
+        offset,
+    })
+}
+
+async fn load_attendance_record_by_idempotency_key(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    employee_id: Uuid,
+    idempotency_key: &str,
+) -> Result<Option<EmployeeAttendanceRecordResponse>, HrError> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            r.id,
+            r.employee_id,
+            e.name AS employee_display_name,
+            r.kind,
+            r.occurred_at,
+            r.work_date::TEXT AS work_date,
+            r.state_after,
+            r.note,
+            pmr.id AS payroll_material_ref_id
+        FROM employee_attendance_records r
+        JOIN employees e
+          ON e.id = r.employee_id
+         AND e.org_id = r.org_id
+        JOIN payroll_attendance_material_refs pmr
+          ON pmr.attendance_record_id = r.id
+         AND pmr.org_id = r.org_id
+        WHERE r.employee_id = $1
+          AND r.idempotency_key = $2
+        "#,
+    )
+    .bind(employee_id)
+    .bind(idempotency_key)
+    .fetch_optional(tx.as_mut())
+    .await?;
+
+    row.map(|row| employee_attendance_record_from_joined_row(row, true))
+        .transpose()
+}
+
+fn employee_attendance_record_from_joined_row(
+    row: sqlx::postgres::PgRow,
+    duplicate: bool,
+) -> Result<EmployeeAttendanceRecordResponse, HrError> {
+    Ok(EmployeeAttendanceRecordResponse {
+        id: row.try_get("id")?,
+        employee_id: row.try_get("employee_id")?,
+        employee_display_name: row.try_get("employee_display_name")?,
+        kind: row.try_get("kind")?,
+        occurred_at: row.try_get("occurred_at")?,
+        work_date: row.try_get("work_date")?,
+        state_after: row.try_get("state_after")?,
+        note: row.try_get("note")?,
+        payroll_material_ref_id: row.try_get("payroll_material_ref_id")?,
+        payroll_link_status: "LINKED".to_owned(),
+        duplicate,
+    })
+}
+
+fn employee_attendance_record_from_parts(
+    row: sqlx::postgres::PgRow,
+    employee_display_name: String,
+    payroll_material_ref_id: Uuid,
+    duplicate: bool,
+) -> Result<EmployeeAttendanceRecordResponse, HrError> {
+    Ok(EmployeeAttendanceRecordResponse {
+        id: row.try_get("id")?,
+        employee_id: row.try_get("employee_id")?,
+        employee_display_name,
+        kind: row.try_get("kind")?,
+        occurred_at: row.try_get("occurred_at")?,
+        work_date: row.try_get("work_date")?,
+        state_after: row.try_get("state_after")?,
+        note: row.try_get("note")?,
+        payroll_material_ref_id,
+        payroll_link_status: "LINKED".to_owned(),
+        duplicate,
+    })
+}
+
+fn normalize_attendance_kind(raw: &str) -> Result<&'static str, HrError> {
+    match raw.trim().to_ascii_uppercase().as_str() {
+        "CLOCK_IN" => Ok("CLOCK_IN"),
+        "OUT_FOR_WORK" => Ok("OUT_FOR_WORK"),
+        "BUSINESS_TRIP" => Ok("BUSINESS_TRIP"),
+        "RETURNED" => Ok("RETURNED"),
+        "CLOCK_OUT" => Ok("CLOCK_OUT"),
+        _ => Err(HrError::validation("unsupported attendance record kind")),
+    }
+}
+
+fn normalize_idempotency_key(value: Option<String>) -> Result<Option<String>, HrError> {
+    match normalize_optional_text(value) {
+        Some(value) if value.chars().count() > 128 => Err(HrError::validation(
+            "idempotency key must be 128 characters or fewer",
+        )),
+        value => Ok(value),
+    }
+}
+
+fn normalize_attendance_note(value: Option<String>) -> Result<Option<String>, HrError> {
+    match normalize_optional_text(value) {
+        Some(value) if value.chars().count() > 500 => Err(HrError::validation(
+            "attendance note must be 500 characters or fewer",
+        )),
+        value => Ok(value),
+    }
+}
+
+fn next_employee_attendance_state(
+    previous_state: Option<&str>,
+    kind: &str,
+) -> Result<&'static str, HrError> {
+    match (previous_state.unwrap_or("OFF_DUTY"), kind) {
+        ("OFF_DUTY", "CLOCK_IN") => Ok("CLOCKED_IN"),
+        ("CLOCKED_IN", "OUT_FOR_WORK") => Ok("OUT_FOR_WORK"),
+        ("CLOCKED_IN", "BUSINESS_TRIP") => Ok("BUSINESS_TRIP"),
+        ("CLOCKED_IN", "CLOCK_OUT") => Ok("OFF_DUTY"),
+        ("OUT_FOR_WORK", "RETURNED") | ("BUSINESS_TRIP", "RETURNED") => Ok("CLOCKED_IN"),
+        ("OUT_FOR_WORK", "CLOCK_OUT") | ("BUSINESS_TRIP", "CLOCK_OUT") => Ok("OFF_DUTY"),
+        (_, _) => Err(HrError::from_kernel(KernelError::invalid_transition(
+            "invalid employee attendance transition",
+        ))),
+    }
+}
 
 fn employee_lifecycle_event_from_row(
     row: sqlx::postgres::PgRow,
@@ -5801,5 +6360,68 @@ E-001,홍길동,본사,2026-07-01,abc
         authorize_hr_org_wide(&executive, Feature::EmployeeDirectoryRead)
             .map_err(|err| format!("org-wide executive HR read was rejected: {}", err.message))?;
         Ok(())
+    }
+    #[test]
+    fn employee_attendance_state_machine_accepts_mobile_pc_workday_flow() -> Result<(), String> {
+        assert_eq!(
+            next_employee_attendance_state(None, "CLOCK_IN").map_err(|err| err.message.clone())?,
+            "CLOCKED_IN"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("CLOCKED_IN"), "OUT_FOR_WORK")
+                .map_err(|err| err.message.clone())?,
+            "OUT_FOR_WORK"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("OUT_FOR_WORK"), "RETURNED")
+                .map_err(|err| err.message.clone())?,
+            "CLOCKED_IN"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("CLOCKED_IN"), "BUSINESS_TRIP")
+                .map_err(|err| err.message.clone())?,
+            "BUSINESS_TRIP"
+        );
+        assert_eq!(
+            next_employee_attendance_state(Some("BUSINESS_TRIP"), "CLOCK_OUT")
+                .map_err(|err| err.message.clone())?,
+            "OFF_DUTY"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn employee_attendance_state_machine_rejects_invalid_duplicate_punches() -> Result<(), String> {
+        let err = match next_employee_attendance_state(None, "CLOCK_OUT") {
+            Ok(state) => return Err(format!("clock-out before clock-in returned {state}")),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
+
+        let err = match next_employee_attendance_state(Some("CLOCKED_IN"), "CLOCK_IN") {
+            Ok(state) => return Err(format!("duplicate clock-in returned {state}")),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
+        Ok(())
+    }
+
+    #[test]
+    fn attendance_input_normalization_bounds_mobile_retry_fields() {
+        let kind = normalize_attendance_kind(" business_trip ")
+            .map_err(|err| err.message)
+            .unwrap_or("invalid");
+        assert_eq!(kind, "BUSINESS_TRIP");
+
+        let idempotency_key = normalize_idempotency_key(Some(" retry-1 ".to_owned()))
+            .map_err(|err| err.message)
+            .unwrap_or_default();
+        assert_eq!(idempotency_key.as_deref(), Some("retry-1"));
+        assert!(
+            normalize_attendance_note(Some("x".repeat(501))).is_err(),
+            "long attendance notes must be rejected before persistence"
+        );
     }
 }
