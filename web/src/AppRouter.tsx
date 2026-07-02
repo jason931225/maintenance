@@ -127,6 +127,16 @@ const FinancialPage = lazy(() =>
 const PayrollPage = lazy(() =>
   import("./pages/PayrollPage").then((m) => ({ default: m.PayrollPage })),
 );
+const LeaveManagementPage = lazy(() =>
+  import("./pages/LeaveManagementPage").then((m) => ({
+    default: m.LeaveManagementPage,
+  })),
+);
+const InsuranceAssistPage = lazy(() =>
+  import("./pages/InsuranceAssistPage").then((m) => ({
+    default: m.InsuranceAssistPage,
+  })),
+);
 const EmployeesPage = lazy(() =>
   import("./pages/EmployeesPage").then((m) => ({ default: m.EmployeesPage })),
 );
@@ -377,6 +387,8 @@ export function AppRouter() {
           </Route>
           <Route element={<RequireEmployeeDirectoryRoute />}>
             <Route path="/settings/employees" element={<EmployeesPage />} />
+            <Route path="/hr/leave-management" element={<LeaveManagementPage />} />
+            <Route path="/hr/insurance" element={<InsuranceAssistPage />} />
           </Route>
           <Route element={<RequireGroupAdminRoute />}>
             <Route path="/settings/group" element={<GroupAdminPage />} />

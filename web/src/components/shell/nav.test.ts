@@ -38,12 +38,12 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.SUPER_ADMIN]: [
     "work-hub",
     "my-attendance",
+    "approvals",
     "messenger",
     "mail",
     "dispatch",
     "dispatch-map",
     "intake",
-    "approvals",
     "daily-plan",
     "collaboration",
     "inspection",
@@ -62,6 +62,8 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "sites",
     "location",
     "employees",
+    "leave-management",
+    "insurance-assist",
     "users",
     "policy",
     "workflows",
@@ -71,12 +73,12 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.ADMIN]: [
     "work-hub",
     "my-attendance",
+    "approvals",
     "messenger",
     "mail",
     "dispatch",
     "dispatch-map",
     "intake",
-    "approvals",
     "daily-plan",
     "collaboration",
     "inspection",
@@ -94,6 +96,8 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "sites",
     "location",
     "employees",
+    "leave-management",
+    "insurance-assist",
     "users",
     "security",
     "profile",
@@ -120,6 +124,8 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "financial",
     "location",
     "employees",
+    "leave-management",
+    "insurance-assist",
     "profile",
   ],
   // Mechanic: maintenance operations and personal work surfaces; no mail,
@@ -177,6 +183,7 @@ describe("nav role gating", () => {
     expect(NAV_GROUPS[0].items.map((item) => item.key)).toEqual([
       "work-hub",
       "my-attendance",
+      "approvals",
       "messenger",
       "mail",
     ]);
@@ -184,7 +191,7 @@ describe("nav role gating", () => {
     const operations = NAV_GROUPS.find((group) => group.key === "operations");
     const assets = NAV_GROUPS.find((group) => group.key === "assets");
     expect(operations?.items.map((item) => item.key)).not.toEqual(
-      expect.arrayContaining(["work-hub", "messenger", "mail"]),
+      expect.arrayContaining(["work-hub", "approvals", "messenger", "mail"]),
     );
     expect(assets?.items.map((item) => item.key)).toEqual([
       "equipment",
@@ -250,6 +257,8 @@ describe("nav role gating", () => {
       "sites",
       "location",
       "employees",
+      "leave-management",
+      "insurance-assist",
       "users",
       "policy",
       "workflows",
@@ -378,12 +387,19 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("email", [ROLES.SUPER_ADMIN])).toBe(false);
   });
 
-  it("shows the employee directory to ADMIN, EXECUTIVE, and SUPER_ADMIN", () => {
-    expect(isNavItemVisible("employees", [ROLES.ADMIN])).toBe(true);
-    expect(isNavItemVisible("employees", [ROLES.EXECUTIVE])).toBe(true);
-    expect(isNavItemVisible("employees", [ROLES.SUPER_ADMIN])).toBe(true);
-    expect(isNavItemVisible("employees", [ROLES.MECHANIC])).toBe(false);
-    expect(isNavItemVisible("employees", [ROLES.RECEPTIONIST])).toBe(false);
+  it("shows HR directory, leave management, and insurance assist to employee-directory readers", () => {
+    for (const key of ["employees", "leave-management", "insurance-assist"]) {
+      expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.MECHANIC])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.RECEPTIONIST])).toBe(false);
+      expect(
+        isNavItemVisible(key, [ROLES.MEMBER], undefined, [
+          FEATURES.EMPLOYEE_DIRECTORY_READ,
+        ]),
+      ).toBe(true);
+    }
   });
 
   it("shows payroll readiness to employee-directory readers only", () => {

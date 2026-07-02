@@ -13,6 +13,8 @@ import { ApprovalsPage } from "./ApprovalsPage";
 const federatedRequests: URL[] = [];
 const legacyListRequests: URL[] = [];
 const legacyDailyRequests: URL[] = [];
+const hrReadinessRequests: URL[] = [];
+const leaveBalanceRequests: URL[] = [];
 const server = setupServer();
 
 const requestedPlanId = "44444444-4444-4444-8444-444444444444";
@@ -25,6 +27,13 @@ const adminSession: AuthSession = {
   branches: [branchId],
 };
 
+const executiveSession: AuthSession = {
+  access_token: "executive-token",
+  user_id: "executive-user",
+  roles: ["EXECUTIVE"],
+  branches: [],
+};
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
@@ -34,15 +43,17 @@ afterEach(() => {
   federatedRequests.length = 0;
   legacyListRequests.length = 0;
   legacyDailyRequests.length = 0;
+  hrReadinessRequests.length = 0;
+  leaveBalanceRequests.length = 0;
 });
 
 afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(): AuthContextValue {
+function makeAuthContext(session: AuthSession = adminSession): AuthContextValue {
   return {
-    session: adminSession,
+    session,
     restoring: false,
     login: async () => {},
     logout: async () => {},
@@ -52,13 +63,16 @@ function makeAuthContext(): AuthContextValue {
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(adminSession.access_token),
+    api: createConsoleApiClient(session.access_token),
   };
 }
 
-function renderPage(initialEntries = ["/approvals"]) {
+function renderPage(
+  initialEntries = ["/approvals"],
+  session: AuthSession = adminSession,
+) {
   return render(
-    <AuthContext.Provider value={makeAuthContext()}>
+    <AuthContext.Provider value={makeAuthContext(session)}>
       <MemoryRouter initialEntries={initialEntries}>
         <ApprovalsPage />
       </MemoryRouter>
@@ -183,11 +197,88 @@ function federatedApprovalPayload() {
   };
 }
 
+function readinessSummaryPayload() {
+  return {
+    imports: {
+      runs: 2,
+      applied_runs: 2,
+      input_rows: 12,
+      candidate_rows: 10,
+      preserved_rows: 2,
+      ledger_rows: 12,
+      latest_import_at: "2026-06-29T00:00:00Z",
+    },
+    payroll: {
+      draft_runs: 1,
+      blocked_runs: 0,
+      calculation_enabled_runs: 1,
+      draft_lines: 10,
+      payroll_source_rows: 10,
+      attendance_source_rows: 8,
+      attendance_event_links: 7,
+      attendance_material_refs: 7,
+      gross_pay_source_lines: 10,
+      net_pay_source_lines: 10,
+      latest_status: "READY",
+      latest_source_label: "2026-06",
+      latest_period_start: "2026-06-01",
+      latest_period_end: "2026-06-30",
+      latest_updated_at: "2026-06-30T00:00:00Z",
+    },
+    annual_leave: {
+      obligations: 3,
+      usage_promotion_required: 2,
+      payout_review_required: 1,
+      needs_review: 1,
+      remaining_days: "12",
+    },
+    attendance: {
+      durable_events: 8,
+      self_service_records: 4,
+      payroll_material_refs: 7,
+    },
+  };
+}
+
+function leaveBalancesPayload() {
+  return {
+    items: [
+      {
+        id: primaryMechanicId,
+        company: "KNL",
+        name: "김현장",
+        employee_number: "E-100",
+        org_unit: "정비1팀",
+        position: "정비사",
+        leave_accrued: "15",
+        leave_used: "3",
+        leave_remaining: "12",
+      },
+    ],
+    total: 1,
+    limit: 1000,
+    offset: 0,
+    summary: {
+      accrued: "15",
+      used: "3",
+      remaining: "12",
+    },
+  };
+}
+
 function installHappyHandlers() {
   server.use(
     http.get("*/api/approval-items", ({ request }) => {
       federatedRequests.push(new URL(request.url));
       return HttpResponse.json(federatedApprovalPayload());
+    }),
+    http.get("*/api/v1/hr/readiness-summary", ({ request }) => {
+      hrReadinessRequests.push(new URL(request.url));
+      return HttpResponse.json(readinessSummaryPayload());
+    }),
+    http.get("*/api/v1/hr/leave-balances", ({ request }) => {
+      leaveBalanceRequests.push(new URL(request.url));
+      return HttpResponse.json(leaveBalancesPayload());
     }),
     http.get("*/api/v1/work-orders", ({ request }) => {
       legacyListRequests.push(new URL(request.url));
@@ -237,6 +328,8 @@ describe("ApprovalsPage", () => {
     expect(screen.getByRole("link", { name: "작업 승인 큐로 이동" })).toBeVisible();
     expect(screen.getByText("계획업무 검토")).toBeVisible();
     expect(screen.getByText("일정 변경 검토")).toBeVisible();
+    expect(screen.getByText("전자결재 문서·연동 데스크")).toBeVisible();
+    expect(screen.getByText("연차 신청서")).toBeVisible();
 
     const requestedPlanLink = screen.getByRole("link", {
       name: "2026-06-29 계획업무 검토 열기",
@@ -254,6 +347,20 @@ describe("ApprovalsPage", () => {
       expect(federatedRequests[0].searchParams.get("limit")).toBe("100");
       expect(legacyListRequests).toHaveLength(0);
       expect(legacyDailyRequests).toHaveLength(0);
+      expect(hrReadinessRequests).toHaveLength(0);
+      expect(leaveBalanceRequests).toHaveLength(0);
+    });
+  });
+
+  it("loads HR-linked approval metrics only for org-wide leadership sessions", async () => {
+    installHappyHandlers();
+
+    renderPage(["/approvals"], executiveSession);
+
+    await waitFor(() => {
+      expect(federatedRequests).toHaveLength(1);
+      expect(hrReadinessRequests).toHaveLength(1);
+      expect(leaveBalanceRequests).toHaveLength(1);
     });
   });
 

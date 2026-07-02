@@ -20,14 +20,12 @@ ignore = [
   # paste: unmaintained (not a vulnerability). Build-time proc-macro pulled
   # transitively by umya-spreadsheet (Excel export); no runtime attack surface.
   "RUSTSEC-2024-0436",
-  # quick-xml: RUSTSEC-2026-0194/0195. Pulled only through the latest
-  # calamine (0.35.0) and umya-spreadsheet (3.0.0) releases available on
-  # crates.io as of 2026-07-02; both still constrain vulnerable quick-xml
-  # minor versions, so a lockfile-only update is impossible. Exposure is
-  # bounded by authenticated import routes with 16 MiB streaming/body caps and
-  # by trusted bundled export templates. Temporary exception: replace the Excel
-  # stack or remove this once calamine/umya ship quick-xml >= 0.41.0. Review by
-  # 2026-08-02.
+  # quick-xml high-severity XML parser DoS advisories. Both vulnerable versions
+  # are transitive through spreadsheet libraries: calamine 0.35 pins quick-xml
+  # ^0.39 and umya-spreadsheet 3.0 pins ^0.37, while the fixed quick-xml is
+  # >=0.41 and therefore outside their semver ranges. The backend only accepts
+  # bounded Excel uploads; revisit as soon as either upstream permits quick-xml
+  # 0.41+ or we replace those spreadsheet readers/writers.
   "RUSTSEC-2026-0194",
   "RUSTSEC-2026-0195",
 ]

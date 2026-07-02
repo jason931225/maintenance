@@ -108,6 +108,18 @@
       "requiredStory": "HR and payroll owners review registered employee, mobile or PC attendance, leave, approval, and legal-gated payroll readiness without exposing unauthorized sensitive fields"
     },
     {
+      "path": "/hr/leave-management",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "HR and payroll owners review accrued, used, and remaining annual leave, issue leave-use-plan notices, and keep approvals linked to attendance and payroll facts"
+    },
+    {
+      "path": "/hr/insurance",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "HR and payroll owners prepare acquisition, loss, change, and material-package insurance filing checklists from policy-scoped employee lifecycle data"
+    },
+    {
       "path": "/attendance",
       "routeGroup": "people",
       "mustContainOwnerGoal": "G004",

@@ -1131,6 +1131,54 @@
       "groupScopeStory": "Group HR can consolidate subsidiary payroll-readiness counts while payroll details stay subsidiary and policy scoped"
     },
     {
+      "rawPath": "/hr/leave-management",
+      "canonicalPath": "/hr/leave-management",
+      "epRows": [
+        "EP-008",
+        "EP-010",
+        "EP-003"
+      ],
+      "personas": [
+        "hr",
+        "payroll-admin",
+        "manager"
+      ],
+      "roleStoryEvidence": "annual leave management console links employee ledger, approval outcomes, attendance facts, leave-use-plan notifications, and payroll readiness; LeaveManagementPage/App routing/nav tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + LeaveManagementPage component tests",
+      "ownerLane": "G004 people/org policy foundation with G008 HR/payroll legal readiness and G005 approval lifecycle owners",
+      "dataClass": "employee ledger, hire-date tenure, annual leave accrual, used leave, remaining leave, leave-use-plan notice, approval adjustment, payroll source metadata",
+      "sourceObject": "employee record, leave balance row, leave approval item, attendance event, leave-use-plan notification, or payroll readiness fact",
+      "lifecycleStates": "loading, empty ledger, accrued, used, remaining, promotion due, plan requested, approval-linked, payroll-reviewed, error/retry",
+      "e2eSpec": "Required browser/mobile story: HR reviews accrued/used/remaining annual leave, sends usage-plan notice, leave approval completes, and attendance/payroll readiness updates",
+      "denialScopeTest": "Leave-management route requires authorized employee-directory or HR/payroll scope; employee self-service cannot view another employee ledger",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 leave-management screenshot and trace; current row records ownership and required evidence, not final legal compliance certification",
+      "groupScopeStory": "Group HR can consolidate subsidiary leave obligations while employee-level sensitive leave details remain subsidiary and policy scoped"
+    },
+    {
+      "rawPath": "/hr/insurance",
+      "canonicalPath": "/hr/insurance",
+      "epRows": [
+        "EP-008",
+        "EP-010",
+        "EP-012"
+      ],
+      "personas": [
+        "hr",
+        "payroll-admin",
+        "finance"
+      ],
+      "roleStoryEvidence": "insurance filing assistant prepares acquisition/loss/change/material-package checklists from employee, payroll, and attendance readiness data; InsuranceAssistPage/App routing/nav tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + InsuranceAssistPage component tests",
+      "ownerLane": "G004 people/org policy foundation with G008 HR/payroll import maturity and G008 finance/legal reporting guardrails",
+      "dataClass": "employee employment episode, hire and termination dates, payroll-sensitive insurance enrollment fields, missing-field checklist, filing material package, audit metadata",
+      "sourceObject": "employee record, employment episode, payroll/insurance readiness row, filing checklist item, mail notice, or material package",
+      "lifecycleStates": "loading, no candidates, acquisition prepared, loss prepared, change review, missing-field blocked, mail notice drafted, filing package reviewed",
+      "e2eSpec": "Required browser story: HR filters insurance filing candidates, reviews acquisition/loss filing readiness, resolves missing fields, and opens an internal mail notice/material package",
+      "denialScopeTest": "Insurance-assist route requires authorized HR/payroll directory scope; resident-registration, wage, bank, and insurance details stay masked or blocked without dedicated permission",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 insurance-assist screenshot and trace; current row is filing-assistance readiness, not external agency submission proof",
+      "groupScopeStory": "Group HR can see subsidiary filing readiness counts while protected employee filing details stay subsidiary and policy scoped"
+    },
+    {
       "rawPath": "/settings",
       "canonicalPath": "/settings",
       "epRows": [
