@@ -216,6 +216,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["work-hub", OPERATIONAL_ROLES],
   ["my-attendance", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
+  ["approvals", ADMIN_ROLES],
   // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied.
   // The platform operates the mail server out of the box; there is no
   // tenant-visible SMTP/IMAP server configuration nav item.
@@ -234,7 +235,6 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["equipment", EQUIPMENT_SALES_ROLES],
   ["financial", OPERATIONAL_ROLES],
   ["location", OPERATIONAL_ROLES],
-  ["approvals", ADMIN_ROLES],
   // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only by
   // built-in role, or an explicit SalesManage custom grant.
   ["catalog", ADMIN_ROLES],
@@ -254,6 +254,8 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
+  ["leave-management", EMPLOYEE_DIRECTORY_ROLES],
+  ["insurance-assist", EMPLOYEE_DIRECTORY_ROLES],
   ["payroll", EMPLOYEE_DIRECTORY_ROLES],
   ["security", ADMIN_ROLES],
   // Legacy external-account configuration is intentionally hidden. Corporate
@@ -298,6 +300,8 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["intelligence", [FEATURES.KPI_READ]],
   ["mail", [FEATURES.MAIL_USE]],
   ["employees", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["leave-management", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["insurance-assist", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["payroll", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["policy", [FEATURES.ROLE_MANAGE]],
   ["workflows", [FEATURES.ROLE_MANAGE]],
@@ -352,6 +356,12 @@ export const NAV_GROUPS = [
         Icon: CalendarClock,
       },
       {
+        key: "approvals",
+        href: "/approvals",
+        labelKey: "nav.approvals",
+        Icon: CheckSquare,
+      },
+      {
         key: "messenger",
         href: "/messenger",
         labelKey: "nav.messenger",
@@ -389,12 +399,6 @@ export const NAV_GROUPS = [
         href: "/intake",
         labelKey: "nav.intake",
         Icon: FilePlus,
-      },
-      {
-        key: "approvals",
-        href: "/approvals",
-        labelKey: "nav.approvals",
-        Icon: CheckSquare,
       },
       {
         key: "daily-plan",
@@ -537,6 +541,18 @@ export const NAV_GROUPS = [
         href: "/settings/employees",
         labelKey: "nav.employees",
         Icon: Users,
+      },
+      {
+        key: "leave-management",
+        href: "/hr/leave-management",
+        labelKey: "nav.leave-management",
+        Icon: CalendarCheck,
+      },
+      {
+        key: "insurance-assist",
+        href: "/hr/insurance",
+        labelKey: "nav.insurance-assist",
+        Icon: ShieldCheck,
       },
     ],
   },

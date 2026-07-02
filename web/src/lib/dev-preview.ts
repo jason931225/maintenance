@@ -1,4 +1,7 @@
 import type {
+  EmployeeDirectoryPage,
+  HrReadinessSummary,
+  LeaveBalancePage,
   MessengerMemberSummary,
   MessengerMessagePage,
   MessengerMessageSummary,
@@ -186,5 +189,155 @@ export function createDevMessengerMessage(params: {
     read_target_count: Math.max(0, params.thread.member_count - 1),
     sent_at: now,
     created_at: now,
+  };
+}
+
+const devEmployeeOneId = otherUserId;
+const devEmployeeTwoId = thirdUserId;
+const devEmployeeThreeId = "55555555-5555-4555-8555-555555555555";
+
+export function devEmployeeDirectoryPage(): EmployeeDirectoryPage {
+  return {
+    items: [
+      {
+        id: devEmployeeOneId,
+        company: "BESTEC",
+        name: ko.devPreview.fieldTechnicianName,
+        employee_number: "B-1001",
+        org_unit: ko.devPreview.fieldTechnicianTeam,
+        worksite_name: "Incheon Center",
+        worksite: "ICN-01",
+        job: "Maintenance",
+        position: "Lead",
+        hire_date: "2024-03-01",
+        exit_date: null,
+        status: "ACTIVE",
+        leave_accrued: "15",
+        leave_used: "4",
+        leave_remaining: "11",
+        identity_resolution_strategy: "employee_number",
+        identity_resolution_confidence: "high",
+        identity_review_required: false,
+        identity_name_only_merge: false,
+        created_at: createdAt,
+        updated_at: createdAt,
+      },
+      {
+        id: devEmployeeTwoId,
+        company: "BESTEC",
+        name: ko.devPreview.dispatcherName,
+        employee_number: "B-1002",
+        org_unit: ko.devPreview.dispatcherTeam,
+        worksite_name: "Seoul Office",
+        worksite: "SEL-01",
+        job: "Operations",
+        position: "Manager",
+        hire_date: "2022-01-10",
+        exit_date: null,
+        status: "ACTIVE",
+        leave_accrued: "16",
+        leave_used: "8",
+        leave_remaining: "8",
+        identity_resolution_strategy: "employee_number",
+        identity_resolution_confidence: "high",
+        identity_review_required: false,
+        identity_name_only_merge: false,
+        created_at: createdAt,
+        updated_at: createdAt,
+      },
+      {
+        id: devEmployeeThreeId,
+        company: "BESTEC",
+        name: ko.devPreview.adminName,
+        employee_number: "B-0901",
+        org_unit: "HR",
+        worksite_name: "Seoul Office",
+        worksite: "SEL-01",
+        job: "HR",
+        position: "Admin",
+        hire_date: "2021-04-05",
+        exit_date: "2026-07-01",
+        status: "EXITED",
+        leave_accrued: "17",
+        leave_used: "17",
+        leave_remaining: "0",
+        identity_resolution_strategy: "employee_number",
+        identity_resolution_confidence: "high",
+        identity_review_required: false,
+        identity_name_only_merge: false,
+        created_at: createdAt,
+        updated_at: createdAt,
+      },
+    ],
+    total: 3,
+    limit: 1000,
+    offset: 0,
+  };
+}
+
+export function devLeaveBalancePage(): LeaveBalancePage {
+  return {
+    items: devEmployeeDirectoryPage().items.map((employee) => ({
+      id: employee.id,
+      company: employee.company,
+      name: employee.name,
+      employee_number: employee.employee_number,
+      org_unit: employee.org_unit,
+      position: employee.position,
+      leave_accrued: employee.leave_accrued,
+      leave_used: employee.leave_used,
+      leave_remaining: employee.leave_remaining,
+    })),
+    total: 3,
+    limit: 1000,
+    offset: 0,
+    summary: {
+      accrued: "48",
+      used: "29",
+      remaining: "19",
+    },
+  };
+}
+
+export function devHrReadinessSummary(): HrReadinessSummary {
+  return {
+    imports: {
+      runs: 3,
+      applied_runs: 3,
+      input_rows: 42,
+      candidate_rows: 3,
+      preserved_rows: 39,
+      ledger_rows: 42,
+      latest_import_at: "2026-07-02T08:30:00Z",
+    },
+    payroll: {
+      draft_runs: 1,
+      blocked_runs: 0,
+      calculation_enabled_runs: 1,
+      draft_lines: 3,
+      payroll_source_rows: 3,
+      attendance_source_rows: 9,
+      attendance_event_links: 9,
+      attendance_material_refs: 9,
+      gross_pay_source_lines: 3,
+      net_pay_source_lines: 3,
+      latest_status: "READY",
+      latest_source_label: "BESTEC 2026-07 preview",
+      latest_period_start: "2026-07-01",
+      latest_period_end: "2026-07-31",
+      latest_updated_at: "2026-07-02T08:42:00Z",
+    },
+    annual_leave: {
+      obligations: 2,
+      usage_promotion_required: 2,
+      payout_review_required: 1,
+      needs_review: 1,
+      remaining_days: "19",
+    },
+    attendance: {
+      durable_events: 12,
+      self_service_records: 6,
+      payroll_material_refs: 9,
+    },
   };
 }

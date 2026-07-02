@@ -25,6 +25,8 @@ export const ko = {
     "dispatch-map": "배차 지도",
     intake: "접수",
     approvals: "전자결제",
+    "leave-management": "연차관리",
+    "insurance-assist": "보험신고 지원",
     "daily-plan": "계획업무",
     collaboration: "협업 허브",
     inspection: "정기 예방정비",
