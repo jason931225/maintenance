@@ -1,6 +1,6 @@
 import { canonicalOrgSlug } from "../lib/orgSlug";
 import { getDeviceId } from "./device";
-import { isAuthPath, singleFlightRefresh } from "./refresh";
+import { shouldSkipAuthRefresh, singleFlightRefresh } from "./refresh";
 
 export interface GroupAdminMemberOrg {
   id: string;
@@ -85,7 +85,7 @@ async function groupAdminFetch(
     credentials: "include",
   });
 
-  if (response.status === 401 && !isAuthPath(url)) {
+  if (response.status === 401 && !shouldSkipAuthRefresh(url)) {
     let newToken: string;
     try {
       newToken = await singleFlightRefresh();
