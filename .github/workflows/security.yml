@@ -82,7 +82,11 @@ jobs:
         run: cargo install cargo-audit --locked --version 0.22.2
       - name: Run cargo audit
         working-directory: backend
-        run: cargo audit
+        # RUSTSEC-2023-0071 (rsa Marvin) is accepted with the exploitability
+        # rationale in backend/deny.toml; keep cargo-audit aligned with the
+        # cargo-deny advisory policy so newly introduced RUSTSEC findings still
+        # fail this job.
+        run: cargo audit --ignore RUSTSEC-2023-0071
 
   rust-supply-chain:
     name: cargo deny (licenses + sources + advisories)
