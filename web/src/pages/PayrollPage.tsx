@@ -17,6 +17,12 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
+import {
+  devAttendanceSummaryPage,
+  devEmployeeDirectoryPage,
+  devHrReadinessSummary,
+  isDevPreviewEnabled,
+} from "../lib/dev-preview";
 import { formatListCount } from "../lib/utils";
 
 type LoadState = "loading" | "idle" | "error";
@@ -52,6 +58,15 @@ export function PayrollPage() {
 
   const loadPayroll = useCallback(async () => {
     setState("loading");
+    if (isDevPreviewEnabled()) {
+      const devEmployees = devEmployeeDirectoryPage();
+      setReadiness(devHrReadinessSummary());
+      setAttendance(devAttendanceSummaryPage());
+      setEmployees(devEmployees.items);
+      setEmployeeTotal(devEmployees.total);
+      setState("idle");
+      return;
+    }
     const [readinessResponse, attendanceResponse, employeesResponse] =
       await Promise.all([
         payrollApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),

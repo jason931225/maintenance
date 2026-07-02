@@ -24,6 +24,12 @@ import { ApprovalDocumentDesk } from "../features/approvals/ApprovalDocumentDesk
 import { ApprovalQueue } from "../features/approvals/ApprovalQueue";
 import { TargetChangeReviewQueue } from "../features/approvals/TargetChangeReviewQueue";
 import { ko } from "../i18n/ko";
+import {
+  devApprovalItemsPage,
+  devHrReadinessSummary,
+  devLeaveBalancePage,
+  isDevPreviewEnabled,
+} from "../lib/dev-preview";
 
 type ReadState = "idle" | "loading" | "error";
 type WriteState = "idle" | "error";
@@ -101,6 +107,13 @@ export function ApprovalsPage() {
 
   const loadData = useCallback(async () => {
     setReadState("loading");
+    if (isDevPreviewEnabled()) {
+      setApprovalPage(devApprovalItemsPage());
+      setReadinessSummary(canLoadHrData ? devHrReadinessSummary() : undefined);
+      setLeaveBalances(canLoadHrData ? devLeaveBalancePage() : undefined);
+      setReadState("idle");
+      return;
+    }
     try {
       const [response, readinessResponse, leaveResponse] = await Promise.all([
         approvalsApi.GET("/api/approval-items", {
@@ -138,6 +151,10 @@ export function ApprovalsPage() {
 
   async function approveWorkOrder(workOrderId: string, comment: string): Promise<boolean> {
     setWriteState("idle");
+    if (isDevPreviewEnabled()) {
+      await loadData();
+      return Boolean(workOrderId);
+    }
     try {
       const response = await api.POST("/api/work-orders/{workOrderId}/approve", {
         params: { path: { workOrderId } },
@@ -157,6 +174,10 @@ export function ApprovalsPage() {
 
   async function rejectWorkOrder(workOrderId: string, memo: string): Promise<boolean> {
     setWriteState("idle");
+    if (isDevPreviewEnabled()) {
+      await loadData();
+      return Boolean(workOrderId);
+    }
     try {
       const response = await api.POST("/api/v1/work-orders/{workOrderId}/reject", {
         params: { path: { workOrderId } },
@@ -180,6 +201,10 @@ export function ApprovalsPage() {
     memo: string,
   ): Promise<TargetChangeRequestSummary | undefined> {
     setWriteState("idle");
+    if (isDevPreviewEnabled()) {
+      await loadData();
+      return targetChanges.find((request) => request.id === requestId);
+    }
     try {
       const response = await api.POST(
         "/api/target-change-requests/{requestId}/review",

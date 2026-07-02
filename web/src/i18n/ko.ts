@@ -17,6 +17,23 @@ export const ko = {
     messengerReply: "확인했습니다. 현장 도착 후 사진도 같이 올려주세요.",
     messengerReadProgressProbe:
       "읽음 카운트가 실시간 메시지와 동일하게 표시되는지 확인용입니다.",
+    dailyPlanItemDescription: "P1 출동 후 완료 보고 승인 대기",
+    workOrderApprovalTitle: "BESTEC 정비 완료 보고 승인",
+    workOrderApprovalSummary: "근태/성과/KPI 반영 전 최종 검토",
+    dailyPlanApprovalTitle: "BESTEC 일일 계획 승인",
+    dailyPlanApprovalSummary: "출장/외출 일정과 배차 계획을 결재선에 올린 상태",
+    supportTicketTitle: "BESTEC 급여자료 마감 전 근태 확인 요청",
+    attendanceTripNote: "BESTEC 현장 출장",
+    delayReasonPartsWaiting: "부품 대기",
+    delayReasonEquipmentInUse: "현장 사용 중",
+    mailPayrollSubject: "BESTEC 7월 급여자료 확인",
+    mailPayrollSnippet: "근태 기록 9건, 연차 2건이 급여 준비 자료에 연결되었습니다.",
+    mailPayrollBody:
+      "근태 기록 9건, 연차 2건이 급여 준비 자료에 연결되었습니다. 전자결재 승인 후 급여대장에 반영해 주세요.",
+    customerInquiryName: "BESTEC 구매팀",
+    customerInquiryMessage: "정비 완료 보고서와 보험 신고 자료를 함께 받고 싶습니다.",
+    attachmentPreviewNotice: (filename: string) =>
+      `${filename} 로컬 미리보기 첨부파일입니다.`,
   },
   nav: {
     "work-hub": "업무 허브",
@@ -946,6 +963,7 @@ export const ko = {
     duplicateReplay: "이미 저장된 근태 기록을 다시 확인했습니다.",
     linked: "연결됨",
     linkPending: "연결 대기",
+    noNote: "비고 없음",
     actions: {
       CLOCK_IN: "출근 기록",
       OUT_FOR_WORK: "외출 기록",
@@ -970,6 +988,7 @@ export const ko = {
       kind: "구분",
       occurredAt: "기록 시각",
       stateAfter: "이후 상태",
+      note: "비고",
       payroll: "급여자료",
     },
   },

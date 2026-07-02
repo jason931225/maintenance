@@ -8,6 +8,7 @@ import { PageError } from "../components/states/PageError";
 import { KpiDashboard } from "../features/kpi/KpiDashboard";
 import { getDefaultKpiPeriod } from "../features/kpi/kpi-format";
 import { ko } from "../i18n/ko";
+import { devKpiReport, isDevPreviewEnabled } from "../lib/dev-preview";
 
 type ReadState = "idle" | "loading" | "error";
 
@@ -19,6 +20,19 @@ export function KpiPage() {
 
   const loadData = useCallback(async (period: string) => {
     setReadState("loading");
+    if (isDevPreviewEnabled()) {
+      const [start, end] = period.split("..");
+      const report = devKpiReport();
+      setKpiReport({
+        ...report,
+        period: {
+          start: start ? `${start}T00:00:00Z` : report.period.start,
+          end: end ? `${end}T00:00:00Z` : report.period.end,
+        },
+      });
+      setReadState("idle");
+      return;
+    }
     const response = await api.GET("/api/v1/kpi", {
       params: { query: { period } },
     }).catch(() => undefined);
