@@ -13,10 +13,10 @@ CREATE TABLE employee_attendance_records (
     actor_user_id   UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     kind            TEXT        NOT NULL CHECK (kind IN ('CLOCK_IN','OUT_FOR_WORK','BUSINESS_TRIP','RETURNED','CLOCK_OUT')),
     occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    work_date       DATE        NOT NULL DEFAULT CURRENT_DATE,
+    work_date       DATE        NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Seoul')::DATE),
     state_after     TEXT        NOT NULL CHECK (state_after IN ('CLOCKED_IN','OUT_FOR_WORK','BUSINESS_TRIP','OFF_DUTY')),
     note            TEXT        NULL CHECK (note IS NULL OR char_length(note) <= 500),
-    idempotency_key TEXT        NULL CHECK (idempotency_key IS NULL OR (btrim(idempotency_key) <> '' AND char_length(idempotency_key) <= 128)),
+    idempotency_key TEXT        NOT NULL CHECK (btrim(idempotency_key) <> '' AND char_length(idempotency_key) <= 128),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, org_id),
     FOREIGN KEY (employee_id, org_id) REFERENCES employees(id, org_id) ON DELETE RESTRICT,
@@ -26,8 +26,7 @@ CREATE TABLE employee_attendance_records (
 CREATE UNIQUE INDEX employee_attendance_records_id_org_unique
     ON employee_attendance_records (id, org_id);
 CREATE UNIQUE INDEX employee_attendance_records_idempotency_idx
-    ON employee_attendance_records (org_id, employee_id, idempotency_key)
-    WHERE idempotency_key IS NOT NULL;
+    ON employee_attendance_records (org_id, employee_id, idempotency_key);
 CREATE INDEX employee_attendance_records_employee_time_idx
     ON employee_attendance_records (org_id, employee_id, occurred_at DESC, id DESC);
 CREATE INDEX employee_attendance_records_actor_time_idx

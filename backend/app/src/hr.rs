@@ -265,8 +265,7 @@ struct AttendanceRecordsQuery {
 #[derive(Debug, Deserialize)]
 struct CreateEmployeeAttendanceRecordRequest {
     kind: String,
-    #[serde(default)]
-    idempotency_key: Option<String>,
+    idempotency_key: String,
     #[serde(default)]
     note: Option<String>,
 }
@@ -792,10 +791,15 @@ async fn create_my_attendance_record(
         Box::pin(async move {
             let linked = load_linked_employee_for_user(tx, org, actor, true).await?;
 
-            if let Some(key) = idempotency_key.as_deref()
-                && let Some(existing) =
-                    load_attendance_record_by_idempotency_key(tx, linked.employee_id, key).await?
+            if let Some(existing) =
+                load_attendance_record_by_idempotency_key(tx, linked.employee_id, &idempotency_key)
+                    .await?
             {
+                if existing.kind.as_str() != kind || existing.note != note {
+                    return Err(HrError::from_kernel(KernelError::conflict(
+                        "idempotency key already used with different attendance payload",
+                    )));
+                }
                 return Ok((existing, Vec::new()));
             }
 
@@ -841,7 +845,7 @@ async fn create_my_attendance_record(
             .bind(kind)
             .bind(state_after)
             .bind(note)
-            .bind(idempotency_key)
+            .bind(&idempotency_key)
             .fetch_one(tx.as_mut())
             .await?;
 
@@ -5025,13 +5029,15 @@ fn normalize_attendance_kind(raw: &str) -> Result<&'static str, HrError> {
     }
 }
 
-fn normalize_idempotency_key(value: Option<String>) -> Result<Option<String>, HrError> {
-    match normalize_optional_text(value) {
-        Some(value) if value.chars().count() > 128 => Err(HrError::validation(
+fn normalize_idempotency_key(value: String) -> Result<String, HrError> {
+    let value = normalize_optional_text(Some(value))
+        .ok_or_else(|| HrError::validation("idempotency key is required"))?;
+    if value.chars().count() > 128 {
+        return Err(HrError::validation(
             "idempotency key must be 128 characters or fewer",
-        )),
-        value => Ok(value),
+        ));
     }
+    Ok(value)
 }
 
 fn normalize_attendance_note(value: Option<String>) -> Result<Option<String>, HrError> {
@@ -6415,10 +6421,14 @@ E-001,홍길동,본사,2026-07-01,abc
             .unwrap_or("invalid");
         assert_eq!(kind, "BUSINESS_TRIP");
 
-        let idempotency_key = normalize_idempotency_key(Some(" retry-1 ".to_owned()))
+        let idempotency_key = normalize_idempotency_key(" retry-1 ".to_owned())
             .map_err(|err| err.message)
             .unwrap_or_default();
-        assert_eq!(idempotency_key.as_deref(), Some("retry-1"));
+        assert_eq!(idempotency_key, "retry-1");
+        assert!(
+            normalize_idempotency_key("   ".to_owned()).is_err(),
+            "blank idempotency keys must be rejected"
+        );
         assert!(
             normalize_attendance_note(Some("x".repeat(501))).is_err(),
             "long attendance notes must be rejected before persistence"
