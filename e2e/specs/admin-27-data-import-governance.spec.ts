@@ -59,7 +59,7 @@ test("ADMIN-27 governed employee import preserves raw rows, masks sensitive prev
   await loginAs("SUPER_ADMIN");
   await page.goto("/settings/employees");
   await page.getByTestId("excel-import-file").setInputFiles(workbook);
-  await page.getByRole("button", { name: "미리보기 생성" }).click();
+  await page.getByRole("button", { name: "미리보기 생성", exact: true }).click();
 
   await expect(
     page.getByRole("heading", { name: "가져오기 검토" }),
@@ -74,7 +74,7 @@ test("ADMIN-27 governed employee import preserves raw rows, masks sensitive prev
   await expect(page.getByRole("cell", { name: "남은 연차" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "잔여연차" })).toBeVisible();
 
-  await page.getByRole("button", { name: "드라이런" }).click();
+  await page.getByRole("button", { name: "드라이런", exact: true }).click();
   await expect(page.getByText("추가 예정")).toBeVisible({ timeout: 20_000 });
   expect(
     querySql<{ employee_rows: number }>(
@@ -100,7 +100,7 @@ test("ADMIN-27 governed employee import preserves raw rows, masks sensitive prev
   );
   expect(ledgerRows).toEqual([{ runs: 1, raw_rows: 2, candidate_rows: 1 }]);
 
-  await page.getByRole("button", { name: "검토 후 적용" }).click();
+  await page.getByRole("button", { name: "검토 후 적용", exact: true }).click();
   await expect(page.getByText(employeeName, { exact: true })).toBeVisible({
     timeout: 20_000,
   });

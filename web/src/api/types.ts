@@ -389,3 +389,11 @@ export interface HrReadinessSummary {
     durable_events: number;
   };
 }
+export type AttendanceImportPreview =
+  components["schemas"]["AttendanceImportPreviewResponse"];
+export type AttendanceImportDryRun =
+  components["schemas"]["AttendanceImportDryRunSummary"];
+export type AttendanceImportApplyReport =
+  components["schemas"]["AttendanceImportApplyReport"];
+export type AttendanceImportSummaryPage =
+  components["schemas"]["AttendanceImportSummaryPage"];

@@ -74,4 +74,25 @@ describe("data-exchange domain mapping", () => {
       sensitivity: "restricted",
     });
   });
+
+  it("classifies direct attendance headers as attendance import data", () => {
+    expect(profileSourceColumn("출근시간")).toMatchObject({
+      domain: "attendance_direct",
+      compatibleTargetIds: ["attendance.check_in_at"],
+    });
+    expect(isMappingAllowed("근무일", "attendance.work_date")).toBe(true);
+    expect(isMappingAllowed("근무일", "person.display_name")).toBe(false);
+
+    const profile = classifyDataset([
+      "근태 사번",
+      "근태 직원명",
+      "근무일",
+      "출근시간",
+      "퇴근시간",
+      "근무분",
+    ]);
+    expect(profile.domain).toBe("attendance_direct");
+    expect(profile.domains).toEqual(["attendance_direct"]);
+    expect(profile.requiresDryRun).toBe(false);
+  });
 });

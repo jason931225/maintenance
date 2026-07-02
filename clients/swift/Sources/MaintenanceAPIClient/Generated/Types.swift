@@ -295,6 +295,32 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/hr/attendance-summary`.
     /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)`.
     func listHrAttendanceSummary(_ input: Operations.ListHrAttendanceSummary.Input) async throws -> Operations.ListHrAttendanceSummary.Output
+    /// Preview a direct attendance workbook or CSV through the governed import ledger
+    ///
+    /// Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in the response, and records coordinate-free attendance facts only after dry-run and apply. Imported rows are lineage for payroll readiness, not payable payroll lines.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/preview`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/preview/post(previewAttendanceImport)`.
+    func previewAttendanceImport(_ input: Operations.PreviewAttendanceImport.Input) async throws -> Operations.PreviewAttendanceImport.Output
+    /// Resolve employees and branches for a direct attendance import without writing facts
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/{run_id}/dry-run`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)`.
+    func dryRunAttendanceImport(_ input: Operations.DryRunAttendanceImport.Input) async throws -> Operations.DryRunAttendanceImport.Output
+    /// Apply a dry-run direct attendance import as append-only coordinate-free facts
+    ///
+    /// Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/{run_id}/apply`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)`.
+    func applyAttendanceImport(_ input: Operations.ApplyAttendanceImport.Input) async throws -> Operations.ApplyAttendanceImport.Output
+    /// List governed direct attendance import runs
+    ///
+    /// Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source rows.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-import/summary`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)`.
+    func listAttendanceImportSummary(_ input: Operations.ListAttendanceImportSummary.Input) async throws -> Operations.ListAttendanceImportSummary.Output
     /// Import payroll workbook sheets into the employee directory
     ///
     /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
@@ -1950,6 +1976,64 @@ extension APIProtocol {
         headers: Operations.ListHrAttendanceSummary.Input.Headers = .init()
     ) async throws -> Operations.ListHrAttendanceSummary.Output {
         try await listHrAttendanceSummary(Operations.ListHrAttendanceSummary.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Preview a direct attendance workbook or CSV through the governed import ledger
+    ///
+    /// Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in the response, and records coordinate-free attendance facts only after dry-run and apply. Imported rows are lineage for payroll readiness, not payable payroll lines.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/preview`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/preview/post(previewAttendanceImport)`.
+    public func previewAttendanceImport(
+        headers: Operations.PreviewAttendanceImport.Input.Headers = .init(),
+        body: Operations.PreviewAttendanceImport.Input.Body
+    ) async throws -> Operations.PreviewAttendanceImport.Output {
+        try await previewAttendanceImport(Operations.PreviewAttendanceImport.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Resolve employees and branches for a direct attendance import without writing facts
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/{run_id}/dry-run`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)`.
+    public func dryRunAttendanceImport(
+        path: Operations.DryRunAttendanceImport.Input.Path,
+        headers: Operations.DryRunAttendanceImport.Input.Headers = .init()
+    ) async throws -> Operations.DryRunAttendanceImport.Output {
+        try await dryRunAttendanceImport(Operations.DryRunAttendanceImport.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Apply a dry-run direct attendance import as append-only coordinate-free facts
+    ///
+    /// Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/{run_id}/apply`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)`.
+    public func applyAttendanceImport(
+        path: Operations.ApplyAttendanceImport.Input.Path,
+        headers: Operations.ApplyAttendanceImport.Input.Headers = .init()
+    ) async throws -> Operations.ApplyAttendanceImport.Output {
+        try await applyAttendanceImport(Operations.ApplyAttendanceImport.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// List governed direct attendance import runs
+    ///
+    /// Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source rows.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-import/summary`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)`.
+    public func listAttendanceImportSummary(
+        query: Operations.ListAttendanceImportSummary.Input.Query = .init(),
+        headers: Operations.ListAttendanceImportSummary.Input.Headers = .init()
+    ) async throws -> Operations.ListAttendanceImportSummary.Output {
+        try await listAttendanceImportSummary(Operations.ListAttendanceImportSummary.Input(
             query: query,
             headers: headers
         ))
@@ -9171,6 +9255,570 @@ public enum Components {
             ///   - offset:
             public init(
                 items: [Components.Schemas.AttendanceSummaryItem],
+                total: Swift.Int64,
+                limit: Swift.Int64,
+                offset: Swift.Int64
+            ) {
+                self.items = items
+                self.total = total
+                self.limit = limit
+                self.offset = offset
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
+                case limit
+                case offset
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn`.
+        public struct AttendanceImportColumn: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn/source_header`.
+            public var sourceHeader: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn/normalized_header`.
+            public var normalizedHeader: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn/target`.
+            @frozen public enum TargetPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case employeeNumber = "employee_number"
+                case employeeName = "employee_name"
+                case branchName = "branch_name"
+                case workDate = "work_date"
+                case checkInAt = "check_in_at"
+                case checkOutAt = "check_out_at"
+                case minutesWorked = "minutes_worked"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn/target`.
+            public var target: Components.Schemas.AttendanceImportColumn.TargetPayload?
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn/classification`.
+            @frozen public enum ClassificationPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case canonical = "canonical"
+                case retained = "retained"
+                case restricted = "restricted"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn/classification`.
+            public var classification: Components.Schemas.AttendanceImportColumn.ClassificationPayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportColumn/preview_allowed`.
+            public var previewAllowed: Swift.Bool
+            /// Creates a new `AttendanceImportColumn`.
+            ///
+            /// - Parameters:
+            ///   - sourceHeader:
+            ///   - normalizedHeader:
+            ///   - target:
+            ///   - classification:
+            ///   - previewAllowed:
+            public init(
+                sourceHeader: Swift.String,
+                normalizedHeader: Swift.String,
+                target: Components.Schemas.AttendanceImportColumn.TargetPayload? = nil,
+                classification: Components.Schemas.AttendanceImportColumn.ClassificationPayload,
+                previewAllowed: Swift.Bool
+            ) {
+                self.sourceHeader = sourceHeader
+                self.normalizedHeader = normalizedHeader
+                self.target = target
+                self.classification = classification
+                self.previewAllowed = previewAllowed
+            }
+            public enum CodingKeys: String, CodingKey {
+                case sourceHeader = "source_header"
+                case normalizedHeader = "normalized_header"
+                case target
+                case classification
+                case previewAllowed = "preview_allowed"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow`.
+        public struct AttendanceImportPreviewRow: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/source_sheet`.
+            public var sourceSheet: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/source_row`.
+            public var sourceRow: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/row_status`.
+            @frozen public enum RowStatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case candidate = "CANDIDATE"
+                case preserved = "PRESERVED"
+                case error = "ERROR"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/row_status`.
+            public var rowStatus: Components.Schemas.AttendanceImportPreviewRow.RowStatusPayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/values`.
+            public struct ValuesPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ValuesPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/values`.
+            public var values: Components.Schemas.AttendanceImportPreviewRow.ValuesPayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/validation`.
+            public struct ValidationPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ValidationPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewRow/validation`.
+            public var validation: Components.Schemas.AttendanceImportPreviewRow.ValidationPayload
+            /// Creates a new `AttendanceImportPreviewRow`.
+            ///
+            /// - Parameters:
+            ///   - sourceSheet:
+            ///   - sourceRow:
+            ///   - rowStatus:
+            ///   - values:
+            ///   - validation:
+            public init(
+                sourceSheet: Swift.String,
+                sourceRow: Swift.Int32,
+                rowStatus: Components.Schemas.AttendanceImportPreviewRow.RowStatusPayload,
+                values: Components.Schemas.AttendanceImportPreviewRow.ValuesPayload,
+                validation: Components.Schemas.AttendanceImportPreviewRow.ValidationPayload
+            ) {
+                self.sourceSheet = sourceSheet
+                self.sourceRow = sourceRow
+                self.rowStatus = rowStatus
+                self.values = values
+                self.validation = validation
+            }
+            public enum CodingKeys: String, CodingKey {
+                case sourceSheet = "source_sheet"
+                case sourceRow = "source_row"
+                case rowStatus = "row_status"
+                case values
+                case validation
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse`.
+        public struct AttendanceImportPreviewResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/entity_type`.
+            @frozen public enum EntityTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case attendanceDirect = "attendance_direct"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/entity_type`.
+            public var entityType: Components.Schemas.AttendanceImportPreviewResponse.EntityTypePayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/source_filename`.
+            public var sourceFilename: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/source_sha256`.
+            public var sourceSha256: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/input_rows`.
+            public var inputRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/candidate_rows`.
+            public var candidateRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/preserved_rows`.
+            public var preservedRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/columns`.
+            public var columns: [Components.Schemas.AttendanceImportColumn]
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/sample_rows`.
+            public var sampleRows: [Components.Schemas.AttendanceImportPreviewRow]
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/mapping_profile`.
+            public struct MappingProfilePayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `MappingProfilePayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportPreviewResponse/mapping_profile`.
+            public var mappingProfile: Components.Schemas.AttendanceImportPreviewResponse.MappingProfilePayload
+            /// Creates a new `AttendanceImportPreviewResponse`.
+            ///
+            /// - Parameters:
+            ///   - runId:
+            ///   - entityType:
+            ///   - sourceFilename:
+            ///   - sourceSha256:
+            ///   - inputRows:
+            ///   - candidateRows:
+            ///   - preservedRows:
+            ///   - columns:
+            ///   - sampleRows:
+            ///   - mappingProfile:
+            public init(
+                runId: Components.Schemas.Uuid,
+                entityType: Components.Schemas.AttendanceImportPreviewResponse.EntityTypePayload,
+                sourceFilename: Swift.String,
+                sourceSha256: Swift.String,
+                inputRows: Swift.Int,
+                candidateRows: Swift.Int,
+                preservedRows: Swift.Int,
+                columns: [Components.Schemas.AttendanceImportColumn],
+                sampleRows: [Components.Schemas.AttendanceImportPreviewRow],
+                mappingProfile: Components.Schemas.AttendanceImportPreviewResponse.MappingProfilePayload
+            ) {
+                self.runId = runId
+                self.entityType = entityType
+                self.sourceFilename = sourceFilename
+                self.sourceSha256 = sourceSha256
+                self.inputRows = inputRows
+                self.candidateRows = candidateRows
+                self.preservedRows = preservedRows
+                self.columns = columns
+                self.sampleRows = sampleRows
+                self.mappingProfile = mappingProfile
+            }
+            public enum CodingKeys: String, CodingKey {
+                case runId = "run_id"
+                case entityType = "entity_type"
+                case sourceFilename = "source_filename"
+                case sourceSha256 = "source_sha256"
+                case inputRows = "input_rows"
+                case candidateRows = "candidate_rows"
+                case preservedRows = "preserved_rows"
+                case columns
+                case sampleRows = "sample_rows"
+                case mappingProfile = "mapping_profile"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportRowError`.
+        public struct AttendanceImportRowError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportRowError/source_sheet`.
+            public var sourceSheet: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportRowError/source_row`.
+            public var sourceRow: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportRowError/source_key`.
+            public var sourceKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportRowError/code`.
+            public var code: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportRowError/message`.
+            public var message: Swift.String
+            /// Creates a new `AttendanceImportRowError`.
+            ///
+            /// - Parameters:
+            ///   - sourceSheet:
+            ///   - sourceRow:
+            ///   - sourceKey:
+            ///   - code:
+            ///   - message:
+            public init(
+                sourceSheet: Swift.String,
+                sourceRow: Swift.Int32,
+                sourceKey: Swift.String,
+                code: Swift.String,
+                message: Swift.String
+            ) {
+                self.sourceSheet = sourceSheet
+                self.sourceRow = sourceRow
+                self.sourceKey = sourceKey
+                self.code = code
+                self.message = message
+            }
+            public enum CodingKeys: String, CodingKey {
+                case sourceSheet = "source_sheet"
+                case sourceRow = "source_row"
+                case sourceKey = "source_key"
+                case code
+                case message
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary`.
+        public struct AttendanceImportDryRunSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/input_rows`.
+            public var inputRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/candidate_rows`.
+            public var candidateRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/preserved_rows`.
+            public var preservedRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/ready_rows`.
+            public var readyRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/error_rows`.
+            public var errorRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/duplicate_rows`.
+            public var duplicateRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/missing_employee_rows`.
+            public var missingEmployeeRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/ambiguous_employee_rows`.
+            public var ambiguousEmployeeRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportDryRunSummary/row_errors`.
+            public var rowErrors: [Components.Schemas.AttendanceImportRowError]
+            /// Creates a new `AttendanceImportDryRunSummary`.
+            ///
+            /// - Parameters:
+            ///   - runId:
+            ///   - inputRows:
+            ///   - candidateRows:
+            ///   - preservedRows:
+            ///   - readyRows:
+            ///   - errorRows:
+            ///   - duplicateRows:
+            ///   - missingEmployeeRows:
+            ///   - ambiguousEmployeeRows:
+            ///   - rowErrors:
+            public init(
+                runId: Components.Schemas.Uuid,
+                inputRows: Swift.Int,
+                candidateRows: Swift.Int,
+                preservedRows: Swift.Int,
+                readyRows: Swift.Int,
+                errorRows: Swift.Int,
+                duplicateRows: Swift.Int,
+                missingEmployeeRows: Swift.Int,
+                ambiguousEmployeeRows: Swift.Int,
+                rowErrors: [Components.Schemas.AttendanceImportRowError]
+            ) {
+                self.runId = runId
+                self.inputRows = inputRows
+                self.candidateRows = candidateRows
+                self.preservedRows = preservedRows
+                self.readyRows = readyRows
+                self.errorRows = errorRows
+                self.duplicateRows = duplicateRows
+                self.missingEmployeeRows = missingEmployeeRows
+                self.ambiguousEmployeeRows = ambiguousEmployeeRows
+                self.rowErrors = rowErrors
+            }
+            public enum CodingKeys: String, CodingKey {
+                case runId = "run_id"
+                case inputRows = "input_rows"
+                case candidateRows = "candidate_rows"
+                case preservedRows = "preserved_rows"
+                case readyRows = "ready_rows"
+                case errorRows = "error_rows"
+                case duplicateRows = "duplicate_rows"
+                case missingEmployeeRows = "missing_employee_rows"
+                case ambiguousEmployeeRows = "ambiguous_employee_rows"
+                case rowErrors = "row_errors"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportApplyReport`.
+        public struct AttendanceImportApplyReport: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportApplyReport/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportApplyReport/inserted`.
+            public var inserted: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportApplyReport/skipped`.
+            public var skipped: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportApplyReport/error_rows`.
+            public var errorRows: Swift.Int
+            /// Creates a new `AttendanceImportApplyReport`.
+            ///
+            /// - Parameters:
+            ///   - runId:
+            ///   - inserted:
+            ///   - skipped:
+            ///   - errorRows:
+            public init(
+                runId: Components.Schemas.Uuid,
+                inserted: Swift.Int,
+                skipped: Swift.Int,
+                errorRows: Swift.Int
+            ) {
+                self.runId = runId
+                self.inserted = inserted
+                self.skipped = skipped
+                self.errorRows = errorRows
+            }
+            public enum CodingKeys: String, CodingKey {
+                case runId = "run_id"
+                case inserted
+                case skipped
+                case errorRows = "error_rows"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem`.
+        public struct AttendanceImportSummaryItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case previewed = "PREVIEWED"
+                case dryRun = "DRY_RUN"
+                case applied = "APPLIED"
+                case failed = "FAILED"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/status`.
+            public var status: Components.Schemas.AttendanceImportSummaryItem.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/source_filename`.
+            public var sourceFilename: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/source_format`.
+            @frozen public enum SourceFormatPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case xlsx = "xlsx"
+                case csv = "csv"
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/source_format`.
+            public var sourceFormat: Components.Schemas.AttendanceImportSummaryItem.SourceFormatPayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/source_sha256`.
+            public var sourceSha256: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/input_rows`.
+            public var inputRows: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/candidate_rows`.
+            public var candidateRows: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/preserved_rows`.
+            public var preservedRows: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/dry_run_summary`.
+            public struct DryRunSummaryPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `DryRunSummaryPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/dry_run_summary`.
+            public var dryRunSummary: Components.Schemas.AttendanceImportSummaryItem.DryRunSummaryPayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/apply_summary`.
+            public struct ApplySummaryPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ApplySummaryPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/apply_summary`.
+            public var applySummary: Components.Schemas.AttendanceImportSummaryItem.ApplySummaryPayload
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/applied_at`.
+            public struct AppliedAtPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/applied_at/value1`.
+                public var value1: Components.Schemas.Timestamp
+                /// Creates a new `AppliedAtPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                public init(value1: Components.Schemas.Timestamp) {
+                    self.value1 = value1
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeToSingleValueContainer(self.value1)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryItem/applied_at`.
+            public var appliedAt: Components.Schemas.AttendanceImportSummaryItem.AppliedAtPayload?
+            /// Creates a new `AttendanceImportSummaryItem`.
+            ///
+            /// - Parameters:
+            ///   - runId:
+            ///   - status:
+            ///   - sourceFilename:
+            ///   - sourceFormat:
+            ///   - sourceSha256:
+            ///   - inputRows:
+            ///   - candidateRows:
+            ///   - preservedRows:
+            ///   - dryRunSummary:
+            ///   - applySummary:
+            ///   - createdAt:
+            ///   - appliedAt:
+            public init(
+                runId: Components.Schemas.Uuid,
+                status: Components.Schemas.AttendanceImportSummaryItem.StatusPayload,
+                sourceFilename: Swift.String,
+                sourceFormat: Components.Schemas.AttendanceImportSummaryItem.SourceFormatPayload,
+                sourceSha256: Swift.String,
+                inputRows: Swift.Int32,
+                candidateRows: Swift.Int32,
+                preservedRows: Swift.Int32,
+                dryRunSummary: Components.Schemas.AttendanceImportSummaryItem.DryRunSummaryPayload,
+                applySummary: Components.Schemas.AttendanceImportSummaryItem.ApplySummaryPayload,
+                createdAt: Components.Schemas.Timestamp,
+                appliedAt: Components.Schemas.AttendanceImportSummaryItem.AppliedAtPayload? = nil
+            ) {
+                self.runId = runId
+                self.status = status
+                self.sourceFilename = sourceFilename
+                self.sourceFormat = sourceFormat
+                self.sourceSha256 = sourceSha256
+                self.inputRows = inputRows
+                self.candidateRows = candidateRows
+                self.preservedRows = preservedRows
+                self.dryRunSummary = dryRunSummary
+                self.applySummary = applySummary
+                self.createdAt = createdAt
+                self.appliedAt = appliedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case runId = "run_id"
+                case status
+                case sourceFilename = "source_filename"
+                case sourceFormat = "source_format"
+                case sourceSha256 = "source_sha256"
+                case inputRows = "input_rows"
+                case candidateRows = "candidate_rows"
+                case preservedRows = "preserved_rows"
+                case dryRunSummary = "dry_run_summary"
+                case applySummary = "apply_summary"
+                case createdAt = "created_at"
+                case appliedAt = "applied_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryPage`.
+        public struct AttendanceImportSummaryPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryPage/items`.
+            public var items: [Components.Schemas.AttendanceImportSummaryItem]
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryPage/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AttendanceImportSummaryPage/offset`.
+            public var offset: Swift.Int64
+            /// Creates a new `AttendanceImportSummaryPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            ///   - limit:
+            ///   - offset:
+            public init(
+                items: [Components.Schemas.AttendanceImportSummaryItem],
                 total: Swift.Int64,
                 limit: Swift.Int64,
                 offset: Swift.Int64
@@ -28928,6 +29576,885 @@ public enum Operations {
             /// Principal lacks role or branch authority.
             ///
             /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Preview a direct attendance workbook or CSV through the governed import ledger
+    ///
+    /// Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in the response, and records coordinate-free attendance facts only after dry-run and apply. Imported rows are lineage for payroll readiness, not payable payroll lines.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/preview`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/preview/post(previewAttendanceImport)`.
+    public enum PreviewAttendanceImport {
+        public static let id: Swift.String = "previewAttendanceImport"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/preview/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewAttendanceImport.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewAttendanceImport.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PreviewAttendanceImport.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/preview/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/preview/POST/requestBody/multipartForm`.
+                @frozen public enum MultipartFormPayload: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/preview/POST/requestBody/multipartForm/file`.
+                    public struct FilePayload: Sendable, Hashable {
+                        public var body: OpenAPIRuntime.HTTPBody
+                        /// Creates a new `FilePayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - body:
+                        public init(body: OpenAPIRuntime.HTTPBody) {
+                            self.body = body
+                        }
+                    }
+                    case file(OpenAPIRuntime.MultipartPart<Operations.PreviewAttendanceImport.Input.Body.MultipartFormPayload.FilePayload>)
+                    case undocumented(OpenAPIRuntime.MultipartRawPart)
+                }
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/preview/POST/requestBody/content/multipart\/form-data`.
+                case multipartForm(OpenAPIRuntime.MultipartBody<Operations.PreviewAttendanceImport.Input.Body.MultipartFormPayload>)
+            }
+            public var body: Operations.PreviewAttendanceImport.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PreviewAttendanceImport.Input.Headers = .init(),
+                body: Operations.PreviewAttendanceImport.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/preview/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/preview/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AttendanceImportPreviewResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AttendanceImportPreviewResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PreviewAttendanceImport.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PreviewAttendanceImport.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Attendance import preview with masked sample rows and mapping profile.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/preview/post(previewAttendanceImport)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PreviewAttendanceImport.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PreviewAttendanceImport.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/preview/post(previewAttendanceImport)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/preview/post(previewAttendanceImport)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/preview/post(previewAttendanceImport)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Resolve employees and branches for a direct attendance import without writing facts
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/{run_id}/dry-run`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)`.
+    public enum DryRunAttendanceImport {
+        public static let id: Swift.String = "dryRunAttendanceImport"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/dry-run/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/dry-run/POST/path/run_id`.
+                public var runId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - runId:
+                public init(runId: Components.Schemas.Uuid) {
+                    self.runId = runId
+                }
+            }
+            public var path: Operations.DryRunAttendanceImport.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/dry-run/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DryRunAttendanceImport.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DryRunAttendanceImport.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DryRunAttendanceImport.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.DryRunAttendanceImport.Input.Path,
+                headers: Operations.DryRunAttendanceImport.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/dry-run/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/dry-run/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AttendanceImportDryRunSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AttendanceImportDryRunSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DryRunAttendanceImport.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DryRunAttendanceImport.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Attendance import row readiness and per-row rejection reasons.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.DryRunAttendanceImport.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.DryRunAttendanceImport.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/dry-run/post(dryRunAttendanceImport)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Apply a dry-run direct attendance import as append-only coordinate-free facts
+    ///
+    /// Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-import/{run_id}/apply`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)`.
+    public enum ApplyAttendanceImport {
+        public static let id: Swift.String = "applyAttendanceImport"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/apply/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/apply/POST/path/run_id`.
+                public var runId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - runId:
+                public init(runId: Components.Schemas.Uuid) {
+                    self.runId = runId
+                }
+            }
+            public var path: Operations.ApplyAttendanceImport.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/apply/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApplyAttendanceImport.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApplyAttendanceImport.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ApplyAttendanceImport.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ApplyAttendanceImport.Input.Path,
+                headers: Operations.ApplyAttendanceImport.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/apply/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/{run_id}/apply/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AttendanceImportApplyReport)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AttendanceImportApplyReport {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ApplyAttendanceImport.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ApplyAttendanceImport.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Apply counts for append-only direct attendance facts.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ApplyAttendanceImport.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ApplyAttendanceImport.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/{run_id}/apply/post(applyAttendanceImport)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List governed direct attendance import runs
+    ///
+    /// Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source rows.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-import/summary`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)`.
+    public enum ListAttendanceImportSummary {
+        public static let id: Swift.String = "listAttendanceImportSummary"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/summary/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/summary/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/summary/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListAttendanceImportSummary.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/summary/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListAttendanceImportSummary.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListAttendanceImportSummary.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListAttendanceImportSummary.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListAttendanceImportSummary.Input.Query = .init(),
+                headers: Operations.ListAttendanceImportSummary.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/summary/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-import/summary/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AttendanceImportSummaryPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AttendanceImportSummaryPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListAttendanceImportSummary.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListAttendanceImportSummary.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Direct attendance import run summaries.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListAttendanceImportSummary.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListAttendanceImportSummary.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)/responses/403`.
             ///
             /// HTTP response code: `403 forbidden`.
             case forbidden(Components.Responses.Forbidden)

@@ -5,6 +5,7 @@ import {
 
 export type ImportDomain =
   | "employee_hr"
+  | "attendance_direct"
   | "payroll"
   | "organization"
   | "rbac"
