@@ -11,6 +11,8 @@ import { branchId, primaryMechanicId, workOrderListItems } from "../test/fixture
 import { ApprovalsPage } from "./ApprovalsPage";
 
 const federatedRequests: URL[] = [];
+const hrReadinessRequests: URL[] = [];
+const leaveBalanceRequests: URL[] = [];
 const legacyListRequests: URL[] = [];
 const legacyDailyRequests: URL[] = [];
 const server = setupServer();
@@ -32,6 +34,8 @@ beforeAll(() => {
 afterEach(() => {
   server.resetHandlers();
   federatedRequests.length = 0;
+  hrReadinessRequests.length = 0;
+  leaveBalanceRequests.length = 0;
   legacyListRequests.length = 0;
   legacyDailyRequests.length = 0;
 });
@@ -40,9 +44,9 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(): AuthContextValue {
+function makeAuthContext(session: AuthSession = adminSession): AuthContextValue {
   return {
-    session: adminSession,
+    session,
     restoring: false,
     login: async () => {},
     logout: async () => {},
@@ -52,13 +56,13 @@ function makeAuthContext(): AuthContextValue {
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(adminSession.access_token),
+    api: createConsoleApiClient(session.access_token),
   };
 }
 
-function renderPage(initialEntries = ["/approvals"]) {
+function renderPage(initialEntries = ["/approvals"], session: AuthSession = adminSession) {
   return render(
-    <AuthContext.Provider value={makeAuthContext()}>
+    <AuthContext.Provider value={makeAuthContext(session)}>
       <MemoryRouter initialEntries={initialEntries}>
         <ApprovalsPage />
       </MemoryRouter>
@@ -258,12 +262,14 @@ function installHappyHandlers() {
       federatedRequests.push(new URL(request.url));
       return HttpResponse.json(federatedApprovalPayload());
     }),
-    http.get("*/api/v1/hr/readiness-summary", () =>
-      HttpResponse.json(readinessSummaryPayload()),
-    ),
-    http.get("*/api/v1/hr/leave-balances", () =>
-      HttpResponse.json(leaveBalancesPayload()),
-    ),
+    http.get("*/api/v1/hr/readiness-summary", ({ request }) => {
+      hrReadinessRequests.push(new URL(request.url));
+      return HttpResponse.json(readinessSummaryPayload());
+    }),
+    http.get("*/api/v1/hr/leave-balances", ({ request }) => {
+      leaveBalanceRequests.push(new URL(request.url));
+      return HttpResponse.json(leaveBalancesPayload());
+    }),
     http.get("*/api/v1/work-orders", ({ request }) => {
       legacyListRequests.push(new URL(request.url));
       return HttpResponse.json({ error: "legacy work-order approval list should not be called" }, { status: 500 });
@@ -329,8 +335,29 @@ describe("ApprovalsPage", () => {
     await waitFor(() => {
       expect(federatedRequests.length).toBe(1);
       expect(federatedRequests[0].searchParams.get("limit")).toBe("100");
+      expect(hrReadinessRequests).toHaveLength(0);
+      expect(leaveBalanceRequests).toHaveLength(0);
       expect(legacyListRequests).toHaveLength(0);
       expect(legacyDailyRequests).toHaveLength(0);
+    });
+  });
+
+  it("loads org-wide HR document supplements only for org-wide approval principals", async () => {
+    installHappyHandlers();
+
+    renderPage(["/approvals"], {
+      ...adminSession,
+      access_token: "super-admin-token",
+      roles: ["SUPER_ADMIN"],
+      branches: [],
+    });
+
+    expect(await screen.findByText("전자결재 문서·연동 데스크")).toBeVisible();
+    await waitFor(() => {
+      expect(federatedRequests.length).toBe(1);
+      expect(hrReadinessRequests).toHaveLength(1);
+      expect(leaveBalanceRequests).toHaveLength(1);
+      expect(leaveBalanceRequests[0].searchParams.get("limit")).toBe("1000");
     });
   });
 

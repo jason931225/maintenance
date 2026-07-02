@@ -5,6 +5,7 @@ use md5::Digest;
 use quick_xml::{
     Reader,
     Writer,
+    escape::resolve_predefined_entity,
     events::{
         BytesStart,
         Event,
@@ -59,13 +60,29 @@ impl Text {
         reader: &mut Reader<R>,
         _e: &BytesStart,
     ) {
+        let mut value = String::new();
         xml_read_loop!(
             reader,
             Event::Text(e) => {
-                self.set_value(e.unescape().unwrap());
+                value.push_str(&e.unescape().unwrap());
+            },
+            Event::GeneralRef(e) => {
+                if let Some(ch) = e.resolve_char_ref().unwrap() {
+                    value.push(ch);
+                } else {
+                    let entity = e.decode().unwrap();
+                    if let Some(resolved) = resolve_predefined_entity(entity.as_ref()) {
+                        value.push_str(resolved);
+                    } else {
+                        value.push('&');
+                        value.push_str(entity.as_ref());
+                        value.push(';');
+                    }
+                }
             },
             Event::End(ref e) => {
                 if e.name().0 == b"t" {
+                    self.set_value(value);
                     return
                 }
             },
