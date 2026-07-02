@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.34](https://github.com/jason931225/maintenance/compare/v0.1.33...v0.1.34) (2026-07-02)
+
+
+### Features
+
+* **hr:** link employee attendance to payroll materials ([#142](https://github.com/jason931225/maintenance/issues/142)) ([c370d17](https://github.com/jason931225/maintenance/commit/c370d179322aca5540c6c3127cf483f1e8341927))
+
 ## [0.1.33](https://github.com/jason931225/maintenance/compare/v0.1.32...v0.1.33) (2026-07-02)
 
 
