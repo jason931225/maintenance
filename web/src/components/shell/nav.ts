@@ -271,6 +271,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["integrity", INTEGRITY_ROLES],
 ]);
 
+// Runtime custom-role feature grants are level-flattened for destination
+// visibility: any non-deny backend grant may expose the relevant nav entry, while
+// the backend still enforces request_only/limited/allow on the API operation.
 const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["work-hub", [FEATURES.WORK_ORDER_READ_ALL]],
   ["messenger", [FEATURES.WORK_ORDER_READ_ALL]],

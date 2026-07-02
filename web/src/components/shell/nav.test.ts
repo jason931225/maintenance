@@ -252,6 +252,7 @@ describe("nav role gating", () => {
 
     const cases = [
       {
+        persona: "site_operations",
         grants: [
           FEATURES.WORK_ORDER_READ_ALL,
           FEATURES.WORK_ORDER_START,
@@ -272,6 +273,7 @@ describe("nav role gating", () => {
         ],
       },
       {
+        persona: "security_guard",
         grants: [
           FEATURES.WORK_ORDER_READ_ALL,
           FEATURES.WORK_ORDER_CREATE,
@@ -291,6 +293,7 @@ describe("nav role gating", () => {
         ],
       },
       {
+        persona: "cleaning_staff",
         grants: [
           FEATURES.WORK_ORDER_READ_ALL,
           FEATURES.WORK_ORDER_START,
@@ -311,6 +314,7 @@ describe("nav role gating", () => {
         ],
       },
       {
+        persona: "dispatch_office_staff",
         grants: [
           FEATURES.WORK_ORDER_CREATE,
           FEATURES.WORK_ORDER_EDIT_INTAKE,
@@ -333,11 +337,14 @@ describe("nav role gating", () => {
       },
     ];
 
-    for (const { grants, expected } of cases) {
-      expect(visibleItems([ROLES.MEMBER], undefined, grants)).toEqual(expected);
+    for (const { persona, grants, expected } of cases) {
+      expect(visibleItems([ROLES.MEMBER], undefined, grants), persona).toEqual(
+        expected,
+      );
       for (const key of restrictedSurfaces) {
         expect(
           isNavItemVisible(key, [ROLES.MEMBER], undefined, grants),
+          `${persona}:${key}`,
         ).toBe(false);
       }
     }
