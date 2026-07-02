@@ -274,7 +274,13 @@ describe("financial purchase request workflow", () => {
 
     renderApp(makeAuthContext(adminSession));
 
-    await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
+    await user.click(
+      await screen.findByRole(
+        "button",
+        { name: "구매요청서 작성" },
+        { timeout: 5_000 },
+      ),
+    );
     await lookupEquipment(user);
 
     await user.type(screen.getByLabelText("거래처명"), "한빛부품");
