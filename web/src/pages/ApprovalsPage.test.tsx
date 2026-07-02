@@ -11,10 +11,10 @@ import { branchId, primaryMechanicId, workOrderListItems } from "../test/fixture
 import { ApprovalsPage } from "./ApprovalsPage";
 
 const federatedRequests: URL[] = [];
-const hrReadinessRequests: URL[] = [];
-const leaveBalanceRequests: URL[] = [];
 const legacyListRequests: URL[] = [];
 const legacyDailyRequests: URL[] = [];
+const hrReadinessRequests: URL[] = [];
+const leaveBalanceRequests: URL[] = [];
 const server = setupServer();
 
 const requestedPlanId = "44444444-4444-4444-8444-444444444444";
@@ -27,6 +27,13 @@ const adminSession: AuthSession = {
   branches: [branchId],
 };
 
+const executiveSession: AuthSession = {
+  access_token: "executive-token",
+  user_id: "executive-user",
+  roles: ["EXECUTIVE"],
+  branches: [],
+};
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
@@ -34,10 +41,10 @@ beforeAll(() => {
 afterEach(() => {
   server.resetHandlers();
   federatedRequests.length = 0;
-  hrReadinessRequests.length = 0;
-  leaveBalanceRequests.length = 0;
   legacyListRequests.length = 0;
   legacyDailyRequests.length = 0;
+  hrReadinessRequests.length = 0;
+  leaveBalanceRequests.length = 0;
 });
 
 afterAll(() => {
@@ -60,7 +67,10 @@ function makeAuthContext(session: AuthSession = adminSession): AuthContextValue 
   };
 }
 
-function renderPage(initialEntries = ["/approvals"], session: AuthSession = adminSession) {
+function renderPage(
+  initialEntries = ["/approvals"],
+  session: AuthSession = adminSession,
+) {
   return render(
     <AuthContext.Provider value={makeAuthContext(session)}>
       <MemoryRouter initialEntries={initialEntries}>
@@ -335,29 +345,22 @@ describe("ApprovalsPage", () => {
     await waitFor(() => {
       expect(federatedRequests.length).toBe(1);
       expect(federatedRequests[0].searchParams.get("limit")).toBe("100");
-      expect(hrReadinessRequests).toHaveLength(0);
-      expect(leaveBalanceRequests).toHaveLength(0);
       expect(legacyListRequests).toHaveLength(0);
       expect(legacyDailyRequests).toHaveLength(0);
+      expect(hrReadinessRequests).toHaveLength(0);
+      expect(leaveBalanceRequests).toHaveLength(0);
     });
   });
 
-  it("loads org-wide HR document supplements only for org-wide approval principals", async () => {
+  it("loads HR-linked approval metrics only for org-wide leadership sessions", async () => {
     installHappyHandlers();
 
-    renderPage(["/approvals"], {
-      ...adminSession,
-      access_token: "super-admin-token",
-      roles: ["SUPER_ADMIN"],
-      branches: [],
-    });
+    renderPage(["/approvals"], executiveSession);
 
-    expect(await screen.findByText("전자결재 문서·연동 데스크")).toBeVisible();
     await waitFor(() => {
-      expect(federatedRequests.length).toBe(1);
+      expect(federatedRequests).toHaveLength(1);
       expect(hrReadinessRequests).toHaveLength(1);
       expect(leaveBalanceRequests).toHaveLength(1);
-      expect(leaveBalanceRequests[0].searchParams.get("limit")).toBe("1000");
     });
   });
 

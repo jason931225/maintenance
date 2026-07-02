@@ -177,7 +177,7 @@ describe("GroupAdminPage", () => {
     expect(screen.getAllByText("코스").length).toBeGreaterThan(0);
 
     await user.click(
-      screen.getByRole("button", { name: "코스 물류·정비 운영 바로가기" }),
+      screen.getByRole("button", { name: "코스 개인/부서 업무 바로가기" }),
     );
     await user.click(screen.getByRole("button", { name: "코스 전자결제" }));
 

@@ -14,6 +14,7 @@ import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
+import type { AuthSession } from "../context/auth";
 import { useAuth } from "../context/auth";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
 import {
@@ -27,11 +28,6 @@ import { ko } from "../i18n/ko";
 type ReadState = "idle" | "loading" | "error";
 type WriteState = "idle" | "error";
 
-// The HR readiness/leave APIs are deliberately org-wide backend surfaces. A
-// branch-scoped ADMIN can use the approval queue but receives 403 for those
-// supplemental HR reads, so only roles whose principal resolves to org-wide
-// scope should request them. Otherwise optional failures still surface as browser
-// console resource errors in E2E.
 const ORG_WIDE_HR_ROLES = [ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
 
 type ApprovalsApi = ConsoleApiClient & {
@@ -48,10 +44,15 @@ type ApprovalsApi = ConsoleApiClient & {
   ): Promise<{ data?: LeaveBalancePage }>;
 };
 
+function canLoadOrgWideHrData(session: AuthSession | undefined): boolean {
+  return hasAnyRole(session?.roles, ORG_WIDE_HR_ROLES);
+}
+
 export function ApprovalsPage() {
   const { api, session } = useAuth();
   const approvalsApi = api as ApprovalsApi;
   const location = useLocation();
+  const canLoadHrData = canLoadOrgWideHrData(session);
   const [approvalPage, setApprovalPage] = useState<ApprovalItemsPage>();
   const [readinessSummary, setReadinessSummary] =
     useState<HrReadinessSummary>();
@@ -91,7 +92,6 @@ export function ApprovalsPage() {
     !approvalPage ||
     approvalPage.sources.length === 0 ||
     approvalPage.sources.some((source) => source.key === "targetChanges");
-  const canReadOrgWideHr = hasAnyRole(session?.roles, ORG_WIDE_HR_ROLES);
   const focusedWorkOrderId = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("source") === "work-order"
@@ -106,10 +106,12 @@ export function ApprovalsPage() {
         approvalsApi.GET("/api/approval-items", {
           params: { query: { limit: 100, offset: 0 } },
         }),
-        canReadOrgWideHr
-          ? approvalsApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined)
+        canLoadHrData
+          ? approvalsApi
+              .GET("/api/v1/hr/readiness-summary")
+              .catch(() => undefined)
           : Promise.resolve(undefined),
-        canReadOrgWideHr
+        canLoadHrData
           ? approvalsApi
               .GET("/api/v1/hr/leave-balances", {
                 params: { query: { limit: 1000, offset: 0 } },
@@ -128,7 +130,7 @@ export function ApprovalsPage() {
     } catch {
       setReadState("error");
     }
-  }, [approvalsApi, canReadOrgWideHr]);
+  }, [approvalsApi, canLoadHrData]);
 
   useEffect(() => {
     void Promise.resolve().then(loadData);
