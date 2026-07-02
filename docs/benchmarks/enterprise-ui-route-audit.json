@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-06-30",
+  "updatedAt": "2026-07-02",
   "purpose": "Machine-readable route-to-enterprise-parity coverage for the current G002 shared hard gate and G003 browser-persona evidence plan.",
   "qualityGateSource": "docs/benchmarks/enterprise-parity-matrix.md#quality-gates-for-every-future-slice",
   "routeCoverage": [
@@ -1102,6 +1102,33 @@
       "denialScopeTest": "Finance actions require role and passkey step-up; payroll/tax/legal calculations stay gated until signoff",
       "screenshotTraceEvidence": "Pending G003/G008 finance screenshots and traces; no false payroll/accounting compliance claim allowed",
       "groupScopeStory": "Group finance may consolidate subsidiary cost/asset views while subsidiary finance keeps bounded operational scope"
+    },
+    {
+      "rawPath": "/payroll",
+      "canonicalPath": "/payroll",
+      "epRows": [
+        "EP-008",
+        "EP-010",
+        "EP-003",
+        "EP-013",
+        "EP-015"
+      ],
+      "personas": [
+        "hr",
+        "payroll-admin",
+        "manager",
+        "executive"
+      ],
+      "roleStoryEvidence": "payroll readiness console links employee ledger, attendance facts, leave/approval adjustments, KPI inputs, and guarded payroll calculation plan; PayrollPage/App routing/nav tests",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G004 people/org policy foundation with G008 HR/payroll import maturity, G005 approvals, and G008 KPI/reporting owners",
+      "dataClass": "employee ledger, attendance fact, annual leave obligation, approval adjustment, payroll source line, KPI payroll-sensitive metadata",
+      "sourceObject": "employee record, attendance event, leave/outside/travel approval, payroll preparation run, payroll source row, or KPI source fact",
+      "lifecycleStates": "loading, empty readiness, source imported, attendance linked, approval adjusted, legal gate blocked, calculation-ready, reviewed",
+      "e2eSpec": "Required browser/mobile story: registered employee clocks in on mobile or PC, approval adjusts time, HR reviews payroll readiness and KPI impact",
+      "denialScopeTest": "Payroll readiness route requires authorized employee-directory/payroll scope; payable payroll calculation stays blocked until legal and policy gates pass",
+      "screenshotTraceEvidence": "Pending G003/G004/G008 payroll readiness screenshot and trace; current row is not a legal payroll compliance completion claim",
+      "groupScopeStory": "Group HR can consolidate subsidiary payroll-readiness counts while payroll details stay subsidiary and policy scoped"
     },
     {
       "rawPath": "/settings",
