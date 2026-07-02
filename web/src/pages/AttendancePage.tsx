@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { ConsoleApiClient } from "../api/client";
+import type {
+  CreateEmployeeAttendanceRecordRequest,
+  EmployeeAttendanceRecord,
+} from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageEmpty } from "../components/states/PageEmpty";
@@ -22,67 +25,36 @@ const ATTENDANCE_KINDS = [
 type AttendanceKind = (typeof ATTENDANCE_KINDS)[number];
 type ReadState = "loading" | "idle" | "error";
 
-interface CreateEmployeeAttendanceRecordRequest {
+interface RecordFailure {
   kind: AttendanceKind;
-  idempotency_key: string;
-  note?: string;
+  idempotencyKey: string;
+  status?: number;
 }
-
-interface EmployeeAttendanceRecord {
-  id: string;
-  employee_id: string;
-  employee_display_name: string;
-  kind: AttendanceKind;
-  occurred_at: string;
-  work_date: string;
-  state_after: string;
-  note?: string | null;
-  payroll_material_ref_id: string;
-  payroll_link_status: string;
-  duplicate: boolean;
-}
-
-interface EmployeeAttendanceRecordPage {
-  items: EmployeeAttendanceRecord[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-type AttendanceApi = ConsoleApiClient & {
-  GET(
-    path: "/api/v1/hr/attendance-records/me",
-    options?: { params?: { query?: { limit?: number; offset?: number } } },
-  ): Promise<{ data?: EmployeeAttendanceRecordPage; response: Response }>;
-  POST(
-    path: "/api/v1/hr/attendance-records/me",
-    options: { body: CreateEmployeeAttendanceRecordRequest },
-  ): Promise<{ data?: EmployeeAttendanceRecord; response: Response }>;
-};
 
 export function AttendancePage() {
   const { api, session } = useAuth();
-  const attendanceApi = api as AttendanceApi;
   const t = ko.attendance;
   const [state, setState] = useState<ReadState>("loading");
   const [status, setStatus] = useState<number>();
   const [items, setItems] = useState<EmployeeAttendanceRecord[]>([]);
   const [action, setAction] = useState<AttendanceKind>();
-
+  const [recordFailure, setRecordFailure] = useState<RecordFailure>();
+  const [replayedRecordId, setReplayedRecordId] = useState<string>();
   const loadRecords = useCallback(async () => {
     setState("loading");
     setStatus(undefined);
-    const response = await attendanceApi
+    let failureStatus: number | undefined;
+    const response = await api
       .GET("/api/v1/hr/attendance-records/me", {
         params: { query: { limit: 50, offset: 0 } },
       })
       .catch((error: unknown) => {
-        setStatus(errorStatus(error));
+        failureStatus = errorStatus(error);
         return undefined;
       });
 
     if (!response?.data) {
-      setStatus(response?.response.status);
+      setStatus(response?.response.status ?? failureStatus);
       setState("error");
       return;
     }
@@ -90,7 +62,7 @@ export function AttendancePage() {
     setStatus(response.response.status);
     setItems(response.data.items);
     setState("idle");
-  }, [attendanceApi]);
+  }, [api]);
 
   useEffect(() => {
     void Promise.resolve().then(loadRecords);
@@ -103,31 +75,43 @@ export function AttendancePage() {
 
   const handleRecord = useCallback(
     async (kind: AttendanceKind) => {
+      const idempotencyKey =
+        recordFailure?.kind === kind
+          ? recordFailure.idempotencyKey
+          : `${idPrefix}-${kind}-${String(Date.now())}`;
+      const body: CreateEmployeeAttendanceRecordRequest = {
+        kind,
+        idempotency_key: idempotencyKey,
+      };
+      let failureStatus: number | undefined;
+
       setAction(kind);
       setStatus(undefined);
-      const response = await attendanceApi
-        .POST("/api/v1/hr/attendance-records/me", {
-          body: {
-            kind,
-            idempotency_key: `${idPrefix}-${kind}-${String(Date.now())}`,
-          },
-        })
+      setRecordFailure(undefined);
+      setReplayedRecordId(undefined);
+
+      const response = await api
+        .POST("/api/v1/hr/attendance-records/me", { body })
         .catch((error: unknown) => {
-          setStatus(errorStatus(error));
+          failureStatus = errorStatus(error);
           return undefined;
         });
       setAction(undefined);
 
       if (!response?.data) {
-        setStatus(response?.response.status);
-        setState("error");
+        setRecordFailure({
+          kind,
+          idempotencyKey,
+          status: response?.response.status ?? failureStatus,
+        });
         return;
       }
 
       setStatus(response.response.status);
+      setReplayedRecordId(response.data.duplicate ? response.data.id : undefined);
       await loadRecords();
     },
-    [attendanceApi, idPrefix, loadRecords],
+    [api, idPrefix, loadRecords, recordFailure],
   );
 
   const history = useMemo(() => items.slice(0, 10), [items]);
@@ -183,6 +167,36 @@ export function AttendancePage() {
               </div>
             ) : null}
           </div>
+          {recordFailure ? (
+            <div
+              role="alert"
+              className="grid gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              <p className="font-semibold">
+                {t.recordFailed.replace("{kind}", kindLabel(recordFailure.kind))}
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={Boolean(action)}
+                onClick={() => {
+                  void handleRecord(recordFailure.kind);
+                }}
+              >
+                {t.retryRecord.replace("{kind}", kindLabel(recordFailure.kind))}
+              </Button>
+              {recordFailure.status ? (
+                <p className="text-xs">HTTP {recordFailure.status}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {replayedRecordId ? (
+            <p className="rounded-lg border border-brand-teal/20 bg-brand-teal/5 px-3 py-2 text-sm font-semibold text-brand-teal">
+              {t.duplicateReplay}
+            </p>
+          ) : null}
+
 
           <div className="grid gap-2 sm:grid-cols-5">
             {ATTENDANCE_KINDS.map((kind) => (
@@ -190,7 +204,7 @@ export function AttendancePage() {
                 key={kind}
                 type="button"
                 variant={kind === "CLOCK_IN" ? "default" : "secondary"}
-                aria-label={t.actions[kind]}
+
                 disabled={Boolean(action)}
                 onClick={() => {
                   void handleRecord(kind);
@@ -210,7 +224,7 @@ export function AttendancePage() {
             <p className="text-sm text-steel">{t.historyDescription}</p>
           </div>
 
-          {history.length === 0 && state !== "loading" ? (
+          {history.length === 0 && state === "idle" ? (
             <PageEmpty message={t.empty} />
           ) : (
             <div className="overflow-x-auto">
@@ -244,9 +258,7 @@ export function AttendancePage() {
                         {stateLabel(record.state_after)}
                       </td>
                       <td className="px-3 py-2 text-steel">
-                        {record.payroll_link_status === "LINKED"
-                          ? t.linked
-                          : t.linkPending}
+                        {t.linked}
                       </td>
                     </tr>
                   ))}

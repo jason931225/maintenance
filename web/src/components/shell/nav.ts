@@ -269,6 +269,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
 
 const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["work-hub", [FEATURES.WORK_ORDER_READ_ALL]],
+  ["my-attendance", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["messenger", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch-map", [FEATURES.WORK_ORDER_READ_ALL]],

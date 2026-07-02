@@ -26,6 +26,7 @@ const baseRecord = {
 
 let records = [baseRecord];
 let lastPostBody: unknown;
+let postBodies: unknown[] = [];
 
 const server = setupServer(
   http.get("*/api/v1/hr/attendance-records/me", () =>
@@ -38,6 +39,7 @@ const server = setupServer(
   ),
   http.post("*/api/v1/hr/attendance-records/me", async ({ request }) => {
     lastPostBody = await request.json();
+    postBodies.push(lastPostBody);
     records = [
       {
         ...baseRecord,
@@ -59,6 +61,7 @@ beforeAll(() => {
 afterEach(() => {
   records = [baseRecord];
   lastPostBody = undefined;
+  postBodies = [];
   server.resetHandlers();
 });
 afterAll(() => {
@@ -122,6 +125,48 @@ describe("AttendancePage", () => {
       (lastPostBody as { idempotency_key?: string }).idempotency_key,
     ).toContain("OUT_FOR_WORK");
     expect((await screen.findAllByText("외출 중")).length).toBeGreaterThan(0);
+  });
+
+  it("retries a failed record write with the same idempotency key", async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    server.use(
+      http.post("*/api/v1/hr/attendance-records/me", async ({ request }) => {
+        const body = await request.json();
+        postBodies.push(body);
+        attempts += 1;
+        if (attempts === 1) {
+          return HttpResponse.json(
+            { error: { code: "unavailable", message: "try again" } },
+            { status: 503 },
+          );
+        }
+
+        return HttpResponse.json({
+          ...baseRecord,
+          id: "66666666-6666-4666-8666-666666666666",
+          kind: "OUT_FOR_WORK",
+          occurred_at: "2026-07-02T01:00:00Z",
+          state_after: "OUT_FOR_WORK",
+          payroll_material_ref_id: "77777777-7777-4777-8777-777777777777",
+          duplicate: true,
+        });
+      }),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "외출 기록" }));
+    expect(
+      await screen.findByText("외출 기록을 저장하지 못했습니다."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "외출 기록 다시 시도" }));
+
+    await screen.findByText("이미 저장된 근태 기록을 다시 확인했습니다.");
+    expect(postBodies).toHaveLength(2);
+    expect(
+      (postBodies[0] as { idempotency_key?: string }).idempotency_key,
+    ).toBe((postBodies[1] as { idempotency_key?: string }).idempotency_key);
   });
 
   it("surfaces linked-employee permission failures without exposing other employee records", async () => {

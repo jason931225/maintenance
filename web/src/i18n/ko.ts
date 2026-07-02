@@ -927,6 +927,9 @@ export const ko = {
     loadFailed: "근태 기록을 불러오지 못했습니다.",
     empty: "표시할 근태 기록이 없습니다.",
     recording: "기록 중",
+    recordFailed: "{kind} 기록을 저장하지 못했습니다.",
+    retryRecord: "{kind} 기록 다시 시도",
+    duplicateReplay: "이미 저장된 근태 기록을 다시 확인했습니다.",
     linked: "연결됨",
     linkPending: "연결 대기",
     actions: {

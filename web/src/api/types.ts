@@ -352,6 +352,12 @@ export type HrOrgChartResponse = components["schemas"]["HrOrgChartResponse"];
 export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
 export type AttendanceSummaryPage =
   components["schemas"]["AttendanceSummaryPage"];
+export type CreateEmployeeAttendanceRecordRequest =
+  components["schemas"]["CreateEmployeeAttendanceRecordRequest"];
+export type EmployeeAttendanceRecord =
+  components["schemas"]["EmployeeAttendanceRecord"];
+export type EmployeeAttendanceRecordPage =
+  components["schemas"]["EmployeeAttendanceRecordPage"];
 export interface HrReadinessSummary {
   imports: {
     runs: number;
