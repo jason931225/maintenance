@@ -1196,29 +1196,6 @@
       "groupScopeStory": "Self-service view is employee-scoped; HR/payroll management review uses the separate /api/v1/hr/attendance-records org-wide gate and does not widen personal nav access."
     },
     {
-      "rawPath": "/payroll",
-      "canonicalPath": "/payroll",
-      "epRows": [
-        "EP-008",
-        "EP-010"
-      ],
-      "personas": [
-        "hr",
-        "manager",
-        "executive"
-      ],
-      "roleStoryEvidence": "Payroll readiness route is exposed only through the audited employee-directory/HR read gate; PayrollPage readiness tests and G008 payroll legal-gate evidence keep payable payroll issuance disabled.",
-      "accessibilityEvidence": "PayrollPage semantic sections/cards, Korean readiness labels, web lint UI-string gate, and enterprise route audit gate; additional browser evidence remains required before regulated payroll claims.",
-      "ownerLane": "G008 HR/payroll legal readiness lane with G004 people/employee policy foundation",
-      "dataClass": "payroll readiness summary, draft status, source rows, attendance source rows, payroll material refs, legal-gate metadata",
-      "sourceObject": "payroll draft/readiness summary, attendance material reference, employee source row, or legal approval gate",
-      "lifecycleStates": "loading, ready, blocked by legal gate, source-linked, review required, denied, empty readiness, retry/error",
-      "e2eSpec": "Required browser story: HR/payroll reviewer opens 급여 대장, sees readiness/source lineage and legal-gate blocked status without issuing payable payroll.",
-      "denialScopeTest": "RequireNavItemRoute gates payroll with employee-directory/HR permissions; payable payroll issuance remains unavailable until legal/compliance gate is explicitly satisfied.",
-      "screenshotTraceEvidence": "Pending G008 payroll readiness screenshot/trace; route audit and component gates are non-terminal proof for regulated payroll claims.",
-      "groupScopeStory": "Group/HR management can review scoped readiness lineage while subsidiary/payroll-sensitive details remain policy-bound and non-payable until signoff."
-    },
-    {
       "rawPath": "/settings/employees",
       "canonicalPath": "/settings/employees",
       "epRows": [
