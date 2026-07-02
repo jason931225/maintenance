@@ -8,8 +8,10 @@ import {
   hasAnyFeatureGrant,
   hasAnyRole,
   hasGroupAdminRole,
+  hasGrantedConsoleAccess,
   isNavItemVisible,
   isPendingMember,
+  visibleNavItemsForRoles,
 } from "./nav";
 
 /** Every nav item key declared in NAV_GROUPS. */
@@ -335,6 +337,28 @@ describe("nav role gating", () => {
     expect(isPendingMember(["MEMBER"])).toBe(true);
     expect(isPendingMember(["MECHANIC"])).toBe(false);
     expect(isPendingMember(["MEMBER", "ADMIN"])).toBe(false);
+    expect(isPendingMember(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN])).toBe(false);
+    expect(isPendingMember(["MEMBER"], undefined, [FEATURES.MAIL_USE])).toBe(false);
+  });
+
+  it("treats mapped custom feature grants as console access for MEMBER sessions", () => {
+    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, [])).toBe(false);
+    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["role_manage"])).toBe(true);
+    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["user_manage"])).toBe(false);
+    expect(hasGrantedConsoleAccess(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], [])).toBe(true);
+  });
+
+  it("orders the first granted destination by the visible nav registry", () => {
+    expect(
+      visibleNavItemsForRoles(["MEMBER"], undefined, [FEATURES.MAIL_USE]).find(
+        (item) => item.key !== "profile",
+      )?.href,
+    ).toBe("/mail");
+    expect(
+      visibleNavItemsForRoles(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], []).find(
+        (item) => item.key !== "profile",
+      )?.href,
+    ).toBe("/settings/group");
   });
 
   it("respects multiple roles by unioning their entitlements", () => {

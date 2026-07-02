@@ -13,8 +13,8 @@ import {
   FEATURES,
   hasAnyFeatureGrant,
   hasGroupAdminRole,
+  hasGrantedConsoleAccess,
   isNavItemVisible,
-  isPendingMember,
 } from "./nav";
 
 interface TopbarProps {
@@ -300,10 +300,20 @@ function UserMenu() {
   // Identity for the menu chrome: the display name (JWT `name` claim), then
   // email, then a generic label — never the raw user_id UUID (identityLabel
   // enforces this). The role chip shows the granted role, or a pending-approval
-  // badge for a just-signed-up user with no role yet.
+  // badge for a just-signed-up user with no console grant yet.
   const name = identityLabel(session, ko.shell.user);
   const isGroupAdmin = hasGroupAdminRole(session?.group_roles);
-  const pending = isPendingMember(session?.roles) && !isGroupAdmin;
+  const pending = !hasGrantedConsoleAccess(
+    session?.roles,
+    session?.group_roles,
+    session?.feature_grants,
+  );
+  const canOpenLocationSettings = isNavItemVisible(
+    "location",
+    session?.roles,
+    session?.group_roles,
+    session?.feature_grants,
+  );
   const primaryRole = session?.roles?.find((role) => role !== "MEMBER");
   const roleChip = pending
     ? ko.shell.pendingApproval
@@ -385,15 +395,17 @@ function UserMenu() {
             <RefreshCw size={16} aria-hidden="true" />
             {ko.shell.refreshToken}
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="flex w-full items-center gap-2 px-4 py-2 text-sm text-steel hover:bg-muted-panel"
-            onClick={() => { setOpen(false); void navigate("/settings/location"); }}
-          >
-            <MapPin size={16} aria-hidden="true" />
-            {ko.shell.locationSettings}
-          </button>
+          {canOpenLocationSettings ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-steel hover:bg-muted-panel"
+              onClick={() => { setOpen(false); void navigate("/settings/location"); }}
+            >
+              <MapPin size={16} aria-hidden="true" />
+              {ko.shell.locationSettings}
+            </button>
+          ) : null}
           <div className="border-t border-line">
             <button
               type="button"

@@ -109,16 +109,18 @@ export function hasAnyFeatureGrant(
 }
 
 /**
- * A "pending" session: a just-signed-up user who holds no operational role yet —
- * either an empty/absent roles claim or the placeholder `["MEMBER"]`. The backend
- * default-denies every Feature but Login for this session, so the app routes it
- * to /pending and the nav default-denies every gated destination (only Profile
- * remains). Mirrors the backend authz reality so the nav never shows a 403 link.
+ * Legacy name for a session with no visible console destination beyond Profile.
+ * Group-admin and mapped runtime feature grants are access grants even when the
+ * built-in role claim is still the lowest-privilege MEMBER.
  */
-export function isPendingMember(roles: readonly string[] | undefined): boolean {
-  if (!roles || roles.length === 0) return true;
-  return roles.every((role) => role === ROLES.MEMBER);
+export function isPendingMember(
+  roles: readonly string[] | undefined,
+  groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
+): boolean {
+  return !hasGrantedConsoleAccess(roles, groupRoles, featureGrants);
 }
+
 
 const ADMIN_ROLES: readonly Role[] = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
 const ROLE_MANAGE_ROLES: readonly Role[] = [ROLES.SUPER_ADMIN];
@@ -576,6 +578,16 @@ export function visibleNavItemsForRoles(
         groupLabelKey: group.label,
         Icon: item.Icon,
       })),
+  );
+}
+
+export function hasGrantedConsoleAccess(
+  roles: readonly string[] | undefined,
+  groupRoles?: readonly string[],
+  featureGrants?: readonly string[],
+): boolean {
+  return visibleNavItemsForRoles(roles, groupRoles, featureGrants).some(
+    (item) => item.key !== "profile",
   );
 }
 
