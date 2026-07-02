@@ -227,6 +227,122 @@ describe("nav role gating", () => {
     ).toBe(false);
   });
 
+  it("maps operational persona custom grants to intended non-admin nav surfaces", () => {
+    const restrictedSurfaces = [
+      "approvals",
+      "inspection",
+      "kpi",
+      "intelligence",
+      "ops",
+      "reporting",
+      "integrity",
+      "equipment-manage",
+      "catalog",
+      "payroll",
+      "financial",
+      "org",
+      "sites",
+      "location",
+      "employees",
+      "users",
+      "policy",
+      "workflows",
+      "security",
+    ];
+
+    const cases = [
+      {
+        grants: [
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.WORK_ORDER_START,
+          FEATURES.WORK_REPORT_SUBMIT,
+          FEATURES.EVIDENCE_ATTACH,
+          FEATURES.DAILY_PLAN_REQUEST,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "dispatch",
+          "dispatch-map",
+          "daily-plan",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+      {
+        grants: [
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.WORK_ORDER_CREATE,
+          FEATURES.WORK_REPORT_SUBMIT,
+          FEATURES.EVIDENCE_ATTACH,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "dispatch",
+          "dispatch-map",
+          "intake",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+      {
+        grants: [
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.WORK_ORDER_START,
+          FEATURES.WORK_REPORT_SUBMIT,
+          FEATURES.EVIDENCE_ATTACH,
+          FEATURES.DAILY_PLAN_REQUEST,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "dispatch",
+          "dispatch-map",
+          "daily-plan",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+      {
+        grants: [
+          FEATURES.WORK_ORDER_CREATE,
+          FEATURES.WORK_ORDER_EDIT_INTAKE,
+          FEATURES.WORK_ORDER_READ_ALL,
+          FEATURES.TARGET_MANAGE,
+          FEATURES.MAIL_USE,
+        ],
+        expected: [
+          "work-hub",
+          "messenger",
+          "mail",
+          "dispatch",
+          "dispatch-map",
+          "intake",
+          "collaboration",
+          "support",
+          "equipment",
+          "profile",
+        ],
+      },
+    ];
+
+    for (const { grants, expected } of cases) {
+      expect(visibleItems([ROLES.MEMBER], undefined, grants)).toEqual(expected);
+      for (const key of restrictedSurfaces) {
+        expect(
+          isNavItemVisible(key, [ROLES.MEMBER], undefined, grants),
+        ).toBe(false);
+      }
+    }
+  });
+
   it("shows policy and workflow studios to SUPER_ADMIN or an effective RoleManage custom grant", () => {
     for (const key of ["policy", "workflows"]) {
       expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
