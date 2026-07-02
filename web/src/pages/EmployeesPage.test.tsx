@@ -9,6 +9,7 @@ import { AppRouter } from "../AppRouter";
 import { createConsoleApiClient } from "../api/client";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
+import { EmployeesPage } from "./EmployeesPage";
 
 const employees = [
   {
@@ -225,7 +226,17 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
   };
 }
 
-function renderApp(path: string, roles: string[]) {
+function renderEmployeesPage(roles: string[]) {
+  return render(
+    <AuthContext.Provider value={makeAuthContext({ access_token: "a", roles })}>
+      <MemoryRouter>
+        <EmployeesPage />
+      </MemoryRouter>
+    </AuthContext.Provider>,
+  );
+}
+
+function renderAppRoute(path: string, roles: string[]) {
   return render(
     <AuthContext.Provider value={makeAuthContext({ access_token: "a", roles })}>
       <MemoryRouter initialEntries={[path]}>
@@ -237,7 +248,7 @@ function renderApp(path: string, roles: string[]) {
 
 describe("EmployeesPage", () => {
   it("renders the HR setup dashboard, organization chart, leave, attendance, and directory", async () => {
-    renderApp("/settings/employees", ["EXECUTIVE"]);
+    renderEmployeesPage(["EXECUTIVE"]);
 
     expect(
       await screen.findByRole("heading", { name: "인사·조직 관리" }),
@@ -402,7 +413,7 @@ describe("EmployeesPage", () => {
       }),
     );
 
-    renderApp("/settings/employees", ["ADMIN"]);
+    renderEmployeesPage(["ADMIN"]);
 
     const input = await screen.findByLabelText("가져올 파일");
     await userEvent.upload(
@@ -523,7 +534,7 @@ describe("EmployeesPage", () => {
       }),
     );
 
-    renderApp("/settings/employees", ["ADMIN"]);
+    renderEmployeesPage(["ADMIN"]);
 
     const input = await screen.findByLabelText("근태 가져올 파일");
     await userEvent.upload(
@@ -593,7 +604,7 @@ describe("EmployeesPage", () => {
       ),
     );
 
-    renderApp("/settings/employees", ["ADMIN"]);
+    renderEmployeesPage(["ADMIN"]);
 
     await userEvent.click(
       await screen.findByRole("button", { name: "김현장 생애주기 관리" }),
@@ -673,7 +684,7 @@ describe("EmployeesPage", () => {
       ),
     );
 
-    renderApp("/settings/employees", ["ADMIN"]);
+    renderEmployeesPage(["ADMIN"]);
 
     await userEvent.click(
       await screen.findByRole("button", { name: "김현장 생애주기 관리" }),
@@ -721,7 +732,7 @@ describe("EmployeesPage", () => {
   });
 
   it("redirects unsupported roles away from the HR directory", async () => {
-    renderApp("/settings/employees", ["MECHANIC"]);
+    renderAppRoute("/settings/employees", ["MECHANIC"]);
 
     await waitFor(() => {
       expect(
