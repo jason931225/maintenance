@@ -1309,7 +1309,6 @@ internal fun TodayScreen(
 internal fun MessengerScreen(
     state: MessengerState,
     busy: Boolean,
-    currentUserId: UUID? = null,
     searchQuery: String,
     draft: String,
     onSearchQueryChange: (String) -> Unit,
@@ -1320,6 +1319,7 @@ internal fun MessengerScreen(
     onSearch: () -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
+    currentUserId: UUID? = null,
 ) {
     LaunchedEffect(Unit) {
         if (state.threads.isEmpty()) {

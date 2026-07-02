@@ -12,4 +12,13 @@ ignore = [
   # paste unmaintained (not a vulnerability). Build-time proc-macro pulled
   # transitively by umya-spreadsheet (Excel export); no runtime surface.
   "RUSTSEC-2024-0436",
+  # quick-xml RUSTSEC-2026-0194/0195. Latest calamine (0.35.0) and
+  # umya-spreadsheet (3.0.0) available on crates.io as of 2026-07-02 still
+  # constrain vulnerable quick-xml minor versions, so no patched update exists.
+  # Runtime exposure is limited by authenticated import routes with 16 MiB
+  # streaming/body caps plus trusted bundled export templates. Temporary:
+  # replace the Excel stack or remove this when those crates support
+  # quick-xml >= 0.41.0. Review by 2026-08-02.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
 ]
