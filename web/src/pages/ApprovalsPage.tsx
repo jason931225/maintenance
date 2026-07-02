@@ -14,7 +14,9 @@ import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
+import type { AuthSession } from "../context/auth";
 import { useAuth } from "../context/auth";
+import { hasAnyRole, ROLES } from "../components/shell/nav";
 import {
   ApprovalCommandCenter,
 } from "../features/approvals/ApprovalCommandCenter";
@@ -25,6 +27,8 @@ import { ko } from "../i18n/ko";
 
 type ReadState = "idle" | "loading" | "error";
 type WriteState = "idle" | "error";
+
+const ORG_WIDE_HR_ROLES = [ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
 
 type ApprovalsApi = ConsoleApiClient & {
   GET(
@@ -40,10 +44,15 @@ type ApprovalsApi = ConsoleApiClient & {
   ): Promise<{ data?: LeaveBalancePage }>;
 };
 
+function canLoadOrgWideHrData(session: AuthSession | undefined): boolean {
+  return hasAnyRole(session?.roles, ORG_WIDE_HR_ROLES);
+}
+
 export function ApprovalsPage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
   const approvalsApi = api as ApprovalsApi;
   const location = useLocation();
+  const canLoadHrData = canLoadOrgWideHrData(session);
   const [approvalPage, setApprovalPage] = useState<ApprovalItemsPage>();
   const [readinessSummary, setReadinessSummary] =
     useState<HrReadinessSummary>();
@@ -97,12 +106,18 @@ export function ApprovalsPage() {
         approvalsApi.GET("/api/approval-items", {
           params: { query: { limit: 100, offset: 0 } },
         }),
-        approvalsApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
-        approvalsApi
-          .GET("/api/v1/hr/leave-balances", {
-            params: { query: { limit: 1000, offset: 0 } },
-          })
-          .catch(() => undefined),
+        canLoadHrData
+          ? approvalsApi
+              .GET("/api/v1/hr/readiness-summary")
+              .catch(() => undefined)
+          : Promise.resolve(undefined),
+        canLoadHrData
+          ? approvalsApi
+              .GET("/api/v1/hr/leave-balances", {
+                params: { query: { limit: 1000, offset: 0 } },
+              })
+              .catch(() => undefined)
+          : Promise.resolve(undefined),
       ]);
       if (!response.data) {
         setReadState("error");
@@ -115,7 +130,7 @@ export function ApprovalsPage() {
     } catch {
       setReadState("error");
     }
-  }, [approvalsApi]);
+  }, [approvalsApi, canLoadHrData]);
 
   useEffect(() => {
     void Promise.resolve().then(loadData);
