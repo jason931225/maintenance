@@ -152,6 +152,11 @@ BEGIN
     DELETE FROM email_threads                   WHERE org_id = p_id;
     DELETE FROM email_folders                   WHERE org_id = p_id;
     DELETE FROM email_accounts                  WHERE org_id = p_id;
+    DELETE FROM mailbox_deliveries             WHERE org_id = p_id;
+    DELETE FROM mailbox_messages               WHERE org_id = p_id;
+    DELETE FROM mailbox_aliases                WHERE org_id = p_id;
+    DELETE FROM mailboxes                      WHERE org_id = p_id;
+    DELETE FROM mailbox_domains                WHERE org_id = p_id;
 
     DELETE FROM equipment_cost_ledger           WHERE org_id = p_id;
     DELETE FROM equipment_substitutions         WHERE org_id = p_id;

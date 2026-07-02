@@ -5062,6 +5062,12 @@ E-001,홍길동,본사,2026-07-01,25:99
         let run_id = Uuid::new_v4();
         let ready_row_id = Uuid::new_v4();
         let duplicate_row_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let mailbox_domain_id = Uuid::new_v4();
+        let mailbox_id = Uuid::new_v4();
+        let mailbox_alias_id = Uuid::new_v4();
+        let mailbox_message_id = Uuid::new_v4();
+        let mailbox_delivery_id = Uuid::new_v4();
         let source_sha256 = "a".repeat(64);
 
         sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
@@ -5086,6 +5092,96 @@ E-001,홍길동,본사,2026-07-01,25:99
             .execute(&pool)
             .await
             .map_err(|err| format!("seed branch failed: {err}"))?;
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY['ADMIN']::TEXT[], true, $3)",
+        )
+        .bind(user_id)
+        .bind("Mailbox Force Remove Owner")
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox owner user failed: {err}"))?;
+        let mailbox_domain = format!("attendance-{}.example.test", &org_id.to_string()[..8]);
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_domains (
+                id, org_id, domain, created_by
+            )
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(mailbox_domain_id)
+        .bind(org_id)
+        .bind(&mailbox_domain)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox domain failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailboxes (
+                id, org_id, domain_id, local_part, display_name, mailbox_kind, created_by
+            )
+            VALUES ($1, $2, $3, 'ops', 'Ops Mailbox', 'SHARED', $4)
+            "#,
+        )
+        .bind(mailbox_id)
+        .bind(org_id)
+        .bind(mailbox_domain_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_aliases (
+                id, org_id, domain_id, target_mailbox_id, local_part, created_by
+            )
+            VALUES ($1, $2, $3, $4, 'alias', $5)
+            "#,
+        )
+        .bind(mailbox_alias_id)
+        .bind(org_id)
+        .bind(mailbox_domain_id)
+        .bind(mailbox_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox alias failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_messages (
+                id, org_id, mailbox_id, domain_id, direction,
+                raw_object_key, raw_size_bytes, received_at
+            )
+            VALUES ($1, $2, $3, $4, 'IN', 'raw-object-12345678', 0, now())
+            "#,
+        )
+        .bind(mailbox_message_id)
+        .bind(org_id)
+        .bind(mailbox_id)
+        .bind(mailbox_domain_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox message failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO mailbox_deliveries (
+                id, org_id, mailbox_message_id, direction, status,
+                recipient_domain, recipient_local_part, queue_key,
+                accepted_at, completed_at
+            )
+            VALUES ($1, $2, $3, 'IN', 'STORED', $4, 'ops', $5, now(), now())
+            "#,
+        )
+        .bind(mailbox_delivery_id)
+        .bind(org_id)
+        .bind(mailbox_message_id)
+        .bind(&mailbox_domain)
+        .bind(format!("queue-{}", mailbox_delivery_id))
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed mailbox delivery failed: {err}"))?;
         sqlx::query(
             r#"
             INSERT INTO employees (
@@ -5303,8 +5399,23 @@ E-001,홍길동,본사,2026-07-01,25:99
         .fetch_one(&pool)
         .await
         .map_err(|err| format!("count remaining attendance events failed: {err}"))?;
+        let remaining_mailbox_rows: i64 = sqlx::query_scalar(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM mailbox_deliveries WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailbox_messages WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailbox_aliases WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailboxes WHERE org_id = $1)
+              + (SELECT COUNT(*) FROM mailbox_domains WHERE org_id = $1)
+            "#,
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count remaining mailbox rows failed: {err}"))?;
         assert_eq!(remaining_import_rows, 0);
         assert_eq!(remaining_events, 0);
+        assert_eq!(remaining_mailbox_rows, 0);
         Ok(())
     }
 
