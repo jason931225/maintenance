@@ -146,6 +146,15 @@ const server = setupServer(
   http.get("*/api/v1/hr/readiness-summary", () =>
     HttpResponse.json(emptyHrReadinessSummary),
   ),
+  http.get("*/api/v1/hr/leave-balances", () =>
+    HttpResponse.json({
+      items: [],
+      total: 0,
+      limit: 1000,
+      offset: 0,
+      summary: { accrued: "0", used: "0", remaining: "0" },
+    }),
+  ),
   http.get("*/api/v1/inspections/schedules", () =>
     HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
   ),
@@ -165,21 +174,23 @@ const server = setupServer(
   ),
 );
 
-// Track in-flight requests so a test can wait for late on-mount fetches (e.g.
-// the dispatch-map aggregation the equipment screen issues) to fully resolve
-// before it ends — otherwise the request would escape this file's MSW window
-// and hit the real network during a later test file.
-let inFlight = 0;
-server.events.on("request:start", () => {
-  inFlight += 1;
+// Track in-flight HTTP requests so a test can wait for late on-mount fetches
+// (e.g. the dispatch-map aggregation the equipment screen issues) to fully
+// resolve before it ends. WebSocket connections intentionally remain open and
+// should not hold HTTP idle checks hostage.
+const inFlightHttpRequests = new Map<string, string>();
+server.events.on("request:start", ({ request, requestId }) => {
+  if (request.url.startsWith("http://") || request.url.startsWith("https://")) {
+    inFlightHttpRequests.set(requestId, request.url);
+  }
 });
-server.events.on("request:end", () => {
-  inFlight -= 1;
+server.events.on("request:end", ({ requestId }) => {
+  inFlightHttpRequests.delete(requestId);
 });
 
 async function waitForNetworkIdle() {
   await waitFor(() => {
-    expect(inFlight).toBe(0);
+    expect(Array.from(inFlightHttpRequests.values())).toEqual([]);
   });
 }
 
