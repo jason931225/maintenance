@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.33](https://github.com/jason931225/maintenance/compare/v0.1.32...v0.1.33) (2026-07-02)
+
+
+### Features
+
+* **hr:** add direct attendance import ([ea400f7](https://github.com/jason931225/maintenance/commit/ea400f7a1d67239262dc47d380ff9c3737381d82))
+
+
+### Bug Fixes
+
+* **db:** allow lifecycle force-remove cascade ([cc499d4](https://github.com/jason931225/maintenance/commit/cc499d4934ec74e00489848ec7f73b3e758ed756))
+
 ## [0.1.32](https://github.com/jason931225/maintenance/compare/v0.1.31...v0.1.32) (2026-07-02)
 
 
