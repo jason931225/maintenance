@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.32](https://github.com/jason931225/maintenance/compare/v0.1.31...v0.1.32) (2026-07-02)
+
+
+### Features
+
+* **web:** segment operations navigation ([59d3e82](https://github.com/jason931225/maintenance/commit/59d3e820a118517abd8eead89b4b51dc44da78c8))
+
+
+### Bug Fixes
+
+* **authz:** restrict org-wide built-in roles ([78d42f4](https://github.com/jason931225/maintenance/commit/78d42f43d5dc4674683142e789adb944c0936e10))
+* **web:** unblock granted pending members ([b408208](https://github.com/jason931225/maintenance/commit/b408208fa5f956d4bcbb6282b6a8f376899ba67c))
+
+
+### Performance Improvements
+
+* **hr:** add tenant-scoped read path indexes ([#129](https://github.com/jason931225/maintenance/issues/129)) ([b246acb](https://github.com/jason931225/maintenance/commit/b246acb7c0581925e27997cd6fd0cfc3ff5d55b3))
+
 ## [0.1.31](https://github.com/jason931225/maintenance/compare/v0.1.30...v0.1.31) (2026-07-01)
 
 
