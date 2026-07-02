@@ -1,13 +1,16 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const generatorVersion = "7.23.0";
@@ -15,6 +18,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const outputDir = resolve(root, "clients/kotlin");
 const inputSpec = resolve(root, "backend/openapi/openapi.yaml");
 const config = resolve(root, "clients/kotlin-generator-config.yaml");
+const stagingRoot = resolve(root, ".cache/generated-clients");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -65,21 +69,27 @@ function isGeneratedTextFile(path) {
   return textExtensions.has(extname(path)) || textFileNames.has(basename(path));
 }
 
-rmSync(outputDir, { recursive: true, force: true });
+function dockerPath(path) {
+  return `/workspace/${relative(root, path).split(sep).join("/")}`;
+}
 
-const generatorArgs = [
-  "generate",
-  "-i",
-  inputSpec,
-  "-g",
-  "kotlin",
-  "-o",
-  outputDir,
-  "-c",
-  config,
-  "--global-property",
-  "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
-];
+function replaceDirectoryFromStaging(stagingDir, targetDir) {
+  const backupDir = mkdtempSync(resolve(stagingRoot, "kotlin-previous-"));
+  rmSync(backupDir, { recursive: true, force: true });
+
+  try {
+    if (existsSync(targetDir)) {
+      renameSync(targetDir, backupDir);
+    }
+    renameSync(stagingDir, targetDir);
+    rmSync(backupDir, { recursive: true, force: true });
+  } catch (error) {
+    if (!existsSync(targetDir) && existsSync(backupDir)) {
+      renameSync(backupDir, targetDir);
+    }
+    throw error;
+  }
+}
 
 const forceDocker = process.env.OPENAPI_GENERATOR_USE_DOCKER === "1";
 const javaAvailable = hasJava();
@@ -87,10 +97,8 @@ const javaAvailable = hasJava();
 // Preflight: openapi-generator-cli runs the generator JAR under Java, falling
 // back to the openapitools Docker image when no JDK is on PATH. If neither a
 // Java runtime nor a reachable Docker daemon exists, fail with an actionable
-// message here rather than letting the (webpacked, minified) wrapper throw a
-// "Unable to locate a Java Runtime" stack trace whose trailing "Node.js vXX"
-// footer is easily misread as a Node/ESM incompatibility (it is not). CI
-// installs Temurin 21, so the Java path is taken there and this never trips.
+// message before touching the tracked generated client tree. CI installs
+// Temurin 21, so the Java path is taken there and this never trips.
 if ((forceDocker || !javaAvailable) && !hasRunningDocker()) {
   throw new Error(
     "Kotlin client generation needs either a Java 17+ runtime (preferred) or a " +
@@ -101,35 +109,55 @@ if ((forceDocker || !javaAvailable) && !hasRunningDocker()) {
   );
 }
 
-if (forceDocker || !javaAvailable) {
-  const dockerInput = "/workspace/backend/openapi/openapi.yaml";
-  const dockerOutput = "/workspace/clients/kotlin";
-  const dockerConfig = "/workspace/clients/kotlin-generator-config.yaml";
-  run("docker", [
-    "run",
-    "--rm",
-    "-v",
-    `${root}:/workspace`,
-    `openapitools/openapi-generator-cli:v${generatorVersion}`,
-    "generate",
-    "-i",
-    dockerInput,
-    "-g",
-    "kotlin",
-    "-o",
-    dockerOutput,
-    "-c",
-    dockerConfig,
-    "--global-property",
-    "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
-  ]);
-} else {
-  run(process.execPath, [resolve(root, "node_modules/@openapitools/openapi-generator-cli/main.js"), ...generatorArgs]);
-}
+mkdirSync(stagingRoot, { recursive: true });
+const stagingDir = mkdtempSync(resolve(stagingRoot, "kotlin-"));
 
-if (!existsSync(resolve(outputDir, "build.gradle"))) {
-  throw new Error("Kotlin client generation did not produce clients/kotlin/build.gradle");
-}
+const generatorArgs = [
+  "generate",
+  "-i",
+  inputSpec,
+  "-g",
+  "kotlin",
+  "-o",
+  stagingDir,
+  "-c",
+  config,
+  "--global-property",
+  "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
+];
 
-normalizeGeneratedTextFiles(outputDir);
-chmodSync(resolve(outputDir, "gradlew"), 0o755);
+try {
+  if (forceDocker || !javaAvailable) {
+    run("docker", [
+      "run",
+      "--rm",
+      "-v",
+      `${root}:/workspace`,
+      `openapitools/openapi-generator-cli:v${generatorVersion}`,
+      "generate",
+      "-i",
+      dockerPath(inputSpec),
+      "-g",
+      "kotlin",
+      "-o",
+      dockerPath(stagingDir),
+      "-c",
+      dockerPath(config),
+      "--global-property",
+      "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
+    ]);
+  } else {
+    run(process.execPath, [resolve(root, "node_modules/@openapitools/openapi-generator-cli/main.js"), ...generatorArgs]);
+  }
+
+  if (!existsSync(resolve(stagingDir, "build.gradle"))) {
+    throw new Error("Kotlin client generation did not produce clients/kotlin/build.gradle");
+  }
+
+  normalizeGeneratedTextFiles(stagingDir);
+  chmodSync(resolve(stagingDir, "gradlew"), 0o755);
+  replaceDirectoryFromStaging(stagingDir, outputDir);
+} catch (error) {
+  rmSync(stagingDir, { recursive: true, force: true });
+  throw error;
+}

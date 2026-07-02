@@ -18,11 +18,19 @@ function run(command, args, options = {}) {
   }
 }
 
+function hasJava() {
+  return spawnSync("java", ["-version"], { stdio: "ignore" }).status === 0;
+}
+
+function hasRunningDocker() {
+  return spawnSync("docker", ["info"], { stdio: "ignore", timeout: 10_000 }).status === 0;
+}
+
 if (!existsSync(gradlew)) {
   throw new Error("clients/kotlin/gradlew is missing; run npm run gen:api:kotlin first");
 }
 
-if (spawnSync("java", ["-version"], { stdio: "ignore" }).status === 0) {
+if (hasJava()) {
   if (process.platform !== "win32") {
     chmodSync(gradlew, 0o755);
   }
@@ -32,6 +40,14 @@ if (spawnSync("java", ["-version"], { stdio: "ignore" }).status === 0) {
     run(gradlew, ["build", "-x", "test"]);
   }
 } else {
+  if (!hasRunningDocker()) {
+    throw new Error(
+      "Kotlin client build needs either a Java runtime for clients/kotlin/gradlew " +
+        "or a running Docker daemon for the gradle:8.14.3-jdk21 fallback, and found neither.\n" +
+        "  - Install a JDK (e.g. `brew install temurin`) so `java -version` works, or\n" +
+        "  - start Docker/Colima so `docker info` succeeds, then re-run `npm run check:kotlin`.",
+    );
+  }
   run("docker", [
     "run",
     "--rm",
