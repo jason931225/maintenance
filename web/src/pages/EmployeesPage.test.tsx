@@ -117,6 +117,44 @@ const attendanceSummary = {
   offset: 0,
 };
 
+const readinessSummary = {
+  imports: {
+    runs: 2,
+    applied_runs: 1,
+    input_rows: 14,
+    candidate_rows: 2,
+    preserved_rows: 12,
+    ledger_rows: 14,
+    latest_import_at: "2026-07-01T12:00:00Z",
+  },
+  payroll: {
+    draft_runs: 1,
+    blocked_runs: 1,
+    calculation_enabled_runs: 0,
+    draft_lines: 2,
+    payroll_source_rows: 8,
+    attendance_source_rows: 4,
+    attendance_event_links: 0,
+    gross_pay_source_lines: 1,
+    net_pay_source_lines: 1,
+    latest_status: "BLOCKED_LEGAL_GATE",
+    latest_source_label: "COSS Group 2026-05 live import",
+    latest_period_start: "2026-05-01",
+    latest_period_end: "2026-05-31",
+    latest_updated_at: "2026-07-01T13:00:00Z",
+  },
+  annual_leave: {
+    obligations: 2,
+    usage_promotion_required: 1,
+    payout_review_required: 0,
+    needs_review: 1,
+    remaining_days: "7.5",
+  },
+  attendance: {
+    durable_events: 5,
+  },
+};
+
 const lifecycleEvents = {
   items: [
     {
@@ -149,6 +187,9 @@ const server = setupServer(
   ),
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json(attendanceSummary),
+  ),
+  http.get("*/api/v1/hr/readiness-summary", () =>
+    HttpResponse.json(readinessSummary),
   ),
   http.get("*/api/v1/employees/:id/lifecycle-events", () =>
     HttpResponse.json(lifecycleEvents),
@@ -225,6 +266,14 @@ describe("EmployeesPage", () => {
     expect(screen.getAllByText("7.5").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "근태 요약" })).toBeVisible();
     expect(screen.getByText("박근태")).toBeVisible();
+
+    expect(
+      screen.getByRole("heading", { name: "원장·급여준비 상태" }),
+    ).toBeVisible();
+    expect(screen.getByText("BLOCKED_LEGAL_GATE")).toBeVisible();
+    expect(screen.getByText("COSS Group 2026-05 live import")).toBeVisible();
+    expect(screen.getByText("2026-05-01 - 2026-05-31")).toBeVisible();
+    expect(screen.getByText("급여 원천 8행 · 근태 원천 4행")).toBeVisible();
 
     const row = (await screen.findByText("A-001")).closest("tr");
     expect(row).not.toBeNull();

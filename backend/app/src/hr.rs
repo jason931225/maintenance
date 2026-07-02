@@ -29,6 +29,7 @@ pub const EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE: &str = "/api/v1/employees/{id
 pub const HR_ORG_CHART_PATH: &str = "/api/v1/hr/org-chart";
 pub const HR_LEAVE_BALANCES_PATH: &str = "/api/v1/hr/leave-balances";
 pub const HR_ATTENDANCE_SUMMARY_PATH: &str = "/api/v1/hr/attendance-summary";
+pub const HR_READINESS_SUMMARY_PATH: &str = "/api/v1/hr/readiness-summary";
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_IMPORT_HEADER_SCAN_ROWS: usize = 25;
 const DEFAULT_LIMIT: i64 = 500;
@@ -55,6 +56,7 @@ pub fn router(state: HrState) -> Router {
         .route(HR_ORG_CHART_PATH, get(get_hr_org_chart))
         .route(HR_LEAVE_BALANCES_PATH, get(list_leave_balances))
         .route(HR_ATTENDANCE_SUMMARY_PATH, get(list_attendance_summary))
+        .route(HR_READINESS_SUMMARY_PATH, get(get_hr_readiness_summary))
         .route(
             EMPLOYEES_IMPORT_PATH,
             post(import_employees).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
@@ -221,6 +223,63 @@ struct AttendanceSummaryItem {
     last_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_event_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct HrReadinessSummary {
+    imports: HrImportReadinessSummary,
+    payroll: HrPayrollReadinessSummary,
+    annual_leave: HrAnnualLeaveReadinessSummary,
+    attendance: HrAttendanceReadinessSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct HrImportReadinessSummary {
+    runs: i64,
+    applied_runs: i64,
+    input_rows: i64,
+    candidate_rows: i64,
+    preserved_rows: i64,
+    ledger_rows: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_import_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct HrPayrollReadinessSummary {
+    draft_runs: i64,
+    blocked_runs: i64,
+    calculation_enabled_runs: i64,
+    draft_lines: i64,
+    payroll_source_rows: i64,
+    attendance_source_rows: i64,
+    attendance_event_links: i64,
+    gross_pay_source_lines: i64,
+    net_pay_source_lines: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_source_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_period_start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_period_end: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_updated_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct HrAnnualLeaveReadinessSummary {
+    obligations: i64,
+    usage_promotion_required: i64,
+    payout_review_required: i64,
+    needs_review: i64,
+    remaining_days: String,
+}
+
+#[derive(Debug, Serialize)]
+struct HrAttendanceReadinessSummary {
+    durable_events: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -590,6 +649,146 @@ async fn list_attendance_summary(
         limit,
         offset,
     }))
+}
+
+async fn get_hr_readiness_summary(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<HrReadinessSummary>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("readiness_summary");
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+
+    let summary = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let import_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS runs,
+                    COUNT(*) FILTER (WHERE status = 'APPLIED')::BIGINT AS applied_runs,
+                    COALESCE(SUM(input_rows), 0)::BIGINT AS input_rows,
+                    COALESCE(SUM(candidate_rows), 0)::BIGINT AS candidate_rows,
+                    COALESCE(SUM(preserved_rows), 0)::BIGINT AS preserved_rows,
+                    MAX(COALESCE(applied_at, updated_at, created_at)) AS latest_import_at
+                FROM data_import_runs
+                WHERE entity_type = 'employee_hr'
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let ledger_rows: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*)::BIGINT
+                FROM data_import_rows r
+                JOIN data_import_runs run
+                  ON run.id = r.run_id
+                 AND run.org_id = r.org_id
+                WHERE run.entity_type = 'employee_hr'
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let payroll_run_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS draft_runs,
+                    COUNT(*) FILTER (WHERE status = 'BLOCKED_LEGAL_GATE')::BIGINT AS blocked_runs,
+                    COUNT(*) FILTER (WHERE calculation_enabled)::BIGINT AS calculation_enabled_runs,
+                    (ARRAY_AGG(status ORDER BY updated_at DESC, id DESC))[1] AS latest_status,
+                    (ARRAY_AGG(source_label ORDER BY updated_at DESC, id DESC))[1] AS latest_source_label,
+                    (ARRAY_AGG(period_start::TEXT ORDER BY updated_at DESC, id DESC))[1] AS latest_period_start,
+                    (ARRAY_AGG(period_end::TEXT ORDER BY updated_at DESC, id DESC))[1] AS latest_period_end,
+                    MAX(updated_at) AS latest_updated_at
+                FROM payroll_draft_runs
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let payroll_line_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS draft_lines,
+                    COALESCE(SUM(payroll_source_row_count), 0)::BIGINT AS payroll_source_rows,
+                    COALESCE(SUM(attendance_source_row_count), 0)::BIGINT AS attendance_source_rows,
+                    COALESCE(SUM(attendance_event_count), 0)::BIGINT AS attendance_event_links,
+                    COUNT(*) FILTER (WHERE gross_pay_source_present)::BIGINT AS gross_pay_source_lines,
+                    COUNT(*) FILTER (WHERE net_pay_source_present)::BIGINT AS net_pay_source_lines
+                FROM payroll_draft_lines
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let leave_row = sqlx::query(
+                r#"
+                SELECT
+                    COUNT(*)::BIGINT AS obligations,
+                    COUNT(*) FILTER (WHERE status = 'USAGE_PROMOTION_DRAFT_REQUIRED')::BIGINT AS usage_promotion_required,
+                    COUNT(*) FILTER (WHERE status = 'PAYOUT_REVIEW_REQUIRED')::BIGINT AS payout_review_required,
+                    COUNT(*) FILTER (WHERE status = 'NEEDS_HR_REVIEW')::BIGINT AS needs_review,
+                    COALESCE(SUM(leave_remaining), 0)::TEXT AS remaining_days
+                FROM annual_leave_obligations
+                "#,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let mut attendance_query =
+                QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM site_attendance_events l WHERE ");
+            push_attendance_branch_scope(&mut attendance_query, &scope);
+            let durable_events: i64 = attendance_query
+                .build_query_scalar()
+                .fetch_one(tx.as_mut())
+                .await?;
+
+            Ok(HrReadinessSummary {
+                imports: HrImportReadinessSummary {
+                    runs: import_row.try_get("runs")?,
+                    applied_runs: import_row.try_get("applied_runs")?,
+                    input_rows: import_row.try_get("input_rows")?,
+                    candidate_rows: import_row.try_get("candidate_rows")?,
+                    preserved_rows: import_row.try_get("preserved_rows")?,
+                    ledger_rows,
+                    latest_import_at: import_row.try_get("latest_import_at")?,
+                },
+                payroll: HrPayrollReadinessSummary {
+                    draft_runs: payroll_run_row.try_get("draft_runs")?,
+                    blocked_runs: payroll_run_row.try_get("blocked_runs")?,
+                    calculation_enabled_runs: payroll_run_row
+                        .try_get("calculation_enabled_runs")?,
+                    draft_lines: payroll_line_row.try_get("draft_lines")?,
+                    payroll_source_rows: payroll_line_row.try_get("payroll_source_rows")?,
+                    attendance_source_rows: payroll_line_row
+                        .try_get("attendance_source_rows")?,
+                    attendance_event_links: payroll_line_row.try_get("attendance_event_links")?,
+                    gross_pay_source_lines: payroll_line_row
+                        .try_get("gross_pay_source_lines")?,
+                    net_pay_source_lines: payroll_line_row.try_get("net_pay_source_lines")?,
+                    latest_status: payroll_run_row.try_get("latest_status")?,
+                    latest_source_label: payroll_run_row.try_get("latest_source_label")?,
+                    latest_period_start: payroll_run_row.try_get("latest_period_start")?,
+                    latest_period_end: payroll_run_row.try_get("latest_period_end")?,
+                    latest_updated_at: payroll_run_row.try_get("latest_updated_at")?,
+                },
+                annual_leave: HrAnnualLeaveReadinessSummary {
+                    obligations: leave_row.try_get("obligations")?,
+                    usage_promotion_required: leave_row
+                        .try_get("usage_promotion_required")?,
+                    payout_review_required: leave_row.try_get("payout_review_required")?,
+                    needs_review: leave_row.try_get("needs_review")?,
+                    remaining_days: leave_row.try_get("remaining_days")?,
+                },
+                attendance: HrAttendanceReadinessSummary { durable_events },
+            })
+        })
+    })
+    .await?;
+
+    Ok(Json(summary))
 }
 
 async fn import_employees(

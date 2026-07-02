@@ -352,3 +352,40 @@ export type HrOrgChartResponse = components["schemas"]["HrOrgChartResponse"];
 export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
 export type AttendanceSummaryPage =
   components["schemas"]["AttendanceSummaryPage"];
+export interface HrReadinessSummary {
+  imports: {
+    runs: number;
+    applied_runs: number;
+    input_rows: number;
+    candidate_rows: number;
+    preserved_rows: number;
+    ledger_rows: number;
+    latest_import_at?: string | null;
+  };
+  payroll: {
+    draft_runs: number;
+    blocked_runs: number;
+    calculation_enabled_runs: number;
+    draft_lines: number;
+    payroll_source_rows: number;
+    attendance_source_rows: number;
+    attendance_event_links: number;
+    gross_pay_source_lines: number;
+    net_pay_source_lines: number;
+    latest_status?: string | null;
+    latest_source_label?: string | null;
+    latest_period_start?: string | null;
+    latest_period_end?: string | null;
+    latest_updated_at?: string | null;
+  };
+  annual_leave: {
+    obligations: number;
+    usage_promotion_required: number;
+    payout_review_required: number;
+    needs_review: number;
+    remaining_days: string;
+  };
+  attendance: {
+    durable_events: number;
+  };
+}

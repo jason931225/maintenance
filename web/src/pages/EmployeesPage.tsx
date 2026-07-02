@@ -14,6 +14,7 @@ import type {
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
   EmployeeImportSummary,
+  HrReadinessSummary,
   HrOrgChartResponse,
   LeaveBalancePage,
 } from "../api/types";
@@ -61,6 +62,9 @@ type EmployeeApi = ConsoleApiClient & {
     path: "/api/v1/hr/attendance-summary",
     options?: { params?: { query?: { limit?: number; offset?: number } } },
   ): Promise<{ data?: AttendanceSummaryPage }>;
+  GET(path: "/api/v1/hr/readiness-summary"): Promise<{
+    data?: HrReadinessSummary;
+  }>;
   GET(
     path: "/api/v1/employees/{id}/lifecycle-events",
     options: { params: { path: { id: string } } },
@@ -112,6 +116,8 @@ export function EmployeesPage() {
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalancePage>();
   const [attendanceSummary, setAttendanceSummary] =
     useState<AttendanceSummaryPage>();
+  const [readinessSummary, setReadinessSummary] =
+    useState<HrReadinessSummary>();
   const [total, setTotal] = useState<number>();
   const [company, setCompany] = useState("all");
   const [lifecycleEmployee, setLifecycleEmployee] =
@@ -141,7 +147,8 @@ export function EmployeesPage() {
       nextOffset += data.items.length;
     }
 
-    const [orgResponse, leaveResponse, attendanceResponse] = await Promise.all([
+    const [orgResponse, leaveResponse, attendanceResponse, readinessResponse] =
+      await Promise.all([
       employeeApi.GET("/api/v1/hr/org-chart").catch(() => undefined),
       employeeApi
         .GET("/api/v1/hr/leave-balances", {
@@ -153,12 +160,14 @@ export function EmployeesPage() {
           params: { query: { limit: 1000, offset: 0 } },
         })
         .catch(() => undefined),
+      employeeApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
     ]);
 
     if (
       !orgResponse?.data ||
       !leaveResponse?.data ||
-      !attendanceResponse?.data
+      !attendanceResponse?.data ||
+      !readinessResponse?.data
     ) {
       setState("error");
       return;
@@ -168,6 +177,7 @@ export function EmployeesPage() {
     setOrgChart(orgResponse.data);
     setLeaveBalances(leaveResponse.data);
     setAttendanceSummary(attendanceResponse.data);
+    setReadinessSummary(readinessResponse.data);
     setTotal(discoveredTotal || items.length);
     setState("idle");
   }, [employeeApi]);
@@ -251,7 +261,9 @@ export function EmployeesPage() {
               orgChart={orgChart}
               leaveBalances={leaveBalances}
               attendanceSummary={attendanceSummary}
+              readinessSummary={readinessSummary}
             />
+            <ReadinessSummaryPanel readinessSummary={readinessSummary} />
             <PeopleOperationsPanel
               selectedCompany={company}
               companies={companies}
@@ -299,10 +311,12 @@ function HrDashboard({
   orgChart,
   leaveBalances,
   attendanceSummary,
+  readinessSummary,
 }: {
   orgChart?: HrOrgChartResponse;
   leaveBalances?: LeaveBalancePage;
   attendanceSummary?: AttendanceSummaryPage;
+  readinessSummary?: HrReadinessSummary;
 }) {
   const t = ko.employees.dashboard;
   const totals = summarizeOrgChart(orgChart);
@@ -312,6 +326,8 @@ function HrDashboard({
     [t.activeEmployees, totals.active],
     [t.leaveRemaining, leaveBalances?.summary.remaining],
     [t.attendanceUsers, attendanceSummary?.total],
+    [t.importRows, readinessSummary?.imports.ledger_rows],
+    [t.payrollDraftLines, readinessSummary?.payroll.draft_lines],
   ];
 
   return (
@@ -320,7 +336,7 @@ function HrDashboard({
         <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
         <p className="text-sm text-steel">{t.description}</p>
       </div>
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map(([label, value]) => (
           <div
             key={label}
@@ -334,6 +350,141 @@ function HrDashboard({
             </dd>
           </div>
         ))}
+      </dl>
+    </Card>
+  );
+}
+
+function ReadinessSummaryPanel({
+  readinessSummary,
+}: {
+  readinessSummary?: HrReadinessSummary;
+}) {
+  const t = ko.employees.readiness;
+  if (!readinessSummary) return null;
+
+  const cards = [
+    {
+      label: t.importLedger,
+      value: formatListCount(readinessSummary.imports.ledger_rows),
+      meta: t.importLedgerMeta
+        .replace("{runs}", formatListCount(readinessSummary.imports.runs))
+        .replace(
+          "{applied}",
+          formatListCount(readinessSummary.imports.applied_runs),
+        ),
+    },
+    {
+      label: t.employeeCandidates,
+      value: formatListCount(readinessSummary.imports.candidate_rows),
+      meta: t.employeeCandidatesMeta.replace(
+        "{preserved}",
+        formatListCount(readinessSummary.imports.preserved_rows),
+      ),
+    },
+    {
+      label: t.durableAttendance,
+      value: formatListCount(readinessSummary.attendance.durable_events),
+      meta: t.durableAttendanceMeta,
+    },
+    {
+      label: t.payrollDrafts,
+      value: formatListCount(readinessSummary.payroll.draft_lines),
+      meta: t.payrollDraftsMeta
+        .replace(
+          "{payrollRows}",
+          formatListCount(readinessSummary.payroll.payroll_source_rows),
+        )
+        .replace(
+          "{attendanceRows}",
+          formatListCount(readinessSummary.payroll.attendance_source_rows),
+        ),
+    },
+    {
+      label: t.legalGate,
+      value:
+        readinessSummary.payroll.calculation_enabled_runs > 0
+          ? t.enabled
+          : t.blocked,
+      meta: t.legalGateMeta.replace(
+        "{blocked}",
+        formatListCount(readinessSummary.payroll.blocked_runs),
+      ),
+    },
+    {
+      label: t.annualLeave,
+      value: formatListCount(readinessSummary.annual_leave.obligations),
+      meta: t.annualLeaveMeta
+        .replace(
+          "{promotion}",
+          formatListCount(
+            readinessSummary.annual_leave.usage_promotion_required,
+          ),
+        )
+        .replace("{remaining}", readinessSummary.annual_leave.remaining_days),
+    },
+  ];
+  const latestPeriod =
+    readinessSummary.payroll.latest_period_start &&
+    readinessSummary.payroll.latest_period_end
+      ? `${readinessSummary.payroll.latest_period_start} - ${readinessSummary.payroll.latest_period_end}`
+      : "-";
+
+  return (
+    <Card className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+          <p className="text-sm text-steel">{t.description}</p>
+        </div>
+        <span
+          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${readinessStatusClass(
+            readinessSummary.payroll.latest_status,
+            readinessSummary.payroll.calculation_enabled_runs,
+          )}`}
+        >
+          {text(readinessSummary.payroll.latest_status ?? t.noPayrollRun)}
+        </span>
+      </div>
+      <dl className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card) => (
+          <div
+            key={card.label}
+            className="rounded-lg border border-line bg-white p-3"
+          >
+            <dt className="text-xs font-semibold uppercase tracking-wide text-steel">
+              {card.label}
+            </dt>
+            <dd className="mt-1 text-xl font-semibold text-ink">
+              {card.value}
+            </dd>
+            <dd className="mt-1 text-xs text-steel">{card.meta}</dd>
+          </div>
+        ))}
+      </dl>
+      <dl className="grid gap-3 rounded-lg border border-line bg-muted-panel/50 p-3 text-sm lg:grid-cols-4">
+        <div>
+          <dt className="font-semibold text-steel">{t.latestSource}</dt>
+          <dd className="text-ink">
+            {text(readinessSummary.payroll.latest_source_label)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.period}</dt>
+          <dd className="text-ink">{latestPeriod}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.lastImport}</dt>
+          <dd className="text-ink">
+            {text(readinessSummary.imports.latest_import_at)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-steel">{t.lastPayrollUpdate}</dt>
+          <dd className="text-ink">
+            {text(readinessSummary.payroll.latest_updated_at)}
+          </dd>
+        </div>
       </dl>
     </Card>
   );
@@ -1496,6 +1647,22 @@ function countIdentityResolution(employees: EmployeeDirectoryItem[]): {
     },
     { reviewRequired: 0, highConfidence: 0 },
   );
+}
+
+function readinessStatusClass(
+  status: string | null | undefined,
+  calculationEnabledRuns: number,
+): string {
+  if (calculationEnabledRuns > 0) {
+    return "bg-emerald-50 text-emerald-800";
+  }
+  if (status === "BLOCKED_LEGAL_GATE") {
+    return "bg-amber-50 text-amber-800";
+  }
+  if (status) {
+    return "bg-blue-50 text-blue-800";
+  }
+  return "bg-slate-100 text-slate-700";
 }
 
 function employeeName(employee: EmployeeDirectoryItem): string {
