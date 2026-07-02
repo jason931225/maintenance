@@ -10,6 +10,8 @@ use std::{
 pub enum ViolationKind {
     DuplicateMigrationVersion,
     NonContiguousMigrationVersion,
+    ConcurrentIndexIfNotExists,
+    NoTransactionMigrationMultipleStatements,
     DropAuditedTable,
     DropAuditedColumn,
     GrantAuditEventsMutation,
@@ -191,15 +193,69 @@ fn check_migration_file(
     result: &mut GateResult,
 ) {
     let sanitized = sanitize_sql(content);
-    for statement in sanitized.split(';') {
-        let tokens = tokenize_sql(statement);
-        if tokens.is_empty() {
+    let statement_tokens = sanitized
+        .split(';')
+        .map(tokenize_sql)
+        .filter(|tokens| !tokens.is_empty())
+        .collect::<Vec<_>>();
+
+    check_no_transaction_statement_count(file, content, statement_tokens.len(), result);
+
+    for tokens in &statement_tokens {
+        check_drop_table(file, tokens, audited_tables, result);
+        check_drop_column(file, tokens, audited_tables, result);
+        check_concurrent_index_if_not_exists(file, tokens, result);
+        check_audit_events_grants(file, tokens, result);
+        check_audit_events_trigger(file, tokens, result);
+    }
+}
+
+fn check_no_transaction_statement_count(
+    file: &Path,
+    content: &str,
+    statement_count: usize,
+    result: &mut GateResult,
+) {
+    if content.starts_with("-- no-transaction") && statement_count > 1 {
+        result.violations.push(Violation {
+            kind: ViolationKind::NoTransactionMigrationMultipleStatements,
+            file: file.to_path_buf(),
+            detail: "-- no-transaction migrations must contain exactly one SQL statement; PostgreSQL treats multi-statement simple-query messages as a transaction block, which rejects CREATE INDEX CONCURRENTLY"
+                .to_string(),
+        });
+    }
+}
+
+fn check_concurrent_index_if_not_exists(file: &Path, tokens: &[String], result: &mut GateResult) {
+    for (index, token) in tokens.iter().enumerate() {
+        if token != "create" {
             continue;
         }
-        check_drop_table(file, &tokens, audited_tables, result);
-        check_drop_column(file, &tokens, audited_tables, result);
-        check_audit_events_grants(file, &tokens, result);
-        check_audit_events_trigger(file, &tokens, result);
+
+        let mut cursor = index + 1;
+        if tokens.get(cursor).is_some_and(|token| token == "unique") {
+            cursor += 1;
+        }
+
+        let uses_concurrent_if_not_exists =
+            tokens.get(cursor).is_some_and(|token| token == "index")
+                && tokens
+                    .get(cursor + 1)
+                    .is_some_and(|token| token == "concurrently")
+                && tokens.get(cursor + 2).is_some_and(|token| token == "if")
+                && tokens.get(cursor + 3).is_some_and(|token| token == "not")
+                && tokens
+                    .get(cursor + 4)
+                    .is_some_and(|token| token == "exists");
+
+        if uses_concurrent_if_not_exists {
+            result.violations.push(Violation {
+                kind: ViolationKind::ConcurrentIndexIfNotExists,
+                file: file.to_path_buf(),
+                detail: "CREATE INDEX CONCURRENTLY IF NOT EXISTS can mask INVALID indexes left by a failed concurrent build; omit IF NOT EXISTS so reruns fail closed"
+                    .to_string(),
+            });
+        }
     }
 }
 
