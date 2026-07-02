@@ -222,3 +222,12 @@ unsafe_code = "forbid"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+
+[patch.crates-io]
+# Temporary RUSTSEC-2026-0194/RUSTSEC-2026-0195 unblock: upstream calamine
+# 0.35.0 and umya-spreadsheet 3.0.0 still constrain quick-xml below the fixed
+# 0.41 line. Keep these path patches only until crates.io releases can resolve
+# quick-xml >=0.41 without local compatibility shims.
+calamine = { path = "vendor/calamine-0.35.0-quickxml41" }
+quick-xml = { path = "vendor/quick-xml-0.41.0-compat" }
+umya-spreadsheet = { path = "vendor/umya-spreadsheet-3.0.0-quickxml41" }
