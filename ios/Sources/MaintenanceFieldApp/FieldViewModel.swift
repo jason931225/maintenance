@@ -100,6 +100,12 @@ final class FieldViewModel: ObservableObject {
         if case .authenticated = loginState { true } else { false }
     }
 
+    var currentUserID: Components.Schemas.Uuid? {
+        let trimmed = userID.trimmedForSubmission
+        guard UUID(uuidString: trimmed) != nil else { return nil }
+        return trimmed
+    }
+
     func restore() {
         Task {
             loginState = await authRepository.restore()

@@ -11541,6 +11541,8 @@ components:
       - sender_name
       - body
       - attachment_evidence_ids
+      - read_count
+      - read_target_count
       - sent_at
       - created_at
       properties:
@@ -11564,6 +11566,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Uuid'
+        read_count:
+          type: integer
+          format: int64
+          description: Non-sender thread members whose read receipt has reached this message.
+        read_target_count:
+          type: integer
+          format: int64
+          description: Non-sender thread members expected to read this message.
         sent_at:
           $ref: '#/components/schemas/Timestamp'
         created_at:

@@ -325,6 +325,75 @@ async fn list_threads_reports_unread_incoming_messages_for_actor(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn read_receipt_never_moves_back_to_an_older_message(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+        let base = OffsetDateTime::now_utc();
+        let first = send_from(
+            &store,
+            seeded.recipient,
+            seeded.branch,
+            thread.id,
+            "older incoming",
+            base,
+        )
+        .await;
+        let second = send_from(
+            &store,
+            seeded.recipient,
+            seeded.branch,
+            thread.id,
+            "newer incoming",
+            base + Duration::seconds(1),
+        )
+        .await;
+
+        let latest_receipt = store
+            .mark_thread_read(MarkThreadReadCommand {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                last_read_message_id: second.id,
+                trace: TraceContext::generate(),
+                occurred_at: base + Duration::seconds(2),
+            })
+            .await
+            .unwrap();
+        assert_eq!(latest_receipt.last_read_message_id, second.id);
+
+        let stale_receipt = store
+            .mark_thread_read(MarkThreadReadCommand {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                last_read_message_id: first.id,
+                trace: TraceContext::generate(),
+                occurred_at: base + Duration::seconds(3),
+            })
+            .await
+            .unwrap();
+        assert_eq!(stale_receipt.last_read_message_id, second.id);
+
+        let after_stale_read = store
+            .list_threads(ListThreadsQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        let summary = after_stale_read
+            .iter()
+            .find(|item| item.id == thread.id)
+            .unwrap();
+        assert_eq!(summary.unread_count, 0);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn read_receipt_coalesces_to_latest_message_and_audits_once(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
         let seeded = seed_context(&pool).await;
@@ -360,6 +429,66 @@ async fn read_receipt_coalesces_to_latest_message_and_audits_once(pool: PgPool) 
                 .await
                 .unwrap();
         assert_eq!(audit_count, 1);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn message_page_reports_non_sender_read_progress(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+        let base = OffsetDateTime::now_utc();
+        let sent = send_at(&store, &seeded, thread.id, "read progress", base).await;
+
+        let before_read = store
+            .message_page(MessagePageQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                before_message_id: None,
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        let message = before_read
+            .items
+            .iter()
+            .find(|item| item.id == sent.id)
+            .unwrap();
+        assert_eq!(message.read_count, 0);
+        assert_eq!(message.read_target_count, 1);
+
+        store
+            .mark_thread_read(MarkThreadReadCommand {
+                actor: seeded.recipient,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                last_read_message_id: sent.id,
+                trace: TraceContext::generate(),
+                occurred_at: base + Duration::seconds(1),
+            })
+            .await
+            .unwrap();
+
+        let after_read = store
+            .message_page(MessagePageQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                before_message_id: None,
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        let message = after_read
+            .items
+            .iter()
+            .find(|item| item.id == sent.id)
+            .unwrap();
+        assert_eq!(message.read_count, 1);
+        assert_eq!(message.read_target_count, 1);
     })
     .await;
 }

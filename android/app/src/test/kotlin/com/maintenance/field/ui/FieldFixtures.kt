@@ -118,6 +118,8 @@ internal object FieldFixtures {
         branchId = uuid("00302"),
         senderId = uuid("00301"),
         body = "부품 도착 예정 시간 공유 부탁드립니다.",
+        readCount = 1,
+        readTargetCount = 2,
         attachmentEvidenceIds = emptyList(),
         sentAt = EPOCH.plusMinutes(30),
         createdAt = EPOCH.plusMinutes(30),

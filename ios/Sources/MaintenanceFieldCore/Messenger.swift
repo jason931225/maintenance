@@ -62,6 +62,8 @@ public struct MessengerMessage: Identifiable, Hashable, Sendable {
     public let branchID: Components.Schemas.Uuid
     public let senderID: Components.Schemas.Uuid
     public let body: String
+    public let readCount: Int64
+    public let readTargetCount: Int64
     public let attachmentEvidenceIDs: [Components.Schemas.Uuid]
     public let sentAt: Date
     public let createdAt: Date
@@ -72,6 +74,8 @@ public struct MessengerMessage: Identifiable, Hashable, Sendable {
         branchID: Components.Schemas.Uuid,
         senderID: Components.Schemas.Uuid,
         body: String,
+        readCount: Int64,
+        readTargetCount: Int64,
         attachmentEvidenceIDs: [Components.Schemas.Uuid],
         sentAt: Date,
         createdAt: Date
@@ -81,6 +85,8 @@ public struct MessengerMessage: Identifiable, Hashable, Sendable {
         self.branchID = branchID
         self.senderID = senderID
         self.body = body
+        self.readCount = readCount
+        self.readTargetCount = readTargetCount
         self.attachmentEvidenceIDs = attachmentEvidenceIDs
         self.sentAt = sentAt
         self.createdAt = createdAt
@@ -561,6 +567,8 @@ public extension Components.Schemas.MessengerMessageSummary {
             branchID: branchId,
             senderID: senderId,
             body: body,
+            readCount: readCount,
+            readTargetCount: readTargetCount,
             attachmentEvidenceIDs: attachmentEvidenceIds,
             sentAt: sentAt,
             createdAt: createdAt

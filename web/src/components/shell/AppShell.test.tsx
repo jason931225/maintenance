@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
+import { ko } from "../../i18n/ko";
 import { PageHeader } from "./PageHeader";
 import { AppShell } from "./AppShell";
 import { FEATURES } from "./nav";
@@ -205,13 +206,30 @@ describe("AppShell navigation fabric", () => {
     expect(await within(approvals).findByText("3")).toBeVisible();
     expect(support).toHaveAccessibleName(/읽지 않은 문의 1건, 열린 티켓 2건/);
 
-    fireEvent.click(await screen.findByRole("button", { name: "개인 알림 열기" }));
-    const notifications = screen.getByRole("dialog", { name: "개인별 실시간 알림" });
-    expect(within(notifications).getByText("결재할 전자결제")).toBeVisible();
-    expect(within(notifications).getByText("상신 전자문서")).toBeVisible();
-    expect(within(notifications).getByText("결재완료")).toBeVisible();
-    expect(within(notifications).getAllByText("3").length).toBeGreaterThan(0);
-    expect(within(notifications).getByText("읽지 않은 고객문의").nextSibling).toHaveTextContent("1");
+    fireEvent.click(
+      await screen.findByRole("button", { name: ko.shell.notifications.open }),
+    );
+    const notifications = screen.getByRole("dialog", {
+      name: ko.shell.notifications.title,
+    });
+    expect(within(notifications).getByText(ko.shell.notifications.approvals)).toBeVisible();
+    expect(within(notifications).getByText(ko.shell.notifications.messages)).toBeVisible();
+    expect(within(notifications).getByText(ko.shell.notifications.mail)).toBeVisible();
+    expect(within(notifications).getByText(ko.shell.notifications.supportUnread)).toBeVisible();
+    expect(
+      within(notifications).queryByText(ko.shell.notifications.submittedDocuments),
+    ).not.toBeInTheDocument();
+    expect(
+      within(notifications).queryByText(ko.shell.notifications.completedApprovals),
+    ).not.toBeInTheDocument();
+    expect(
+      within(notifications).queryByText(ko.shell.notifications.supportOpen),
+    ).not.toBeInTheDocument();
+    expect(
+      within(notifications)
+        .getByText(ko.shell.notifications.supportUnread)
+        .closest("button"),
+    ).toHaveTextContent("1");
   });
 
   it("keeps keyboard focus inside the command palette", async () => {

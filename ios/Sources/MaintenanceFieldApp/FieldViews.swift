@@ -560,7 +560,7 @@ struct MessengerTabView: View {
                 }
                 if viewModel.messengerState.searchResults.isEmpty == false {
                     ForEach(viewModel.messengerState.searchResults) { message in
-                        MessengerMessageRow(message: message)
+                        MessengerMessageRow(message: message, currentUserID: viewModel.currentUserID)
                     }
                 } else if viewModel.messengerHasSearched {
                     Text("messenger_search_no_results")
@@ -603,7 +603,7 @@ struct MessengerTabView: View {
                         Text("messenger_empty_messages")
                     }
                     ForEach(messages) { message in
-                        MessengerMessageRow(message: message)
+                        MessengerMessageRow(message: message, currentUserID: viewModel.currentUserID)
                     }
                     TextField(String(localized: "messenger_composer"), text: $viewModel.messengerDraft, axis: .vertical)
                         .lineLimit(2...5)
@@ -682,9 +682,17 @@ struct MessengerThreadRow: View {
 
 struct MessengerMessageRow: View {
     let message: MessengerMessage
+    let currentUserID: Components.Schemas.Uuid?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if currentUserID == message.senderID, message.readTargetCount > 0 {
+                Text(localizedString("messenger_read_progress_format", message.readCount, message.readTargetCount))
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.thinMaterial, in: Capsule())
+            }
             Text(message.body)
                 .font(.body)
             HStack {

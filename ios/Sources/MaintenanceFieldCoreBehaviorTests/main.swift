@@ -600,6 +600,8 @@ struct MaintenanceFieldCoreBehaviorTests {
             senderId: messengerSenderID,
             body: body,
             attachmentEvidenceIds: [],
+            readCount: 1,
+            readTargetCount: 2,
             sentAt: isoDate("2026-06-12T09:\(String(format: "%02d", minute)):00Z"),
             createdAt: isoDate("2026-06-12T09:\(String(format: "%02d", minute)):00Z")
         )

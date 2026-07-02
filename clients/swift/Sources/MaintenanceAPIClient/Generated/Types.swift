@@ -13688,6 +13688,14 @@ public enum Components {
             public var body: Swift.String
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/attachment_evidence_ids`.
             public var attachmentEvidenceIds: [Components.Schemas.Uuid]
+            /// Non-sender thread members whose read receipt has reached this message.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/read_count`.
+            public var readCount: Swift.Int64
+            /// Non-sender thread members expected to read this message.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/read_target_count`.
+            public var readTargetCount: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/sent_at`.
             public var sentAt: Components.Schemas.Timestamp
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/created_at`.
@@ -13702,6 +13710,8 @@ public enum Components {
             ///   - senderName: Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists.
             ///   - body:
             ///   - attachmentEvidenceIds:
+            ///   - readCount: Non-sender thread members whose read receipt has reached this message.
+            ///   - readTargetCount: Non-sender thread members expected to read this message.
             ///   - sentAt:
             ///   - createdAt:
             public init(
@@ -13712,6 +13722,8 @@ public enum Components {
                 senderName: Swift.String? = nil,
                 body: Swift.String,
                 attachmentEvidenceIds: [Components.Schemas.Uuid],
+                readCount: Swift.Int64,
+                readTargetCount: Swift.Int64,
                 sentAt: Components.Schemas.Timestamp,
                 createdAt: Components.Schemas.Timestamp
             ) {
@@ -13722,6 +13734,8 @@ public enum Components {
                 self.senderName = senderName
                 self.body = body
                 self.attachmentEvidenceIds = attachmentEvidenceIds
+                self.readCount = readCount
+                self.readTargetCount = readTargetCount
                 self.sentAt = sentAt
                 self.createdAt = createdAt
             }
@@ -13733,6 +13747,8 @@ public enum Components {
                 case senderName = "sender_name"
                 case body
                 case attachmentEvidenceIds = "attachment_evidence_ids"
+                case readCount = "read_count"
+                case readTargetCount = "read_target_count"
                 case sentAt = "sent_at"
                 case createdAt = "created_at"
             }

@@ -151,8 +151,11 @@ function message({
     thread_id: threadId,
     branch_id: branchId,
     sender_id: senderId,
+    sender_name: "Sender",
     body,
     attachment_evidence_ids: [],
+    read_count: 0,
+    read_target_count: 2,
     sent_at: `2026-06-12T09:${String(minute).padStart(2, "0")}:00Z`,
     created_at: `2026-06-12T09:${String(minute).padStart(2, "0")}:00Z`,
   };

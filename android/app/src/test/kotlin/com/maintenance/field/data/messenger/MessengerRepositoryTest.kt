@@ -110,6 +110,8 @@ class MessengerRepositoryTest {
             senderId = senderId,
             senderName = null,
             body = body,
+            readCount = 1,
+            readTargetCount = 2,
             attachmentEvidenceIds = emptyList(),
             sentAt = OffsetDateTime.parse("2026-06-12T09:${minute.toString().padStart(2, '0')}:00Z"),
             createdAt = OffsetDateTime.parse("2026-06-12T09:${minute.toString().padStart(2, '0')}:00Z"),

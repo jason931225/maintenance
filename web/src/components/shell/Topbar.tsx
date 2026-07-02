@@ -8,6 +8,7 @@ import { GroupScopeSwitcher } from "../../features/group/GroupScopeSwitcher";
 import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
 import { useActiveBranchName } from "../../lib/useActiveBranchName";
+import { NOTIFICATION_COUNTS_INVALIDATED } from "../../lib/notification-events";
 import { cn, identityLabel, safeLabel } from "../../lib/utils";
 import {
   FEATURES,
@@ -118,6 +119,7 @@ function isOpenSupportStatus(status: string): boolean {
 
 function NotificationBell() {
   const { api, session } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [counts, setCounts] = useState<NotificationCounts>(emptyNotificationCounts);
   const [loading, setLoading] = useState(false);
@@ -129,6 +131,7 @@ function NotificationBell() {
   const canLoadMessenger = isNavItemVisible("messenger", roles, groupRoles, featureGrants);
   const canLoadMail = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
   const canLoadSupport = isNavItemVisible("support", roles, groupRoles, featureGrants);
+  const notificationItems = notificationRows(counts);
   const total = notificationTotal(counts);
 
   useEffect(() => {
@@ -201,9 +204,14 @@ function NotificationBell() {
       }
     }
     void loadNotifications();
+    function reloadNotifications() {
+      void loadNotifications();
+    }
+    window.addEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadNotifications);
     const timer = window.setInterval(() => { void loadNotifications(); }, 30_000);
     return () => {
       ignore = true;
+      window.removeEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadNotifications);
       window.clearInterval(timer);
     };
   }, [api, canLoadApprovals, canLoadMail, canLoadMessenger, canLoadSupport]);
@@ -253,14 +261,17 @@ function NotificationBell() {
             </p>
           ) : null}
           <ul className="grid gap-2 text-sm text-steel">
-            <NotificationCountRow label={ko.shell.notifications.approvals} count={counts.pendingApprovals} />
-            <NotificationCountRow label={ko.shell.notifications.submittedDocuments} count={counts.submittedDocuments} />
-            <NotificationCountRow label={ko.shell.notifications.completedApprovals} count={counts.completedApprovals} />
-            <NotificationCountRow label={ko.shell.notifications.messages} count={counts.messenger} />
-            <NotificationCountRow label={ko.shell.notifications.mail} count={counts.mail} />
-            <NotificationCountRow label={ko.shell.notifications.supportUnread} count={counts.supportUnread} />
-            <NotificationCountRow label={ko.shell.notifications.supportOpen} count={counts.supportOpen} />
-            <NotificationCountRow label={ko.shell.notifications.other} count={counts.other} />
+            {notificationItems.map((item) => (
+              <NotificationCountRow
+                key={item.href}
+                label={item.label}
+                count={item.count}
+                onClick={() => {
+                  setOpen(false);
+                  void navigate(item.href);
+                }}
+              />
+            ))}
           </ul>
         </div>
       ) : null}
@@ -268,11 +279,56 @@ function NotificationBell() {
   );
 }
 
-function NotificationCountRow({ label, count }: { label: string; count: number }) {
+interface NotificationRowItem {
+  label: string;
+  count: number;
+  href: string;
+}
+
+function notificationRows(counts: NotificationCounts): NotificationRowItem[] {
+  return [
+    {
+      label: ko.shell.notifications.approvals,
+      count: counts.pendingApprovals,
+      href: "/approvals",
+    },
+    {
+      label: ko.shell.notifications.messages,
+      count: counts.messenger,
+      href: "/messenger",
+    },
+    {
+      label: ko.shell.notifications.mail,
+      count: counts.mail,
+      href: "/mail",
+    },
+    {
+      label: ko.shell.notifications.supportUnread,
+      count: counts.supportUnread,
+      href: "/support",
+    },
+  ].filter((item) => item.count > 0);
+}
+
+function NotificationCountRow({
+  label,
+  count,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
   return (
-    <li className="flex justify-between gap-3">
-      <span>{label}</span>
-      <strong className="text-ink">{count}</strong>
+    <li>
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-signal"
+        onClick={onClick}
+      >
+        <span>{label}</span>
+        <strong className="text-ink">{count}</strong>
+      </button>
     </li>
   );
 }

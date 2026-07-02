@@ -6,6 +6,18 @@ import {
 } from "../lib/contact";
 
 export const ko = {
+  devPreview: {
+    adminName: "로컬 미리보기 관리자",
+    messengerThreadTitle: "정비팀 메신저",
+    fieldTechnicianName: "김현장",
+    fieldTechnicianTeam: "정비1팀",
+    dispatcherName: "박배차",
+    dispatcherTeam: "운영지원",
+    messengerIncoming: "오늘 오전 정비 일정 확인했습니다.",
+    messengerReply: "확인했습니다. 현장 도착 후 사진도 같이 올려주세요.",
+    messengerReadProgressProbe:
+      "읽음 카운트가 실시간 메시지와 동일하게 표시되는지 확인용입니다.",
+  },
   nav: {
     "work-hub": "업무 허브",
     "my-attendance": "근태 기록",
@@ -2818,6 +2830,10 @@ export const ko = {
     openSearchResult: (threadTitle: string) => `${threadTitle} 대화 열기`,
     memberCount: "명",
     unreadCount: (count: number) => `읽지 않음 ${String(count)}건`,
+    readProgress: (read: number, total: number) =>
+      `읽음 ${String(read)}/${String(total)}`,
+    readProgressAria: (read: number, total: number) =>
+      `${String(total)}명 중 ${String(read)}명이 메시지를 읽었습니다`,
     newThread: "새 대화",
     newThreadTitle: "새 대화 시작",
     subject: "제목",

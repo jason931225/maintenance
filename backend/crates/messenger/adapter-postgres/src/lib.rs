@@ -345,6 +345,17 @@ impl PgMessengerStore {
                     SET last_read_message_id = EXCLUDED.last_read_message_id,
                         read_at = EXCLUDED.read_at,
                         updated_at = EXCLUDED.updated_at
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM messenger_messages incoming
+                        JOIN messenger_messages current_receipt_message
+                          ON current_receipt_message.id = messenger_read_receipts.last_read_message_id
+                        WHERE incoming.id = EXCLUDED.last_read_message_id
+                          AND (incoming.sent_at, incoming.id) >= (
+                              current_receipt_message.sent_at,
+                              current_receipt_message.id
+                          )
+                    )
                     "#,
                 )
                 .bind(*command.thread_id.as_uuid())
@@ -928,9 +939,22 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                    array_agg(a.evidence_id ORDER BY a.sort_order)
                        FILTER (WHERE a.evidence_id IS NOT NULL),
                    ARRAY[]::uuid[]
-               ) AS attachment_evidence_ids
+               ) AS attachment_evidence_ids,
+               COUNT(DISTINCT tm_read_target.user_id)::BIGINT AS read_target_count,
+               COUNT(DISTINCT tm_read_target.user_id) FILTER (
+                   WHERE read_receipt_message.id IS NOT NULL
+                     AND (read_receipt_message.sent_at, read_receipt_message.id) >= (m.sent_at, m.id)
+               )::BIGINT AS read_count
         FROM messenger_messages m
         LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        LEFT JOIN messenger_thread_members tm_read_target
+          ON tm_read_target.thread_id = m.thread_id
+         AND tm_read_target.user_id <> m.sender_id
+        LEFT JOIN messenger_read_receipts rr_read_target
+          ON rr_read_target.thread_id = m.thread_id
+         AND rr_read_target.user_id = tm_read_target.user_id
+        LEFT JOIN messenger_messages read_receipt_message
+          ON read_receipt_message.id = rr_read_target.last_read_message_id
         -- Same-org JOIN: `users` is RLS-scoped to app.current_org just like
         -- messenger_messages, so this can only resolve a sender in the caller's
         -- tenant. A cross-tenant or hard-deleted sender simply yields NULL.
@@ -966,6 +990,8 @@ fn message_summary_from_row(
             .into_iter()
             .map(EvidenceId::from_uuid)
             .collect(),
+        read_count: row.try_get("read_count")?,
+        read_target_count: row.try_get("read_target_count")?,
         sent_at: row.try_get("sent_at")?,
         created_at: row.try_get("created_at")?,
     })

@@ -5690,6 +5690,16 @@ export interface components {
             sender_name: string | null;
             body: string;
             attachment_evidence_ids: components["schemas"]["Uuid"][];
+            /**
+             * Format: int64
+             * @description Non-sender thread members whose read receipt has reached this message.
+             */
+            read_count: number;
+            /**
+             * Format: int64
+             * @description Non-sender thread members expected to read this message.
+             */
+            read_target_count: number;
             sent_at: components["schemas"]["Timestamp"];
             created_at: components["schemas"]["Timestamp"];
         };
