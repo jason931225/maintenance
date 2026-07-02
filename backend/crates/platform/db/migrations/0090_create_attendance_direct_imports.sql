@@ -94,6 +94,22 @@ BEGIN
         TG_OP, OLD.id;
 END;
 $$;
+-- Keep employee lifecycle rows compatible with the same force-remove erasure
+-- window used for other append-only HR/import ledgers.
+CREATE OR REPLACE FUNCTION employee_lifecycle_events_append_only()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE'
+       AND current_setting('app.platform_force_remove_org', true) = 'on' THEN
+        RETURN OLD;
+    END IF;
+
+    RAISE EXCEPTION
+        'employee_lifecycle_events is append-only: % is forbidden (row id=%)',
+        TG_OP, OLD.id
+        USING ERRCODE = '55000';
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION platform_force_remove_organization(p_id UUID)
 RETURNS TEXT

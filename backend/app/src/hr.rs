@@ -5198,6 +5198,20 @@ E-001,홍길동,본사,2026-07-01,25:99
         .map_err(|err| format!("seed employee failed: {err}"))?;
         sqlx::query(
             r#"
+            INSERT INTO employee_lifecycle_events (
+                org_id, employee_id, event_type, to_status, effective_date, comment, created_by
+            )
+            VALUES ($1, $2, 'ONBOARD', 'ACTIVE', '2026-07-01', 'force-remove test lifecycle event', $3)
+            "#,
+        )
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed lifecycle event failed: {err}"))?;
+        sqlx::query(
+            r#"
             INSERT INTO data_import_runs (
                 id, org_id, entity_type, status, source_filename, source_format,
                 source_sha256, mapping_profile, input_rows, candidate_rows, preserved_rows
@@ -5413,9 +5427,16 @@ E-001,홍길동,본사,2026-07-01,25:99
         .fetch_one(&pool)
         .await
         .map_err(|err| format!("count remaining mailbox rows failed: {err}"))?;
+        let remaining_lifecycle_events: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM employee_lifecycle_events WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("count remaining lifecycle events failed: {err}"))?;
         assert_eq!(remaining_import_rows, 0);
         assert_eq!(remaining_events, 0);
         assert_eq!(remaining_mailbox_rows, 0);
+        assert_eq!(remaining_lifecycle_events, 0);
         Ok(())
     }
 
