@@ -1173,6 +1173,29 @@
       "groupScopeStory": "Group users must show group-wide or selected subsidiary identity scope only when policy grants it"
     },
     {
+      "rawPath": "/attendance",
+      "canonicalPath": "/attendance",
+      "epRows": [
+        "EP-008",
+        "EP-010"
+      ],
+      "personas": [
+        "employee",
+        "hr",
+        "manager"
+      ],
+      "roleStoryEvidence": "Lane C/G004 employee self-service attendance records with payroll material refs; AttendancePage.test.tsx covers Korean controls, idempotent record creation, refreshed history, and unlinked-employee denial.",
+      "accessibilityEvidence": "AttendancePage semantic PageHeader, role/name action buttons for 출근/외출/출장/복귀/퇴근, table headings, PageError retry, web lint UI-string gate, and AttendancePage.test.tsx accessible queries.",
+      "ownerLane": "G004 employee attendance records and payroll linkage lane with G008 HR/payroll legal gates",
+      "dataClass": "employee attendance punch, out-of-office/business-trip state, work date, payroll material reference id, audit metadata",
+      "sourceObject": "employee self-service attendance record and payroll_attendance_material_refs lineage row",
+      "lifecycleStates": "unlinked denied, no latest record, clocked in, out for work, business trip, returned, off duty, payroll-linked, error/retry",
+      "e2eSpec": "Required browser story: employee opens 근태 기록, records 출근→외출/출장→복귀→퇴근, sees payroll material linkage, and unlinked accounts cannot view another employee record.",
+      "denialScopeTest": "RequireNavItemRoute gates my-attendance; backend self-service resolves users.employee_id only; 403 unlinked employee path is covered without exposing records.",
+      "screenshotTraceEvidence": "Pending Lane C live browser/CI evidence; current component tests and route audit gate are non-terminal until PR #142 CI passes.",
+      "groupScopeStory": "Self-service view is employee-scoped; HR/payroll management review uses the separate /api/v1/hr/attendance-records org-wide gate and does not widen personal nav access."
+    },
+    {
       "rawPath": "/settings/employees",
       "canonicalPath": "/settings/employees",
       "epRows": [

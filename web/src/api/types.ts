@@ -352,6 +352,12 @@ export type HrOrgChartResponse = components["schemas"]["HrOrgChartResponse"];
 export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
 export type AttendanceSummaryPage =
   components["schemas"]["AttendanceSummaryPage"];
+export type CreateEmployeeAttendanceRecordRequest =
+  components["schemas"]["CreateEmployeeAttendanceRecordRequest"];
+export type EmployeeAttendanceRecord =
+  components["schemas"]["EmployeeAttendanceRecord"];
+export type EmployeeAttendanceRecordPage =
+  components["schemas"]["EmployeeAttendanceRecordPage"];
 export interface HrReadinessSummary {
   imports: {
     runs: number;
@@ -370,6 +376,7 @@ export interface HrReadinessSummary {
     payroll_source_rows: number;
     attendance_source_rows: number;
     attendance_event_links: number;
+    attendance_material_refs: number;
     gross_pay_source_lines: number;
     net_pay_source_lines: number;
     latest_status?: string | null;
@@ -387,6 +394,8 @@ export interface HrReadinessSummary {
   };
   attendance: {
     durable_events: number;
+    self_service_records: number;
+    payroll_material_refs: number;
   };
 }
 export type AttendanceImportPreview =

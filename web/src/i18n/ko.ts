@@ -8,6 +8,7 @@ import {
 export const ko = {
   nav: {
     "work-hub": "업무 허브",
+    "my-attendance": "근태 기록",
     dispatch: "배차",
     "dispatch-map": "배차 지도",
     intake: "접수",
@@ -911,6 +912,53 @@ export const ko = {
     noBranchesForUser: "사용자에게 소속 지점이 없어 코드를 발급할 수 없습니다.",
     forbidden: "이 작업을 수행할 권한이 없습니다.",
   },
+  attendance: {
+    title: "내 근태 기록",
+    description:
+      "모바일과 PC에서 출근, 외출, 출장, 복귀, 퇴근 사실을 직접 기록하고 급여준비 원천 연결 상태를 확인합니다.",
+    currentState: "현재 상태",
+    noLatest: "오늘 기록이 아직 없습니다.",
+    latestMeta: "최근 {kind} · {time}",
+    payrollLinked: "급여준비 원천 연결",
+    legalNotice:
+      "이 화면은 근태 사실과 원천 연결만 남깁니다. 급여 계산·세무 판단은 법적 검토 게이트가 열릴 때까지 활성화하지 않습니다.",
+    historyTitle: "최근 기록",
+    historyDescription: "본인 계정과 연결된 직원 기록만 표시합니다.",
+    loadFailed: "근태 기록을 불러오지 못했습니다.",
+    empty: "표시할 근태 기록이 없습니다.",
+    recording: "기록 중",
+    recordFailed: "{kind} 기록을 저장하지 못했습니다.",
+    retryRecord: "{kind} 기록 다시 시도",
+    duplicateReplay: "이미 저장된 근태 기록을 다시 확인했습니다.",
+    linked: "연결됨",
+    linkPending: "연결 대기",
+    actions: {
+      CLOCK_IN: "출근 기록",
+      OUT_FOR_WORK: "외출 기록",
+      BUSINESS_TRIP: "출장 기록",
+      RETURNED: "복귀 기록",
+      CLOCK_OUT: "퇴근 기록",
+    },
+    kinds: {
+      CLOCK_IN: "출근",
+      OUT_FOR_WORK: "외출",
+      BUSINESS_TRIP: "출장",
+      RETURNED: "복귀",
+      CLOCK_OUT: "퇴근",
+    },
+    states: {
+      OFF_DUTY: "근무 전/퇴근",
+      CLOCKED_IN: "근무 중",
+      OUT_FOR_WORK: "외출 중",
+      BUSINESS_TRIP: "출장 중",
+    },
+    columns: {
+      kind: "구분",
+      occurredAt: "기록 시각",
+      stateAfter: "이후 상태",
+      payroll: "급여자료",
+    },
+  },
   employees: {
     title: "인사·조직 관리",
     description:
@@ -1004,9 +1052,10 @@ export const ko = {
       employeeCandidates: "직원 후보",
       employeeCandidatesMeta: "원천만 보존 {preserved}행",
       durableAttendance: "근태 업무 사실",
-      durableAttendanceMeta: "지점 범위가 적용된 도착·이탈 이벤트",
+      durableAttendanceMeta: "직접 기록 {selfRecords}건 · 급여 원천 연결 {materialRefs}건",
       payrollDrafts: "급여준비",
-      payrollDraftsMeta: "급여 원천 {payrollRows}행 · 근태 원천 {attendanceRows}행",
+      payrollDraftsMeta:
+        "급여 원천 {payrollRows}행 · 근태 원천 {attendanceRows}행 · 직접 근태 연결 {materialRefs}건",
       legalGate: "법적 검토 게이트",
       legalGateMeta: "차단된 급여준비 실행 {blocked}건",
       annualLeave: "연차 의무",

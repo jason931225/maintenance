@@ -45,6 +45,9 @@ const PendingPage = lazy(() =>
 const WorkHubPage = lazy(() =>
   import("./pages/WorkHubPage").then((m) => ({ default: m.WorkHubPage })),
 );
+const AttendancePage = lazy(() =>
+  import("./pages/AttendancePage").then((m) => ({ default: m.AttendancePage })),
+);
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
@@ -291,6 +294,9 @@ export function AppRouter() {
         <Route element={<AppShell />}>
           <Route element={<RequireNavItemRoute itemKey="work-hub" />}>
             <Route path="/work-hub" element={<WorkHubPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="my-attendance" />}>
+            <Route path="/attendance" element={<AttendancePage />} />
           </Route>
           <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
             <Route path="/dispatch" element={<DispatchPage />} />

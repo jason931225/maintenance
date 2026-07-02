@@ -209,6 +209,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // to /pending, while custom grants can expose only the permitted personal
   // surface without leaking logistics-maintenance or equipment-sales nav.
   ["work-hub", OPERATIONAL_ROLES],
+  ["my-attendance", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
   // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied.
   // The platform operates the mail server out of the box; there is no
@@ -268,6 +269,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
 
 const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["work-hub", [FEATURES.WORK_ORDER_READ_ALL]],
+  ["my-attendance", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["messenger", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch-map", [FEATURES.WORK_ORDER_READ_ALL]],
@@ -334,6 +336,12 @@ export const NAV_GROUPS = [
         href: "/work-hub",
         labelKey: "nav.work-hub",
         Icon: Inbox,
+      },
+      {
+        key: "my-attendance",
+        href: "/attendance",
+        labelKey: "nav.my-attendance",
+        Icon: CalendarClock,
       },
       {
         key: "messenger",

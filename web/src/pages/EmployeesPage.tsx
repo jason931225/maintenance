@@ -405,8 +405,19 @@ function ReadinessSummaryPanel({
     },
     {
       label: t.durableAttendance,
-      value: formatListCount(readinessSummary.attendance.durable_events),
-      meta: t.durableAttendanceMeta,
+      value: formatListCount(
+        readinessSummary.attendance.durable_events +
+          readinessSummary.attendance.self_service_records,
+      ),
+      meta: t.durableAttendanceMeta
+        .replace(
+          "{selfRecords}",
+          formatListCount(readinessSummary.attendance.self_service_records),
+        )
+        .replace(
+          "{materialRefs}",
+          formatListCount(readinessSummary.attendance.payroll_material_refs),
+        ),
     },
     {
       label: t.payrollDrafts,
@@ -419,6 +430,10 @@ function ReadinessSummaryPanel({
         .replace(
           "{attendanceRows}",
           formatListCount(readinessSummary.payroll.attendance_source_rows),
+        )
+        .replace(
+          "{materialRefs}",
+          formatListCount(readinessSummary.payroll.attendance_material_refs),
         ),
     },
     {

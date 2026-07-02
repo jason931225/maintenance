@@ -135,6 +135,7 @@ const readinessSummary = {
     payroll_source_rows: 8,
     attendance_source_rows: 4,
     attendance_event_links: 0,
+    attendance_material_refs: 3,
     gross_pay_source_lines: 1,
     net_pay_source_lines: 1,
     latest_status: "BLOCKED_LEGAL_GATE",
@@ -152,6 +153,8 @@ const readinessSummary = {
   },
   attendance: {
     durable_events: 5,
+    self_service_records: 3,
+    payroll_material_refs: 3,
   },
 };
 
@@ -273,7 +276,7 @@ describe("EmployeesPage", () => {
     expect(screen.getByText("BLOCKED_LEGAL_GATE")).toBeVisible();
     expect(screen.getByText("COSS Group 2026-05 live import")).toBeVisible();
     expect(screen.getByText("2026-05-01 - 2026-05-31")).toBeVisible();
-    expect(screen.getByText("급여 원천 8행 · 근태 원천 4행")).toBeVisible();
+    expect(screen.getByText("급여 원천 8행 · 근태 원천 4행 · 직접 근태 연결 3건")).toBeVisible();
 
     const row = (await screen.findByText("A-001")).closest("tr");
     expect(row).not.toBeNull();

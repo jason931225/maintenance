@@ -872,6 +872,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hr/attendance-records/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the signed-in employee's attendance records
+         * @description Returns only records for the employee row explicitly linked to the authenticated user account.
+         */
+        get: operations["listMyEmployeeAttendanceRecords"];
+        put?: never;
+        /**
+         * Record the signed-in employee's attendance transition
+         * @description Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+         */
+        post: operations["createMyEmployeeAttendanceRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/attendance-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List employee attendance records for HR/payroll review
+         * @description Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+         */
+        get: operations["listEmployeeAttendanceRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employees/import": {
         parameters: {
             query?: never;
@@ -4882,6 +4926,38 @@ export interface components {
             /** Format: int64 */
             offset: number;
         };
+        /** @enum {string} */
+        AttendanceRecordKind: "CLOCK_IN" | "OUT_FOR_WORK" | "BUSINESS_TRIP" | "RETURNED" | "CLOCK_OUT";
+        CreateEmployeeAttendanceRecordRequest: {
+            kind: components["schemas"]["AttendanceRecordKind"];
+            idempotency_key: string;
+            note?: string | null;
+        };
+        EmployeeAttendanceRecord: {
+            id: components["schemas"]["Uuid"];
+            employee_id: components["schemas"]["Uuid"];
+            employee_display_name: string;
+            kind: components["schemas"]["AttendanceRecordKind"];
+            occurred_at: components["schemas"]["Timestamp"];
+            /** Format: date */
+            work_date: string;
+            /** @enum {string} */
+            state_after: "CLOCKED_IN" | "OUT_FOR_WORK" | "BUSINESS_TRIP" | "OFF_DUTY";
+            note?: string | null;
+            payroll_material_ref_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            payroll_link_status: "LINKED";
+            duplicate: boolean;
+        };
+        EmployeeAttendanceRecordPage: {
+            items: components["schemas"]["EmployeeAttendanceRecord"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
         AssignmentSummary: {
             id: components["schemas"]["Uuid"];
             mechanic_id: components["schemas"]["Uuid"];
@@ -8638,6 +8714,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendanceImportSummaryPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listMyEmployeeAttendanceRecords: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Self-service attendance records and payroll material refs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeAttendanceRecordPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createMyEmployeeAttendanceRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEmployeeAttendanceRecordRequest"];
+            };
+        };
+        responses: {
+            /** @description Created or idempotently replayed attendance record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeAttendanceRecord"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listEmployeeAttendanceRecords: {
+        parameters: {
+            query?: {
+                employee_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attendance records within the caller's HR review scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeAttendanceRecordPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];

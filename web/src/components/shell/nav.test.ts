@@ -37,6 +37,7 @@ function visibleItems(
 const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.SUPER_ADMIN]: [
     "work-hub",
+    "my-attendance",
     "messenger",
     "mail",
     "dispatch",
@@ -69,6 +70,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   ],
   [ROLES.ADMIN]: [
     "work-hub",
+    "my-attendance",
     "messenger",
     "mail",
     "dispatch",
@@ -100,6 +102,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // Equipment browse/manage remain visible, but sales catalog conversion stays admin-only.
   [ROLES.EXECUTIVE]: [
     "work-hub",
+    "my-attendance",
     "messenger",
     "mail",
     "dispatch",
@@ -123,6 +126,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // approvals/kpi/users/org/security, or equipment-sales management.
   [ROLES.MECHANIC]: [
     "work-hub",
+    "my-attendance",
     "messenger",
     "dispatch",
     "dispatch-map",
@@ -139,6 +143,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // Receptionist: affiliate business-operations surface plus mail; no daily-plan.
   [ROLES.RECEPTIONIST]: [
     "work-hub",
+    "my-attendance",
     "messenger",
     "mail",
     "dispatch",
@@ -171,6 +176,7 @@ describe("nav role gating", () => {
     expect(navGroupLabel("personal")).toBe("개인/부서 업무");
     expect(NAV_GROUPS[0].items.map((item) => item.key)).toEqual([
       "work-hub",
+      "my-attendance",
       "messenger",
       "mail",
     ]);

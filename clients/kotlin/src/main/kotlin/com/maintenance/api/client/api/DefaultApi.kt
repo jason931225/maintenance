@@ -60,6 +60,7 @@ import com.maintenance.api.client.model.CreateBranchRequest
 import com.maintenance.api.client.model.CreateCalendarEventRequest
 import com.maintenance.api.client.model.CreateCustomerRequest
 import com.maintenance.api.client.model.CreateDailyPlanRequest
+import com.maintenance.api.client.model.CreateEmployeeAttendanceRecordRequest
 import com.maintenance.api.client.model.CreateEmployeeLifecycleEventRequest
 import com.maintenance.api.client.model.CreateEquipmentRequest
 import com.maintenance.api.client.model.CreateEquipmentResponse
@@ -93,6 +94,8 @@ import com.maintenance.api.client.model.DeviceLoginPollResponse
 import com.maintenance.api.client.model.DeviceLoginStartResponse
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
+import com.maintenance.api.client.model.EmployeeAttendanceRecord
+import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.EmployeeImportDryRunSummary
 import com.maintenance.api.client.model.EmployeeImportPreviewResponse
 import com.maintenance.api.client.model.EmployeeImportReport
@@ -4019,6 +4022,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/messenger/threads",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/hr/attendance-records/me
+     * Record the signed-in employee&#39;s attendance transition
+     * Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+     * @param createEmployeeAttendanceRecordRequest
+     * @return EmployeeAttendanceRecord
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createMyEmployeeAttendanceRecord(createEmployeeAttendanceRecordRequest: CreateEmployeeAttendanceRecordRequest) : EmployeeAttendanceRecord = withContext(Dispatchers.IO) {
+        val localVarResponse = createMyEmployeeAttendanceRecordWithHttpInfo(createEmployeeAttendanceRecordRequest = createEmployeeAttendanceRecordRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeAttendanceRecord
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/hr/attendance-records/me
+     * Record the signed-in employee&#39;s attendance transition
+     * Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+     * @param createEmployeeAttendanceRecordRequest
+     * @return ApiResponse<EmployeeAttendanceRecord?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createMyEmployeeAttendanceRecordWithHttpInfo(createEmployeeAttendanceRecordRequest: CreateEmployeeAttendanceRecordRequest) : ApiResponse<EmployeeAttendanceRecord?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createMyEmployeeAttendanceRecordRequestConfig(createEmployeeAttendanceRecordRequest = createEmployeeAttendanceRecordRequest)
+
+        return@withContext request<CreateEmployeeAttendanceRecordRequest, EmployeeAttendanceRecord>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createMyEmployeeAttendanceRecord
+     *
+     * @param createEmployeeAttendanceRecordRequest
+     * @return RequestConfig
+     */
+    fun createMyEmployeeAttendanceRecordRequestConfig(createEmployeeAttendanceRecordRequest: CreateEmployeeAttendanceRecordRequest) : RequestConfig<CreateEmployeeAttendanceRecordRequest> {
+        val localVariableBody = createEmployeeAttendanceRecordRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/hr/attendance-records/me",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -8906,6 +8983,96 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/hr/attendance-records
+     * List employee attendance records for HR/payroll review
+     * Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+     * @param employeeId  (optional)
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return EmployeeAttendanceRecordPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEmployeeAttendanceRecords(employeeId: java.util.UUID? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeeAttendanceRecordPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEmployeeAttendanceRecordsWithHttpInfo(employeeId = employeeId, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeAttendanceRecordPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/attendance-records
+     * List employee attendance records for HR/payroll review
+     * Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+     * @param employeeId  (optional)
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<EmployeeAttendanceRecordPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEmployeeAttendanceRecordsWithHttpInfo(employeeId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeeAttendanceRecordPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEmployeeAttendanceRecordsRequestConfig(employeeId = employeeId, limit = limit, offset = offset)
+
+        return@withContext request<Unit, EmployeeAttendanceRecordPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEmployeeAttendanceRecords
+     *
+     * @param employeeId  (optional)
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listEmployeeAttendanceRecordsRequestConfig(employeeId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (employeeId != null) {
+                    put("employee_id", listOf(employeeId.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/attendance-records",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/employees/{id}/lifecycle-events
      * List audited employee lifecycle events
      * Tenant-scoped append-only lifecycle ledger for onboarding, offboarding, termination, and intra-group/company transfer decisions.
@@ -10433,6 +10600,90 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/messenger/threads",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/hr/attendance-records/me
+     * List the signed-in employee&#39;s attendance records
+     * Returns only records for the employee row explicitly linked to the authenticated user account.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return EmployeeAttendanceRecordPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMyEmployeeAttendanceRecords(limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeeAttendanceRecordPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listMyEmployeeAttendanceRecordsWithHttpInfo(limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeAttendanceRecordPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/attendance-records/me
+     * List the signed-in employee&#39;s attendance records
+     * Returns only records for the employee row explicitly linked to the authenticated user account.
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<EmployeeAttendanceRecordPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMyEmployeeAttendanceRecordsWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeeAttendanceRecordPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMyEmployeeAttendanceRecordsRequestConfig(limit = limit, offset = offset)
+
+        return@withContext request<Unit, EmployeeAttendanceRecordPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMyEmployeeAttendanceRecords
+     *
+     * @param limit  (optional, default to 500L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listMyEmployeeAttendanceRecordsRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/attendance-records/me",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

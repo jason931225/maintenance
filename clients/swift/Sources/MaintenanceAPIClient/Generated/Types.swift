@@ -321,6 +321,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/hr/attendance-import/summary`.
     /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)`.
     func listAttendanceImportSummary(_ input: Operations.ListAttendanceImportSummary.Input) async throws -> Operations.ListAttendanceImportSummary.Output
+    /// List the signed-in employee's attendance records
+    ///
+    /// Returns only records for the employee row explicitly linked to the authenticated user account.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-records/me`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/get(listMyEmployeeAttendanceRecords)`.
+    func listMyEmployeeAttendanceRecords(_ input: Operations.ListMyEmployeeAttendanceRecords.Input) async throws -> Operations.ListMyEmployeeAttendanceRecords.Output
+    /// Record the signed-in employee's attendance transition
+    ///
+    /// Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-records/me`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)`.
+    func createMyEmployeeAttendanceRecord(_ input: Operations.CreateMyEmployeeAttendanceRecord.Input) async throws -> Operations.CreateMyEmployeeAttendanceRecord.Output
+    /// List employee attendance records for HR/payroll review
+    ///
+    /// Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-records`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/get(listEmployeeAttendanceRecords)`.
+    func listEmployeeAttendanceRecords(_ input: Operations.ListEmployeeAttendanceRecords.Input) async throws -> Operations.ListEmployeeAttendanceRecords.Output
     /// Import payroll workbook sheets into the employee directory
     ///
     /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
@@ -2034,6 +2055,51 @@ extension APIProtocol {
         headers: Operations.ListAttendanceImportSummary.Input.Headers = .init()
     ) async throws -> Operations.ListAttendanceImportSummary.Output {
         try await listAttendanceImportSummary(Operations.ListAttendanceImportSummary.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// List the signed-in employee's attendance records
+    ///
+    /// Returns only records for the employee row explicitly linked to the authenticated user account.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-records/me`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/get(listMyEmployeeAttendanceRecords)`.
+    public func listMyEmployeeAttendanceRecords(
+        query: Operations.ListMyEmployeeAttendanceRecords.Input.Query = .init(),
+        headers: Operations.ListMyEmployeeAttendanceRecords.Input.Headers = .init()
+    ) async throws -> Operations.ListMyEmployeeAttendanceRecords.Output {
+        try await listMyEmployeeAttendanceRecords(Operations.ListMyEmployeeAttendanceRecords.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Record the signed-in employee's attendance transition
+    ///
+    /// Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-records/me`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)`.
+    public func createMyEmployeeAttendanceRecord(
+        headers: Operations.CreateMyEmployeeAttendanceRecord.Input.Headers = .init(),
+        body: Operations.CreateMyEmployeeAttendanceRecord.Input.Body
+    ) async throws -> Operations.CreateMyEmployeeAttendanceRecord.Output {
+        try await createMyEmployeeAttendanceRecord(Operations.CreateMyEmployeeAttendanceRecord.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// List employee attendance records for HR/payroll review
+    ///
+    /// Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-records`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/get(listEmployeeAttendanceRecords)`.
+    public func listEmployeeAttendanceRecords(
+        query: Operations.ListEmployeeAttendanceRecords.Input.Query = .init(),
+        headers: Operations.ListEmployeeAttendanceRecords.Input.Headers = .init()
+    ) async throws -> Operations.ListEmployeeAttendanceRecords.Output {
+        try await listEmployeeAttendanceRecords(Operations.ListEmployeeAttendanceRecords.Input(
             query: query,
             headers: headers
         ))
@@ -9819,6 +9885,166 @@ public enum Components {
             ///   - offset:
             public init(
                 items: [Components.Schemas.AttendanceImportSummaryItem],
+                total: Swift.Int64,
+                limit: Swift.Int64,
+                offset: Swift.Int64
+            ) {
+                self.items = items
+                self.total = total
+                self.limit = limit
+                self.offset = offset
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
+                case limit
+                case offset
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceRecordKind`.
+        @frozen public enum AttendanceRecordKind: String, Codable, Hashable, Sendable, CaseIterable {
+            case clockIn = "CLOCK_IN"
+            case outForWork = "OUT_FOR_WORK"
+            case businessTrip = "BUSINESS_TRIP"
+            case returned = "RETURNED"
+            case clockOut = "CLOCK_OUT"
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateEmployeeAttendanceRecordRequest`.
+        public struct CreateEmployeeAttendanceRecordRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateEmployeeAttendanceRecordRequest/kind`.
+            public var kind: Components.Schemas.AttendanceRecordKind
+            /// - Remark: Generated from `#/components/schemas/CreateEmployeeAttendanceRecordRequest/idempotency_key`.
+            public var idempotencyKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateEmployeeAttendanceRecordRequest/note`.
+            public var note: Swift.String?
+            /// Creates a new `CreateEmployeeAttendanceRecordRequest`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - idempotencyKey:
+            ///   - note:
+            public init(
+                kind: Components.Schemas.AttendanceRecordKind,
+                idempotencyKey: Swift.String,
+                note: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.idempotencyKey = idempotencyKey
+                self.note = note
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case idempotencyKey = "idempotency_key"
+                case note
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord`.
+        public struct EmployeeAttendanceRecord: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/employee_id`.
+            public var employeeId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/employee_display_name`.
+            public var employeeDisplayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/kind`.
+            public var kind: Components.Schemas.AttendanceRecordKind
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/occurred_at`.
+            public var occurredAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/work_date`.
+            public var workDate: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/state_after`.
+            @frozen public enum StateAfterPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case clockedIn = "CLOCKED_IN"
+                case outForWork = "OUT_FOR_WORK"
+                case businessTrip = "BUSINESS_TRIP"
+                case offDuty = "OFF_DUTY"
+            }
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/state_after`.
+            public var stateAfter: Components.Schemas.EmployeeAttendanceRecord.StateAfterPayload
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/note`.
+            public var note: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/payroll_material_ref_id`.
+            public var payrollMaterialRefId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/payroll_link_status`.
+            @frozen public enum PayrollLinkStatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case linked = "LINKED"
+            }
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/payroll_link_status`.
+            public var payrollLinkStatus: Components.Schemas.EmployeeAttendanceRecord.PayrollLinkStatusPayload
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecord/duplicate`.
+            public var duplicate: Swift.Bool
+            /// Creates a new `EmployeeAttendanceRecord`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - employeeId:
+            ///   - employeeDisplayName:
+            ///   - kind:
+            ///   - occurredAt:
+            ///   - workDate:
+            ///   - stateAfter:
+            ///   - note:
+            ///   - payrollMaterialRefId:
+            ///   - payrollLinkStatus:
+            ///   - duplicate:
+            public init(
+                id: Components.Schemas.Uuid,
+                employeeId: Components.Schemas.Uuid,
+                employeeDisplayName: Swift.String,
+                kind: Components.Schemas.AttendanceRecordKind,
+                occurredAt: Components.Schemas.Timestamp,
+                workDate: Swift.String,
+                stateAfter: Components.Schemas.EmployeeAttendanceRecord.StateAfterPayload,
+                note: Swift.String? = nil,
+                payrollMaterialRefId: Components.Schemas.Uuid,
+                payrollLinkStatus: Components.Schemas.EmployeeAttendanceRecord.PayrollLinkStatusPayload,
+                duplicate: Swift.Bool
+            ) {
+                self.id = id
+                self.employeeId = employeeId
+                self.employeeDisplayName = employeeDisplayName
+                self.kind = kind
+                self.occurredAt = occurredAt
+                self.workDate = workDate
+                self.stateAfter = stateAfter
+                self.note = note
+                self.payrollMaterialRefId = payrollMaterialRefId
+                self.payrollLinkStatus = payrollLinkStatus
+                self.duplicate = duplicate
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case employeeId = "employee_id"
+                case employeeDisplayName = "employee_display_name"
+                case kind
+                case occurredAt = "occurred_at"
+                case workDate = "work_date"
+                case stateAfter = "state_after"
+                case note
+                case payrollMaterialRefId = "payroll_material_ref_id"
+                case payrollLinkStatus = "payroll_link_status"
+                case duplicate
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecordPage`.
+        public struct EmployeeAttendanceRecordPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecordPage/items`.
+            public var items: [Components.Schemas.EmployeeAttendanceRecord]
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecordPage/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecordPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EmployeeAttendanceRecordPage/offset`.
+            public var offset: Swift.Int64
+            /// Creates a new `EmployeeAttendanceRecordPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            ///   - limit:
+            ///   - offset:
+            public init(
+                items: [Components.Schemas.EmployeeAttendanceRecord],
                 total: Swift.Int64,
                 limit: Swift.Int64,
                 offset: Swift.Int64
@@ -30455,6 +30681,592 @@ public enum Operations {
             /// Principal lacks role or branch authority.
             ///
             /// - Remark: Generated from `#/paths//api/v1/hr/attendance-import/summary/get(listAttendanceImportSummary)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the signed-in employee's attendance records
+    ///
+    /// Returns only records for the employee row explicitly linked to the authenticated user account.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-records/me`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/get(listMyEmployeeAttendanceRecords)`.
+    public enum ListMyEmployeeAttendanceRecords {
+        public static let id: Swift.String = "listMyEmployeeAttendanceRecords"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListMyEmployeeAttendanceRecords.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyEmployeeAttendanceRecords.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyEmployeeAttendanceRecords.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyEmployeeAttendanceRecords.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMyEmployeeAttendanceRecords.Input.Query = .init(),
+                headers: Operations.ListMyEmployeeAttendanceRecords.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EmployeeAttendanceRecordPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EmployeeAttendanceRecordPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyEmployeeAttendanceRecords.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyEmployeeAttendanceRecords.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Self-service attendance records and payroll material refs.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/get(listMyEmployeeAttendanceRecords)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyEmployeeAttendanceRecords.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyEmployeeAttendanceRecords.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/get(listMyEmployeeAttendanceRecords)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/get(listMyEmployeeAttendanceRecords)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Record the signed-in employee's attendance transition
+    ///
+    /// Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
+    ///
+    /// - Remark: HTTP `POST /api/v1/hr/attendance-records/me`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)`.
+    public enum CreateMyEmployeeAttendanceRecord {
+        public static let id: Swift.String = "createMyEmployeeAttendanceRecord"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateMyEmployeeAttendanceRecord.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateMyEmployeeAttendanceRecord.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateMyEmployeeAttendanceRecord.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateEmployeeAttendanceRecordRequest)
+            }
+            public var body: Operations.CreateMyEmployeeAttendanceRecord.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateMyEmployeeAttendanceRecord.Input.Headers = .init(),
+                body: Operations.CreateMyEmployeeAttendanceRecord.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/me/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EmployeeAttendanceRecord)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EmployeeAttendanceRecord {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateMyEmployeeAttendanceRecord.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateMyEmployeeAttendanceRecord.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Created or idempotently replayed attendance record.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.CreateMyEmployeeAttendanceRecord.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.CreateMyEmployeeAttendanceRecord.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/me/post(createMyEmployeeAttendanceRecord)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List employee attendance records for HR/payroll review
+    ///
+    /// Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-records`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/get(listEmployeeAttendanceRecords)`.
+    public enum ListEmployeeAttendanceRecords {
+        public static let id: Swift.String = "listEmployeeAttendanceRecords"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/GET/query/employee_id`.
+                public var employeeId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - employeeId:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    employeeId: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.employeeId = employeeId
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListEmployeeAttendanceRecords.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEmployeeAttendanceRecords.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEmployeeAttendanceRecords.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListEmployeeAttendanceRecords.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListEmployeeAttendanceRecords.Input.Query = .init(),
+                headers: Operations.ListEmployeeAttendanceRecords.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-records/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EmployeeAttendanceRecordPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EmployeeAttendanceRecordPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListEmployeeAttendanceRecords.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListEmployeeAttendanceRecords.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Attendance records within the caller's HR review scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/get(listEmployeeAttendanceRecords)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListEmployeeAttendanceRecords.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListEmployeeAttendanceRecords.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/get(listEmployeeAttendanceRecords)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-records/get(listEmployeeAttendanceRecords)/responses/403`.
             ///
             /// HTTP response code: `403 forbidden`.
             case forbidden(Components.Responses.Forbidden)

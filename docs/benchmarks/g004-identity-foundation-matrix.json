@@ -108,6 +108,12 @@
       "requiredStory": "HR and payroll owners review registered employee, mobile or PC attendance, leave, approval, and legal-gated payroll readiness without exposing unauthorized sensitive fields"
     },
     {
+      "path": "/attendance",
+      "routeGroup": "people",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "employee self-service records mobile or PC 출근, 외출/출장, 복귀, and 퇴근 punches with payroll material linkage"
+    },
+    {
       "path": "/settings/policy",
       "routeGroup": "policy",
       "mustContainOwnerGoal": "G004",
