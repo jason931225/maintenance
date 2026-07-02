@@ -35,6 +35,14 @@ import { useAuth } from "../context/auth";
 import { isActionableSupportTicket } from "../features/support/support-format";
 import { ko } from "../i18n/ko";
 import { formatKoreanDate, formatKoreanDateTime } from "../lib/datetime";
+import {
+  devApprovalItemsPage,
+  devDailyPlanListPage,
+  devMessengerThreads,
+  devSupportTicketPage,
+  devWorkOrderListPage,
+  isDevPreviewEnabled,
+} from "../lib/dev-preview";
 import { cn, priorityClass, priorityLabel, safeLabel } from "../lib/utils";
 
 const ADMIN_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
@@ -391,6 +399,18 @@ export function WorkHubPage() {
 
   const loadData = useCallback(async () => {
     setReadState("loading");
+    if (isDevPreviewEnabled()) {
+      setData({
+        workOrders: devWorkOrderListPage().items,
+        approvalItems: canApprove ? devApprovalItemsPage().items : [],
+        dailyPlans: canUseDailyPlan ? devDailyPlanListPage().items : [],
+        tickets: devSupportTicketPage().items.filter(isActionableSupportTicket),
+        messengerThreads: canUseMessenger ? devMessengerThreads() : [],
+      });
+      setFailures([]);
+      setReadState("idle");
+      return;
+    }
     const workOrderQuery = canSeeTeamQueue
       ? { limit: 20, offset: 0 }
       : { assigned_to: "me", limit: 20, offset: 0 };

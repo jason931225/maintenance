@@ -47,6 +47,7 @@ const server = setupServer(
         kind: "OUT_FOR_WORK",
         occurred_at: "2026-07-02T01:00:00Z",
         state_after: "OUT_FOR_WORK",
+        note: "BESTEC 현장 출장",
         payroll_material_ref_id: "55555555-5555-4555-8555-555555555555",
       },
       ...records,
@@ -125,6 +126,7 @@ describe("AttendancePage", () => {
       (lastPostBody as { idempotency_key?: string }).idempotency_key,
     ).toContain("OUT_FOR_WORK");
     expect((await screen.findAllByText("외출 중")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("BESTEC 현장 출장")).toBeInTheDocument();
   });
 
   it("retries a failed record write with the same idempotency key", async () => {

@@ -9,6 +9,11 @@ import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { formatKoreanDateTime } from "../lib/datetime";
+import {
+  createDevEmployeeAttendanceRecord,
+  devEmployeeAttendanceRecordPage,
+  isDevPreviewEnabled,
+} from "../lib/dev-preview";
 
 const ATTENDANCE_KINDS = [
   "CLOCK_IN",
@@ -37,6 +42,7 @@ interface EmployeeAttendanceRecord {
   kind: AttendanceKind;
   occurred_at: string;
   state_after: AttendanceState;
+  note?: string | null;
   payroll_material_ref_id: string;
   duplicate: boolean;
 }
@@ -63,6 +69,13 @@ export function AttendancePage() {
   const loadRecords = useCallback(async () => {
     setState("loading");
     setStatus(undefined);
+    if (isDevPreviewEnabled()) {
+      const page = devEmployeeAttendanceRecordPage();
+      setStatus(200);
+      setItems(page.items);
+      setState("idle");
+      return;
+    }
     let failureStatus: number | undefined;
     const response = (await api
       .GET("/api/v1/hr/attendance-records/me", {
@@ -109,6 +122,14 @@ export function AttendancePage() {
       setStatus(undefined);
       setRecordFailure(undefined);
       setReplayedRecordId(undefined);
+
+      if (isDevPreviewEnabled()) {
+        const record = createDevEmployeeAttendanceRecord({ kind });
+        setItems((current) => [record, ...current]);
+        setStatus(201);
+        setAction(undefined);
+        return;
+      }
 
       const response = (await api
         .POST("/api/v1/hr/attendance-records/me", { body })
@@ -261,6 +282,9 @@ export function AttendancePage() {
                       {t.columns.stateAfter}
                     </th>
                     <th scope="col" className="px-3 py-2 font-medium">
+                      {t.columns.note}
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-medium">
                       {t.columns.payroll}
                     </th>
                   </tr>
@@ -276,6 +300,9 @@ export function AttendancePage() {
                       </td>
                       <td className="px-3 py-2 text-steel">
                         {stateLabel(record.state_after)}
+                      </td>
+                      <td className="px-3 py-2 text-steel">
+                        {noteLabel(record.note)}
                       </td>
                       <td className="px-3 py-2 text-steel">
                         {t.linked}
@@ -300,6 +327,10 @@ function kindLabel(kind: string): string {
 function stateLabel(state: string): string {
   const labels = ko.attendance.states as Record<string, string | undefined>;
   return labels[state] ?? state;
+}
+
+function noteLabel(note: string | null | undefined): string {
+  return note?.trim() || ko.attendance.noNote;
 }
 
 function errorStatus(error: unknown): number | undefined {

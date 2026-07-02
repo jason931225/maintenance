@@ -34,6 +34,13 @@ import { Textarea } from "../components/ui/textarea";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { formatKoreanDateTime } from "../lib/datetime";
+import {
+  devCustomerInquiryPage,
+  devMailFolders,
+  devMailThreadDetail,
+  devMailThreads,
+  isDevPreviewEnabled,
+} from "../lib/dev-preview";
 import { sanitizeMailHtml } from "../lib/mailHtml";
 import { cn } from "../lib/utils";
 
@@ -255,6 +262,26 @@ export function MailPage() {
     if (unreadOnly) queryParams.unread = true;
     if (query.trim()) queryParams.q = query.trim();
 
+    if (isDevPreviewEnabled()) {
+      const nextFolders = devMailFolders();
+      const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
+      const nextThreads = devMailThreads().filter((thread) => {
+        if (folderId && folderId !== nextFolders[0]?.id) return false;
+        if (unreadOnly && thread.unread_count === 0) return false;
+        if (!normalizedQuery) return true;
+        return thread.subject.toLocaleLowerCase("ko-KR").includes(normalizedQuery);
+      });
+      setFolders(nextFolders);
+      setThreads(nextThreads);
+      setSelectedThreadId((current) =>
+        current && nextThreads.some((thread) => thread.id === current)
+          ? current
+          : nextThreads[0]?.id,
+      );
+      setLoadState(nextThreads.length > 0 ? "ready" : "empty");
+      return;
+    }
+
     try {
       const accountRequest = canCheckMailboxReadiness
         ? api.GET("/api/v1/mail/account").catch(() => undefined)
@@ -309,6 +336,11 @@ export function MailPage() {
       setInquiryLoadState("idle");
       return;
     }
+    if (isDevPreviewEnabled()) {
+      setInquiries(devCustomerInquiryPage().items);
+      setInquiryLoadState("ready");
+      return;
+    }
     setInquiryLoadState("loading");
     const { data, response } = await api
       .GET("/api/v1/sales/inquiries", {
@@ -345,6 +377,13 @@ export function MailPage() {
         return;
       }
       if (!ignore) setDetailLoading(true);
+      if (isDevPreviewEnabled()) {
+        if (!ignore) {
+          setDetail(devMailThreadDetail(selectedThreadId));
+          setDetailLoading(false);
+        }
+        return;
+      }
       try {
         const res = await api.GET("/api/v1/mail/threads/{id}", {
           params: { path: { id: selectedThreadId } },
@@ -423,6 +462,12 @@ export function MailPage() {
       return;
     }
     setSending(true);
+    if (isDevPreviewEnabled()) {
+      resetCompose();
+      setNotice(mode === "reply" ? c.replySent : mode === "forward" ? c.forwardSent : c.sent);
+      setSending(false);
+      return;
+    }
     try {
       const attachments = composeAttachments.length > 0
         ? await Promise.all(composeAttachments.map(fileToMailAttachment))
@@ -466,6 +511,27 @@ export function MailPage() {
     async (threadId: string, seen: boolean) => {
       setNotice(undefined);
       setError(undefined);
+      if (isDevPreviewEnabled()) {
+        setThreads((prev) =>
+          prev.map((thread) =>
+            thread.id === threadId
+              ? { ...thread, unread_count: seen ? 0 : Math.max(1, thread.unread_count) }
+              : thread,
+          ),
+        );
+        setDetail((prev) =>
+          prev?.id === threadId
+            ? {
+                ...prev,
+                messages: prev.messages.map((message) =>
+                  message.direction === "IN" ? { ...message, seen } : message,
+                ),
+              }
+            : prev,
+        );
+        setNotice(seen ? c.markedRead : c.markedUnread);
+        return;
+      }
       const { error: apiError } = await api
         .PATCH("/api/v1/mail/threads/{id}/read-state", {
           params: { path: { id: threadId } },
@@ -525,6 +591,16 @@ export function MailPage() {
     async (inquiry: CustomerInquiryView) => {
       setError(undefined);
       setInquiryBusyId(inquiry.id);
+      if (isDevPreviewEnabled()) {
+        setInquiries((current) =>
+          current.map((item) =>
+            item.id === inquiry.id ? { ...item, status: "CONTACTED" } : item,
+          ),
+        );
+        setNotice(ko.mailbox.inquiryMarkedContacted);
+        setInquiryBusyId(undefined);
+        return;
+      }
       try {
         const { error: apiError } = await api.PATCH("/api/v1/sales/inquiries/{id}", {
           params: { path: { id: inquiry.id } },
@@ -545,6 +621,10 @@ export function MailPage() {
   const openAttachment = useCallback(
     async (attachment: MailAttachmentView) => {
       setError(undefined);
+      if (isDevPreviewEnabled()) {
+        setNotice(ko.devPreview.attachmentPreviewNotice(attachment.filename));
+        return;
+      }
       const { data } = await api
         .GET("/api/v1/mail/attachments/{id}/download", {
           params: { path: { id: attachment.id } },
