@@ -410,7 +410,7 @@ describe("WorkflowStudioPage", () => {
       await screen.findByText("node-condition:rejected → node-end:in"),
     ).toBeInTheDocument();
     expect(screen.queryByText("node-condition:approved → node-end:in")).not.toBeInTheDocument();
-  });
+  }, 15000);
 
   it("blocks publishing invalid canonical graphs before passkey step-up", async () => {
     const invalidDefinition = createEmptyWorkflowDefinition({

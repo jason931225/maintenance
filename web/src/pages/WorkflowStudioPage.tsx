@@ -171,7 +171,9 @@ export function WorkflowStudioPage() {
     useState<WorkflowDefinitionV1>(createDefaultCanvasDefinition);
   const [selectedCanvasNodeId, setSelectedCanvasNodeId] = useState<string>();
   const [connectionSourceId, setConnectionSourceId] = useState<string>("");
+  const [connectionSourcePort, setConnectionSourcePort] = useState<string>("");
   const [connectionTargetId, setConnectionTargetId] = useState<string>("");
+  const [connectionTargetPort, setConnectionTargetPort] = useState<string>("");
   const [connectionError, setConnectionError] = useState<string>();
   const [creatingDraft, setCreatingDraft] = useState(false);
 
@@ -228,9 +230,13 @@ export function WorkflowStudioPage() {
         notificationRulesJson: JSON.stringify(definition.notification_rules, null, 2),
         actionAllowlistJson: JSON.stringify(definition.action_allowlist, null, 2),
       }));
-      setSelectedCanvasNodeId(loaded.graph.nodes.at(0)?.id);
-      setConnectionSourceId(loaded.graph.nodes.at(0)?.id ?? "");
-      setConnectionTargetId(loaded.graph.nodes.at(1)?.id ?? "");
+      const sourceNode = loaded.graph.nodes.at(0);
+      const targetNode = loaded.graph.nodes.at(1);
+      setSelectedCanvasNodeId(sourceNode?.id);
+      setConnectionSourceId(sourceNode?.id ?? "");
+      setConnectionSourcePort(sourceNode?.output_ports.at(0)?.key ?? "");
+      setConnectionTargetId(targetNode?.id ?? "");
+      setConnectionTargetPort(targetNode?.input_ports.at(0)?.key ?? "");
     },
     [],
   );
@@ -471,7 +477,9 @@ export function WorkflowStudioPage() {
     setCanvasDefinition(nextDefinition);
     setSelectedCanvasNodeId(undefined);
     setConnectionSourceId("");
+    setConnectionSourcePort("");
     setConnectionTargetId("");
+    setConnectionTargetPort("");
     setConnectionError(undefined);
     setDraftForm((current) => ({
       ...current,
@@ -499,8 +507,12 @@ export function WorkflowStudioPage() {
     setDraftForm(createLeaveApprovalDraftForm());
     setCanvasDefinition(nextDefinition);
     setSelectedCanvasNodeId("node-approval");
-    setConnectionSourceId(nextDefinition.graph.nodes[0]?.id ?? "");
-    setConnectionTargetId(nextDefinition.graph.nodes[1]?.id ?? "");
+    const sourceNode = nextDefinition.graph.nodes[0];
+    const targetNode = nextDefinition.graph.nodes[1];
+    setConnectionSourceId(sourceNode.id);
+    setConnectionSourcePort(sourceNode.output_ports.at(0)?.key ?? "");
+    setConnectionTargetId(targetNode.id);
+    setConnectionTargetPort(targetNode.input_ports.at(0)?.key ?? "");
     setConnectionError(undefined);
     showSuccess(ko.workflowStudio.canvas.templateApplied);
   }
@@ -511,7 +523,9 @@ export function WorkflowStudioPage() {
     setCanvasDefinition(blank);
     setSelectedCanvasNodeId(undefined);
     setConnectionSourceId("");
+    setConnectionSourcePort("");
     setConnectionTargetId("");
+    setConnectionTargetPort("");
     setConnectionError(undefined);
   }
 
@@ -521,8 +535,22 @@ export function WorkflowStudioPage() {
     setCanvasDefinition(nextDefinition);
     setSelectedCanvasNodeId(addedNode?.id);
     setConnectionSourceId((current) => current || addedNode?.id || "");
+    setConnectionSourcePort((current) => current || addedNode?.output_ports.at(0)?.key || "");
     setConnectionTargetId((current) => current || addedNode?.id || "");
+    setConnectionTargetPort((current) => current || addedNode?.input_ports.at(0)?.key || "");
     setConnectionError(undefined);
+  }
+
+  function changeConnectionSource(nodeId: string) {
+    const source = canvasDefinition.graph.nodes.find((node) => node.id === nodeId);
+    setConnectionSourceId(nodeId);
+    setConnectionSourcePort(source?.output_ports.at(0)?.key ?? "");
+  }
+
+  function changeConnectionTarget(nodeId: string) {
+    const target = canvasDefinition.graph.nodes.find((node) => node.id === nodeId);
+    setConnectionTargetId(nodeId);
+    setConnectionTargetPort(target?.input_ports.at(0)?.key ?? "");
   }
 
   function addCanvasConnection() {
@@ -534,9 +562,9 @@ export function WorkflowStudioPage() {
     );
     const result = connectWorkflowNodes(canvasDefinition, {
       fromNodeId: connectionSourceId,
-      fromPort: source?.output_ports[0]?.key ?? "",
+      fromPort: connectionSourcePort || source?.output_ports[0]?.key || "",
       toNodeId: connectionTargetId,
-      toPort: target?.input_ports[0]?.key ?? "",
+      toPort: connectionTargetPort || target?.input_ports[0]?.key || "",
     });
     setCanvasDefinition(result.definition);
     setConnectionError(result.error);
@@ -642,7 +670,9 @@ export function WorkflowStudioPage() {
               findings={canvasFindings}
               selectedNodeId={selectedCanvasNodeId}
               connectionSourceId={connectionSourceId}
+              connectionSourcePort={connectionSourcePort}
               connectionTargetId={connectionTargetId}
+              connectionTargetPort={connectionTargetPort}
               connectionError={connectionError}
               creatingDraft={creatingDraft}
               hasBlockers={canvasHasBlockers}
@@ -653,8 +683,10 @@ export function WorkflowStudioPage() {
               onStartBlank={startBlankCanvas}
               onAddNode={addCanvasNode}
               onSelectNode={setSelectedCanvasNodeId}
-              onConnectionSourceChange={setConnectionSourceId}
-              onConnectionTargetChange={setConnectionTargetId}
+              onConnectionSourceChange={changeConnectionSource}
+              onConnectionSourcePortChange={setConnectionSourcePort}
+              onConnectionTargetChange={changeConnectionTarget}
+              onConnectionTargetPortChange={setConnectionTargetPort}
               onAddConnection={addCanvasConnection}
               onSimulate={simulateCanvasDraft}
               onCreate={() => void createDraft()}
@@ -880,7 +912,9 @@ function WorkflowCanvasAuthoringCard({
   findings,
   selectedNodeId,
   connectionSourceId,
+  connectionSourcePort,
   connectionTargetId,
+  connectionTargetPort,
   connectionError,
   creatingDraft,
   hasBlockers,
@@ -892,7 +926,9 @@ function WorkflowCanvasAuthoringCard({
   onAddNode,
   onSelectNode,
   onConnectionSourceChange,
+  onConnectionSourcePortChange,
   onConnectionTargetChange,
+  onConnectionTargetPortChange,
   onAddConnection,
   onSimulate,
   onCreate,
@@ -903,7 +939,9 @@ function WorkflowCanvasAuthoringCard({
   findings: WorkflowValidationFinding[];
   selectedNodeId: string | undefined;
   connectionSourceId: string;
+  connectionSourcePort: string;
   connectionTargetId: string;
+  connectionTargetPort: string;
   connectionError: string | undefined;
   creatingDraft: boolean;
   hasBlockers: boolean;
@@ -915,7 +953,9 @@ function WorkflowCanvasAuthoringCard({
   onAddNode: (type: WorkflowNodeType) => void;
   onSelectNode: (nodeId: string) => void;
   onConnectionSourceChange: (nodeId: string) => void;
+  onConnectionSourcePortChange: (port: string) => void;
   onConnectionTargetChange: (nodeId: string) => void;
+  onConnectionTargetPortChange: (port: string) => void;
   onAddConnection: () => void;
   onSimulate: () => void;
   onCreate: () => void;
@@ -923,6 +963,12 @@ function WorkflowCanvasAuthoringCard({
   const blockingCount = findings.filter((finding) => finding.severity === "error").length;
   const selectedNode = canvasDefinition.graph.nodes.find(
     (node) => node.id === selectedNodeId,
+  );
+  const connectionSourceNode = canvasDefinition.graph.nodes.find(
+    (node) => node.id === connectionSourceId,
+  );
+  const connectionTargetNode = canvasDefinition.graph.nodes.find(
+    (node) => node.id === connectionTargetId,
   );
   const flow = canonicalToReactFlow(canvasDefinition);
   const setField = <K extends keyof DraftForm>(key: K, value: DraftForm[K]) => {
@@ -1114,7 +1160,7 @@ function WorkflowCanvasAuthoringCard({
             </div>
           )}
 
-          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]">
             <label className="grid gap-1 text-sm font-medium text-ink">
               <span>{ko.workflowStudio.canvas.sourceNode}</span>
               <select
@@ -1133,6 +1179,23 @@ function WorkflowCanvasAuthoringCard({
               </select>
             </label>
             <label className="grid gap-1 text-sm font-medium text-ink">
+              <span>{ko.workflowStudio.canvas.sourcePort}</span>
+              <select
+                value={connectionSourcePort}
+                onChange={(event) => {
+                  onConnectionSourcePortChange(event.currentTarget.value);
+                }}
+                className="rounded-lg border border-line px-3 py-2 font-normal text-ink focus:border-ink focus:outline-none"
+              >
+                <option value="">{ko.workflowStudio.canvas.selectPort}</option>
+                {connectionSourceNode?.output_ports.map((port) => (
+                  <option key={port.key} value={port.key}>
+                    {port.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-ink">
               <span>{ko.workflowStudio.canvas.targetNode}</span>
               <select
                 value={connectionTargetId}
@@ -1145,6 +1208,23 @@ function WorkflowCanvasAuthoringCard({
                 {canvasDefinition.graph.nodes.map((node) => (
                   <option key={node.id} value={node.id}>
                     {node.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-ink">
+              <span>{ko.workflowStudio.canvas.targetPort}</span>
+              <select
+                value={connectionTargetPort}
+                onChange={(event) => {
+                  onConnectionTargetPortChange(event.currentTarget.value);
+                }}
+                className="rounded-lg border border-line px-3 py-2 font-normal text-ink focus:border-ink focus:outline-none"
+              >
+                <option value="">{ko.workflowStudio.canvas.selectPort}</option>
+                {connectionTargetNode?.input_ports.map((port) => (
+                  <option key={port.key} value={port.key}>
+                    {port.label}
                   </option>
                 ))}
               </select>
@@ -1269,7 +1349,7 @@ function WorkflowValidationPanel({
       ) : (
         <ol className="mt-3 grid gap-2">
           {findings.map((finding) => (
-            <li key={`${finding.code}-${finding.nodeId ?? finding.edgeId ?? finding.message}`} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <li key={`${finding.code}-${finding.nodeId ?? ""}-${finding.edgeId ?? ""}-${finding.message}`} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               <div className="font-semibold">{finding.code}</div>
               <div>{finding.message}</div>
             </li>
