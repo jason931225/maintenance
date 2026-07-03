@@ -65,7 +65,7 @@ const PORTS = {
   mailpitSmtp: Number(process.env.MNT_MAILPIT_SMTP_PORT ?? 1025),
   mailpitUi: Number(process.env.MNT_MAILPIT_UI_PORT ?? 8025),
   backend: Number(process.env.MNT_DEV_HTTP_PORT ?? 8090),
-  vite: Number(process.env.MNT_DEV_VITE_PORT ?? 5173),
+  vite: Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173),
 };
 
 const POSTGRES_DB = process.env.MNT_POSTGRES_DB ?? "mnt_dev";
@@ -147,7 +147,7 @@ async function assertPortFree(port, label) {
 function stopBackendProcess(proc) {
   if (!proc?.pid) return;
   try {
-    if (proc.group || proc.mode === "cargo") {
+    if (proc.group || proc.mode === "cargo" || proc.mode === "npm") {
       if (process.platform === "win32") {
         spawnSync("taskkill", ["/T", "/F", "/PID", String(proc.pid)]);
       } else {
@@ -696,6 +696,7 @@ async function cmdBootstrap() {
     backend.once("close", (code, signal) => handleEnd("closed", code, signal));
   });
   backend.unref();
+  writePidState({ startedBy: "bootstrap", backend: backendState, web: null });
 
   try {
     await Promise.race([

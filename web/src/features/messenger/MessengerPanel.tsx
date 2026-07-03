@@ -83,6 +83,7 @@ export function MessengerPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [attachment, setAttachment] = useState<File>();
   const [sendError, setSendError] = useState<string>();
+  const [searchError, setSearchError] = useState<string>();
   const [isSending, setIsSending] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -173,6 +174,17 @@ export function MessengerPanel({
     [api, markRead],
   );
 
+  const handleLoadMessagesError = useCallback(() => {
+    setLoadState("error");
+  }, []);
+
+  const loadMessagesSafely = useCallback(
+    (threadId: string, beforeMessageId?: string | null) => {
+      void loadMessages(threadId, beforeMessageId).catch(handleLoadMessagesError);
+    },
+    [handleLoadMessagesError, loadMessages],
+  );
+
   const loadThreads = useCallback(async () => {
     if (!accessToken) {
       return;
@@ -228,9 +240,14 @@ export function MessengerPanel({
             currentUserId,
           });
           if (event.message.thread_id === selectedThreadId) {
-            void markRead(event.message.thread_id, event.message.id).then(() => {
-              dispatch({ type: "threadRead", threadId: event.message.thread_id });
-            });
+            void markRead(event.message.thread_id, event.message.id)
+              .then(() => {
+                dispatch({ type: "threadRead", threadId: event.message.thread_id });
+              })
+              .catch(() => {
+                // Read receipts are best-effort; never let a realtime ack failure
+                // become an unhandled promise rejection.
+              });
           }
         },
         onDisconnect: () => {
@@ -257,19 +274,27 @@ export function MessengerPanel({
     const query = searchQuery.trim();
     if (!query) {
       setHasSearched(false);
+      setSearchError(undefined);
       dispatch({ type: "searchResultsLoaded", results: [] });
       return;
     }
     setIsSearching(true);
+    setSearchError(undefined);
     try {
       const response = await api.GET("/api/messenger/search", {
         params: { query: { q: query, limit: 20 } },
       });
+      if (!response.data) {
+        throw new Error("messenger search response missing data");
+      }
       dispatch({
         type: "searchResultsLoaded",
-        results: response.data?.items ?? [],
+        results: response.data.items,
       });
       setHasSearched(true);
+    } catch {
+      setHasSearched(false);
+      setSearchError(ko.messenger.searchFailed);
     } finally {
       setIsSearching(false);
     }
@@ -366,10 +391,16 @@ export function MessengerPanel({
         throw new Error("send messenger message response missing data");
       }
       dispatch({ type: "messageSent", message: response.data });
-      await markRead(selectedThread.id, response.data.id);
-      dispatch({ type: "threadRead", threadId: selectedThread.id });
       setComposer("");
       setAttachment(undefined);
+      void markRead(selectedThread.id, response.data.id)
+        .then(() => {
+          dispatch({ type: "threadRead", threadId: selectedThread.id });
+        })
+        .catch(() => {
+          // The message is already sent; read tracking must not surface as a
+          // send failure or block composer cleanup.
+        });
     } catch {
       setSendError(ko.messenger.sendFailed);
     } finally {
@@ -475,6 +506,11 @@ export function MessengerPanel({
               {ko.messenger.searching}
             </p>
           ) : null}
+          {searchError ? (
+            <p role="alert" className="text-sm font-semibold text-red-700">
+              {searchError}
+            </p>
+          ) : null}
           {!isSearching && hasSearched ? (
             <div className="grid gap-2">
               <h3 className="text-sm font-semibold text-steel">
@@ -510,7 +546,7 @@ export function MessengerPanel({
                                   type: "threadSelected",
                                   threadId: sourceThread.id,
                                 });
-                                void loadMessages(sourceThread.id);
+                                loadMessagesSafely(sourceThread.id);
                               }}
                             >
                               {ko.messenger.openThread}
@@ -549,7 +585,7 @@ export function MessengerPanel({
               aria-pressed={state.selectedThreadId === thread.id}
               onClick={() => {
                 dispatch({ type: "threadSelected", threadId: thread.id });
-                void loadMessages(thread.id);
+                loadMessagesSafely(thread.id);
               }}
             >
               <span className="flex items-center justify-between gap-2">
@@ -593,7 +629,7 @@ export function MessengerPanel({
                       type="button"
                       variant="secondary"
                       onClick={() => {
-                        void loadMessages(
+                        loadMessagesSafely(
                           selectedThread.id,
                           state.nextCursorByThread[selectedThread.id],
                         );

@@ -455,6 +455,141 @@ describe("MessengerPanel", () => {
     ).toBeVisible();
   });
 
+  it("surfaces search failures without publishing stale results", async () => {
+    const user = userEvent.setup();
+
+    server.use(
+      http.get("*/api/messenger/search", () =>
+        HttpResponse.json(
+          { error: { code: "unavailable", message: "search unavailable" } },
+          { status: 503 },
+        ),
+      ),
+    );
+
+    render(
+      <MessengerPanel
+        api={createConsoleApiClient("test-access-token")}
+        accessToken="test-access-token"
+        apiBaseUrl="http://localhost:8080"
+      />,
+    );
+
+    expect(await screen.findByText("현장 도착")).toBeVisible();
+
+    await user.type(screen.getByLabelText(ko.messenger.search), "검색");
+    await user.click(
+      screen.getByRole("button", { name: ko.messenger.searchButton }),
+    );
+
+    expect(await screen.findByText(ko.messenger.searchFailed)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: ko.messenger.searchResults }))
+      .not.toBeInTheDocument();
+  });
+
+  it("surfaces message-page failures from direct thread actions", async () => {
+    const user = userEvent.setup();
+    const teamThreadId = "aaaaaaaa-1111-4aaa-8aaa-111111111111";
+    const teamThread: MessengerThreadSummary = {
+      id: teamThreadId,
+      kind: "team",
+      branch_id: branchId,
+      title: "정비팀 공지",
+      work_order_id: null,
+      last_message_id: "bbbbbbbb-1111-4bbb-8bbb-111111111111",
+      last_message_at: "2026-06-12T08:30:00Z",
+      member_count: 5,
+      unread_count: 1,
+      created_at: "2026-06-12T08:00:00Z",
+      updated_at: "2026-06-12T08:30:00Z",
+    };
+
+    server.use(
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({ items: [thread, teamThread] }),
+      ),
+      http.get("*/api/messenger/threads/:threadId/messages", ({ params }) => {
+        if (String(params.threadId) === teamThreadId) {
+          return HttpResponse.json(
+            { error: { code: "unavailable", message: "messages unavailable" } },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json({
+          items: [secondMessage, firstMessage],
+          next_cursor: firstMessageId,
+        });
+      }),
+    );
+
+    render(
+      <MessengerPanel
+        api={createConsoleApiClient("test-access-token")}
+        accessToken="test-access-token"
+        apiBaseUrl="http://localhost:8080"
+      />,
+    );
+
+    expect(await screen.findByText("현장 도착")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /정비팀 공지/ }));
+
+    expect(await screen.findByText(ko.messenger.readFailed)).toBeVisible();
+  });
+
+  it("keeps a successful send even when the follow-up read receipt fails", async () => {
+    const user = userEvent.setup();
+
+    server.use(
+      http.put(
+        "*/api/messenger/threads/:threadId/read-receipt",
+        async ({ request }) => {
+          const body = await request.json();
+          readReceiptBodies.push(body);
+          if (
+            (body as { last_read_message_id?: string }).last_read_message_id ===
+            sentMessageId
+          ) {
+            return HttpResponse.json(
+              { error: { code: "unavailable", message: "receipt unavailable" } },
+              { status: 503 },
+            );
+          }
+          return HttpResponse.json({
+            thread_id: threadId,
+            user_id: senderId,
+            last_read_message_id: secondMessageId,
+            read_at: "2026-06-12T09:12:30Z",
+            updated_at: "2026-06-12T09:12:30Z",
+          });
+        },
+      ),
+    );
+
+    render(
+      <MessengerPanel
+        api={createConsoleApiClient("test-access-token")}
+        accessToken="test-access-token"
+        apiBaseUrl="http://localhost:8080"
+      />,
+    );
+
+    expect(await screen.findByText("현장 도착")).toBeVisible();
+
+    const composer = screen.getByLabelText(ko.messenger.composer);
+    await user.type(composer, "읽음 실패 후에도 전송 유지");
+    await user.click(screen.getByRole("button", { name: ko.messenger.send }));
+
+    await waitFor(() => {
+      expect(sentBodies).toContainEqual({
+        body: "읽음 실패 후에도 전송 유지",
+        attachment_evidence_ids: [],
+      });
+      expect(composer).toHaveValue("");
+    });
+    expect(screen.queryByText(ko.messenger.sendFailed)).not.toBeInTheDocument();
+  });
+
   it("surfaces participant directory failures while creating a conversation", async () => {
     const user = userEvent.setup();
 

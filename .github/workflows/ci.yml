@@ -161,7 +161,10 @@ jobs:
         # `dev-auth` is NOT in default features (proven above) — build/test it
         # explicitly so its code path still compiles and its own tests
         # (including the route-present-under-the-feature session tests) run.
-        run: SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth
+        run: |
+          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth
+          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature
+          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race
 
   dev-up-smoke:
     name: dev-up.mjs smoke — compose deps + migrate + /readyz + dev-auth e2e

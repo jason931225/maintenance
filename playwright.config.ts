@@ -26,7 +26,7 @@ import { defineConfig, devices } from "@playwright/test";
  * skips the spec. Unset (the default everywhere else, including the existing
  * "Browser E2E" CI job), this file behaves exactly as before.
  */
-const PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
+const PORT = Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 const DEV_AUTH_SPEC = /auth-09-dev-role-switcher\.spec\.ts$/;
 const DEV_AUTH_E2E = process.env.MNT_DEV_AUTH_E2E === "1";
