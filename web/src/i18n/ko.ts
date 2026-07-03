@@ -946,6 +946,7 @@ export const ko = {
     duplicateReplay: "이미 저장된 근태 기록을 다시 확인했습니다.",
     linked: "연결됨",
     linkPending: "연결 대기",
+    noNote: "비고 없음",
     actions: {
       CLOCK_IN: "출근 기록",
       OUT_FOR_WORK: "외출 기록",
@@ -970,6 +971,7 @@ export const ko = {
       kind: "구분",
       occurredAt: "기록 시각",
       stateAfter: "이후 상태",
+      note: "비고",
       payroll: "급여자료",
     },
   },

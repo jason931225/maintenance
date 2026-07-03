@@ -37,6 +37,7 @@ interface EmployeeAttendanceRecord {
   kind: AttendanceKind;
   occurred_at: string;
   state_after: AttendanceState;
+  note?: string | null;
   payroll_material_ref_id: string;
   duplicate: boolean;
 }
@@ -261,6 +262,9 @@ export function AttendancePage() {
                       {t.columns.stateAfter}
                     </th>
                     <th scope="col" className="px-3 py-2 font-medium">
+                      {t.columns.note}
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-medium">
                       {t.columns.payroll}
                     </th>
                   </tr>
@@ -276,6 +280,9 @@ export function AttendancePage() {
                       </td>
                       <td className="px-3 py-2 text-steel">
                         {stateLabel(record.state_after)}
+                      </td>
+                      <td className="px-3 py-2 text-steel">
+                        {noteLabel(record.note)}
                       </td>
                       <td className="px-3 py-2 text-steel">
                         {t.linked}
@@ -300,6 +307,10 @@ function kindLabel(kind: string): string {
 function stateLabel(state: string): string {
   const labels = ko.attendance.states as Record<string, string | undefined>;
   return labels[state] ?? state;
+}
+
+function noteLabel(note: string | null | undefined): string {
+  return note?.trim() || ko.attendance.noNote;
 }
 
 function errorStatus(error: unknown): number | undefined {
