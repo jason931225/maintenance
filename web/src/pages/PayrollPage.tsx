@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Download } from "lucide-react";
 
 import type { ConsoleApiClient } from "../api/client";
 import type {
@@ -26,6 +27,23 @@ import {
 import { formatListCount } from "../lib/utils";
 
 type LoadState = "loading" | "idle" | "error";
+
+interface PayrollLedgerRow {
+  id: string;
+  company: string;
+  employee: string;
+  employeeNumber: string;
+  worksite: string;
+  attendanceEvents: number;
+  workDays: number;
+  regularHours: number;
+  overtimeHours: number;
+  leaveUsed: string;
+  leaveRemaining: string;
+  grossSource: string;
+  netSource: string;
+  status: string;
+}
 
 type PayrollApi = ConsoleApiClient & {
   GET(path: "/api/v1/hr/readiness-summary"): Promise<{
@@ -106,6 +124,11 @@ export function PayrollPage() {
     () => employees.filter((employee) => employee.status === "ACTIVE").length,
     [employees],
   );
+  const ledgerRows = useMemo(
+    () =>
+      readiness ? buildPayrollLedgerRows(employees, attendance, readiness) : [],
+    [attendance, employees, readiness],
+  );
 
   return (
     <>
@@ -140,6 +163,7 @@ export function PayrollPage() {
               activeEmployees={activeEmployees}
               employeeTotal={employeeTotal}
             />
+            <PayrollLedgerPanel rows={ledgerRows} readiness={readiness} />
             <PayrollFlowPanel
               readiness={readiness}
               attendance={attendance}
@@ -156,6 +180,94 @@ export function PayrollPage() {
         ) : null}
       </div>
     </>
+  );
+}
+
+function PayrollLedgerPanel({
+  rows,
+  readiness,
+}: {
+  rows: PayrollLedgerRow[];
+  readiness: HrReadinessSummary;
+}) {
+  return (
+    <Card className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">
+            {copy.sections.ledger}
+          </h2>
+          <p className="text-sm text-steel">{copy.sections.ledgerDescription}</p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            downloadPayrollLedger(rows, readiness);
+          }}
+          disabled={rows.length === 0}
+        >
+          <Download size={16} aria-hidden="true" />
+          {copy.actions.downloadLedger}
+        </Button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-xs font-semibold text-steel">
+              <th className="px-3 py-2">{copy.ledgerColumns.company}</th>
+              <th className="px-3 py-2">{copy.ledgerColumns.employee}</th>
+              <th className="px-3 py-2">{copy.ledgerColumns.worksite}</th>
+              <th className="px-3 py-2 text-right">
+                {copy.ledgerColumns.attendanceEvents}
+              </th>
+              <th className="px-3 py-2 text-right">
+                {copy.ledgerColumns.workDays}
+              </th>
+              <th className="px-3 py-2 text-right">
+                {copy.ledgerColumns.regularHours}
+              </th>
+              <th className="px-3 py-2 text-right">
+                {copy.ledgerColumns.overtimeHours}
+              </th>
+              <th className="px-3 py-2 text-right">
+                {copy.ledgerColumns.leaveUsed}
+              </th>
+              <th className="px-3 py-2 text-right">
+                {copy.ledgerColumns.leaveRemaining}
+              </th>
+              <th className="px-3 py-2">{copy.ledgerColumns.grossSource}</th>
+              <th className="px-3 py-2">{copy.ledgerColumns.netSource}</th>
+              <th className="px-3 py-2">{copy.ledgerColumns.status}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-b border-line last:border-0">
+                <td className="px-3 py-2">{row.company}</td>
+                <td className="px-3 py-2">
+                  <span className="font-medium text-ink">{row.employee}</span>
+                  <span className="ml-2 text-xs text-steel">
+                    {row.employeeNumber}
+                  </span>
+                </td>
+                <td className="px-3 py-2">{row.worksite}</td>
+                <td className="px-3 py-2 text-right">{row.attendanceEvents}</td>
+                <td className="px-3 py-2 text-right">{row.workDays}</td>
+                <td className="px-3 py-2 text-right">{row.regularHours}</td>
+                <td className="px-3 py-2 text-right">{row.overtimeHours}</td>
+                <td className="px-3 py-2 text-right">{row.leaveUsed}</td>
+                <td className="px-3 py-2 text-right">{row.leaveRemaining}</td>
+                <td className="px-3 py-2">{row.grossSource}</td>
+                <td className="px-3 py-2">{row.netSource}</td>
+                <td className="px-3 py-2">{row.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
@@ -448,4 +560,110 @@ function PayrollPlanPanel({
 function display(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "-";
   return String(value);
+}
+
+function buildPayrollLedgerRows(
+  employees: EmployeeDirectoryItem[],
+  attendance: AttendanceSummaryPage | undefined,
+  readiness: HrReadinessSummary,
+): PayrollLedgerRow[] {
+  const attendanceByName = new Map(
+    (attendance?.items ?? []).map((item) => [item.display_name, item]),
+  );
+  return employees.map((employee, index) => {
+    const attendanceItem = attendanceByName.get(employee.name);
+    const attendanceEvents =
+      (attendanceItem?.arrivals ?? 0) + (attendanceItem?.departures ?? 0);
+    const workDays = Math.min(
+      readiness.payroll.attendance_source_rows || 0,
+      Math.floor(attendanceEvents / 2),
+    );
+    const payrollSourceConnected = index < readiness.payroll.payroll_source_rows;
+    const regularHours = workDays * 8;
+    const status =
+      employee.status !== "ACTIVE"
+        ? copy.ledgerStatus.exited
+        : payrollSourceConnected && attendanceEvents > 0
+          ? copy.ledgerStatus.review
+          : copy.ledgerStatus.sourcePending;
+
+    return {
+      id: employee.id,
+      company: employee.company,
+      employee: employee.name,
+      employeeNumber: employee.employee_number,
+      worksite: employee.worksite_name ?? employee.worksite ?? "-",
+      attendanceEvents,
+      workDays,
+      regularHours,
+      overtimeHours: 0,
+      leaveUsed: employee.leave_used ?? "-",
+      leaveRemaining: employee.leave_remaining ?? "-",
+      grossSource: payrollSourceConnected
+        ? copy.ledgerStatus.connected
+        : copy.ledgerStatus.pending,
+      netSource: payrollSourceConnected
+        ? copy.ledgerStatus.connected
+        : copy.ledgerStatus.pending,
+      status,
+    };
+  });
+}
+
+function downloadPayrollLedger(
+  rows: PayrollLedgerRow[],
+  readiness: HrReadinessSummary,
+): void {
+  const headers = [
+    copy.ledgerColumns.company,
+    copy.ledgerColumns.employee,
+    copy.ledgerColumns.worksite,
+    copy.ledgerColumns.attendanceEvents,
+    copy.ledgerColumns.workDays,
+    copy.ledgerColumns.regularHours,
+    copy.ledgerColumns.overtimeHours,
+    copy.ledgerColumns.leaveUsed,
+    copy.ledgerColumns.leaveRemaining,
+    copy.ledgerColumns.grossSource,
+    copy.ledgerColumns.netSource,
+    copy.ledgerColumns.status,
+  ];
+  const csvRows = rows.map((row) => [
+    row.company,
+    `${row.employee} (${row.employeeNumber})`,
+    row.worksite,
+    row.attendanceEvents,
+    row.workDays,
+    row.regularHours,
+    row.overtimeHours,
+    row.leaveUsed,
+    row.leaveRemaining,
+    row.grossSource,
+    row.netSource,
+    row.status,
+  ]);
+  const csv = [headers, ...csvRows]
+    .map((line) => line.map(csvCell).join(","))
+    .join("\r\n");
+  const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  const period = [
+    readiness.payroll.latest_period_start,
+    readiness.payroll.latest_period_end,
+  ]
+    .filter(Boolean)
+    .join("_");
+  anchor.href = url;
+  anchor.download = `payroll-ledger-${period || "draft"}.csv`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value: string | number): string {
+  const raw = String(value);
+  const safe = /^[=+\-@]/u.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replace(/"/g, '""')}"`;
 }

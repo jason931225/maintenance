@@ -127,6 +127,11 @@ const FinancialPage = lazy(() =>
 const PayrollPage = lazy(() =>
   import("./pages/PayrollPage").then((m) => ({ default: m.PayrollPage })),
 );
+const ApprovalDocumentComposePage = lazy(() =>
+  import("./pages/ApprovalDocumentComposePage").then((m) => ({
+    default: m.ApprovalDocumentComposePage,
+  })),
+);
 const LeaveManagementPage = lazy(() =>
   import("./pages/LeaveManagementPage").then((m) => ({
     default: m.LeaveManagementPage,
@@ -402,6 +407,7 @@ export function AppRouter() {
           </Route>
           <Route element={<RequireNavItemRoute itemKey="approvals" />}>
             <Route path="/approvals" element={<ApprovalsPage />} />
+            <Route path="/approvals/new" element={<ApprovalDocumentComposePage />} />
           </Route>
           <Route element={<RequireNavItemRoute itemKey="inspection" />}>
             <Route path="/inspection" element={<InspectionPage />} />

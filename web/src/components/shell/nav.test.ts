@@ -56,7 +56,6 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment",
     "equipment-manage",
     "catalog",
-    "payroll",
     "financial",
     "org",
     "sites",
@@ -90,7 +89,6 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment",
     "equipment-manage",
     "catalog",
-    "payroll",
     "financial",
     "org",
     "sites",
@@ -120,7 +118,6 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "integrity",
     "equipment",
     "equipment-manage",
-    "payroll",
     "financial",
     "location",
     "employees",
@@ -163,6 +160,8 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "location",
     "profile",
   ],
+  [ROLES.PAYROLL_MANAGER]: ["payroll", "profile"],
+  [ROLES.HQ_PAYROLL_MANAGER]: ["payroll", "profile"],
   // Member (just signed up, no role grant): default-deny. The backend denies
   // every Feature but Login, so the nav shows ONLY Profile — never a destination
   // that would 403.
@@ -402,15 +401,17 @@ describe("nav role gating", () => {
     }
   });
 
-  it("shows payroll readiness to employee-directory readers only", () => {
-    expect(isNavItemVisible("payroll", [ROLES.ADMIN])).toBe(true);
-    expect(isNavItemVisible("payroll", [ROLES.EXECUTIVE])).toBe(true);
-    expect(isNavItemVisible("payroll", [ROLES.SUPER_ADMIN])).toBe(true);
+  it("shows payroll only to payroll roles or a PayrollRead custom grant", () => {
+    expect(isNavItemVisible("payroll", [ROLES.PAYROLL_MANAGER])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.HQ_PAYROLL_MANAGER])).toBe(true);
+    expect(isNavItemVisible("payroll", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("payroll", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("payroll", [ROLES.SUPER_ADMIN])).toBe(false);
     expect(isNavItemVisible("payroll", [ROLES.MECHANIC])).toBe(false);
     expect(isNavItemVisible("payroll", [ROLES.RECEPTIONIST])).toBe(false);
     expect(
       isNavItemVisible("payroll", [ROLES.MEMBER], undefined, [
-        FEATURES.EMPLOYEE_DIRECTORY_READ,
+        FEATURES.PAYROLL_READ,
       ]),
     ).toBe(true);
   });
@@ -473,11 +474,14 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("daily-plan", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
-  it("shows shared pages to every granted (non-MEMBER) role", () => {
+  it("shows shared pages to every operational granted role", () => {
     // The five operational roles all see the shared pages. A bare MEMBER is
     // default-denied every one of them (asserted separately below).
     const grantedRoles = Object.values(ROLES).filter(
-      (role) => role !== ROLES.MEMBER,
+      (role) =>
+        role !== ROLES.MEMBER &&
+        role !== ROLES.PAYROLL_MANAGER &&
+        role !== ROLES.HQ_PAYROLL_MANAGER,
     );
     for (const role of grantedRoles) {
       for (const key of [

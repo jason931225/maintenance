@@ -39,6 +39,8 @@ export const ROLES = {
   SUPER_ADMIN: "SUPER_ADMIN",
   ADMIN: "ADMIN",
   EXECUTIVE: "EXECUTIVE",
+  PAYROLL_MANAGER: "PAYROLL_MANAGER",
+  HQ_PAYROLL_MANAGER: "HQ_PAYROLL_MANAGER",
   MECHANIC: "MECHANIC",
   RECEPTIONIST: "RECEPTIONIST",
   // A just-signed-up user with no role grant yet. The backend default-denies
@@ -52,7 +54,12 @@ export type Role = (typeof ROLES)[keyof typeof ROLES];
 export const GROUP_ROLES = {
   GROUP_ADMIN: "GROUP_ADMIN",
   GROUP_VIEWER: "GROUP_VIEWER",
+  GROUP_HR: "GROUP_HR",
+  GROUP_LABOR: "GROUP_LABOR",
   GROUP_FINANCE: "GROUP_FINANCE",
+  GROUP_MAINTENANCE: "GROUP_MAINTENANCE",
+  GROUP_PAYROLL: "GROUP_PAYROLL",
+  GROUP_APPROVALS: "GROUP_APPROVALS",
 } as const;
 
 export type GroupRole = (typeof GROUP_ROLES)[keyof typeof GROUP_ROLES];
@@ -86,6 +93,8 @@ export const FEATURES = {
   MAIL_ACCOUNT_MANAGE: "mail_account_manage",
   MAIL_USE: "mail_use",
   EMPLOYEE_DIRECTORY_READ: "employee_directory_read",
+  PAYROLL_READ: "payroll_read",
+  PAYROLL_MANAGE: "payroll_manage",
 } as const;
 
 export type FeatureGrant = (typeof FEATURES)[keyof typeof FEATURES];
@@ -177,6 +186,10 @@ const EMPLOYEE_DIRECTORY_ROLES: readonly Role[] = [
   ROLES.EXECUTIVE,
   ROLES.SUPER_ADMIN,
 ];
+const PAYROLL_ROLES: readonly Role[] = [
+  ROLES.PAYROLL_MANAGER,
+  ROLES.HQ_PAYROLL_MANAGER,
+];
 /**
  * Roles that may read/triage integrity findings (backend `IntegrityFindingsRead`
  * / `IntegrityFindingTriage`, matrix row [D, D, D, D, A, A]). EXECUTIVE +
@@ -256,7 +269,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
   ["leave-management", EMPLOYEE_DIRECTORY_ROLES],
   ["insurance-assist", EMPLOYEE_DIRECTORY_ROLES],
-  ["payroll", EMPLOYEE_DIRECTORY_ROLES],
+  ["payroll", PAYROLL_ROLES],
   ["security", ADMIN_ROLES],
   // Legacy external-account configuration is intentionally hidden. Corporate
   // mailbox hosting is platform-operated; admins manage domains/mailboxes, not
@@ -302,7 +315,7 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["employees", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["leave-management", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["insurance-assist", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
-  ["payroll", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
+  ["payroll", [FEATURES.PAYROLL_READ]],
   ["policy", [FEATURES.ROLE_MANAGE]],
   ["workflows", [FEATURES.ROLE_MANAGE]],
   ["equipment", [FEATURES.WORK_ORDER_READ_ALL]],
@@ -489,17 +502,21 @@ export const NAV_GROUPS = [
     ],
   },
   {
-    key: "finance",
-    label: "nav.groups.finance",
+    key: "payroll",
+    label: "nav.groups.payroll",
     items: [
-      // Payroll readiness is high-sensitivity: expose only the audited HR read
-      // path and legal-blocked planning state for now, not payable payroll issuance.
       {
         key: "payroll",
         href: "/payroll",
         labelKey: "nav.payroll",
         Icon: Calculator,
       },
+    ],
+  },
+  {
+    key: "finance",
+    label: "nav.groups.finance",
+    items: [
       {
         key: "financial",
         href: "/financial",

@@ -3,7 +3,7 @@ export const approvalDocumentDeskKo = {
   description:
     "결재할 문서, 승인 완료 문서, 연차·근태·급여 반영 상태를 같은 결재 화면에서 요약합니다.",
   badge: "결재선·데이터 연동 확인",
-  openLinkedScreen: "연결 화면 열기",
+  openLinkedScreen: "작성하기",
   overview: {
     pendingDocuments: "결재할 문서",
     completedMeta: (count: string) => `결재완료 ${count}`,

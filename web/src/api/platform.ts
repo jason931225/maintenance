@@ -59,7 +59,12 @@ export interface UpdatePlatformGroupRequest {
 export type PlatformGroupRole =
   | "GROUP_ADMIN"
   | "GROUP_VIEWER"
-  | "GROUP_FINANCE";
+  | "GROUP_HR"
+  | "GROUP_LABOR"
+  | "GROUP_FINANCE"
+  | "GROUP_MAINTENANCE"
+  | "GROUP_PAYROLL"
+  | "GROUP_APPROVALS";
 
 export type PlatformAccountStatus = "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
 
@@ -84,6 +89,7 @@ export interface CreatePlatformGroupAccountRequest {
   phone?: string;
   tenant_roles?: string[];
   group_role?: PlatformGroupRole;
+  scope_org_ids?: string[];
 }
 
 export interface CreatePlatformGroupAccountResponse {
@@ -207,6 +213,8 @@ export type ViewAsRole =
   | "SUPER_ADMIN"
   | "ADMIN"
   | "EXECUTIVE"
+  | "PAYROLL_MANAGER"
+  | "HQ_PAYROLL_MANAGER"
   | "MECHANIC"
   | "RECEPTIONIST"
   | "MEMBER";

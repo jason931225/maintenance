@@ -40,15 +40,23 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 const GROUP_ROLE_OPTIONS: PlatformGroupRole[] = [
   "GROUP_ADMIN",
   "GROUP_VIEWER",
+  "GROUP_HR",
+  "GROUP_LABOR",
   "GROUP_FINANCE",
+  "GROUP_MAINTENANCE",
+  "GROUP_PAYROLL",
+  "GROUP_APPROVALS",
 ];
 const TENANT_ROLE_OPTIONS = [
   "MEMBER",
   "ADMIN",
   "EXECUTIVE",
+  "PAYROLL_MANAGER",
+  "HQ_PAYROLL_MANAGER",
   "SUPER_ADMIN",
 ] as const;
 type TenantRoleOption = (typeof TENANT_ROLE_OPTIONS)[number];
+type GroupScopeMode = "ALL" | "SELECTED";
 
 type ReadState = "idle" | "loading" | "error";
 
@@ -198,6 +206,7 @@ export function PlatformGroupsPage() {
       phone?: string;
       tenantRole: string;
       groupRole: PlatformGroupRole;
+      scopeOrgIds?: string[];
     },
   ): Promise<CreatePlatformGroupAccountResponse | undefined> {
     setError(undefined);
@@ -218,6 +227,7 @@ export function PlatformGroupsPage() {
         phone: body.phone?.trim() || undefined,
         tenant_roles: [body.tenantRole],
         group_role: body.groupRole,
+        scope_org_ids: body.scopeOrgIds,
       });
       await load();
       return created;
@@ -425,6 +435,7 @@ function GroupCard({
     phone?: string;
     tenantRole: string;
     groupRole: PlatformGroupRole;
+    scopeOrgIds?: string[];
   }) => Promise<CreatePlatformGroupAccountResponse | undefined>;
   onRevoke: (account: PlatformGroupAccount, role: PlatformGroupRole) => void;
 }) {
@@ -437,9 +448,12 @@ function GroupCard({
   const [accountContact, setAccountContact] = useState("");
   const [tenantRole, setTenantRole] = useState<TenantRoleOption>("MEMBER");
   const [groupRole, setGroupRole] = useState<PlatformGroupRole>("GROUP_ADMIN");
+  const [scopeMode, setScopeMode] = useState<GroupScopeMode>("ALL");
+  const [scopeOrgIds, setScopeOrgIds] = useState<string[]>([]);
   const [issuedOtp, setIssuedOtp] = useState<
     CreatePlatformGroupAccountResponse | undefined
   >(undefined);
+  const scopeSelectionRequired = scopeMode === "SELECTED" && scopeOrgIds.length === 0;
 
   return (
     <Card className="grid gap-4 p-5">
@@ -620,7 +634,7 @@ function GroupCard({
           </label>
           <Button
             type="button"
-            disabled={pending || members.length === 0}
+            disabled={pending || members.length === 0 || scopeSelectionRequired}
             onClick={() => {
               void onCreateAccount({
                 orgId: accountOrgId,
@@ -628,11 +642,14 @@ function GroupCard({
                 phone: accountContact,
                 tenantRole,
                 groupRole,
+                scopeOrgIds: scopeMode === "SELECTED" ? scopeOrgIds : undefined,
               }).then((created) => {
                 if (!created) return;
                 setIssuedOtp(created);
                 setAccountName("");
                 setAccountContact("");
+                setScopeMode("ALL");
+                setScopeOrgIds([]);
               });
             }}
           >
@@ -640,6 +657,59 @@ function GroupCard({
               ? ko.platform.groups.accountForm.submitting
               : ko.platform.groups.accountForm.submit}
           </Button>
+        </div>
+
+        <div className="grid gap-3 rounded-md border border-line bg-muted-panel p-3">
+          <div className="grid gap-3 md:grid-cols-[minmax(180px,260px)_1fr]">
+            <label className="grid gap-2 text-sm font-medium text-steel">
+              {ko.platform.groups.accountForm.groupScope}
+              <Select
+                value={scopeMode}
+                onChange={(event) => {
+                  const next = event.currentTarget.value as GroupScopeMode;
+                  setScopeMode(next);
+                  if (next === "ALL") setScopeOrgIds([]);
+                }}
+              >
+                <option value="ALL">
+                  {ko.platform.groups.accountForm.groupScopeAll}
+                </option>
+                <option value="SELECTED">
+                  {ko.platform.groups.accountForm.groupScopeSelected}
+                </option>
+              </Select>
+            </label>
+            <div className="grid gap-2">
+              <p className="text-sm font-medium text-steel">
+                {ko.platform.groups.accountForm.managedOrgs}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {members.map((member) => {
+                  const checked = scopeOrgIds.includes(member.id);
+                  return (
+                    <label
+                      key={member.id}
+                      className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={scopeMode === "ALL" || checked}
+                        disabled={scopeMode === "ALL"}
+                        onChange={(event) => {
+                          setScopeOrgIds((current) =>
+                            event.currentTarget.checked
+                              ? [...new Set([...current, member.id])]
+                              : current.filter((id) => id !== member.id),
+                          );
+                        }}
+                      />
+                      {member.name}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
 
         {issuedOtp ? (
