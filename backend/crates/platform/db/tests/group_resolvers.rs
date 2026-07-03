@@ -111,6 +111,50 @@ async fn group_member_resolver_returns_only_authorized_group_members(pool: PgPoo
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn group_member_resolver_honors_per_grant_org_scope(pool: PgPool) {
+    seed_group(&pool).await;
+
+    let grant_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT platform_replace_group_role_org_scopes($1, $2, 'GROUP_ADMIN', $3)",
+    )
+    .bind(GROUP)
+    .bind(GROUP_ADMIN)
+    .bind(vec![ORG_B])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(grant_id.is_some());
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(SET_RUNTIME_ROLE)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let org_ids: Vec<Uuid> = sqlx::query_scalar("SELECT org_id FROM group_member_org_ids($1, $2)")
+        .bind(GROUP)
+        .bind(GROUP_ADMIN)
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        org_ids,
+        vec![ORG_B],
+        "a scoped group grant must expose only selected subsidiaries"
+    );
+
+    let admin_org_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT org_id FROM group_member_org_ids_for_roles($1, $2, ARRAY['GROUP_ADMIN']::TEXT[])",
+    )
+    .bind(GROUP)
+    .bind(GROUP_ADMIN)
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(admin_org_ids, vec![ORG_B]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn runtime_role_can_resolve_own_grants_but_not_read_raw_group_auth_tables(pool: PgPool) {
     seed_group(&pool).await;
 
@@ -159,5 +203,23 @@ async fn runtime_role_can_resolve_own_grants_but_not_read_raw_group_auth_tables(
     assert!(
         grants_err.contains("permission denied"),
         "raw group_role_grants read as mnt_rt must be denied, got: {grants_err}"
+    );
+
+    let _ = tx.rollback().await;
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(SET_RUNTIME_ROLE)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let scopes_err =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM group_role_grant_org_scopes")
+            .fetch_one(&mut *tx)
+            .await
+            .expect_err("mnt_rt must not read owner-only group role scopes")
+            .to_string();
+    assert!(
+        scopes_err.contains("permission denied"),
+        "raw group_role_grant_org_scopes read as mnt_rt must be denied, got: {scopes_err}"
     );
 }

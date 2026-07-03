@@ -243,10 +243,14 @@ struct CreateGroupAccountRequest {
     /// group authority remains explicit in group_role_grants.
     #[serde(default)]
     tenant_roles: Option<Vec<String>>,
-    /// GROUP_ADMIN | GROUP_VIEWER | GROUP_FINANCE. Defaults to GROUP_ADMIN for
-    /// the platform "add group account" workflow.
+    /// Group/HQ functional role. Defaults to GROUP_ADMIN for the platform "add
+    /// group account" workflow.
     #[serde(default)]
     group_role: Option<String>,
+    /// Optional subsidiary scope for this group role. Missing/null means the
+    /// role applies to every current and future member org in the group.
+    #[serde(default)]
+    scope_org_ids: Option<Vec<Uuid>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -574,6 +578,7 @@ async fn create_group_account(
             body.phone.as_deref(),
             &tenant_roles,
             &group_role,
+            body.scope_org_ids.as_deref(),
             OffsetDateTime::now_utc(),
         )
         .await

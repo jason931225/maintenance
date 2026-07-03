@@ -7,8 +7,9 @@ use crate::ids::BranchId;
 
 /// The set of branches a principal is allowed to act within.
 ///
-/// `All` is reserved for `SUPER_ADMIN`/`EXECUTIVE` rollup access; everyone
-/// else carries an explicit branch set (from `UserBranch` memberships).
+/// `All` is reserved for explicit all-branch rollup roles or scoped
+/// group/HQ-domain contexts; everyone else carries an explicit branch set (from
+/// `UserBranch` memberships).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", content = "branches", rename_all = "snake_case")]
 pub enum BranchScope {

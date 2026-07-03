@@ -10,88 +10,93 @@ use mnt_platform_authz::{
 };
 use sqlx::PgPool;
 
-const ROLES: [Role; 6] = [
+const ROLES: [Role; 8] = [
     Role::Member,
     Role::Receptionist,
     Role::Mechanic,
     Role::Admin,
     Role::Executive,
+    Role::PayrollManager,
+    Role::HqPayrollManager,
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 45] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 8]); 47] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage, EmployeeDirectoryRead,
         EquipmentCostLedgerRead, EquipmentCostLedgerWrite, EquipmentManage, EvidenceAttach,
         ExcelDownload, InspectionRoundComplete, InspectionScheduleManage, IntegrityFindingTriage,
         IntegrityFindingsRead, KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse,
-        MasterListImport, OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
-        PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
-        RegionManage, RentalQuoteManage, RoleManage, SalesManage, SubordinateUserCreate,
-        TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
-        WorkOrderStart, WorkReportSubmit,
+        MasterListImport, OpsDashboardRead, OrgWideQueueTriage, PayrollManage, PayrollRead,
+        PriorityManage, PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove,
+        PurchaseRequestCreate, PurchaseRequestRead, RegionManage, RentalQuoteManage, RoleManage,
+        SalesManage, SubordinateUserCreate, TargetManage, UserManage, WorkOrderCreate,
+        WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
-    // Column order: [MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE, SUPER_ADMIN].
+    // Column order: [MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE,
+    // PAYROLL_MANAGER, HQ_PAYROLL_MANAGER, SUPER_ADMIN].
     // MEMBER (open-signup default) is default-DENY everywhere but `Login`.
     [
-        (Login, [A, A, A, A, A, A]),
-        (WorkOrderCreate, [D, A, L, A, L, A]),
-        (WorkOrderEditIntake, [D, A, L, A, L, A]),
-        (WorkOrderReadAll, [D, A, A, A, A, A]),
-        (WorkOrderStart, [D, L, A, A, L, A]),
-        (WorkReportSubmit, [D, L, A, A, L, A]),
-        (EvidenceAttach, [D, A, A, A, L, A]),
-        (PriorityManage, [D, D, D, A, D, A]),
-        (AssigneeManage, [D, D, D, A, D, A]),
-        (TargetManage, [D, D, R, A, D, A]),
-        (CompletionReview, [D, D, D, A, D, A]),
-        (DailyPlanRequest, [D, D, A, A, D, A]),
-        (DailyPlanReview, [D, D, D, A, D, A]),
+        (Login, [A, A, A, A, A, A, A, A]),
+        (WorkOrderCreate, [D, A, L, A, L, D, D, A]),
+        (WorkOrderEditIntake, [D, A, L, A, L, D, D, A]),
+        (WorkOrderReadAll, [D, A, A, A, A, D, D, A]),
+        (WorkOrderStart, [D, L, A, A, L, D, D, A]),
+        (WorkReportSubmit, [D, L, A, A, L, D, D, A]),
+        (EvidenceAttach, [D, A, A, A, L, D, D, A]),
+        (PriorityManage, [D, D, D, A, D, D, D, A]),
+        (AssigneeManage, [D, D, D, A, D, D, D, A]),
+        (TargetManage, [D, D, R, A, D, D, D, A]),
+        (CompletionReview, [D, D, D, A, D, D, D, A]),
+        (DailyPlanRequest, [D, D, A, A, D, D, D, A]),
+        (DailyPlanReview, [D, D, D, A, D, D, D, A]),
         // Org-wide queue triage read: EXECUTIVE + SUPER_ADMIN only (a branch
         // ADMIN stays confined to its branch scope), matching the org-wide tier
         // of resolve_branch_scope_in_org.
-        (OrgWideQueueTriage, [D, D, D, D, A, A]),
-        (KpiRead, [D, D, D, A, A, A]),
-        (KpiExclusionManage, [D, D, D, A, A, A]),
-        (UserManage, [D, D, D, A, D, A]),
-        (SubordinateUserCreate, [D, D, D, L, D, A]),
-        (ElevatedRoleGrant, [D, D, D, D, D, A]),
-        (RoleManage, [D, D, D, D, D, A]),
-        (RegionManage, [D, D, D, A, A, A]),
-        (BranchManage, [D, D, D, A, A, A]),
-        (EquipmentManage, [D, D, D, A, A, A]),
-        (MasterListImport, [D, D, D, A, D, A]),
-        (RentalQuoteManage, [D, A, D, A, A, A]),
-        (EquipmentCostLedgerRead, [D, D, D, A, A, A]),
-        (EquipmentCostLedgerWrite, [D, D, D, A, D, A]),
-        (PurchaseRequestCreate, [D, A, R, A, D, A]),
-        (PurchaseRequestRead, [D, A, L, A, A, A]),
-        (PurchaseRequestApprove, [D, D, D, A, D, A]),
-        (PurchaseFinalApprove, [D, D, D, D, A, A]),
-        (PurchaseExecute, [D, A, D, A, D, A]),
-        (InspectionScheduleManage, [D, D, D, A, D, A]),
-        (InspectionRoundComplete, [D, D, A, A, D, A]),
-        (AuditLogRead, [D, D, D, A, D, A]),
-        (ExcelDownload, [D, A, A, A, A, A]),
-        (OpsDashboardRead, [D, D, D, A, D, A]),
-        (SalesManage, [D, D, D, A, A, A]),
+        (OrgWideQueueTriage, [D, D, D, D, A, D, D, A]),
+        (KpiRead, [D, D, D, A, A, D, D, A]),
+        (KpiExclusionManage, [D, D, D, A, A, D, D, A]),
+        (UserManage, [D, D, D, A, D, D, D, A]),
+        (SubordinateUserCreate, [D, D, D, L, D, D, D, A]),
+        (ElevatedRoleGrant, [D, D, D, D, D, D, D, A]),
+        (RoleManage, [D, D, D, D, D, D, D, A]),
+        (RegionManage, [D, D, D, A, A, D, D, A]),
+        (BranchManage, [D, D, D, A, A, D, D, A]),
+        (EquipmentManage, [D, D, D, A, A, D, D, A]),
+        (MasterListImport, [D, D, D, A, D, D, D, A]),
+        (RentalQuoteManage, [D, A, D, A, A, D, D, A]),
+        (EquipmentCostLedgerRead, [D, D, D, A, A, D, D, A]),
+        (EquipmentCostLedgerWrite, [D, D, D, A, D, D, D, A]),
+        (PurchaseRequestCreate, [D, A, R, A, D, D, D, A]),
+        (PurchaseRequestRead, [D, A, L, A, A, D, D, A]),
+        (PurchaseRequestApprove, [D, D, D, A, D, D, D, A]),
+        (PurchaseFinalApprove, [D, D, D, D, A, D, D, A]),
+        (PurchaseExecute, [D, A, D, A, D, D, D, A]),
+        (InspectionScheduleManage, [D, D, D, A, D, D, D, A]),
+        (InspectionRoundComplete, [D, D, A, A, D, D, D, A]),
+        (AuditLogRead, [D, D, D, A, D, D, D, A]),
+        (ExcelDownload, [D, A, A, A, A, A, A, A]),
+        (OpsDashboardRead, [D, D, D, A, D, D, D, A]),
+        (SalesManage, [D, D, D, A, A, D, D, A]),
         // The inherited PERMISSIONS.md has 21 explicit table rows; its branch
         // strategy also names AI 조회 as a branch-filtered server API surface.
         // T0.6's brief requires 22 features, so the AI assistant seam is
         // represented here as permission metadata only, not an adapter.
-        (AiAssist, [D, A, A, A, A, A]),
+        (AiAssist, [D, A, A, A, A, D, D, A]),
         // Integrity findings are labor-law sensitive: EXECUTIVE + SUPER_ADMIN only.
-        (IntegrityFindingsRead, [D, D, D, D, A, A]),
-        (IntegrityFindingTriage, [D, D, D, D, A, A]),
+        (IntegrityFindingsRead, [D, D, D, D, A, D, D, A]),
+        (IntegrityFindingTriage, [D, D, D, D, A, D, D, A]),
         // Webmail: configuring the mailbox is ADMIN + SUPER_ADMIN (holds the
         // mail secrets); sending is front-office + leadership (no MECHANIC).
-        (MailAccountManage, [D, D, D, A, D, A]),
-        (MailUse, [D, A, D, A, A, A]),
-        (EmployeeDirectoryRead, [D, D, D, A, A, A]),
-        (EmployeeDirectoryManage, [D, D, D, A, D, A]),
+        (MailAccountManage, [D, D, D, A, D, D, D, A]),
+        (MailUse, [D, A, D, A, A, D, D, A]),
+        (EmployeeDirectoryRead, [D, D, D, A, A, A, A, A]),
+        (EmployeeDirectoryManage, [D, D, D, A, D, D, D, A]),
+        (PayrollRead, [D, D, D, D, D, A, A, D]),
+        (PayrollManage, [D, D, D, D, D, A, A, D]),
     ]
 }
 
@@ -103,12 +108,22 @@ fn principal(role: Role, scope: BranchScope) -> Principal {
 fn role_enum_uses_canonical_database_codes() {
     assert_eq!(Role::SuperAdmin.as_str(), "SUPER_ADMIN");
     assert_eq!(Role::Admin.as_str(), "ADMIN");
+    assert_eq!(Role::PayrollManager.as_str(), "PAYROLL_MANAGER");
+    assert_eq!(Role::HqPayrollManager.as_str(), "HQ_PAYROLL_MANAGER");
     assert_eq!(Role::Mechanic.as_str(), "MECHANIC");
     assert_eq!(Role::Receptionist.as_str(), "RECEPTIONIST");
     assert_eq!(Role::Executive.as_str(), "EXECUTIVE");
     assert_eq!(Role::Member.as_str(), "MEMBER");
 
     assert_eq!("SUPER_ADMIN".parse::<Role>().unwrap(), Role::SuperAdmin);
+    assert_eq!(
+        "PAYROLL_MANAGER".parse::<Role>().unwrap(),
+        Role::PayrollManager
+    );
+    assert_eq!(
+        "HQ_PAYROLL_MANAGER".parse::<Role>().unwrap(),
+        Role::HqPayrollManager
+    );
     assert_eq!("MEMBER".parse::<Role>().unwrap(), Role::Member);
     assert!("OWNER".parse::<Role>().is_err());
 }
@@ -144,7 +159,7 @@ fn member_role_is_default_deny_except_login() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 45);
+    assert_eq!(Feature::ALL.len(), 47);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {
@@ -163,6 +178,32 @@ fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
             );
         }
     }
+}
+
+#[test]
+fn payroll_features_are_reserved_for_payroll_roles() {
+    let holds = |role: Role| permission_for(role, Feature::PayrollRead) == PermissionLevel::Allow;
+
+    assert!(holds(Role::PayrollManager));
+    assert!(holds(Role::HqPayrollManager));
+    assert!(!holds(Role::Admin));
+    assert!(!holds(Role::Executive));
+    assert!(!holds(Role::SuperAdmin));
+    assert!(!holds(Role::Mechanic));
+    assert!(!holds(Role::Receptionist));
+    assert!(!holds(Role::Member));
+}
+
+#[test]
+fn hq_payroll_is_org_wide_but_site_payroll_remains_scoped() {
+    let hq = principal(Role::HqPayrollManager, BranchScope::All);
+    authorize_org_wide(&hq, Action::new(Feature::PayrollRead))
+        .expect("HQ payroll may use org-wide payroll reads");
+
+    let site = principal(Role::PayrollManager, BranchScope::All);
+    let err = authorize_org_wide(&site, Action::new(Feature::PayrollRead))
+        .expect_err("site payroll role must not become org-wide just from All scope");
+    assert_eq!(err.kind, ErrorKind::Forbidden);
 }
 
 #[test]

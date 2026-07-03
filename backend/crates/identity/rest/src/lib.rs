@@ -1250,9 +1250,10 @@ fn policy_role_templates() -> Vec<PolicyRoleTemplateResponse> {
     use Feature::{
         AssigneeManage, CompletionReview, DailyPlanRequest, DailyPlanReview,
         EmployeeDirectoryManage, EmployeeDirectoryRead, EquipmentCostLedgerRead, EquipmentManage,
-        EvidenceAttach, ExcelDownload, KpiRead, MailUse, OpsDashboardRead, PurchaseRequestApprove,
-        PurchaseRequestCreate, PurchaseRequestRead, RentalQuoteManage, SalesManage, TargetManage,
-        WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
+        EvidenceAttach, ExcelDownload, KpiRead, MailUse, OpsDashboardRead, PayrollManage,
+        PayrollRead, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
+        RentalQuoteManage, SalesManage, TargetManage, WorkOrderCreate, WorkOrderEditIntake,
+        WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow, Limited, RequestOnly};
 
@@ -1383,6 +1384,32 @@ fn policy_role_templates() -> Vec<PolicyRoleTemplateResponse> {
                 (EmployeeDirectoryRead, Allow),
                 (EmployeeDirectoryManage, Allow),
                 (ExcelDownload, Limited),
+            ],
+        ),
+        role_template(
+            "payroll_manager",
+            "payroll_manager",
+            "급여담당자",
+            "payroll",
+            "법인/사업장 급여대장, 근태-급여 연결, 급여 자료 다운로드를 담당합니다.",
+            &[
+                (EmployeeDirectoryRead, Allow),
+                (PayrollRead, Allow),
+                (PayrollManage, Allow),
+                (ExcelDownload, Allow),
+            ],
+        ),
+        role_template(
+            "hq_payroll_manager",
+            "hq_payroll_manager",
+            "HQ급여담당자",
+            "payroll",
+            "법적 소속 법인과 별개로 그룹/HQ 급여 업무를 맡은 인원에게 부여합니다.",
+            &[
+                (EmployeeDirectoryRead, Allow),
+                (PayrollRead, Allow),
+                (PayrollManage, Allow),
+                (ExcelDownload, Allow),
             ],
         ),
         role_template(

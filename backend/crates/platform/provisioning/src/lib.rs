@@ -20,7 +20,16 @@ const VALID_ROLES: &[&str] = &[
     "EXECUTIVE",
     "MEMBER",
 ];
-const VALID_GROUP_ROLES: &[&str] = &["GROUP_ADMIN", "GROUP_VIEWER", "GROUP_FINANCE"];
+const VALID_GROUP_ROLES: &[&str] = &[
+    "GROUP_ADMIN",
+    "GROUP_VIEWER",
+    "GROUP_HR",
+    "GROUP_LABOR",
+    "GROUP_FINANCE",
+    "GROUP_MAINTENANCE",
+    "GROUP_PAYROLL",
+    "GROUP_APPROVALS",
+];
 const VALID_TEAMS: &[&str] = &["정비", "예방", "관리", "접수"];
 
 #[derive(Debug, thiserror::Error)]
@@ -1309,6 +1318,7 @@ impl PlatformProvisioner {
         phone: Option<&str>,
         tenant_roles: &[String],
         group_role: &str,
+        scope_org_ids: Option<&[Uuid]>,
         now: OffsetDateTime,
     ) -> Result<GroupAccountOnboarding, ProvisioningError> {
         let display_name = display_name.trim();
@@ -1354,6 +1364,23 @@ impl PlatformProvisioner {
             ));
         };
 
+        let scope_org_ids = scope_org_ids.map(Vec::from);
+        let scoped_grant: Option<Uuid> =
+            sqlx::query_scalar("SELECT platform_replace_group_role_org_scopes($1, $2, $3, $4)")
+                .bind(group_id)
+                .bind(user_id)
+                .bind(group_role)
+                .bind(scope_org_ids.as_ref())
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(map_group_write_error)?;
+        if scoped_grant.is_none() {
+            tx.rollback().await?;
+            return Err(ProvisioningError::NotFound(
+                "group account role not found".to_owned(),
+            ));
+        }
+
         // platform_create_group_account arms app.current_org to org_id for this
         // transaction; keep it armed so the bootstrap credential passes FORCE RLS.
         let issue = issue_bootstrap_if_needed_tx(
@@ -1386,6 +1413,7 @@ impl PlatformProvisioner {
                 "user_id": user_id,
                 "tenant_roles": tenant_roles,
                 "group_role": group_role,
+                "scope_org_ids": scope_org_ids,
             })),
         );
         insert_audit_event(&mut tx, &event).await?;

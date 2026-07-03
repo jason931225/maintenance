@@ -40,14 +40,39 @@ pub async fn group_member_orgs(
     group_id: uuid::Uuid,
     actor: UserId,
 ) -> Result<Vec<GroupMemberOrg>, DbError> {
+    group_member_orgs_for_roles(
+        pool,
+        group_id,
+        actor,
+        &[
+            "GROUP_ADMIN",
+            "GROUP_VIEWER",
+            "GROUP_HR",
+            "GROUP_LABOR",
+            "GROUP_FINANCE",
+            "GROUP_MAINTENANCE",
+            "GROUP_PAYROLL",
+            "GROUP_APPROVALS",
+        ],
+    )
+    .await
+}
+
+async fn group_member_orgs_for_roles(
+    pool: &PgPool,
+    group_id: uuid::Uuid,
+    actor: UserId,
+    roles: &[&str],
+) -> Result<Vec<GroupMemberOrg>, DbError> {
     let rows = sqlx::query(
         r#"
         SELECT org_id, slug, name, status
-        FROM group_member_org_ids($1, $2)
+        FROM group_member_org_ids_for_roles($1, $2, $3)
         "#,
     )
     .bind(group_id)
     .bind(*actor.as_uuid())
+    .bind(roles)
     // rls-arming: ok identity-only SECURITY DEFINER resolver; no tenant row data is read here
     .fetch_all(pool)
     .await
@@ -68,12 +93,12 @@ pub async fn group_member_orgs(
 }
 
 /// Resolve active member orgs visible to `actor` only when the actor still has
-/// a live `GROUP_ADMIN` grant for `group_id`.
+/// a live, scope-matching `GROUP_ADMIN` grant for `group_id`.
 ///
 /// Use this for delegated tenant-context request validation. The broader
 /// [`group_member_orgs`] helper intentionally accepts any live group role for
 /// read-only/consolidated group views; a writable delegated tenant principal
-/// must fail closed after a downgrade to `GROUP_VIEWER` or `GROUP_FINANCE`.
+/// must fail closed after a downgrade to any non-admin group domain role.
 pub async fn group_admin_member_orgs(
     pool: &PgPool,
     group_id: uuid::Uuid,
@@ -102,7 +127,7 @@ pub async fn group_admin_member_orgs(
         return Ok(Vec::new());
     }
 
-    group_member_orgs(pool, group_id, actor).await
+    group_member_orgs_for_roles(pool, group_id, actor, &["GROUP_ADMIN"]).await
 }
 
 /// Fan out an existing tenant-scoped read across resolver-authorized members.

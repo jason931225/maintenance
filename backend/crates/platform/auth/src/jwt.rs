@@ -158,7 +158,8 @@ impl AccessClaims {
 fn validate_group_roles(group_roles: &[String]) -> Result<(), AuthError> {
     for role in group_roles {
         match role.as_str() {
-            "GROUP_ADMIN" | "GROUP_VIEWER" | "GROUP_FINANCE" => {}
+            "GROUP_ADMIN" | "GROUP_VIEWER" | "GROUP_HR" | "GROUP_LABOR" | "GROUP_FINANCE"
+            | "GROUP_MAINTENANCE" | "GROUP_PAYROLL" | "GROUP_APPROVALS" => {}
             _ => {
                 return Err(AuthError::InvalidStoredData(format!(
                     "unknown group role code: {role}"

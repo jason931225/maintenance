@@ -26,6 +26,15 @@ pub enum Role {
     SuperAdmin,
     #[serde(rename = "ADMIN")]
     Admin,
+    /// Site/legal-entity payroll operator. This role is functional, not a
+    /// purchase/finance role, and is intended for the payroll data surface only.
+    #[serde(rename = "PAYROLL_MANAGER")]
+    PayrollManager,
+    /// Group/HQ payroll operator. It may be assigned to a user whose legal
+    /// employment org is a subsidiary (for example KNL) when their actual work
+    /// role is group/HQ payroll.
+    #[serde(rename = "HQ_PAYROLL_MANAGER")]
+    HqPayrollManager,
     #[serde(rename = "MECHANIC")]
     Mechanic,
     #[serde(rename = "RECEPTIONIST")]
@@ -41,12 +50,14 @@ pub enum Role {
 }
 
 impl Role {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Member,
         Self::Receptionist,
         Self::Mechanic,
         Self::Admin,
         Self::Executive,
+        Self::PayrollManager,
+        Self::HqPayrollManager,
         Self::SuperAdmin,
     ];
 
@@ -55,6 +66,8 @@ impl Role {
         match self {
             Self::SuperAdmin => "SUPER_ADMIN",
             Self::Admin => "ADMIN",
+            Self::PayrollManager => "PAYROLL_MANAGER",
+            Self::HqPayrollManager => "HQ_PAYROLL_MANAGER",
             Self::Mechanic => "MECHANIC",
             Self::Receptionist => "RECEPTIONIST",
             Self::Executive => "EXECUTIVE",
@@ -69,7 +82,9 @@ impl Role {
             Self::Mechanic => 2,
             Self::Admin => 3,
             Self::Executive => 4,
-            Self::SuperAdmin => 5,
+            Self::PayrollManager => 5,
+            Self::HqPayrollManager => 6,
+            Self::SuperAdmin => 7,
         }
     }
 }
@@ -81,6 +96,8 @@ impl FromStr for Role {
         match raw {
             "SUPER_ADMIN" => Ok(Self::SuperAdmin),
             "ADMIN" => Ok(Self::Admin),
+            "PAYROLL_MANAGER" => Ok(Self::PayrollManager),
+            "HQ_PAYROLL_MANAGER" => Ok(Self::HqPayrollManager),
             "MECHANIC" => Ok(Self::Mechanic),
             "RECEPTIONIST" => Ok(Self::Receptionist),
             "EXECUTIVE" => Ok(Self::Executive),
@@ -175,10 +192,16 @@ pub enum Feature {
     /// Import/manage tenant HR employee rows. ADMIN + SUPER_ADMIN only; employees
     /// are deliberately not auth users.
     EmployeeDirectoryManage,
+    /// Read payroll ledger/readiness data. This is separate from finance/purchase
+    /// and only payroll roles hold it by default.
+    PayrollRead,
+    /// Manage payroll preparation data and releases. Sensitive compensation data
+    /// stays restricted to payroll roles by default.
+    PayrollManage,
 }
 
 impl Feature {
-    pub const ALL: [Self; 45] = [
+    pub const ALL: [Self; 47] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -224,6 +247,8 @@ impl Feature {
         Self::MailUse,
         Self::EmployeeDirectoryRead,
         Self::EmployeeDirectoryManage,
+        Self::PayrollRead,
+        Self::PayrollManage,
     ];
 
     #[must_use]
@@ -274,72 +299,77 @@ impl Feature {
             Self::MailUse => "mail_use",
             Self::EmployeeDirectoryRead => "employee_directory_read",
             Self::EmployeeDirectoryManage => "employee_directory_manage",
+            Self::PayrollRead => "payroll_read",
+            Self::PayrollManage => "payroll_manage",
         }
     }
 
-    const fn matrix_row(self) -> [PermissionLevel; 6] {
+    const fn matrix_row(self) -> [PermissionLevel; 8] {
         use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
         // Column order matches `Role::matrix_index`:
-        // [MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE, SUPER_ADMIN].
+        // [MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE,
+        //  PAYROLL_MANAGER, HQ_PAYROLL_MANAGER, SUPER_ADMIN].
         // MEMBER (the open-signup default) is default-DENY everywhere except
         // `Login`: a self-registered account can authenticate but sees nothing
         // actionable until an admin grants it a real role.
         match self {
-            Self::Login => [A, A, A, A, A, A],
-            Self::WorkOrderCreate => [D, A, L, A, L, A],
-            Self::WorkOrderEditIntake => [D, A, L, A, L, A],
-            Self::WorkOrderReadAll => [D, A, A, A, A, A],
-            Self::WorkOrderStart => [D, L, A, A, L, A],
-            Self::WorkReportSubmit => [D, L, A, A, L, A],
-            Self::EvidenceAttach => [D, A, A, A, L, A],
-            Self::PriorityManage => [D, D, D, A, D, A],
-            Self::AssigneeManage => [D, D, D, A, D, A],
-            Self::TargetManage => [D, D, R, A, D, A],
-            Self::CompletionReview => [D, D, D, A, D, A],
-            Self::DailyPlanRequest => [D, D, A, A, D, A],
-            Self::DailyPlanReview => [D, D, D, A, D, A],
+            Self::Login => [A, A, A, A, A, A, A, A],
+            Self::WorkOrderCreate => [D, A, L, A, L, D, D, A],
+            Self::WorkOrderEditIntake => [D, A, L, A, L, D, D, A],
+            Self::WorkOrderReadAll => [D, A, A, A, A, D, D, A],
+            Self::WorkOrderStart => [D, L, A, A, L, D, D, A],
+            Self::WorkReportSubmit => [D, L, A, A, L, D, D, A],
+            Self::EvidenceAttach => [D, A, A, A, L, D, D, A],
+            Self::PriorityManage => [D, D, D, A, D, D, D, A],
+            Self::AssigneeManage => [D, D, D, A, D, D, D, A],
+            Self::TargetManage => [D, D, R, A, D, D, D, A],
+            Self::CompletionReview => [D, D, D, A, D, D, D, A],
+            Self::DailyPlanRequest => [D, D, A, A, D, D, D, A],
+            Self::DailyPlanReview => [D, D, D, A, D, D, D, A],
             // Org-wide queue read: EXECUTIVE + SUPER_ADMIN only, matching the
             // org-wide tier of `resolve_branch_scope_in_org`. A branch ADMIN is
             // deliberately NOT here — it stays confined to its branch scope.
-            Self::OrgWideQueueTriage => [D, D, D, D, A, A],
-            Self::KpiRead => [D, D, D, A, A, A],
-            Self::KpiExclusionManage => [D, D, D, A, A, A],
-            Self::UserManage => [D, D, D, A, D, A],
-            Self::SubordinateUserCreate => [D, D, D, L, D, A],
-            Self::ElevatedRoleGrant => [D, D, D, D, D, A],
-            Self::RoleManage => [D, D, D, D, D, A],
-            Self::RegionManage => [D, D, D, A, A, A],
-            Self::BranchManage => [D, D, D, A, A, A],
-            Self::EquipmentManage => [D, D, D, A, A, A],
-            Self::MasterListImport => [D, D, D, A, D, A],
-            Self::RentalQuoteManage => [D, A, D, A, A, A],
-            Self::EquipmentCostLedgerRead => [D, D, D, A, A, A],
-            Self::EquipmentCostLedgerWrite => [D, D, D, A, D, A],
-            Self::PurchaseRequestCreate => [D, A, R, A, D, A],
-            Self::PurchaseRequestRead => [D, A, L, A, A, A],
-            Self::PurchaseRequestApprove => [D, D, D, A, D, A],
-            Self::PurchaseFinalApprove => [D, D, D, D, A, A],
-            Self::PurchaseExecute => [D, A, D, A, D, A],
-            Self::InspectionScheduleManage => [D, D, D, A, D, A],
-            Self::InspectionRoundComplete => [D, D, A, A, D, A],
-            Self::AuditLogRead => [D, D, D, A, D, A],
-            Self::ExcelDownload => [D, A, A, A, A, A],
-            Self::OpsDashboardRead => [D, D, D, A, D, A],
-            Self::SalesManage => [D, D, D, A, A, A],
-            Self::AiAssist => [D, A, A, A, A, A],
+            Self::OrgWideQueueTriage => [D, D, D, D, A, D, D, A],
+            Self::KpiRead => [D, D, D, A, A, D, D, A],
+            Self::KpiExclusionManage => [D, D, D, A, A, D, D, A],
+            Self::UserManage => [D, D, D, A, D, D, D, A],
+            Self::SubordinateUserCreate => [D, D, D, L, D, D, D, A],
+            Self::ElevatedRoleGrant => [D, D, D, D, D, D, D, A],
+            Self::RoleManage => [D, D, D, D, D, D, D, A],
+            Self::RegionManage => [D, D, D, A, A, D, D, A],
+            Self::BranchManage => [D, D, D, A, A, D, D, A],
+            Self::EquipmentManage => [D, D, D, A, A, D, D, A],
+            Self::MasterListImport => [D, D, D, A, D, D, D, A],
+            Self::RentalQuoteManage => [D, A, D, A, A, D, D, A],
+            Self::EquipmentCostLedgerRead => [D, D, D, A, A, D, D, A],
+            Self::EquipmentCostLedgerWrite => [D, D, D, A, D, D, D, A],
+            Self::PurchaseRequestCreate => [D, A, R, A, D, D, D, A],
+            Self::PurchaseRequestRead => [D, A, L, A, A, D, D, A],
+            Self::PurchaseRequestApprove => [D, D, D, A, D, D, D, A],
+            Self::PurchaseFinalApprove => [D, D, D, D, A, D, D, A],
+            Self::PurchaseExecute => [D, A, D, A, D, D, D, A],
+            Self::InspectionScheduleManage => [D, D, D, A, D, D, D, A],
+            Self::InspectionRoundComplete => [D, D, A, A, D, D, D, A],
+            Self::AuditLogRead => [D, D, D, A, D, D, D, A],
+            Self::ExcelDownload => [D, A, A, A, A, A, A, A],
+            Self::OpsDashboardRead => [D, D, D, A, D, D, D, A],
+            Self::SalesManage => [D, D, D, A, A, D, D, A],
+            Self::AiAssist => [D, A, A, A, A, D, D, A],
             // Integrity findings are labor-law sensitive: ADMIN must not read
             // findings about themselves. EXECUTIVE + SUPER_ADMIN only.
-            Self::IntegrityFindingsRead => [D, D, D, D, A, A],
-            Self::IntegrityFindingTriage => [D, D, D, D, A, A],
+            Self::IntegrityFindingsRead => [D, D, D, D, A, D, D, A],
+            Self::IntegrityFindingTriage => [D, D, D, D, A, D, D, A],
             // Configuring the mailbox holds the tenant's mail secrets: ADMIN +
             // SUPER_ADMIN only.
-            Self::MailAccountManage => [D, D, D, A, D, A],
+            Self::MailAccountManage => [D, D, D, A, D, D, D, A],
             // Sending/replying/forwarding mail: front-office + leadership.
             // MECHANIC is excluded (their workflow is the messenger surface).
-            Self::MailUse => [D, A, D, A, A, A],
-            Self::EmployeeDirectoryRead => [D, D, D, A, A, A],
-            Self::EmployeeDirectoryManage => [D, D, D, A, D, A],
+            Self::MailUse => [D, A, D, A, A, D, D, A],
+            Self::EmployeeDirectoryRead => [D, D, D, A, A, A, A, A],
+            Self::EmployeeDirectoryManage => [D, D, D, A, D, D, D, A],
+            Self::PayrollRead => [D, D, D, D, D, A, A, D],
+            Self::PayrollManage => [D, D, D, D, D, A, A, D],
         }
     }
 }
@@ -394,6 +424,8 @@ impl FromStr for Feature {
             "mail_use" => Ok(Self::MailUse),
             "employee_directory_read" => Ok(Self::EmployeeDirectoryRead),
             "employee_directory_manage" => Ok(Self::EmployeeDirectoryManage),
+            "payroll_read" => Ok(Self::PayrollRead),
+            "payroll_manage" => Ok(Self::PayrollManage),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
@@ -654,10 +686,12 @@ pub fn permission_for(role: Role, feature: Feature) -> PermissionLevel {
 /// Authorize a principal for an org-wide feature read/action with no concrete
 /// resource branch in the request. This is the single source of truth for
 /// branch-omitted org-wide routes: callers must already have `BranchScope::All`,
-/// built-in org-wide authority is limited to `SUPER_ADMIN`/`EXECUTIVE`, and
-/// custom-role grants must themselves be org-wide (`BranchScope::All`) to pass
-/// this gate. Branch-narrow custom grants may still authorize concrete branch
-/// requests through [`authorize`], but never widen into an all-branch read.
+/// built-in org-wide authority is limited to org-wide roles
+/// (`SUPER_ADMIN`/`EXECUTIVE`) and HQ payroll for payroll/HR payroll support
+/// features, and custom-role grants must themselves be org-wide
+/// (`BranchScope::All`) to pass this gate. Branch-narrow custom grants may still
+/// authorize concrete branch requests through [`authorize`], but never widen
+/// into an all-branch read.
 pub fn authorize_org_wide(principal: &Principal, action: Action) -> Result<(), KernelError> {
     if principal.branch_scope != BranchScope::All {
         return Err(KernelError::forbidden(
@@ -666,8 +700,10 @@ pub fn authorize_org_wide(principal: &Principal, action: Action) -> Result<(), K
     }
 
     let has_builtin_org_wide_permission = principal.roles.iter().any(|role| {
-        matches!(role, Role::SuperAdmin | Role::Executive)
-            && permission_for(*role, action.feature()).satisfies(action.required_permission())
+        matches!(
+            role,
+            Role::SuperAdmin | Role::Executive | Role::HqPayrollManager
+        ) && permission_for(*role, action.feature()).satisfies(action.required_permission())
     });
     let has_custom_org_wide_permission = principal.effective_feature_grants.iter().any(|grant| {
         grant.feature == action.feature()
@@ -950,8 +986,11 @@ fn map_effective_policy_error(err: sqlx::Error) -> KernelError {
 
 /// Resolve branch scope from `user_branches` under an explicitly-armed tenant.
 ///
-/// `SUPER_ADMIN` and `EXECUTIVE` resolve to [`BranchScope::All`] for global
-/// read/rollup surfaces; write authority is still constrained by the matrix.
+/// `SUPER_ADMIN`, `EXECUTIVE`, and HQ payroll resolve to [`BranchScope::All`] for
+/// global read/rollup surfaces; write authority is still constrained by the
+/// matrix. A regular `PAYROLL_MANAGER` remains branch/worksite scoped through
+/// `user_branches`; payroll line ownership needs a branch/worksite column before
+/// site payroll reads can be fully enforced at row level.
 ///
 /// `user_branches` is FORCE RLS, so a bare-pool read returns ZERO branches when
 /// `app.current_org` is unset — silently narrowing a non-super admin's scope to
@@ -965,10 +1004,12 @@ pub async fn resolve_branch_scope_in_org(
     user_id: UserId,
     roles: &[Role],
 ) -> Result<BranchScope, KernelError> {
-    if roles
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
+    if roles.iter().any(|role| {
+        matches!(
+            role,
+            Role::SuperAdmin | Role::Executive | Role::HqPayrollManager
+        )
+    }) {
         return Ok(BranchScope::All);
     }
 
