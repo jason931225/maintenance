@@ -1424,6 +1424,15 @@ async fn report_employee_exit_case(
     Ok(Json(exit_case))
 }
 
+// M2-strangler-debt: this absence->exit->settlement flow is a hardcoded cross-module
+// decision spine (report -> HR confirm -> HQ confirm -> settlement -> approval). It is the
+// SECOND such flow (after completion->approval->payroll) slated to migrate onto the ADR-0018
+// workflow runtime spine (workflow_runs / workflow_node_runs / workflow_waiting_tasks /
+// workflow_outbox_events). State machine -> spine-IR mapping: exit_case.status transitions map
+// to workflow_node_runs; the two-tier confirm maps to workflow_waiting_tasks with required_policy
+// guards; the settlement/certification side effects map to idempotency-keyed workflow_outbox_events.
+// See .omc/plans/ralplan-pr166-completion.md S8.2 (M2 charter follow-up). Migration is mechanical,
+// not a rewrite, once the M2 executor lands.
 async fn confirm_employee_exit_case(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
