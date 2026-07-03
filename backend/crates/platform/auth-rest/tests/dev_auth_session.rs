@@ -230,6 +230,22 @@ async fn rejects_the_platform_sentinel_org(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../db/migrations")]
+async fn rejects_an_org_that_does_not_exist(pool: PgPool) {
+    let rt_pool = runtime_role_pool(&pool).await;
+    let app = router(test_state(rt_pool));
+    let unknown_org = Uuid::new_v4();
+
+    let response = post(
+        app,
+        unknown_org,
+        json!({"org_id": unknown_org, "role": "ADMIN"}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrations = "../db/migrations")]
 async fn rejects_a_branch_that_does_not_belong_to_the_org(pool: PgPool) {
     let (org_id, _branch_id) = seed_org_and_branch(&pool).await;
     let (_other_org, other_branch_id) = seed_org_and_branch(&pool).await;

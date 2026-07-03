@@ -755,6 +755,20 @@ impl DevPrincipalProvisioner {
 
         with_audit::<_, DevPrincipal, ProvisioningError>(pool, event, move |tx| {
             Box::pin(async move {
+                // Fail closed on an unknown/inactive org with a clean 404 rather
+                // than letting the `users_org_fk` FK violation surface as a raw
+                // 500 from the INSERT below.
+                let org_status: Option<String> =
+                    sqlx::query_scalar("SELECT status FROM organizations WHERE id = $1")
+                        .bind(org_uuid)
+                        .fetch_optional(tx.as_mut())
+                        .await?;
+                if org_status.as_deref() != Some("ACTIVE") {
+                    return Err(ProvisioningError::NotFound(
+                        "no such active organization".to_owned(),
+                    ));
+                }
+
                 if !branch_ids.is_empty() {
                     let found: Vec<Uuid> = sqlx::query_scalar(
                         "SELECT id FROM branches WHERE id = ANY($1) AND org_id = $2",

@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { useAuth } from "../context/auth";
+import { RoleSwitcher } from "../features/auth/RoleSwitcher";
 import { ko } from "../i18n/ko";
 import {
   OtpRedeemError,
@@ -475,6 +476,8 @@ export function LoginPage() {
               {error}
             </p>
           ) : null}
+
+          <RoleSwitcher />
         </Card>
       </div>
     </div>

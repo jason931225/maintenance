@@ -25,11 +25,6 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { insuranceAssistKo as copy } from "../i18n/hrWorkflows";
-import {
-  devEmployeeDirectoryPage,
-  devHrReadinessSummary,
-  isDevPreviewEnabled,
-} from "../lib/dev-preview";
 import type { Tone } from "../lib/semantic";
 import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
@@ -89,13 +84,6 @@ export function InsuranceAssistPage() {
     ]);
 
     if (!employeesResponse?.data || !readinessResponse?.data) {
-      if (isDevPreviewEnabled()) {
-        const devEmployees = devEmployeeDirectoryPage();
-        setEmployees(devEmployees.items);
-        setReadinessSummary(devHrReadinessSummary());
-        setState("idle");
-        return;
-      }
       setState("error");
       return;
     }

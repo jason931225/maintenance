@@ -557,7 +557,13 @@ async function cmdUp() {
 
   const appEnv = buildAppEnv("api");
   log("launching bacon (backend) + vite (web)...");
-  const backend = spawn("bacon", ["run"], {
+  // bacon's interactive TUI needs a real controlling terminal (crossterm raw
+  // mode); without one (nohup, CI, an agent-driven run) it fails immediately
+  // with "Device not configured". `--headless` just runs the default job on
+  // change with no TUI, which works either way — so use it whenever stdout
+  // isn't a TTY, and keep the normal interactive UI for a real terminal.
+  const baconArgs = process.stdout.isTTY ? ["run"] : ["run", "--headless"];
+  const backend = spawn("bacon", baconArgs, {
     cwd: BACKEND_DIR,
     env: appEnv,
     stdio: "inherit",
