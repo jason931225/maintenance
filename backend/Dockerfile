@@ -25,6 +25,9 @@ COPY backend/app ./app
 COPY backend/ci ./ci
 COPY backend/crates ./crates
 COPY backend/openapi ./openapi
+# [patch.crates-io] in Cargo.toml points calamine/quick-xml/umya-spreadsheet
+# at path deps under vendor/ (RUSTSEC-2026-0194/0195 unblock) — must ship too.
+COPY backend/vendor ./vendor
 COPY docs/reference /workspace/docs/reference
 
 RUN cargo build --locked --release -p mnt-app
