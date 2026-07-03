@@ -5,11 +5,9 @@ import type { ConsoleApiClient } from "../api/client";
 import type {
   AbsenceExitDashboardResponse,
   AttendanceSummaryPage,
-  DraftEmployeeExitApprovalRequest,
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
   EmployeeExitCase,
-  ExitSettlementInput,
   HrReadinessSummary,
 } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -20,7 +18,6 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { Input } from "../components/ui/input";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { exitCaseStatusLabel, exitCaseTone } from "../lib/hrExitWorkflow";
@@ -50,16 +47,7 @@ type PayrollApi = ConsoleApiClient & {
     path: "/api/v1/hr/absence-exit-dashboard",
     options?: { params?: { query?: { limit?: number; offset?: number } } },
   ): Promise<{ data?: AbsenceExitDashboardResponse }>;
-  POST(
-    path: "/api/v1/hr/exit-cases/{id}/approval-draft",
-    options: {
-      params: { path: { id: string } };
-      body: DraftEmployeeExitApprovalRequest;
-    },
-  ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
 };
-
-type SettlementActionState = "idle" | "busy" | "error";
 
 const copy = ko.payroll;
 
@@ -73,9 +61,6 @@ export function PayrollPage() {
   const [employeeTotal, setEmployeeTotal] = useState(0);
   const [absenceExitDashboard, setAbsenceExitDashboard] =
     useState<AbsenceExitDashboardResponse>();
-  const [settlementAction, setSettlementAction] =
-    useState<SettlementActionState>("idle");
-  const [settlementMessage, setSettlementMessage] = useState<string>();
 
   const loadPayroll = useCallback(async () => {
     setState("loading");
@@ -125,62 +110,6 @@ export function PayrollPage() {
     void Promise.resolve().then(loadPayroll);
   }, [loadPayroll]);
 
-  const draftSettlement = useCallback(
-    async (caseId: string, input: ExitSettlementInput) => {
-      setSettlementAction("busy");
-      setSettlementMessage(undefined);
-      try {
-        const { error } = await payrollApi.POST(
-          "/api/v1/hr/exit-cases/{id}/approval-draft",
-          {
-            params: { path: { id: caseId } },
-            body: { submit: false, settlement_input: input },
-          },
-        );
-        if (error) {
-          setSettlementAction("error");
-          setSettlementMessage(copy.exitSettlement.wageSource.draftFailed);
-          return;
-        }
-        setSettlementAction("idle");
-        setSettlementMessage(copy.exitSettlement.wageSource.draftCreated);
-        await loadPayroll();
-      } catch {
-        setSettlementAction("error");
-        setSettlementMessage(copy.exitSettlement.wageSource.draftFailed);
-      }
-    },
-    [payrollApi, loadPayroll],
-  );
-
-  const submitSettlement = useCallback(
-    async (caseId: string) => {
-      setSettlementAction("busy");
-      setSettlementMessage(undefined);
-      try {
-        const { error } = await payrollApi.POST(
-          "/api/v1/hr/exit-cases/{id}/approval-draft",
-          {
-            params: { path: { id: caseId } },
-            body: { submit: true },
-          },
-        );
-        if (error) {
-          setSettlementAction("error");
-          setSettlementMessage(copy.exitSettlement.wageSource.submitFailed);
-          return;
-        }
-        setSettlementAction("idle");
-        setSettlementMessage(copy.exitSettlement.wageSource.submitDone);
-        await loadPayroll();
-      } catch {
-        setSettlementAction("error");
-        setSettlementMessage(copy.exitSettlement.wageSource.submitFailed);
-      }
-    },
-    [payrollApi, loadPayroll],
-  );
-
   const activeEmployees = useMemo(
     () => employees.filter((employee) => employee.status === "ACTIVE").length,
     [employees],
@@ -220,17 +149,7 @@ export function PayrollPage() {
               employeeTotal={employeeTotal}
             />
             {absenceExitDashboard ? (
-              <ExitSettlementPanel
-                dashboard={absenceExitDashboard}
-                actionState={settlementAction}
-                actionMessage={settlementMessage}
-                onDraft={(caseId, input) => {
-                  void draftSettlement(caseId, input);
-                }}
-                onSubmit={(caseId) => {
-                  void submitSettlement(caseId);
-                }}
-              />
+              <ExitSettlementPanel dashboard={absenceExitDashboard} />
             ) : null}
             <PayrollFlowPanel
               readiness={readiness}
@@ -371,19 +290,10 @@ function PayrollReadinessPanel({
 
 function ExitSettlementPanel({
   dashboard,
-  actionState,
-  actionMessage,
-  onDraft,
-  onSubmit,
 }: {
   dashboard: AbsenceExitDashboardResponse;
-  actionState: SettlementActionState;
-  actionMessage?: string;
-  onDraft: (caseId: string, input: ExitSettlementInput) => void;
-  onSubmit: (caseId: string) => void;
 }) {
   const cases = dashboard.exit_cases;
-  const busy = actionState === "busy";
   const summary = [
     {
       label: copy.exitSettlement.summary.absenceWarnings,
@@ -437,18 +347,6 @@ function ExitSettlementPanel({
         ))}
       </dl>
 
-      {actionMessage ? (
-        <p
-          role={actionState === "error" ? "alert" : "status"}
-          className={[
-            "text-sm font-semibold",
-            actionState === "error" ? "text-red-700" : "text-brand-teal",
-          ].join(" ")}
-        >
-          {actionMessage}
-        </p>
-      ) : null}
-
       {cases.length === 0 ? (
         <p className="rounded-lg border border-line bg-white p-4 text-sm text-steel">
           {copy.exitSettlement.empty}
@@ -456,13 +354,7 @@ function ExitSettlementPanel({
       ) : (
         <div className="grid gap-3">
           {cases.slice(0, 8).map((exitCase) => (
-            <ExitSettlementCaseCard
-              key={exitCase.id}
-              exitCase={exitCase}
-              busy={busy}
-              onDraft={onDraft}
-              onSubmit={onSubmit}
-            />
+            <ExitSettlementCaseCard key={exitCase.id} exitCase={exitCase} />
           ))}
         </div>
       )}
@@ -470,56 +362,15 @@ function ExitSettlementPanel({
   );
 }
 
-/** Statuses at which the exit settlement (wage source + approval) can be worked. */
-const SETTLEMENT_WORKABLE_STATUSES = new Set([
-  "HR_CONFIRMED",
-  "HQ_CONFIRMED",
-  "SETTLEMENT_READY",
-  "APPROVAL_DRAFTED",
-]);
-
-function ExitSettlementCaseCard({
-  exitCase,
-  busy,
-  onDraft,
-  onSubmit,
-}: {
-  exitCase: EmployeeExitCase;
-  busy: boolean;
-  onDraft: (caseId: string, input: ExitSettlementInput) => void;
-  onSubmit: (caseId: string) => void;
-}) {
+/**
+ * Read-only review card: the severance figure and its uncertified-draft label
+ * are DISPLAY only here. Wage-source entry, draft generation, and approval
+ * submission are mutations and live on the insurance-assist exit-workflow
+ * surface (InsuranceAssistPage) instead — see check:payroll-release-gate.
+ */
+function ExitSettlementCaseCard({ exitCase }: { exitCase: EmployeeExitCase }) {
   const settlementPackage = exitCase.settlement_package;
   const insuranceForms = insuranceFormCount(exitCase);
-  const [periodStart, setPeriodStart] = useState("");
-  const [periodEnd, setPeriodEnd] = useState("");
-  const [calendarDays, setCalendarDays] = useState("");
-  const [totalWon, setTotalWon] = useState("");
-  const [ordinaryWage, setOrdinaryWage] = useState("");
-
-  const workable = SETTLEMENT_WORKABLE_STATUSES.has(exitCase.status);
-  const packageReady =
-    settlementPackage?.severance_pay_won != null &&
-    settlementPackage.missing_source_fields.length === 0;
-  const submitted = exitCase.status === "SUBMITTED";
-  const wageCopy = copy.exitSettlement.wageSource;
-
-  const handleDraft = () => {
-    onDraft(exitCase.id, {
-      average_wage_period_start: periodStart,
-      average_wage_period_end: periodEnd,
-      average_wage_calendar_days: Number(calendarDays),
-      average_wage_total_won: Number(totalWon),
-      monthly_ordinary_wage_won: Number(ordinaryWage),
-    });
-  };
-
-  const draftReady =
-    periodStart !== "" &&
-    periodEnd !== "" &&
-    calendarDays !== "" &&
-    totalWon !== "" &&
-    ordinaryWage !== "";
 
   return (
     <section className="grid gap-4 rounded-lg border border-line bg-white p-4">
@@ -596,97 +447,6 @@ function ExitSettlementCaseCard({
             </Badge>
           ))}
         </div>
-      ) : null}
-
-      {submitted ? null : workable ? (
-        <form
-          className="grid gap-3 rounded-lg border border-line bg-muted-panel/30 p-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleDraft();
-          }}
-        >
-          <div>
-            <h4 className="font-semibold text-ink">{wageCopy.title}</h4>
-            <p className="text-xs text-steel">{wageCopy.description}</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <label className="grid gap-1 text-sm font-medium text-steel">
-              {wageCopy.periodStart}
-              <Input
-                type="date"
-                value={periodStart}
-                onChange={(event) => {
-                  setPeriodStart(event.currentTarget.value);
-                }}
-              />
-            </label>
-            <label className="grid gap-1 text-sm font-medium text-steel">
-              {wageCopy.periodEnd}
-              <Input
-                type="date"
-                value={periodEnd}
-                onChange={(event) => {
-                  setPeriodEnd(event.currentTarget.value);
-                }}
-              />
-            </label>
-            <label className="grid gap-1 text-sm font-medium text-steel">
-              {wageCopy.calendarDays}
-              <Input
-                type="number"
-                min={1}
-                inputMode="numeric"
-                value={calendarDays}
-                onChange={(event) => {
-                  setCalendarDays(event.currentTarget.value);
-                }}
-              />
-            </label>
-            <label className="grid gap-1 text-sm font-medium text-steel">
-              {wageCopy.totalWon}
-              <Input
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={totalWon}
-                onChange={(event) => {
-                  setTotalWon(event.currentTarget.value);
-                }}
-              />
-            </label>
-            <label className="grid gap-1 text-sm font-medium text-steel">
-              {wageCopy.monthlyOrdinaryWage}
-              <Input
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={ordinaryWage}
-                onChange={(event) => {
-                  setOrdinaryWage(event.currentTarget.value);
-                }}
-              />
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" size="sm" disabled={busy || !draftReady}>
-              {busy ? wageCopy.generating : wageCopy.generateDraft}
-            </Button>
-            {packageReady ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={busy}
-                onClick={() => {
-                  onSubmit(exitCase.id);
-                }}
-              >
-                {busy ? wageCopy.submitting : wageCopy.submit}
-              </Button>
-            ) : null}
-          </div>
-        </form>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">

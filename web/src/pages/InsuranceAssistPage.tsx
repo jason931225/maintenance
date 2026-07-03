@@ -16,10 +16,12 @@ import type { ConsoleApiClient } from "../api/client";
 import type {
   AbsenceExitDashboardResponse,
   ConfirmEmployeeExitCaseRequest,
+  DraftEmployeeExitApprovalRequest,
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
   EmployeeAbsenceAlert,
   EmployeeExitCase,
+  ExitSettlementInput,
   HrReadinessSummary,
   ReportEmployeeExitCaseRequest,
 } from "../api/types";
@@ -30,6 +32,7 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { useAuth } from "../context/auth";
 import { insuranceAssistKo as copy } from "../i18n/hrWorkflows";
 import {
@@ -77,7 +80,22 @@ type InsuranceAssistApi = ConsoleApiClient & {
       body: ConfirmEmployeeExitCaseRequest;
     },
   ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
+  POST(
+    path: "/api/v1/hr/exit-cases/{id}/approval-draft",
+    options: {
+      params: { path: { id: string } };
+      body: DraftEmployeeExitApprovalRequest;
+    },
+  ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
 };
+
+/** Statuses at which the exit settlement (wage source + approval) can be worked. */
+const SETTLEMENT_WORKABLE_STATUSES = new Set([
+  "HR_CONFIRMED",
+  "HQ_CONFIRMED",
+  "SETTLEMENT_READY",
+  "APPROVAL_DRAFTED",
+]);
 
 interface InsuranceRow {
   employee: EmployeeDirectoryItem;
@@ -210,6 +228,62 @@ export function InsuranceAssistPage() {
     [insuranceApi, loadInsurance],
   );
 
+  const draftSettlement = useCallback(
+    async (caseId: string, input: ExitSettlementInput) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        const { error } = await insuranceApi.POST(
+          "/api/v1/hr/exit-cases/{id}/approval-draft",
+          {
+            params: { path: { id: caseId } },
+            body: { submit: false, settlement_input: input },
+          },
+        );
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.wageSource.draftFailed);
+          return;
+        }
+        setActionState("idle");
+        setActionMessage(copy.exitWorkflow.wageSource.draftCreated);
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage(copy.exitWorkflow.wageSource.draftFailed);
+      }
+    },
+    [insuranceApi, loadInsurance],
+  );
+
+  const submitSettlement = useCallback(
+    async (caseId: string) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        const { error } = await insuranceApi.POST(
+          "/api/v1/hr/exit-cases/{id}/approval-draft",
+          {
+            params: { path: { id: caseId } },
+            body: { submit: true },
+          },
+        );
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.wageSource.submitFailed);
+          return;
+        }
+        setActionState("idle");
+        setActionMessage(copy.exitWorkflow.wageSource.submitDone);
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage(copy.exitWorkflow.wageSource.submitFailed);
+      }
+    },
+    [insuranceApi, loadInsurance],
+  );
+
   return (
     <>
       <PageHeader
@@ -248,6 +322,12 @@ export function InsuranceAssistPage() {
                 onConfirmExit={(exitCase, hqConfirmation) => {
                   void confirmExitCase(exitCase, hqConfirmation);
                 }}
+                onDraftSettlement={(caseId, input) => {
+                  void draftSettlement(caseId, input);
+                }}
+                onSubmitSettlement={(caseId) => {
+                  void submitSettlement(caseId);
+                }}
               />
             ) : null}
             {actionMessage ? (
@@ -275,11 +355,15 @@ function AbsenceExitWorkflowPanel({
   busy,
   onReportExit,
   onConfirmExit,
+  onDraftSettlement,
+  onSubmitSettlement,
 }: {
   dashboard: AbsenceExitDashboardResponse;
   busy: boolean;
   onReportExit: (alert: EmployeeAbsenceAlert) => void;
   onConfirmExit: (exitCase: EmployeeExitCase, hqConfirmation: boolean) => void;
+  onDraftSettlement: (caseId: string, input: ExitSettlementInput) => void;
+  onSubmitSettlement: (caseId: string) => void;
 }) {
   const summary = [
     {
@@ -415,67 +499,213 @@ function AbsenceExitWorkflowPanel({
           ) : (
             <ul className="grid gap-3">
               {dashboard.exit_cases.slice(0, 5).map((exitCase) => (
-                <li
+                <ExitCaseConfirmItem
                   key={exitCase.id}
-                  className="grid gap-2 rounded border border-line p-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-ink">
-                        {exitCase.employee_name} · {exitCase.effective_exit_date}
-                      </p>
-                      <p className="text-xs text-steel">
-                        {display(exitCase.company)} / {display(exitCase.branch_name ?? exitCase.worksite_name)}
-                      </p>
-                    </div>
-                    <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
-                      {exitCaseStatusLabel(exitCase.status, copy.exitWorkflow.status)}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-steel">{exitCase.site_manager_note}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {exitCase.status === "REPORTED" ? (
-                      <Button
-                        type="button"
-                        size="xs"
-                        disabled={busy}
-                        onClick={() => {
-                          onConfirmExit(exitCase, false);
-                        }}
-                      >
-                        {copy.exitWorkflow.hrConfirm}
-                      </Button>
-                    ) : null}
-                    {/* HQ confirmation is a distinct second tier: the backend
-                        state machine only allows it once a DIFFERENT actor has
-                        recorded the HR confirmation (status HR_CONFIRMED), so
-                        the button appears only then. */}
-                    {exitCase.status === "HR_CONFIRMED" ? (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="secondary"
-                        disabled={busy}
-                        onClick={() => {
-                          onConfirmExit(exitCase, true);
-                        }}
-                      >
-                        {copy.exitWorkflow.hqConfirm}
-                      </Button>
-                    ) : null}
-                    <Button asChild type="button" size="xs" variant="ghost">
-                      <Link to={`/payroll?exitCase=${exitCase.id}`}>
-                        {copy.exitWorkflow.settlementMaterial}
-                      </Link>
-                    </Button>
-                  </div>
-                </li>
+                  exitCase={exitCase}
+                  busy={busy}
+                  onConfirmExit={onConfirmExit}
+                  onDraftSettlement={onDraftSettlement}
+                  onSubmitSettlement={onSubmitSettlement}
+                />
               ))}
             </ul>
           )}
         </section>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The exit-settlement mutation surface: wage-source entry, severance-draft
+ * generation, and approval submission. This is the READ/WRITE counterpart to
+ * PayrollPage's read-only severance display — see check:payroll-release-gate,
+ * which forbids mutation API calls on the payroll readiness page.
+ */
+function ExitCaseConfirmItem({
+  exitCase,
+  busy,
+  onConfirmExit,
+  onDraftSettlement,
+  onSubmitSettlement,
+}: {
+  exitCase: EmployeeExitCase;
+  busy: boolean;
+  onConfirmExit: (exitCase: EmployeeExitCase, hqConfirmation: boolean) => void;
+  onDraftSettlement: (caseId: string, input: ExitSettlementInput) => void;
+  onSubmitSettlement: (caseId: string) => void;
+}) {
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [calendarDays, setCalendarDays] = useState("");
+  const [totalWon, setTotalWon] = useState("");
+  const [ordinaryWage, setOrdinaryWage] = useState("");
+
+  const settlementPackage = exitCase.settlement_package;
+  const workable = SETTLEMENT_WORKABLE_STATUSES.has(exitCase.status);
+  const packageReady =
+    settlementPackage?.severance_pay_won != null &&
+    settlementPackage.missing_source_fields.length === 0;
+  const submitted = exitCase.status === "SUBMITTED";
+  const wageCopy = copy.exitWorkflow.wageSource;
+
+  const draftReady =
+    periodStart !== "" &&
+    periodEnd !== "" &&
+    calendarDays !== "" &&
+    totalWon !== "" &&
+    ordinaryWage !== "";
+
+  return (
+    <li className="grid gap-2 rounded border border-line p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-ink">
+            {exitCase.employee_name} · {exitCase.effective_exit_date}
+          </p>
+          <p className="text-xs text-steel">
+            {display(exitCase.company)} / {display(exitCase.branch_name ?? exitCase.worksite_name)}
+          </p>
+        </div>
+        <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
+          {exitCaseStatusLabel(exitCase.status, copy.exitWorkflow.status)}
+        </Badge>
+      </div>
+      <p className="text-sm text-steel">{exitCase.site_manager_note}</p>
+      <div className="flex flex-wrap gap-2">
+        {exitCase.status === "REPORTED" ? (
+          <Button
+            type="button"
+            size="xs"
+            disabled={busy}
+            onClick={() => {
+              onConfirmExit(exitCase, false);
+            }}
+          >
+            {copy.exitWorkflow.hrConfirm}
+          </Button>
+        ) : null}
+        {/* HQ confirmation is a distinct second tier: the backend
+            state machine only allows it once a DIFFERENT actor has
+            recorded the HR confirmation (status HR_CONFIRMED), so
+            the button appears only then. */}
+        {exitCase.status === "HR_CONFIRMED" ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              onConfirmExit(exitCase, true);
+            }}
+          >
+            {copy.exitWorkflow.hqConfirm}
+          </Button>
+        ) : null}
+        <Button asChild type="button" size="xs" variant="ghost">
+          <Link to={`/payroll?exitCase=${exitCase.id}`}>
+            {copy.exitWorkflow.settlementMaterial}
+          </Link>
+        </Button>
+      </div>
+
+      {!submitted && workable ? (
+        <form
+          className="grid gap-3 rounded-lg border border-line bg-muted-panel/30 p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onDraftSettlement(exitCase.id, {
+              average_wage_period_start: periodStart,
+              average_wage_period_end: periodEnd,
+              average_wage_calendar_days: Number(calendarDays),
+              average_wage_total_won: Number(totalWon),
+              monthly_ordinary_wage_won: Number(ordinaryWage),
+            });
+          }}
+        >
+          <div>
+            <h4 className="font-semibold text-ink">{wageCopy.title}</h4>
+            <p className="text-xs text-steel">{wageCopy.description}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.periodStart}
+              <Input
+                type="date"
+                value={periodStart}
+                onChange={(event) => {
+                  setPeriodStart(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.periodEnd}
+              <Input
+                type="date"
+                value={periodEnd}
+                onChange={(event) => {
+                  setPeriodEnd(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.calendarDays}
+              <Input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                value={calendarDays}
+                onChange={(event) => {
+                  setCalendarDays(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.totalWon}
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={totalWon}
+                onChange={(event) => {
+                  setTotalWon(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.monthlyOrdinaryWage}
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={ordinaryWage}
+                onChange={(event) => {
+                  setOrdinaryWage(event.currentTarget.value);
+                }}
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="submit" size="sm" disabled={busy || !draftReady}>
+              {busy ? wageCopy.generating : wageCopy.generateDraft}
+            </Button>
+            {packageReady ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  onSubmitSettlement(exitCase.id);
+                }}
+              >
+                {busy ? wageCopy.submitting : wageCopy.submit}
+              </Button>
+            ) : null}
+          </div>
+        </form>
+      ) : null}
+    </li>
   );
 }
 

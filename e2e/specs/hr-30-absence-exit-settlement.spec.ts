@@ -12,12 +12,15 @@ import {
 /**
  * HR-30 — absence → exit → settlement, the full G009 user story end to end.
  *
- * This is the browser proof for US-008: an attendance gap surfaces an absence
- * alert; a manager reports the exit; HR confirms; a DIFFERENT actor (HQ) makes
- * the second-tier confirmation the backend's separation-of-duties rule requires;
- * then the settlement wage source is entered, the severance figure renders with
- * the "산정 초안 — 노무사 검증 전" uncertified-draft label, and the package is
- * submitted for approval.
+ * This is the browser proof for US-008/US-011: an attendance gap surfaces an
+ * absence alert; a manager reports the exit; HR confirms; a DIFFERENT actor
+ * (HQ) makes the second-tier confirmation the backend's separation-of-duties
+ * rule requires; then the settlement wage source is entered and the package is
+ * submitted for approval — all driven from the insurance-assist exit-workflow
+ * surface (/hr/insurance), since check:payroll-release-gate forbids mutation
+ * API calls on the payroll readiness page. The severance figure and its
+ * "산정 초안 — 노무사 검증 전" uncertified-draft label are then verified as a
+ * READ-ONLY display on the payroll page.
  *
  * Auth model: the local dev-auth role switcher (same stack as
  * auth-09-dev-role-switcher.spec.ts). It mints REAL signed sessions per role
@@ -168,8 +171,46 @@ test("G009 absence gap → exit report → HR confirm → HQ confirm (distinct a
     timeout: 15_000,
   });
 
-  // --- Actor A: settle on the payroll surface — wage source, draft, submit. ---
+  // --- Actor A: settle via the insurance-assist mutation surface — wage
+  // source entry and draft generation. PayrollPage is READ-ONLY (see
+  // check:payroll-release-gate), so these mutations live here instead. ---
   await loginAs(page, "최고 관리자");
+  await navigateByHref(page, "/hr/insurance");
+  await expect(
+    page.getByRole("heading", { name: "보험신고 지원", level: 1 }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // Scope to THIS run's case within the confirmation/settlement list — prior
+  // runs may leave other exit cases in workable states in the same top-N slice.
+  // The shared Card component also renders a <section>, so the panel-level
+  // <section> wrapping BOTH sub-lists also matches by text; .last() picks the
+  // innermost (confirmation-list-only) section.
+  const confirmationSection = page
+    .locator("section")
+    .filter({ hasText: "퇴사 확인 및 상실신고 준비" })
+    .last();
+  const settlementItem = confirmationSection
+    .getByRole("listitem")
+    .filter({ hasText: employeeName });
+  await expect(settlementItem).toBeVisible();
+
+  // Wage-source entry drives the statutory severance calculation.
+  await expect(settlementItem.getByText("평균임금 원천 입력")).toBeVisible();
+  await settlementItem.getByLabel("산정 시작일").fill("2026-04-01");
+  await settlementItem.getByLabel("산정 종료일").fill("2026-06-30");
+  await settlementItem.getByLabel("산정 역일수").fill("91");
+  await settlementItem.getByLabel("산정 기간 임금총액(원)").fill("9000000");
+  await settlementItem.getByLabel("월 통상임금(원)").fill("3000000");
+  await settlementItem.getByRole("button", { name: "정산 초안 산출" }).click();
+
+  await expect(page.getByText("퇴직금 정산 초안을 산출했습니다.")).toBeVisible({
+    timeout: 15_000,
+  });
+  await assertNoRawI18nKeys(page);
+  await assertNoAxeViolations(page, { context: "insurance-assist (settlement draft)" });
+
+  // --- The severance figure + uncertified-draft label render READ-ONLY on
+  // the payroll surface — a labor attorney has not yet certified the draft. ---
   await navigateByHref(page, "/payroll");
   await expect(
     page.getByRole("heading", { name: "급여 준비", level: 1 }),
@@ -184,28 +225,18 @@ test("G009 absence gap → exit report → HR confirm → HQ confirm (distinct a
     .filter({ hasText: employeeName })
     .last();
   await expect(settlementCard).toBeVisible();
-
-  // Wage-source entry drives the statutory severance calculation.
-  await expect(settlementCard.getByText("평균임금 원천 입력")).toBeVisible();
-  await settlementCard.getByLabel("산정 시작일").fill("2026-04-01");
-  await settlementCard.getByLabel("산정 종료일").fill("2026-06-30");
-  await settlementCard.getByLabel("산정 역일수").fill("91");
-  await settlementCard.getByLabel("산정 기간 임금총액(원)").fill("9000000");
-  await settlementCard.getByLabel("월 통상임금(원)").fill("3000000");
-  await settlementCard.getByRole("button", { name: "정산 초안 산출" }).click();
-
-  await expect(page.getByText("퇴직금 정산 초안을 산출했습니다.")).toBeVisible({
-    timeout: 15_000,
-  });
-  // The severance figure renders WITH the uncertified-draft label — a labor
-  // attorney has not yet certified the draft.
   await expect(settlementCard.getByText("퇴직금 산출액", { exact: true })).toBeVisible();
   await expect(settlementCard.getByText("산정 초안 — 노무사 검증 전")).toBeVisible();
   await assertNoRawI18nKeys(page);
-  await assertNoAxeViolations(page, { context: "payroll (settlement draft)" });
+  await assertNoAxeViolations(page, { context: "payroll (settlement draft, read-only)" });
 
-  // Approval submission closes the story.
-  await settlementCard.getByRole("button", { name: "승인 상신" }).click();
+  // --- Approval submission closes the story, driven from the
+  // insurance-assist mutation surface. ---
+  await navigateByHref(page, "/hr/insurance");
+  const submitItem = confirmationSection
+    .getByRole("listitem")
+    .filter({ hasText: employeeName });
+  await submitItem.getByRole("button", { name: "승인 상신" }).click();
   await expect(page.getByText("퇴직금 정산을 승인 상신했습니다.")).toBeVisible({
     timeout: 15_000,
   });
