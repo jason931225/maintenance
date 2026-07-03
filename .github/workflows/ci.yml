@@ -161,6 +161,65 @@ jobs:
       - name: RLS-arming gate
         run: cargo run -p mnt-gate-rls-arming
 
+  dev-up-smoke:
+    name: dev-up.mjs smoke — compose deps + migrate + /readyz
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Free runner disk for Rust backend
+        run: |
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /opt/hostedtoolcache/CodeQL
+          docker system prune -af || true
+          df -h /
+
+      - name: Install Rust toolchain (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cache Cargo registry + build artifacts
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: dev-up bootstrap (compose deps + migrate + backend readyz)
+        # macOS/Windows GH-hosted runners cannot run Linux containers reliably,
+        # so this smoke test is ubuntu-only; the other OSes' acceptance is the
+        # `doctor` self-check (documented deviation from the plan's "macos
+        # runner" wording, per W2.5 reviewer note).
+        run: node scripts/dev-up.mjs bootstrap
+
+      - name: Confirm /readyz reachable
+        run: curl -fsS "http://127.0.0.1:${MNT_DEV_HTTP_PORT:-8090}/readyz"
+
+      - name: dev-up down
+        if: always()
+        run: node scripts/dev-up.mjs down
+
   api-clients:
     name: API clients — TypeScript / Kotlin generation and compile
     runs-on: ubuntu-latest

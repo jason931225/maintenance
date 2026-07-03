@@ -1,0 +1,32 @@
+services:
+  # DEV-ONLY: publish the OTEL collector's OTLP/gRPC port so a host-launched
+  # (bacon) mnt-app can export traces without joining the compose network.
+  # ops/compose.yml only `expose`s this internally; not for production.
+  otel-collector:
+    ports:
+      - "127.0.0.1:${MNT_OTEL_PORT:-4317}:4317"
+
+  # DEV-ONLY: fake SMTP catcher so transactional email (open-signup OTP, etc.)
+  # can be sent and inspected locally instead of hitting a real relay. Never
+  # part of ops/compose.yml itself — this is the dev deps profile's addition.
+  mailpit:
+    image: axllent/mailpit:v1.27.5
+    ports:
+      - "127.0.0.1:${MNT_MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MNT_MAILPIT_UI_PORT:-8025}:8025"
+    volumes:
+      - mailpit-data:/data
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8025/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    mem_limit: 128m
+    cpus: 0.25
+    restart: unless-stopped
+
+volumes:
+  mailpit-data:
