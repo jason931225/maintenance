@@ -113,6 +113,19 @@ const readinessSummary = {
   },
 };
 
+const absenceExitDashboard = {
+  summary: {
+    open_absence_alerts: 0,
+    exit_cases_pending_hr: 0,
+    settlement_needs_source: 0,
+    settlement_ready: 0,
+    approval_drafts: 0,
+    submitted: 0,
+  },
+  alerts: [],
+  exit_cases: [],
+};
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
@@ -159,6 +172,9 @@ describe("InsuranceAssistPage", () => {
       ),
       http.get("*/api/v1/hr/readiness-summary", () =>
         HttpResponse.json(readinessSummary),
+      ),
+      http.get("*/api/v1/hr/absence-exit-dashboard", () =>
+        HttpResponse.json(absenceExitDashboard),
       ),
     );
 

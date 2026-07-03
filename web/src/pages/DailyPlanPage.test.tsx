@@ -139,6 +139,23 @@ function dailyPlansHandler() {
   );
 }
 
+function absenceExitDashboardHandler() {
+  return http.get("*/api/v1/hr/absence-exit-dashboard", () =>
+    HttpResponse.json({
+      summary: {
+        open_absence_alerts: 0,
+        exit_cases_pending_hr: 0,
+        settlement_needs_source: 0,
+        settlement_ready: 0,
+        approval_drafts: 0,
+        submitted: 0,
+      },
+      alerts: [],
+      exit_cases: [],
+    }),
+  );
+}
+
 function planSummary(status: string) {
   return {
     id: planId,
@@ -171,6 +188,7 @@ describe("DailyPlanPage", () => {
 
     server.use(
       dailyPlansHandler(),
+      absenceExitDashboardHandler(),
       usersHandler(),
       workOrdersHandler(),
       http.post("*/api/daily-work-plans", async ({ request }) => {
@@ -194,7 +212,7 @@ describe("DailyPlanPage", () => {
     renderApp(makeAuthContext(adminSession));
 
     // Create
-    await screen.findByRole("option", { name: "김정비" });
+    await screen.findByRole("option", { name: "김정비" }, { timeout: 3000 });
     expect(screen.queryByLabelText("담당 정비사")).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("정비사"), primaryMechanicId);
     const dateInput = screen.getByLabelText("계획 일자");
@@ -249,6 +267,7 @@ describe("DailyPlanPage", () => {
     const user = userEvent.setup();
     server.use(
       dailyPlansHandler(),
+      absenceExitDashboardHandler(),
       usersHandler(),
       workOrdersHandler(),
       http.post("*/api/daily-work-plans", () =>
