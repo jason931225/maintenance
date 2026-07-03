@@ -784,38 +784,28 @@ impl DevPrincipalProvisioner {
                     }
                 }
 
-                let existing = sqlx::query("SELECT id FROM users WHERE org_id = $1 AND phone = $2 FOR UPDATE")
-                    .bind(org_uuid)
-                    .bind(&dev_key)
-                    .fetch_optional(tx.as_mut())
-                    .await?;
-
-                let user_id: Uuid = if let Some(row) = existing {
-                    let user_id: Uuid = row.try_get("id")?;
-                    sqlx::query(
-                        "UPDATE users SET display_name = $1, roles = $2, is_active = true WHERE id = $3",
-                    )
-                    .bind(&request.display_name)
-                    .bind(&roles)
-                    .bind(user_id)
-                    .execute(tx.as_mut())
-                    .await?;
-                    user_id
-                } else {
-                    sqlx::query_scalar(
-                        r#"
-                        INSERT INTO users (display_name, phone, roles, is_active, org_id)
-                        VALUES ($1, $2, $3, true, $4)
-                        RETURNING id
-                        "#,
-                    )
-                    .bind(&request.display_name)
-                    .bind(&dev_key)
-                    .bind(&roles)
-                    .bind(org_uuid)
-                    .fetch_one(tx.as_mut())
-                    .await?
-                };
+                // `ON CONFLICT (phone) WHERE phone IS NOT NULL` targets
+                // `idx_users_phone_unique_present` (0006_create_provisioning.sql)
+                // atomically: a `SELECT ... FOR UPDATE` on zero rows locks
+                // nothing, so two concurrent FIRST mints for the same (org,
+                // role) would both insert and 500 on the unique-index conflict.
+                let user_id: Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO users (display_name, phone, roles, is_active, org_id)
+                    VALUES ($1, $2, $3, true, $4)
+                    ON CONFLICT (phone) WHERE phone IS NOT NULL
+                    DO UPDATE SET display_name = EXCLUDED.display_name,
+                                  roles = EXCLUDED.roles,
+                                  is_active = true
+                    RETURNING id
+                    "#,
+                )
+                .bind(&request.display_name)
+                .bind(&dev_key)
+                .bind(&roles)
+                .bind(org_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
 
                 let existing_branch_rows: Vec<Uuid> =
                     sqlx::query_scalar("SELECT branch_id FROM user_branches WHERE user_id = $1")

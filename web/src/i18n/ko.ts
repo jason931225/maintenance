@@ -749,6 +749,18 @@ export const ko = {
       description:
         "선택한 조직·역할·지점으로 실제 백엔드에 로그인합니다 (dev-auth 빌드에서만 동작).",
       roleLabel: "역할",
+      // One entry per dev-auth ROLE_OPTIONS value (RoleSwitcher.tsx) — kept
+      // complete here (rather than borrowed from platform.viewAs.roles) so
+      // TypeScript's structural typing guarantees every option has a real
+      // label, never a raw role code.
+      roles: {
+        SUPER_ADMIN: "최고 관리자",
+        ADMIN: "관리자",
+        EXECUTIVE: "임원",
+        MECHANIC: "정비사",
+        RECEPTIONIST: "접수 담당",
+        MEMBER: "일반 멤버",
+      },
       orgLabel: "조직 ID",
       branchLabel: "지점 ID (쉼표로 구분, 관리자 외 역할은 필수)",
       submit: "역할로 로그인",

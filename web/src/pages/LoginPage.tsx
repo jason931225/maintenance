@@ -1,13 +1,12 @@
 import { KeyRound, Mail, QrCode, Smartphone, Ticket } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { useAuth } from "../context/auth";
-import { RoleSwitcher } from "../features/auth/RoleSwitcher";
 import { ko } from "../i18n/ko";
 import {
   OtpRedeemError,
@@ -53,6 +52,18 @@ function safeLoginFragment(hash: string): {
     desktopApprove: safeDeviceApproveToken(params.get("desktop_approve")),
   };
 }
+
+// DEV-gated dynamic import: `import.meta.env.DEV` is a build-time constant, so
+// Vite/Rollup dead-code-eliminates this whole branch (including the
+// "dev-auth/session" string inside RoleSwitcher.tsx) out of a production
+// build — it never becomes a chunk, not just an inert one.
+const RoleSwitcher = import.meta.env.DEV
+  ? lazy(() =>
+      import("../features/auth/RoleSwitcher").then((m) => ({
+        default: m.RoleSwitcher,
+      })),
+    )
+  : null;
 
 export function LoginPage() {
   const { session, restoring, login, acceptTokens, api } = useAuth();
@@ -477,7 +488,11 @@ export function LoginPage() {
             </p>
           ) : null}
 
-          <RoleSwitcher />
+          {RoleSwitcher ? (
+            <Suspense fallback={null}>
+              <RoleSwitcher />
+            </Suspense>
+          ) : null}
         </Card>
       </div>
     </div>

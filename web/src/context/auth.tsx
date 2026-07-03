@@ -337,6 +337,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   //    would POST the SAME single-use refresh token concurrently, and the
   //    backend's reuse-detection would treat the second arrival as a replay
   //    and revoke the whole refresh family (see refresh-tokens tests).
+  // Intentionally never reset after being set once: `bootApi` is a stable
+  // (useMemo, empty-deps) client, so this effect's `[bootApi]` dependency
+  // never changes and the boot refresh runs exactly one real "session" of the
+  // app's lifetime — there is no later point where re-arming the ref would be
+  // correct.
   const bootRefreshPromiseRef = useRef<ReturnType<typeof refreshTokenFn> | null>(
     null,
   );

@@ -212,6 +212,115 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Plan W3.3(c) / pre-mortem #1: the dev-auth local role-switch endpoint must
+  # be REACHABLE NOWHERE outside a dev build. `mnt-gate-dev-auth-absence`
+  # (backend job) proves it at the cargo-metadata feature-graph level, and
+  # `dev_auth_absence.rs` proves it at the HTTP level for a plain `cargo test`
+  # build — this is the THIRD, primary proof: the exact signed image that
+  # ships. Runs the freshly built+signed `mnt-app` digest for real and asserts
+  # its route table has no `/api/v1/dev-auth/session` at all (404, not a 401/
+  # 400 that would mean the route exists but rejected the request).
+  release-probe:
+    name: mnt-app image — dev-auth route absence probe
+    needs: images
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_DB: mnt_release_probe
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mnt_release_probe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Download mnt-app digest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: digest-mnt-app
+          path: digests
+
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the just-built, just-signed image by digest
+        run: |
+          DIGEST="$(cat digests/digest-mnt-app.txt)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/mnt-app@${DIGEST}"
+          docker pull "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      # A throwaway ES256 keypair: this probe only needs the app to BOOT and
+      # answer /readyz + the one route check, never a real ceremony.
+      - name: Generate a throwaway ES256 keypair
+        run: |
+          openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out /tmp/probe-priv.pem
+          openssl ec -in /tmp/probe-priv.pem -pubout -out /tmp/probe-pub.pem
+          {
+            echo "PROBE_JWT_PRIVATE_KEY_PEM<<PROBE_PEM_EOF"
+            cat /tmp/probe-priv.pem
+            echo "PROBE_PEM_EOF"
+            echo "PROBE_JWT_PUBLIC_KEY_PEM<<PROBE_PEM_EOF"
+            cat /tmp/probe-pub.pem
+            echo "PROBE_PEM_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Run migrations against the probe database
+        run: |
+          docker run --rm --network host \
+            -e MNT_APP_ROLE=migrate \
+            -e DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/mnt_release_probe" \
+            "$IMAGE"
+
+      - name: Boot the release image (the real published image — no dev-auth flag exists to pass)
+        run: |
+          docker run -d --network host --name mnt-app-probe \
+            -e MNT_APP_ROLE=api \
+            -e DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/mnt_release_probe" \
+            -e MNT_HTTP_ADDR=127.0.0.1:8091 \
+            -e MNT_JWT_ISSUER=release-probe \
+            -e MNT_JWT_AUDIENCE=release-probe \
+            -e MNT_JWT_PRIVATE_KEY_PEM="$PROBE_JWT_PRIVATE_KEY_PEM" \
+            -e MNT_JWT_PUBLIC_KEY_PEM="$PROBE_JWT_PUBLIC_KEY_PEM" \
+            -e MNT_WEBAUTHN_RP_ID=localhost \
+            -e MNT_WEBAUTHN_RP_ORIGIN=http://localhost \
+            -e MNT_COOKIE_SECURE=false \
+            "$IMAGE"
+
+      - name: Wait for /readyz
+        run: |
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8091/readyz && exit 0
+            sleep 2
+          done
+          echo "::error::mnt-app never became ready"
+          docker logs mnt-app-probe || true
+          exit 1
+
+      - name: Assert POST /api/v1/dev-auth/session is ABSENT (404) in the shipped image
+        run: |
+          status="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8091/api/v1/dev-auth/session -H 'Content-Type: application/json' -d '{}')"
+          echo "status=$status"
+          if [ "$status" != "404" ]; then
+            echo "::error::dev-auth route answered with $status (expected 404 — not reachable) in the release image"
+            docker logs mnt-app-probe || true
+            exit 1
+          fi
+
+      - name: Stop the probe container
+        if: always()
+        run: docker rm -f mnt-app-probe || true
+
   # Auto digest-bump: writes the two freshly built+signed digests into the prod
   # kustomize overlay and commits back to the triggering branch, eliminating the
   # manual "extract digest -> hand-edit kustomization" toil. The Argo Rollouts
@@ -220,7 +329,7 @@ jobs:
   bump-digests:
     name: Auto-bump prod overlay digests
     runs-on: ubuntu-latest
-    needs: images
+    needs: [images, release-probe]
     if: >-
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/heads/') &&

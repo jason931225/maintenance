@@ -141,15 +141,13 @@ async function assertPortFree(port, label) {
   }
 }
 
-// `detached: true` (used for bootstrap's backgrounded cargo run) makes the
-// child the leader of its own process group, so a plain SIGTERM to its pid
-// only reaches cargo — the mnt-app binary cargo spawns as a real child
-// process (cargo does not exec-replace itself) survives as an orphan holding
-// the port. Signalling the negative pid reaches the whole group instead.
+// `detached: true` makes the child the leader of its own process group,
+// so a plain SIGTERM to its pid can leave grandchildren (mnt-app/vite)
+// orphaned. Signalling the group reaches the whole background stack.
 function stopBackendProcess(proc) {
   if (!proc?.pid) return;
   try {
-    if (proc.mode === "cargo") {
+    if (proc.group || proc.mode === "cargo") {
       if (process.platform === "win32") {
         spawnSync("taskkill", ["/T", "/F", "/PID", String(proc.pid)]);
       } else {
@@ -637,23 +635,38 @@ async function cmdUp() {
   await new Promise(() => {}); // stay foreground while bacon/vite run
 }
 
+// MNT_DEV_AUTH_E2E=1 additionally builds the backend with --features dev-auth
+// and starts the Vite dev server in the background too, so the dev-mode e2e
+// project (playwright.config.ts, "dev-auth") has a real stack to run against.
+// Plain `bootstrap` (the existing CI "dev-up-smoke" job) is unaffected.
 async function cmdBootstrap() {
   await assertPortFree(PORTS.backend, "backend");
   await bringUpDeps();
   runMigrations();
 
+  const devAuth = process.env.MNT_DEV_AUTH_E2E === "1";
   const appEnv = buildAppEnv("api");
   mkdirSync(STATE_DIR, { recursive: true });
   const logFile = path.join(STATE_DIR, "backend.log");
   const out = openSync(logFile, "a");
-  log(`starting mnt-app (api) in the background, logging to ${path.relative(REPO_ROOT, logFile)}...`);
-  const backend = spawn("cargo", ["run", "-q", "-p", "mnt-app"], {
+  const cargoArgs = devAuth
+    ? ["run", "-q", "-p", "mnt-app", "--features", "dev-auth"]
+    : ["run", "-q", "-p", "mnt-app"];
+  log(
+    `starting mnt-app (api${devAuth ? ", --features dev-auth" : ""}) in the background, logging to ${path.relative(REPO_ROOT, logFile)}...`,
+  );
+  const backend = spawn("cargo", cargoArgs, {
     cwd: BACKEND_DIR,
     env: appEnv,
     stdio: ["ignore", out, out],
     detached: process.platform !== "win32",
   });
-  const backendState = { pid: backend.pid, mode: "cargo", logFile };
+  const backendState = {
+    pid: backend.pid,
+    mode: "cargo",
+    logFile,
+    group: process.platform !== "win32",
+  };
   let ready = false;
   const backendStart = new Promise((_, reject) => {
     let settled = false;
@@ -684,10 +697,6 @@ async function cmdBootstrap() {
   });
   backend.unref();
 
-  writePidState({ startedBy: "bootstrap", backend: backendState, web: null });
-
-  // Same failure mode as cmdUp: a failed readiness wait should not leave the
-  // detached cargo/mnt-app process group behind holding the port.
   try {
     await Promise.race([
       waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000),
@@ -699,6 +708,56 @@ async function cmdBootstrap() {
   }
   ready = true;
   log(`/readyz green at http://127.0.0.1:${PORTS.backend}/readyz`);
+
+  let webState = null;
+  if (devAuth) {
+    const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
+    const webLogFile = path.join(STATE_DIR, "web.log");
+    const webOut = openSync(webLogFile, "a");
+    log(`starting vite dev server in the background, logging to ${path.relative(REPO_ROOT, webLogFile)}...`);
+    const web = spawn(npmBin, ["run", "web:dev"], {
+      cwd: REPO_ROOT,
+      env: { ...appEnv, VITE_PROXY_TARGET: `http://127.0.0.1:${PORTS.backend}` },
+      stdio: ["ignore", webOut, webOut],
+      detached: process.platform !== "win32",
+    });
+    webState = {
+      pid: web.pid,
+      mode: "npm",
+      logFile: webLogFile,
+      group: process.platform !== "win32",
+    };
+    const webStart = new Promise((_, reject) => {
+      let settled = false;
+      const fail = (message) => {
+        if (!settled) {
+          settled = true;
+          reject(new Error(message));
+        }
+      };
+      web.once("error", (err) => fail(`could not start vite: ${err.message}`));
+      web.once("exit", (code, signal) => {
+        fail(code === null ? `vite exited by signal ${signal}` : `vite exited with code ${code}`);
+      });
+      web.once("close", (code, signal) => {
+        fail(code === null ? `vite closed by signal ${signal}` : `vite closed with code ${code}`);
+      });
+    });
+    web.unref();
+    try {
+      await Promise.race([
+        waitForHttp(`http://localhost:${PORTS.vite}/`, 60_000),
+        webStart,
+      ]);
+    } catch (err) {
+      stopBackendProcess(webState);
+      stopBackendProcess(backendState);
+      throw err;
+    }
+    log(`Vite dev server green at http://localhost:${PORTS.vite}/`);
+  }
+
+  writePidState({ startedBy: "bootstrap", backend: backendState, web: webState });
   printUrls();
 }
 

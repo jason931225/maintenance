@@ -19,9 +19,8 @@ const ROLE_OPTIONS = [
 /** KNL Logistics — tenant #1, seeded by every migration/cold-start (`OrgId::knl()`). */
 const DEFAULT_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
 
-function roleLabel(role: string): string {
-  const roles = ko.platform.viewAs.roles as Record<string, string>;
-  return roles[role] ?? role;
+function roleLabel(role: (typeof ROLE_OPTIONS)[number]): string {
+  return ko.auth.roleSwitcher.roles[role];
 }
 
 /** Same predicate every prior dev-only affordance used: DEV build, local host. */
