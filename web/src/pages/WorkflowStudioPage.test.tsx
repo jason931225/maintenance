@@ -462,6 +462,12 @@ describe("WorkflowStudioPage", () => {
     expect(
       await screen.findByText("워크플로 초안을 저장했습니다."),
     ).toBeInTheDocument();
+    expect(screen.getByLabelText("워크플로 키")).toHaveValue(
+      "work_order.completion_review",
+    );
+    expect(
+      screen.queryByRole("button", { name: "편집 취소" }),
+    ).not.toBeInTheDocument();
   });
 
   it("archives a draft with passkey step-up and removes it from the list", async () => {

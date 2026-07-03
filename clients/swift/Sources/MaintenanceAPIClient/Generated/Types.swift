@@ -7794,12 +7794,12 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/WorkflowStepUpRequest`.
         public struct WorkflowStepUpRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/WorkflowStepUpRequest/step_up`.
-            public var stepUp: Components.Schemas.PasskeyStepUpAssertion?
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion
             /// Creates a new `WorkflowStepUpRequest`.
             ///
             /// - Parameters:
             ///   - stepUp:
-            public init(stepUp: Components.Schemas.PasskeyStepUpAssertion? = nil) {
+            public init(stepUp: Components.Schemas.PasskeyStepUpAssertion) {
                 self.stepUp = stepUp
             }
             public enum CodingKeys: String, CodingKey {

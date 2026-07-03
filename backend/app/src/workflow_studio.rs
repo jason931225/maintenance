@@ -1496,6 +1496,19 @@ struct NormalizedWorkflowDefinitionUpdate {
 fn normalize_update_request(
     body: UpdateWorkflowDefinitionRequest,
 ) -> Result<NormalizedWorkflowDefinitionUpdate, WorkflowStudioError> {
+    if body.display_name.is_none()
+        && body.definition.is_none()
+        && body.approval_line.is_none()
+        && body.payment_line.is_none()
+        && body.notification_rules.is_none()
+        && body.action_allowlist.is_none()
+        && body.required_approval_line.is_none()
+        && body.required_payment_line.is_none()
+    {
+        return Err(WorkflowStudioError::validation(
+            "workflow draft update requires at least one field",
+        ));
+    }
     let display_name = body
         .display_name
         .map(|value| normalize_display_name(&value))
@@ -2334,6 +2347,27 @@ mod tests {
 
         assert_eq!(err.status, StatusCode::CONFLICT);
         assert_eq!(err.code, "invalid_transition");
+        Ok(())
+    }
+
+    #[test]
+    fn draft_update_rejects_empty_payload() -> Result<(), String> {
+        let err = match normalize_update_request(UpdateWorkflowDefinitionRequest {
+            display_name: None,
+            definition: None,
+            approval_line: None,
+            payment_line: None,
+            notification_rules: None,
+            action_allowlist: None,
+            required_approval_line: None,
+            required_payment_line: None,
+        }) {
+            Ok(_) => return Err("empty updates must not append no-op draft versions".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(err.code, "validation");
         Ok(())
     }
 

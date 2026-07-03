@@ -251,6 +251,7 @@ export function WorkflowStudioPage() {
         );
         setSelectedDefinitionId(updated.id);
         setEditingDefinitionId(undefined);
+        setDraftForm(DEFAULT_DRAFT_FORM);
         await loadHistory(updated.id);
         showSuccess(ko.workflowStudio.updateSuccess);
       } else {

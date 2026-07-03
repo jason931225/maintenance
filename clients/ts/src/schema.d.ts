@@ -4567,7 +4567,7 @@ export interface components {
         };
         /** @description Fresh passkey step-up assertion for a sensitive Workflow Studio mutation. */
         WorkflowStepUpRequest: {
-            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
         };
         RollbackWorkflowDefinitionRequest: {
             /** Format: int32 */

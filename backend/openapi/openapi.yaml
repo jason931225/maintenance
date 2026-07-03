@@ -8601,6 +8601,7 @@ components:
     UpdateWorkflowDefinitionRequest:
       type: object
       description: Partial update for a DRAFT workflow definition. Workflow key and object type are immutable.
+      minProperties: 1
       properties:
         display_name:
           type: string
@@ -8633,6 +8634,8 @@ components:
     WorkflowStepUpRequest:
       type: object
       description: Fresh passkey step-up assertion for a sensitive Workflow Studio mutation.
+      required:
+      - step_up
       properties:
         step_up:
           $ref: '#/components/schemas/PasskeyStepUpAssertion'
