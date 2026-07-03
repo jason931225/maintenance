@@ -184,10 +184,32 @@ function runtimeBin(compose) {
   return compose.bin === "docker-compose" ? "docker" : compose.bin;
 }
 
-async function waitForContainersHealthy(compose, services, timeoutMs) {
+function composeServiceIds(compose, services, env) {
+  const ps = runCompose(compose, ["ps", "-q", ...services], {
+    cwd: REPO_ROOT,
+    env,
+    encoding: "utf8",
+  });
+  if (ps.status !== 0) throw new Error("docker compose ps (deps) failed");
+  return ps.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+async function waitForContainersHealthy(compose, services, timeoutMs, env) {
   const bin = runtimeBin(compose);
   const deadline = Date.now() + timeoutMs;
-  const pending = new Set(services.map((s) => `${COMPOSE_PROJECT}-${s}-1`));
+  let pending = new Set();
+  while (pending.size < services.length) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `timed out waiting for compose containers: ${services.join(", ")}`,
+      );
+    }
+    pending = new Set(composeServiceIds(compose, services, env));
+    if (pending.size < services.length) await sleep(1000);
+  }
   while (pending.size > 0) {
     if (Date.now() > deadline) {
       throw new Error(
@@ -390,7 +412,7 @@ async function bringUpDeps() {
   if (up.status !== 0) throw new Error("docker compose up (deps) failed");
 
   log("waiting for deps to report healthy...");
-  await waitForContainersHealthy(compose, DEPS_SERVICES, 180_000);
+  await waitForContainersHealthy(compose, DEPS_SERVICES, 180_000, composeEnv);
 
   log("ensuring SeaweedFS evidence buckets exist...");
   await ensureBucket(PORTS.s3, "mnt-evidence");
@@ -506,7 +528,7 @@ async function cmdUp() {
   });
 
   let shuttingDown = false;
-  const shutdown = () => {
+  const shutdown = (exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
     log("stopping bacon + vite (docker deps stay up — run `dev-up.mjs down` to stop them)...");
@@ -519,23 +541,29 @@ async function cmdUp() {
         }
       }
     }
-    process.exit(0);
+    process.exit(exitCode);
   };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", () => shutdown(0));
+  process.once("SIGTERM", () => shutdown(0));
   backend.on("error", (err) => {
     log(`ERROR: could not start bacon: ${err.message} (run \`dev-up.mjs doctor\`)`);
-    shutdown();
+    shutdown(1);
   });
   web.on("error", (err) => {
     log(`ERROR: could not start npm/vite: ${err.message} (run \`dev-up.mjs doctor\`)`);
-    shutdown();
+    shutdown(1);
   });
   backend.on("exit", (code) => {
-    if (code !== 0 && code !== null) log(`bacon exited with code ${code}`);
+    if (code !== 0 && code !== null) {
+      log(`bacon exited with code ${code}`);
+      shutdown(1);
+    }
   });
   web.on("exit", (code) => {
-    if (code !== 0 && code !== null) log(`vite exited with code ${code}`);
+    if (code !== 0 && code !== null) {
+      log(`vite exited with code ${code}`);
+      shutdown(1);
+    }
   });
 
   log(`waiting for /readyz on http://127.0.0.1:${PORTS.backend}/readyz ...`);
@@ -560,8 +588,15 @@ async function cmdBootstrap() {
     stdio: ["ignore", out, out],
     detached: process.platform !== "win32",
   });
-  backend.on("error", (err) => {
-    throw new Error(`could not start cargo: ${err.message}`);
+  let ready = false;
+  const backendStart = new Promise((_, reject) => {
+    backend.once("error", (err) => {
+      if (ready) {
+        log(`ERROR: cargo process error after readiness: ${err.message}`);
+      } else {
+        reject(new Error(`could not start cargo: ${err.message}`));
+      }
+    });
   });
   backend.unref();
 
@@ -571,7 +606,11 @@ async function cmdBootstrap() {
     web: null,
   });
 
-  await waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000);
+  await Promise.race([
+    waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000),
+    backendStart,
+  ]);
+  ready = true;
   log(`/readyz green at http://127.0.0.1:${PORTS.backend}/readyz`);
   printUrls();
 }

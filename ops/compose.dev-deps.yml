@@ -19,7 +19,7 @@ services:
     environment:
       MP_DATABASE: /data/mailpit.db
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8025/readyz"]
+      test: ["CMD", "/mailpit", "readyz"]
       interval: 10s
       timeout: 5s
       retries: 6
