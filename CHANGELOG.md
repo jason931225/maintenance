@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.37](https://github.com/jason931225/maintenance/compare/v0.1.36...v0.1.37) (2026-07-03)
+
+
+### Features
+
+* **dev:** add local full-stack dev-up orchestrator ([#155](https://github.com/jason931225/maintenance/issues/155)) ([6d42736](https://github.com/jason931225/maintenance/commit/6d427367c8f8cef904444ac9575be1ee5c41ee66))
+
+
+### Bug Fixes
+
+* **docker:** include backend/vendor in mnt-app build context ([#159](https://github.com/jason931225/maintenance/issues/159)) ([8cab093](https://github.com/jason931225/maintenance/commit/8cab0936dc3fab9cb63f9a1501feb8af71fbb513))
+
 ## [0.1.36](https://github.com/jason931225/maintenance/compare/v0.1.35...v0.1.36) (2026-07-03)
 
 
