@@ -349,6 +349,9 @@ export interface ExitSettlementInput {
   average_wage_period_end: string;
   average_wage_calendar_days: number;
   average_wage_total_won: number;
+  // Monthly 통상임금 (ordinary wage) in won — mandatory on the backend (no serde
+  // default) so the statutory 통상임금 floor is never silently skipped.
+  monthly_ordinary_wage_won: number;
 }
 
 export interface EmployeeExitCase {

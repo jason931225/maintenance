@@ -361,4 +361,82 @@ describe("InsuranceAssistPage", () => {
     expect(await screen.findByText(copy.exitWorkflow.confirmDone)).toBeVisible();
     expect(screen.getByText(copy.exitWorkflow.status.SETTLEMENT_READY)).toBeVisible();
   });
+
+  it("offers HQ confirmation only after a distinct HR confirmation (HR_CONFIRMED)", async () => {
+    const user = userEvent.setup();
+    const confirmBodies: Array<{ id: string; body: unknown }> = [];
+    const hrConfirmedCase = {
+      id: "exit-case-2",
+      employee_id: "employee-2",
+      employee_name: "Exit Employee",
+      employee_number: "A-002",
+      company: "KNL",
+      org_unit: "Operations",
+      worksite_name: "Miryang",
+      branch_id: "branch-1",
+      branch_name: "Miryang",
+      absence_alert_id: "alert-2",
+      status: "HR_CONFIRMED",
+      effective_exit_date: "2026-07-01",
+      site_manager_note: "Confirmed by site manager",
+      reported_by: "site-manager",
+      reported_at: "2026-07-02T00:00:00Z",
+      hr_confirmed_by: "hr-manager",
+      hr_confirmed_at: "2026-07-02T01:00:00Z",
+      hq_confirmed_by: null,
+      hq_confirmed_at: null,
+      approval_submitted_by: null,
+      approval_submitted_at: null,
+      settlement_package: null,
+      next_actions: [],
+    };
+    const dashboard = {
+      summary: {
+        open_absence_alerts: 0,
+        exit_cases_pending_hr: 1,
+        settlement_needs_source: 0,
+        settlement_ready: 0,
+        approval_drafts: 0,
+        submitted: 0,
+      },
+      alerts: [],
+      exit_cases: [hrConfirmedCase],
+    };
+
+    server.use(
+      http.get("*/api/v1/employees", () =>
+        HttpResponse.json({ items: employees, total: 3, limit: 1000, offset: 0 }),
+      ),
+      http.get("*/api/v1/hr/readiness-summary", () =>
+        HttpResponse.json(readinessSummary),
+      ),
+      http.get("*/api/v1/hr/absence-exit-dashboard", () =>
+        HttpResponse.json(dashboard),
+      ),
+      http.post("*/api/v1/hr/exit-cases/:id/confirm", async ({ params, request }) => {
+        confirmBodies.push({ id: String(params.id), body: await request.json() });
+        return HttpResponse.json({ ...hrConfirmedCase, status: "HQ_CONFIRMED" });
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText(copy.exitWorkflow.confirmationTitle)).toBeVisible();
+    // The HR-confirm action is not offered again once HR has confirmed; only the
+    // HQ tier remains, which the backend restricts to a DIFFERENT actor.
+    expect(
+      screen.queryByRole("button", { name: copy.exitWorkflow.hrConfirm }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: copy.exitWorkflow.hqConfirm }),
+    );
+    await waitFor(() => {
+      expect(confirmBodies).toHaveLength(1);
+    });
+    expect(confirmBodies[0]).toEqual({
+      id: "exit-case-2",
+      body: expect.objectContaining({ decision: "CONFIRM", hq_confirmation: true }),
+    });
+  });
 });

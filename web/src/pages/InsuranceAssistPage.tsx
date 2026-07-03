@@ -69,14 +69,14 @@ type InsuranceAssistApi = ConsoleApiClient & {
   POST(
     path: "/api/v1/hr/exit-cases",
     options: { body: ReportEmployeeExitCaseRequest },
-  ): Promise<{ data?: EmployeeExitCase }>;
+  ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
   POST(
     path: "/api/v1/hr/exit-cases/{id}/confirm",
     options: {
       params: { path: { id: string } };
       body: ConfirmEmployeeExitCaseRequest;
     },
-  ): Promise<{ data?: EmployeeExitCase }>;
+  ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
 };
 
 interface InsuranceRow {
@@ -151,7 +151,7 @@ export function InsuranceAssistPage() {
       setActionState("busy");
       setActionMessage(undefined);
       try {
-        await insuranceApi.POST("/api/v1/hr/exit-cases", {
+        const { error } = await insuranceApi.POST("/api/v1/hr/exit-cases", {
           body: {
             employee_id: alert.employee_id,
             branch_id: alert.branch_id ?? undefined,
@@ -160,6 +160,11 @@ export function InsuranceAssistPage() {
             site_manager_note: copy.exitWorkflow.reportNote(alert.work_date),
           },
         });
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.reportFailed);
+          return;
+        }
         setActionState("idle");
         setActionMessage(copy.exitWorkflow.reportCreated);
         await loadInsurance();
@@ -176,16 +181,24 @@ export function InsuranceAssistPage() {
       setActionState("busy");
       setActionMessage(undefined);
       try {
-        await insuranceApi.POST("/api/v1/hr/exit-cases/{id}/confirm", {
-          params: { path: { id: exitCase.id } },
-          body: {
-            decision: "CONFIRM",
-            hq_confirmation: hqConfirmation,
-            note: hqConfirmation
-              ? copy.exitWorkflow.hqConfirmNote
-              : copy.exitWorkflow.hrConfirmNote,
+        const { error } = await insuranceApi.POST(
+          "/api/v1/hr/exit-cases/{id}/confirm",
+          {
+            params: { path: { id: exitCase.id } },
+            body: {
+              decision: "CONFIRM",
+              hq_confirmation: hqConfirmation,
+              note: hqConfirmation
+                ? copy.exitWorkflow.hqConfirmNote
+                : copy.exitWorkflow.hrConfirmNote,
+            },
           },
-        });
+        );
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.confirmFailed);
+          return;
+        }
         setActionState("idle");
         setActionMessage(copy.exitWorkflow.confirmDone);
         await loadInsurance();
@@ -422,29 +435,33 @@ function AbsenceExitWorkflowPanel({
                   <p className="text-sm text-steel">{exitCase.site_manager_note}</p>
                   <div className="flex flex-wrap gap-2">
                     {exitCase.status === "REPORTED" ? (
-                      <>
-                        <Button
-                          type="button"
-                          size="xs"
-                          disabled={busy}
-                          onClick={() => {
-                            onConfirmExit(exitCase, false);
-                          }}
-                        >
-                          {copy.exitWorkflow.hrConfirm}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="secondary"
-                          disabled={busy}
-                          onClick={() => {
-                            onConfirmExit(exitCase, true);
-                          }}
-                        >
-                          {copy.exitWorkflow.hqConfirm}
-                        </Button>
-                      </>
+                      <Button
+                        type="button"
+                        size="xs"
+                        disabled={busy}
+                        onClick={() => {
+                          onConfirmExit(exitCase, false);
+                        }}
+                      >
+                        {copy.exitWorkflow.hrConfirm}
+                      </Button>
+                    ) : null}
+                    {/* HQ confirmation is a distinct second tier: the backend
+                        state machine only allows it once a DIFFERENT actor has
+                        recorded the HR confirmation (status HR_CONFIRMED), so
+                        the button appears only then. */}
+                    {exitCase.status === "HR_CONFIRMED" ? (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => {
+                          onConfirmExit(exitCase, true);
+                        }}
+                      >
+                        {copy.exitWorkflow.hqConfirm}
+                      </Button>
                     ) : null}
                     <Button asChild type="button" size="xs" variant="ghost">
                       <Link to={`/payroll?exitCase=${exitCase.id}`}>
