@@ -159,6 +159,13 @@ const baseDefinition = {
   updated_at: "2026-06-29T09:00:00Z",
 };
 
+const secondaryDefinition = {
+  ...baseDefinition,
+  id: "44444444-4444-4444-8444-444444444444",
+  workflow_key: "work_order.safety_review",
+  display_name: "안전 점검 승인",
+};
+
 const definitionsResponse = {
   items: [baseDefinition],
 };
@@ -174,6 +181,17 @@ const historyResponse = {
       actor_display_name: "개발자",
       summary: "초안 생성",
       created_at: "2026-06-29T09:00:00Z",
+    },
+  ],
+};
+
+const secondaryHistoryResponse = {
+  items: [
+    {
+      ...historyResponse.items[0],
+      id: "55555555-5555-4555-8555-555555555555",
+      definition_id: secondaryDefinition.id,
+      summary: "안전 점검 초안 생성",
     },
   ],
 };
@@ -462,26 +480,38 @@ describe("WorkflowStudioPage", () => {
     expect(
       await screen.findByText("워크플로 초안을 저장했습니다."),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("워크플로 키")).toHaveValue(
-      "work_order.completion_review",
-    );
+    expect(screen.getByLabelText("이름")).toHaveValue("작업 완료 승인");
     expect(
       screen.queryByRole("button", { name: "편집 취소" }),
     ).not.toBeInTheDocument();
   });
 
-  it("archives a draft with passkey step-up and removes it from the list", async () => {
+  it("archives a draft with passkey step-up and selects remaining history", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     let archived = false;
+    const historyRequests: string[] = [];
     server.use(
       http.get("*/api/v1/workflow-studio/catalog", () =>
         HttpResponse.json(catalogResponse),
       ),
       http.get("*/api/v1/workflow-studio/definitions", () =>
-        HttpResponse.json({ items: archived ? [] : [baseDefinition] }),
+        HttpResponse.json({
+          items: archived
+            ? [secondaryDefinition]
+            : [baseDefinition, secondaryDefinition],
+        }),
       ),
-      http.get("*/api/v1/workflow-studio/definitions/:id/history", () =>
-        HttpResponse.json(historyResponse),
+      http.get(
+        "*/api/v1/workflow-studio/definitions/:id/history",
+        ({ params }) => {
+          const definitionId = String(params.id);
+          historyRequests.push(definitionId);
+          return HttpResponse.json(
+            definitionId === secondaryDefinition.id
+              ? secondaryHistoryResponse
+              : historyResponse,
+          );
+        },
       ),
       http.delete(
         "*/api/v1/workflow-studio/definitions/:id",
@@ -510,6 +540,10 @@ describe("WorkflowStudioPage", () => {
       await screen.findByText("워크플로 초안을 삭제했습니다."),
     ).toBeInTheDocument();
     expect(screen.queryByText("작업 완료 승인")).not.toBeInTheDocument();
+    const remainingRow = screen.getByRole("row", { name: /안전 점검 승인/ });
+    expect(remainingRow).toHaveClass("bg-signal/10");
+    expect(await screen.findByText("안전 점검 초안 생성")).toBeInTheDocument();
+    expect(historyRequests).toContain(secondaryDefinition.id);
 
     confirmSpy.mockRestore();
   });

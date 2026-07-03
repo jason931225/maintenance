@@ -384,11 +384,15 @@ export function WorkflowStudioPage() {
       const stepUp = await assertPasskeyStepUp(api);
       const updated = await request(stepUp);
       if (action === "archive") {
-        setDefinitions((items) =>
-          items.filter((item) => item.id !== definition.id),
+        const remainingDefinitions = definitions.filter(
+          (item) => item.id !== definition.id,
         );
-        setSelectedDefinitionId(undefined);
-        setHistory([]);
+        const nextSelected =
+          remainingDefinitions.find((item) => item.id === selectedDefinitionId)
+            ?.id ?? remainingDefinitions[0]?.id;
+        setDefinitions(remainingDefinitions);
+        setSelectedDefinitionId(nextSelected);
+        await loadHistory(nextSelected);
         if (editingDefinitionId === definition.id) {
           setEditingDefinitionId(undefined);
           setDraftForm(DEFAULT_DRAFT_FORM);
