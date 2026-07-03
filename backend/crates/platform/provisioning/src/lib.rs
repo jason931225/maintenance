@@ -735,7 +735,13 @@ impl DevPrincipalProvisioner {
     ) -> Result<DevPrincipal, ProvisioningError> {
         let org_uuid = *request.org_id.as_uuid();
         let dev_key = format!("dev-auth:{org_uuid}:{}", request.role);
-        let branch_ids: Vec<Uuid> = request.branch_ids.iter().map(|b| *b.as_uuid()).collect();
+        let branch_ids: Vec<Uuid> = request
+            .branch_ids
+            .iter()
+            .map(|b| *b.as_uuid())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         let roles = vec![request.role.clone()];
 
         let event = AuditEvent::new(

@@ -728,6 +728,11 @@ async function cmdBootstrap() {
       logFile: webLogFile,
       group: process.platform !== "win32",
     };
+    writePidState({
+      startedBy: "bootstrap",
+      backend: backendState,
+      web: webState,
+    });
     const webStart = new Promise((_, reject) => {
       let settled = false;
       const fail = (message) => {
