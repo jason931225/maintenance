@@ -1,5 +1,12 @@
 import type { EmployeeExitCaseStatus } from "../api/types";
 
+// Uncertified-draft marker for a severance/settlement figure. MUST derive
+// from the API-provided `certification_status` on every rendering surface —
+// never hand-placed unconditionally (0093 pre-mortem #4: a human must never
+// be able to file an uncertified figure with MOEL/NHIS because a label was
+// missing on one surface).
+export const uncertifiedSettlementDraftLabel = "산정 초안 — 노무사 검증 전";
+
 export const exitCaseStatusLabels = {
   REPORTED: "HR 확인 대기",
   HR_CONFIRMED: "사업장 HR 확인",

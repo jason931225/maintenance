@@ -298,6 +298,8 @@ export type EmployeeExitSettlementPackageStatus =
   | "APPROVAL_DRAFTED"
   | "SUBMITTED";
 
+export type SettlementCertificationStatus = "CERTIFIED" | "UNCERTIFIED_DRAFT";
+
 export interface EmployeeAbsenceAlert {
   id: string;
   employee_id: string;
@@ -389,6 +391,9 @@ export interface EmployeeExitSettlementPackage {
   statutory_basis: Record<string, unknown>;
   insurance_loss_payload: Record<string, unknown>;
   approval_payload: Record<string, unknown>;
+  // EFFECTIVE certification state — the single source the "산정 초안 — 노무사
+  // 검증 전" draft label derives from on every rendering surface.
+  certification_status: SettlementCertificationStatus;
   generated_at: string;
   submitted_by?: string | null;
   submitted_at?: string | null;

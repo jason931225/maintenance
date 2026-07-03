@@ -4,7 +4,10 @@ import {
   SALES_PHONE_DISPLAY,
   SALES_PHONE_HREF,
 } from "../lib/contact";
-import { exitCaseStatusLabels } from "./hrWorkflows";
+import {
+  exitCaseStatusLabels,
+  uncertifiedSettlementDraftLabel,
+} from "./hrWorkflows";
 
 export const ko = {
   nav: {
@@ -176,6 +179,7 @@ export const ko = {
         averageWage: "평균임금",
         severancePay: "퇴직금 산출액",
         insuranceForms: "상실신고 서식",
+        uncertifiedDraftLabel: uncertifiedSettlementDraftLabel,
       },
       formCount: (count: number) => `${String(count)}종`,
       trackApproval: "전자결제 추적",

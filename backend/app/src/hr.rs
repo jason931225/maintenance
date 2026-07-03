@@ -618,7 +618,13 @@ struct EmployeeExitSettlementPackageResponse {
     severance_pay_won: Option<i64>,
     missing_source_fields: Vec<String>,
     statutory_basis: Value,
+    /// The generated MOEL/NHIS insurance-loss document. Also carries a
+    /// `certification_status` key (stamped by `exit_case_from_row`, mirroring
+    /// the field below) so the document itself never omits the uncertified
+    /// marker even if forwarded independently of this DTO.
     insurance_loss_payload: Value,
+    /// The generated approval-submission document. Same
+    /// `certification_status` stamping as `insurance_loss_payload`.
     approval_payload: Value,
     /// EFFECTIVE certification state (single source for the "산정 초안 — 노무사
     /// 검증 전" label): reported `CERTIFIED` only when the stored
@@ -5939,6 +5945,22 @@ fn compute_certified_package_digest(
     sha256_hex(&bytes)
 }
 
+/// Stamps the EFFECTIVE `certification_status` onto a generated payload
+/// (insurance-loss or approval) so any surface that renders or exports the
+/// payload directly can still derive the "산정 초안 — 노무사 검증 전" marker
+/// (pre-mortem #4: the label must never be hand-placed per surface, only
+/// derived from this single computed value). No-op if the payload isn't a
+/// JSON object.
+fn with_certification_status_marker(mut payload: Value, certification_status: &str) -> Value {
+    if let Value::Object(map) = &mut payload {
+        map.insert(
+            "certification_status".to_owned(),
+            Value::String(certification_status.to_owned()),
+        );
+    }
+    payload
+}
+
 /// Serialize a `ProfessionalValidation` into the exact 4-key JSON artifact that
 /// migration 0093's `..._cert_artifact_shape_chk` CHECK requires, emitting
 /// `reviewer_kind` as exactly `LABOR_ATTORNEY` / `TAX_ACCOUNTANT`.
@@ -6208,6 +6230,19 @@ fn exit_case_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeExitCaseResp
         } else {
             "UNCERTIFIED_DRAFT".to_owned()
         };
+
+        // 0093 MEDIUM (label plumbing is a backend deliverable): the generated
+        // insurance-loss and approval payloads are the documents a human can
+        // actually file with MOEL/NHIS, so the EFFECTIVE certification status
+        // must ride along inside them too — not just the top-level DTO field —
+        // or a surface that only forwards the raw payload could drop the
+        // uncertified marker. Mutated AFTER the digest above is computed from
+        // the untouched stored values, so this annotation never feeds back
+        // into what a certification digest binds.
+        let insurance_loss_payload =
+            with_certification_status_marker(insurance_loss_payload, &certification_status);
+        let approval_payload =
+            with_certification_status_marker(approval_payload, &certification_status);
 
         Some(EmployeeExitSettlementPackageResponse {
             id,
@@ -8522,6 +8557,181 @@ E-001,홍길동,본사,2026-07-01,abc
                 .map(|p| p.certification_status.as_str()),
             Some("UNCERTIFIED_DRAFT"),
             "a stale digest must NOT be honored as certified even if the row says CERTIFIED"
+        );
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    /// GUARD (0093 pre-mortem #4): a human must never be able to file an
+    /// uncertified severance figure with MOEL/NHIS because a label was
+    /// missing from one of the generated documents. This FAILS if either
+    /// generated payload (insurance-loss or approval) omits the effective
+    /// certification status while the package is UNCERTIFIED_DRAFT, and
+    /// FAILS if either payload fails to flip to CERTIFIED once a matching
+    /// digest is recorded — proving the marker derives from the single
+    /// effective-status computation rather than being hand-placed per payload.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn generated_payloads_carry_the_uncertified_draft_marker(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("upsert failed: {err:?}"))?;
+
+        // Persist an approval_payload the way the approval-draft handler does,
+        // so both generated payloads (not just insurance-loss) are covered.
+        let context = load_exit_case_context(&mut tx, org_id, case_id, false)
+            .await
+            .map_err(|err| format!("load context failed: {err:?}"))?;
+        let approval_payload = build_exit_approval_payload(&context, None);
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET approval_payload = $3
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(&approval_payload)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("persist approval payload failed: {err}"))?;
+
+        let uncertified = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (uncertified) failed: {err:?}"))?;
+        let package = uncertified
+            .settlement_package
+            .as_ref()
+            .expect("settlement package must exist after upsert");
+        assert_eq!(package.certification_status, "UNCERTIFIED_DRAFT");
+        assert_eq!(
+            package.insurance_loss_payload.get("certification_status"),
+            Some(&Value::String("UNCERTIFIED_DRAFT".to_owned())),
+            "insurance-loss payload must carry the draft marker when uncertified"
+        );
+        assert_eq!(
+            package.approval_payload.get("certification_status"),
+            Some(&Value::String("UNCERTIFIED_DRAFT".to_owned())),
+            "approval payload must carry the draft marker when uncertified"
+        );
+
+        // Certify with a digest that binds the CURRENT numbers and verify both
+        // payloads flip to CERTIFIED too.
+        let covered = sqlx::query(
+            r#"
+            SELECT severance_pay_won, statutory_basis, insurance_loss_payload, approval_payload,
+                   average_wage_period_start::TEXT AS average_wage_period_start,
+                   average_wage_period_end::TEXT AS average_wage_period_end,
+                   average_wage_calendar_days, average_wage_total_won,
+                   average_daily_wage_milliwon, service_days
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("load covered fields failed: {err}"))?;
+        let severance_pay_won: Option<i64> = covered
+            .try_get("severance_pay_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_basis: Value = covered
+            .try_get("statutory_basis")
+            .map_err(|err| format!("{err}"))?;
+        let insurance_loss_payload: Value = covered
+            .try_get("insurance_loss_payload")
+            .map_err(|err| format!("{err}"))?;
+        let approval_payload: Value = covered
+            .try_get("approval_payload")
+            .map_err(|err| format!("{err}"))?;
+        let period_start: Option<String> = covered
+            .try_get("average_wage_period_start")
+            .map_err(|err| format!("{err}"))?;
+        let period_end: Option<String> = covered
+            .try_get("average_wage_period_end")
+            .map_err(|err| format!("{err}"))?;
+        let calendar_days: Option<i32> = covered
+            .try_get("average_wage_calendar_days")
+            .map_err(|err| format!("{err}"))?;
+        let total_won: Option<i64> = covered
+            .try_get("average_wage_total_won")
+            .map_err(|err| format!("{err}"))?;
+        let daily_milliwon: Option<i64> = covered
+            .try_get("average_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
+        let service_days: Option<i32> = covered
+            .try_get("service_days")
+            .map_err(|err| format!("{err}"))?;
+        let matching_digest = compute_certified_package_digest(
+            severance_pay_won,
+            &statutory_basis,
+            &insurance_loss_payload,
+            &approval_payload,
+            period_start.as_deref(),
+            period_end.as_deref(),
+            calendar_days,
+            total_won,
+            daily_milliwon,
+            service_days,
+        );
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::LaborAttorney,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "d".repeat(64),
+            reviewer_reference: "노무법인 검증 2026-3".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind(&matching_digest)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("certify with matching digest failed: {err}"))?;
+
+        let certified = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (certified) failed: {err:?}"))?;
+        let package = certified
+            .settlement_package
+            .as_ref()
+            .expect("settlement package must exist after certification");
+        assert_eq!(package.certification_status, "CERTIFIED");
+        assert_eq!(
+            package.insurance_loss_payload.get("certification_status"),
+            Some(&Value::String("CERTIFIED".to_owned())),
+            "insurance-loss payload must reflect CERTIFIED once the digest matches"
+        );
+        assert_eq!(
+            package.approval_payload.get("certification_status"),
+            Some(&Value::String("CERTIFIED".to_owned())),
+            "approval payload must reflect CERTIFIED once the digest matches"
         );
 
         tx.rollback()

@@ -402,6 +402,14 @@ function ExitSettlementPanel({
                     <dd className="text-ink">
                       {formatWon(settlementPackage?.severance_pay_won)}
                     </dd>
+                    {settlementPackage?.certification_status ===
+                    "UNCERTIFIED_DRAFT" ? (
+                      <dd className="mt-1">
+                        <Badge className={toneBadgeClass("warning")}>
+                          {copy.exitSettlement.fields.uncertifiedDraftLabel}
+                        </Badge>
+                      </dd>
+                    ) : null}
                   </div>
                   <div className="rounded border border-line bg-muted-panel/40 p-3">
                     <dt className="font-semibold text-steel">
