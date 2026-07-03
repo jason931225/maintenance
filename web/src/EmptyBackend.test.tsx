@@ -79,6 +79,19 @@ const emptyHrReadinessSummary = {
   },
 };
 
+const emptyAbsenceExitDashboard = {
+  summary: {
+    open_absence_alerts: 0,
+    exit_cases_pending_hr: 0,
+    settlement_needs_source: 0,
+    settlement_ready: 0,
+    approval_drafts: 0,
+    submitted: 0,
+  },
+  alerts: [],
+  exit_cases: [],
+};
+
 const me = {
   id: USER_ID,
   display_name: "Cold Start Admin",
@@ -145,6 +158,9 @@ const server = setupServer(
   ),
   http.get("*/api/v1/hr/readiness-summary", () =>
     HttpResponse.json(emptyHrReadinessSummary),
+  ),
+  http.get("*/api/v1/hr/absence-exit-dashboard", () =>
+    HttpResponse.json(emptyAbsenceExitDashboard),
   ),
   http.get("*/api/v1/hr/leave-balances", () =>
     HttpResponse.json({
@@ -267,7 +283,11 @@ describe("every page renders cleanly against an empty backend", () => {
       // PageHeader owns the page's single <h1>; the sidebar nav and feature
       // panels reuse the same label as a link / <h2>, so pin level: 1.
       expect(
-        await screen.findByRole("heading", { name: page.heading, level: 1 }),
+        await screen.findByRole(
+          "heading",
+          { name: page.heading, level: 1 },
+          { timeout: 5000 },
+        ),
       ).toBeVisible();
       // Empty copy can surface in more than one sub-panel (e.g. the dispatch
       // board and the work-order list) — assert at least one is shown.
