@@ -108,6 +108,8 @@ export type WorkflowSimulationResponse =
   components["schemas"]["WorkflowSimulationResponse"];
 export type WorkflowStepUpRequest =
   components["schemas"]["WorkflowStepUpRequest"];
+export type UpdateWorkflowDefinitionRequest =
+  components["schemas"]["UpdateWorkflowDefinitionRequest"];
 export type CollaborationScopeType =
   components["schemas"]["CollaborationScopeType"];
 export type CalendarEventResponse =

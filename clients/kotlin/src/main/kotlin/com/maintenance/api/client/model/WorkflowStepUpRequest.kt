@@ -39,7 +39,7 @@ import kotlinx.serialization.Contextual
 data class WorkflowStepUpRequest (
 
     @SerialName(value = "step_up")
-    val stepUp: PasskeyStepUpAssertion? = null
+    val stepUp: PasskeyStepUpAssertion
 
 ) {
 
