@@ -154,7 +154,16 @@ jobs:
       - name: RLS-arming gate
         run: cargo run -p mnt-gate-rls-arming
 
-  dev-up-smoke:
+      - name: Dev-auth-absence gate
+        run: cargo run -p mnt-gate-dev-auth-absence
+
+      - name: Dev-auth feature build/tests
+        # `dev-auth` is NOT in default features (proven above) — build/test it
+        # explicitly so its code path still compiles and its own tests
+        # (including the route-present-under-the-feature session tests) run.
+        run: SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth
+
+dev-up-smoke:
     name: dev-up.mjs smoke — compose deps + migrate + /readyz
     runs-on: ubuntu-latest
     timeout-minutes: 30
