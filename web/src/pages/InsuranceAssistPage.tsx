@@ -1,4 +1,6 @@
 import {
+  AlertTriangle,
+  CheckCircle2,
   ClipboardCheck,
   FileSpreadsheet,
   Mail,
@@ -12,9 +14,14 @@ import { Link } from "react-router-dom";
 
 import type { ConsoleApiClient } from "../api/client";
 import type {
+  AbsenceExitDashboardResponse,
+  ConfirmEmployeeExitCaseRequest,
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
+  EmployeeAbsenceAlert,
+  EmployeeExitCase,
   HrReadinessSummary,
+  ReportEmployeeExitCaseRequest,
 } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
@@ -30,6 +37,7 @@ import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
 
 type LoadState = "loading" | "idle" | "error";
+type ActionState = "idle" | "busy" | "error";
 type InsuranceReportKind =
   | "acquisition"
   | "loss"
@@ -49,6 +57,21 @@ type InsuranceAssistApi = ConsoleApiClient & {
   GET(path: "/api/v1/hr/readiness-summary"): Promise<{
     data?: HrReadinessSummary;
   }>;
+  GET(
+    path: "/api/v1/hr/absence-exit-dashboard",
+    options?: { params?: { query?: { limit?: number; offset?: number } } },
+  ): Promise<{ data?: AbsenceExitDashboardResponse }>;
+  POST(
+    path: "/api/v1/hr/exit-cases",
+    options: { body: ReportEmployeeExitCaseRequest },
+  ): Promise<{ data?: EmployeeExitCase }>;
+  POST(
+    path: "/api/v1/hr/exit-cases/{id}/confirm",
+    options: {
+      params: { path: { id: string } };
+      body: ConfirmEmployeeExitCaseRequest;
+    },
+  ): Promise<{ data?: EmployeeExitCase }>;
 };
 
 interface InsuranceRow {
@@ -71,25 +94,40 @@ export function InsuranceAssistPage() {
   const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([]);
   const [readinessSummary, setReadinessSummary] =
     useState<HrReadinessSummary>();
+  const [absenceExitDashboard, setAbsenceExitDashboard] =
+    useState<AbsenceExitDashboardResponse>();
+  const [actionState, setActionState] = useState<ActionState>("idle");
+  const [actionMessage, setActionMessage] = useState<string>();
 
   const loadInsurance = useCallback(async () => {
     setState("loading");
-    const [employeesResponse, readinessResponse] = await Promise.all([
+    const [employeesResponse, readinessResponse, absenceExitResponse] =
+      await Promise.all([
       insuranceApi
         .GET("/api/v1/employees", {
           params: { query: { limit: 1000, offset: 0 } },
         })
         .catch(() => undefined),
       insuranceApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
+        insuranceApi
+          .GET("/api/v1/hr/absence-exit-dashboard", {
+            params: { query: { limit: 50, offset: 0 } },
+          })
+          .catch(() => undefined),
     ]);
 
-    if (!employeesResponse?.data || !readinessResponse?.data) {
+    if (
+      !employeesResponse?.data ||
+      !readinessResponse?.data ||
+      !absenceExitResponse?.data
+    ) {
       setState("error");
       return;
     }
 
     setEmployees(employeesResponse.data.items);
     setReadinessSummary(readinessResponse.data);
+    setAbsenceExitDashboard(absenceExitResponse.data);
     setState("idle");
   }, [insuranceApi]);
 
@@ -105,6 +143,55 @@ export function InsuranceAssistPage() {
         missingFields: insuranceMissingFields(employee),
       })),
     [employees],
+  );
+
+  const reportExitFromAlert = useCallback(
+    async (alert: EmployeeAbsenceAlert) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        await insuranceApi.POST("/api/v1/hr/exit-cases", {
+          body: {
+            employee_id: alert.employee_id,
+            branch_id: alert.branch_id ?? undefined,
+            absence_alert_id: alert.id,
+            effective_exit_date: alert.work_date,
+            site_manager_note: `결근 경고(${alert.work_date}) 기반 퇴사 확인 요청`,
+          },
+        });
+        setActionState("idle");
+        setActionMessage("퇴사 확인 케이스를 생성했습니다.");
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage("퇴사 확인 케이스를 생성하지 못했습니다.");
+      }
+    },
+    [insuranceApi, loadInsurance],
+  );
+
+  const confirmExitCase = useCallback(
+    async (exitCase: EmployeeExitCase, hqConfirmation: boolean) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        await insuranceApi.POST("/api/v1/hr/exit-cases/{id}/confirm", {
+          params: { path: { id: exitCase.id } },
+          body: {
+            decision: "CONFIRM",
+            hq_confirmation: hqConfirmation,
+            note: hqConfirmation ? "HQ 인사 확인" : "사업장 인사 확인",
+          },
+        });
+        setActionState("idle");
+        setActionMessage("퇴사 확인과 정산 패키지 생성을 반영했습니다.");
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage("퇴사 확인을 반영하지 못했습니다.");
+      }
+    },
+    [insuranceApi, loadInsurance],
   );
 
   return (
@@ -132,15 +219,229 @@ export function InsuranceAssistPage() {
             }}
           />
         ) : null}
-        {state === "idle" && readinessSummary ? (
+        {state === "idle" && readinessSummary && absenceExitDashboard ? (
           <>
             <InsuranceOverviewPanel rows={rows} readinessSummary={readinessSummary} />
+            <AbsenceExitWorkflowPanel
+              dashboard={absenceExitDashboard}
+              busy={actionState === "busy"}
+              onReportExit={(alert) => {
+                void reportExitFromAlert(alert);
+              }}
+              onConfirmExit={(exitCase, hqConfirmation) => {
+                void confirmExitCase(exitCase, hqConfirmation);
+              }}
+            />
+            {actionMessage ? (
+              <p
+                role={actionState === "error" ? "alert" : "status"}
+                className={[
+                  "text-sm font-semibold",
+                  actionState === "error" ? "text-red-700" : "text-brand-teal",
+                ].join(" ")}
+              >
+                {actionMessage}
+              </p>
+            ) : null}
             <InsuranceWorkflowPanel readinessSummary={readinessSummary} />
             <InsuranceRosterPanel rows={rows} />
           </>
         ) : null}
       </div>
     </>
+  );
+}
+
+function AbsenceExitWorkflowPanel({
+  dashboard,
+  busy,
+  onReportExit,
+  onConfirmExit,
+}: {
+  dashboard: AbsenceExitDashboardResponse;
+  busy: boolean;
+  onReportExit: (alert: EmployeeAbsenceAlert) => void;
+  onConfirmExit: (exitCase: EmployeeExitCase, hqConfirmation: boolean) => void;
+}) {
+  const summary = [
+    {
+      label: "결근 경고",
+      value: dashboard.summary.open_absence_alerts,
+      tone: "warning" as Tone,
+    },
+    {
+      label: "HR 확인 대기",
+      value: dashboard.summary.exit_cases_pending_hr,
+      tone: "info" as Tone,
+    },
+    {
+      label: "임금 원천 필요",
+      value: dashboard.summary.settlement_needs_source,
+      tone: "danger" as Tone,
+    },
+    {
+      label: "결제상신 준비",
+      value: dashboard.summary.settlement_ready,
+      tone: "success" as Tone,
+    },
+  ];
+
+  return (
+    <Card className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">
+            결근·퇴사·상실신고 경고
+          </h2>
+          <p className="text-sm text-steel">
+            결근 이상징후에서 퇴사 확인, 4대보험 상실신고, 퇴직금 정산까지 이어집니다.
+          </p>
+        </div>
+        <Button asChild size="sm" variant="secondary">
+          <Link to="/payroll?workflow=exit-settlement">
+            <FileSpreadsheet size={16} aria-hidden="true" />
+            급여 정산으로 이동
+          </Link>
+        </Button>
+      </div>
+
+      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {summary.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-lg border border-line bg-muted-panel/40 p-3"
+          >
+            <dt className="text-xs font-semibold text-steel">{item.label}</dt>
+            <dd className="mt-1 flex items-center gap-2 text-2xl font-semibold text-ink">
+              <Badge className={toneBadgeClass(item.tone)}>
+                {formatListCount(item.value)}
+              </Badge>
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        <section className="grid gap-3 rounded-lg border border-line bg-white p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-700" aria-hidden="true" />
+            <h3 className="font-semibold text-ink">결근 이상징후</h3>
+          </div>
+          {dashboard.alerts.length === 0 ? (
+            <p className="text-sm text-steel">현재 열린 결근 경고가 없습니다.</p>
+          ) : (
+            <ul className="grid gap-3">
+              {dashboard.alerts.slice(0, 5).map((alert) => (
+                <li key={alert.id} className="grid gap-2 rounded border border-line p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {alert.employee_name} · {alert.work_date}
+                      </p>
+                      <p className="text-xs text-steel">
+                        {display(alert.company)} / {display(alert.branch_name ?? alert.worksite_name)}
+                      </p>
+                    </div>
+                    <Badge className={toneBadgeClass("warning")}>
+                      {alert.severity}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-steel">{alert.notification_message}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {alert.audience_roles.map((role) => (
+                      <Badge key={role} className={toneBadgeClass("info")}>
+                        {roleLabel(role)}
+                      </Badge>
+                    ))}
+                  </div>
+                  {alert.exit_case_id ? (
+                    <Button asChild size="xs" variant="ghost" className="justify-self-start">
+                      <Link to={`/payroll?exitCase=${alert.exit_case_id}`}>
+                        정산 케이스 보기
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="secondary"
+                      className="justify-self-start"
+                      disabled={busy}
+                      onClick={() => onReportExit(alert)}
+                    >
+                      <UserX size={14} aria-hidden="true" />
+                      퇴사 확인 케이스 생성
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="grid gap-3 rounded-lg border border-line bg-white p-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-emerald-700" aria-hidden="true" />
+            <h3 className="font-semibold text-ink">퇴사 확인 및 상실신고 준비</h3>
+          </div>
+          {dashboard.exit_cases.length === 0 ? (
+            <p className="text-sm text-steel">진행 중인 퇴사 확인 케이스가 없습니다.</p>
+          ) : (
+            <ul className="grid gap-3">
+              {dashboard.exit_cases.slice(0, 5).map((exitCase) => (
+                <li
+                  key={exitCase.id}
+                  className="grid gap-2 rounded border border-line p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {exitCase.employee_name} · {exitCase.effective_exit_date}
+                      </p>
+                      <p className="text-xs text-steel">
+                        {display(exitCase.company)} / {display(exitCase.branch_name ?? exitCase.worksite_name)}
+                      </p>
+                    </div>
+                    <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
+                      {exitCaseStatusLabel(exitCase.status)}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-steel">{exitCase.site_manager_note}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {exitCase.status === "REPORTED" ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="xs"
+                          disabled={busy}
+                          onClick={() => onConfirmExit(exitCase, false)}
+                        >
+                          사업장 HR 확인
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="secondary"
+                          disabled={busy}
+                          onClick={() => onConfirmExit(exitCase, true)}
+                        >
+                          HQ HR 확인
+                        </Button>
+                      </>
+                    ) : null}
+                    <Button asChild type="button" size="xs" variant="ghost">
+                      <Link to={`/payroll?exitCase=${exitCase.id}`}>
+                        퇴직금/상실신고 자료 보기
+                      </Link>
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </Card>
   );
 }
 
@@ -391,6 +692,62 @@ function InsuranceRosterPanel({ rows }: { rows: InsuranceRow[] }) {
   );
 }
 
+function roleLabel(role: string): string {
+  switch (role) {
+    case "site_manager":
+      return "사업장 관리자";
+    case "employee_hr_manager":
+      return "담당 HR";
+    case "hq_hr_manager":
+      return "HQ HR";
+    case "payroll_manager":
+      return "급여 담당";
+    case "insurance_loss_reporter":
+      return "4대보험 상실 신고";
+    default:
+      return role;
+  }
+}
+
+function exitCaseStatusLabel(status: string): string {
+  switch (status) {
+    case "REPORTED":
+      return "HR 확인 대기";
+    case "HR_CONFIRMED":
+      return "사업장 HR 확인";
+    case "HQ_CONFIRMED":
+      return "HQ HR 확인";
+    case "SETTLEMENT_READY":
+      return "정산 준비";
+    case "APPROVAL_DRAFTED":
+      return "결제 초안";
+    case "SUBMITTED":
+      return "결제 상신";
+    case "REJECTED":
+      return "반려";
+    default:
+      return status;
+  }
+}
+
+function exitCaseTone(status: string): Tone {
+  switch (status) {
+    case "REPORTED":
+      return "warning";
+    case "SETTLEMENT_READY":
+    case "HQ_CONFIRMED":
+    case "HR_CONFIRMED":
+      return "success";
+    case "APPROVAL_DRAFTED":
+    case "SUBMITTED":
+      return "info";
+    case "REJECTED":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
 function insuranceReport(employee: EmployeeDirectoryItem): InsuranceReport {
   if (employee.exit_date || employee.status === "EXITED") {
     return {
@@ -460,4 +817,8 @@ function isActiveEmployee(employee: EmployeeDirectoryItem): boolean {
 function text(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "-";
   return String(value);
+}
+
+function display(value: string | number | null | undefined): string {
+  return text(value);
 }
