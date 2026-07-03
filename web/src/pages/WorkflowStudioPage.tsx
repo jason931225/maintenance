@@ -61,6 +61,7 @@ const DEFAULT_DRAFT_FORM: DraftForm = {
   objectType: "work_order",
   definitionJson: JSON.stringify(
     {
+      schema_version: "workflow.definition.v1",
       trigger: "work_order.completed",
       steps: [
         { key: "review", type: "approval", source: "approval_line" },
@@ -99,6 +100,47 @@ const DEFAULT_DRAFT_FORM: DraftForm = {
   requiredApprovalLine: true,
   requiredPaymentLine: false,
 };
+
+const POLICY_TEMPLATE_KEY = "equipment_location_access_policy";
+
+function workflowTemplateDefinition(
+  template: WorkflowTemplateDescriptor,
+): Record<string, unknown> {
+  return {
+    schema_version: "workflow.definition.v1",
+    template_key: template.template_key,
+    object_type: template.object_type,
+    trigger: `${template.object_type}.${template.template_key}`,
+    steps: [{ key: "review", type: "approval", source: "approval_line" }],
+  };
+}
+
+function equipmentLocationPolicyDefinition(): Record<string, unknown> {
+  return {
+    schema_version: "workflow.definition.v1",
+    trigger: "workflow.policy_simulation_requested",
+    policy_decision: {
+      template_key: "equipment_location_access",
+      effect: "allow",
+      action: "maintenance:StartWorkOrder",
+      resource: { type: "equipment", id: "EQ-BOILER-17" },
+      context: {
+        org_id: "org_demo_001",
+        location_id: "loc_plant_2",
+        subject_role: "MAINTENANCE_MANAGER",
+        passkey_step_up_satisfied: true,
+      },
+      scope: {
+        org_id: "org_demo_001",
+        location_id: "loc_plant_2",
+      },
+      requirements: {
+        passkey_step_up: true,
+        audit_event: "workflow_definition.publish",
+      },
+    },
+  };
+}
 
 export function WorkflowStudioPage() {
   const { api } = useAuth();
@@ -338,13 +380,36 @@ export function WorkflowStudioPage() {
   }
 
   function applyTemplate(template: WorkflowTemplateDescriptor) {
+    const isPolicyTemplate = template.template_key === POLICY_TEMPLATE_KEY;
     setDraftForm((current) => ({
       ...current,
       workflowKey: `${template.object_type}.${template.template_key}`,
       displayName: template.display_name,
       objectType: template.object_type,
+      definitionJson: JSON.stringify(
+        isPolicyTemplate
+          ? equipmentLocationPolicyDefinition()
+          : workflowTemplateDefinition(template),
+        null,
+        2,
+      ),
       requiredApprovalLine: template.required_approval_line,
       requiredPaymentLine: template.required_payment_line,
+      approvalLineJson: isPolicyTemplate
+        ? JSON.stringify(
+            [
+              {
+                step_key: "policy_owner",
+                approver_role: "MAINTENANCE_MANAGER",
+                required: true,
+              },
+            ],
+            null,
+            2,
+          )
+        : template.required_approval_line
+          ? DEFAULT_DRAFT_FORM.approvalLineJson
+          : "[]",
       paymentLineJson: template.required_payment_line
         ? JSON.stringify(
             [{ step_key: "finance", approver_role: "FINANCE", required: true }],
@@ -352,6 +417,21 @@ export function WorkflowStudioPage() {
             2,
           )
         : "[]",
+      actionAllowlistJson: isPolicyTemplate
+        ? JSON.stringify(
+            [
+              {
+                connector_key: "internal.audit",
+                action_key: "append_timeline_event",
+              },
+            ],
+            null,
+            2,
+          )
+        : DEFAULT_DRAFT_FORM.actionAllowlistJson,
+      notificationRulesJson: isPolicyTemplate
+        ? "[]"
+        : DEFAULT_DRAFT_FORM.notificationRulesJson,
     }));
   }
 

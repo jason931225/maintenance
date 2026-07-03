@@ -120,6 +120,13 @@ const catalogResponse = {
   ],
   templates: [
     {
+      template_key: "equipment_location_access_policy",
+      display_name: "장비·위치 접근 정책",
+      object_type: "equipment",
+      required_approval_line: true,
+      required_payment_line: false,
+    },
+    {
       template_key: "maintenance_completion_approval",
       display_name: "정비 완료 승인",
       object_type: "work_order",
@@ -242,7 +249,13 @@ describe("WorkflowStudioPage", () => {
       object_type: "work_order",
       required_approval_line: true,
       required_payment_line: false,
-      definition: { trigger: "work_order.completed" },
+      definition: {
+        schema_version: "workflow.definition.v1",
+        template_key: "maintenance_completion_approval",
+        object_type: "work_order",
+        trigger: "work_order.maintenance_completion_approval",
+        steps: [{ key: "review", type: "approval", source: "approval_line" }],
+      },
     });
     expect(
       (createRequests[0] as { action_allowlist: unknown[] }).action_allowlist,
@@ -254,6 +267,151 @@ describe("WorkflowStudioPage", () => {
     expect(
       await screen.findByText("워크플로 초안을 생성했습니다."),
     ).toBeInTheDocument();
+  });
+
+  it("creates a fixed no-code policy decision draft from the equipment location template", async () => {
+    installBaseHandlers();
+    server.use(
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        const body = await request.json();
+        createRequests.push(body);
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: "55555555-5555-4555-8555-555555555555",
+          workflow_key: (body as { workflow_key: string }).workflow_key,
+          display_name: (body as { display_name: string }).display_name,
+          object_type: (body as { object_type: string }).object_type,
+          definition: (body as { definition: unknown }).definition,
+          required_approval_line: true,
+          approval_line: [
+            {
+              step_key: "policy_owner",
+              approver_role: "MAINTENANCE_MANAGER",
+              required: true,
+            },
+          ],
+          action_allowlist: [
+            {
+              connector_key: "internal.audit",
+              action_key: "append_timeline_event",
+            },
+          ],
+        });
+      }),
+    );
+
+    renderApp();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "장비·위치 접근 정책" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    await waitFor(() => {
+      expect(createRequests).toHaveLength(1);
+    });
+    expect(createRequests[0]).toMatchObject({
+      workflow_key: "equipment.equipment_location_access_policy",
+      display_name: "장비·위치 접근 정책",
+      object_type: "equipment",
+      required_approval_line: true,
+      required_payment_line: false,
+      definition: {
+        schema_version: "workflow.definition.v1",
+        policy_decision: {
+          template_key: "equipment_location_access",
+          effect: "allow",
+          action: "maintenance:StartWorkOrder",
+          resource: { type: "equipment", id: "EQ-BOILER-17" },
+          context: expect.objectContaining({
+            subject_role: "MAINTENANCE_MANAGER",
+            passkey_step_up_satisfied: true,
+          }),
+          scope: {
+            org_id: "org_demo_001",
+            location_id: "loc_plant_2",
+          },
+          requirements: {
+            passkey_step_up: true,
+            audit_event: "workflow_definition.publish",
+          },
+        },
+      },
+      approval_line: [
+        {
+          step_key: "policy_owner",
+          approver_role: "MAINTENANCE_MANAGER",
+          required: true,
+        },
+      ],
+      action_allowlist: [
+        {
+          connector_key: "internal.audit",
+          action_key: "append_timeline_event",
+        },
+      ],
+      notification_rules: [],
+    });
+  });
+
+  it("resets policy fields when switching back to a standard template", async () => {
+    installBaseHandlers();
+    server.use(
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        const body = await request.json();
+        createRequests.push(body);
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: "66666666-6666-4666-8666-666666666666",
+          workflow_key: (body as { workflow_key: string }).workflow_key,
+          display_name: (body as { display_name: string }).display_name,
+          object_type: (body as { object_type: string }).object_type,
+          definition: (body as { definition: unknown }).definition,
+          approval_line: (body as { approval_line: unknown }).approval_line,
+          action_allowlist: (body as { action_allowlist: unknown })
+            .action_allowlist,
+        });
+      }),
+    );
+
+    renderApp();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "장비·위치 접근 정책" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "정비 완료 승인" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    await waitFor(() => {
+      expect(createRequests).toHaveLength(1);
+    });
+    expect(createRequests[0]).toMatchObject({
+      workflow_key: "work_order.maintenance_completion_approval",
+      definition: {
+        schema_version: "workflow.definition.v1",
+        template_key: "maintenance_completion_approval",
+        object_type: "work_order",
+        trigger: "work_order.maintenance_completion_approval",
+      },
+      approval_line: [
+        { step_key: "manager", approver_role: "MANAGER", required: true },
+      ],
+      action_allowlist: expect.arrayContaining([
+        { connector_key: "internal.approvals", action_key: "request_approval" },
+      ]),
+      notification_rules: [
+        {
+          event: "approved",
+          connector_key: "internal.notifications",
+          action_key: "send_push",
+        },
+      ],
+    });
+    expect(
+      (createRequests[0] as { definition: Record<string, unknown> }).definition,
+    ).not.toHaveProperty("policy_decision");
   });
 
   it("blocks publish without approval and payment lines before passkey step-up", async () => {
