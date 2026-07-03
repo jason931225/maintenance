@@ -61,7 +61,7 @@ const DEPS_SERVICES = ["postgres", "seaweedfs", "otel-collector", "mailpit"];
 const PORTS = {
   postgres: Number(process.env.MNT_POSTGRES_PORT ?? 55432),
   s3: Number(process.env.MNT_S3_PORT ?? 58333),
-  otel: Number(process.env.MNT_OTEL_PORT ?? 4317),
+  otel: Number(process.env.MNT_OTEL_PORT ?? 54317),
   mailpitSmtp: Number(process.env.MNT_MAILPIT_SMTP_PORT ?? 1025),
   mailpitUi: Number(process.env.MNT_MAILPIT_UI_PORT ?? 8025),
   backend: Number(process.env.MNT_DEV_HTTP_PORT ?? 8090),
@@ -127,6 +127,41 @@ function portFree(port) {
     srv.once("listening", () => srv.close(() => resolve(true)));
     srv.listen(port, "127.0.0.1");
   });
+}
+
+// Without this, a stale process already holding PORTS.backend makes /readyz
+// probe THAT process (not the one we're about to spawn) and report a false
+// green.
+async function assertPortFree(port, label) {
+  if (!(await portFree(port))) {
+    throw new Error(
+      `port ${port} (${label}) is already in use — a stale server may be holding it. ` +
+        `Find it with \`lsof -i :${port}\` (macOS/Linux) and stop it, or override the port env var before running \`up\`/\`bootstrap\`.`,
+    );
+  }
+}
+
+// `detached: true` (used for bootstrap's backgrounded cargo run) makes the
+// child the leader of its own process group, so a plain SIGTERM to its pid
+// only reaches cargo — the mnt-app binary cargo spawns as a real child
+// process (cargo does not exec-replace itself) survives as an orphan holding
+// the port. Signalling the negative pid reaches the whole group instead.
+function stopBackendProcess(proc) {
+  if (!proc?.pid) return;
+  try {
+    if (proc.mode === "cargo") {
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/T", "/F", "/PID", String(proc.pid)]);
+      } else {
+        process.kill(-proc.pid, "SIGTERM");
+      }
+    } else {
+      process.kill(proc.pid, "SIGTERM");
+    }
+    log(`stopped pid ${proc.pid}`);
+  } catch {
+    // already gone
+  }
 }
 
 function waitForHttp(url, timeoutMs) {
@@ -504,6 +539,7 @@ function printUrls() {
 }
 
 async function cmdUp() {
+  await assertPortFree(PORTS.backend, "backend");
   await bringUpDeps();
   runMigrations();
 
@@ -524,7 +560,7 @@ async function cmdUp() {
   writePidState({
     startedBy: "up",
     backend: { pid: backend.pid, mode: "bacon" },
-    web: { pid: web.pid },
+    web: { pid: web.pid, mode: "npm" },
   });
 
   let shuttingDown = false;
@@ -566,14 +602,25 @@ async function cmdUp() {
     }
   });
 
-  log(`waiting for /readyz on http://127.0.0.1:${PORTS.backend}/readyz ...`);
-  await waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000);
+  // If the readyz wait itself fails (e.g. times out), bacon/vite are already
+  // running — without this, main().catch() would just log and exit while
+  // those two `stdio: "inherit"` children keep the event loop (and the
+  // terminal) alive forever with no dev-up process left to manage them.
+  try {
+    log(`waiting for /readyz on http://127.0.0.1:${PORTS.backend}/readyz ...`);
+    await waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000);
+  } catch (err) {
+    log(`ERROR: ${err.message}`);
+    shutdown(1);
+    return;
+  }
   printUrls();
 
   await new Promise(() => {}); // stay foreground while bacon/vite run
 }
 
 async function cmdBootstrap() {
+  await assertPortFree(PORTS.backend, "backend");
   await bringUpDeps();
   runMigrations();
 
@@ -588,28 +635,50 @@ async function cmdBootstrap() {
     stdio: ["ignore", out, out],
     detached: process.platform !== "win32",
   });
+  const backendState = { pid: backend.pid, mode: "cargo", logFile };
   let ready = false;
   const backendStart = new Promise((_, reject) => {
+    let settled = false;
+    const failBeforeReady = (message) => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(message));
+      }
+    };
+    const handleEnd = (event, code, signal) => {
+      const detail =
+        code === null ? `${event} by signal ${signal}` : `${event} with code ${code}`;
+      if (ready) {
+        log(`cargo ${detail} after readiness`);
+      } else {
+        failBeforeReady(`cargo ${detail} before /readyz`);
+      }
+    };
     backend.once("error", (err) => {
       if (ready) {
-        log(`ERROR: cargo process error after readiness: ${err.message}`);
+        log(`cargo process error after readiness: ${err.message}`);
       } else {
-        reject(new Error(`could not start cargo: ${err.message}`));
+        failBeforeReady(`could not start cargo: ${err.message}`);
       }
     });
+    backend.once("exit", (code, signal) => handleEnd("exited", code, signal));
+    backend.once("close", (code, signal) => handleEnd("closed", code, signal));
   });
   backend.unref();
 
-  writePidState({
-    startedBy: "bootstrap",
-    backend: { pid: backend.pid, mode: "cargo", logFile },
-    web: null,
-  });
+  writePidState({ startedBy: "bootstrap", backend: backendState, web: null });
 
-  await Promise.race([
-    waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000),
-    backendStart,
-  ]);
+  // Same failure mode as cmdUp: a failed readiness wait should not leave the
+  // detached cargo/mnt-app process group behind holding the port.
+  try {
+    await Promise.race([
+      waitForHttp(`http://127.0.0.1:${PORTS.backend}/readyz`, 180_000),
+      backendStart,
+    ]);
+  } catch (err) {
+    stopBackendProcess(backendState);
+    throw err;
+  }
   ready = true;
   log(`/readyz green at http://127.0.0.1:${PORTS.backend}/readyz`);
   printUrls();
@@ -620,12 +689,7 @@ async function cmdDown() {
   if (state) {
     for (const proc of [state.backend, state.web]) {
       if (proc?.pid) {
-        try {
-          process.kill(proc.pid, "SIGTERM");
-          log(`stopped pid ${proc.pid}`);
-        } catch {
-          // already gone
-        }
+        stopBackendProcess(proc);
       }
     }
   }

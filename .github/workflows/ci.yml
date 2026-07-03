@@ -116,8 +116,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             backend/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-backend-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-backend-
             ${{ runner.os }}-cargo-
 
       - name: rustfmt check
@@ -156,6 +157,7 @@ jobs:
   dev-up-smoke:
     name: dev-up.mjs smoke — compose deps + migrate + /readyz
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
@@ -181,8 +183,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             backend/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-dev-up-smoke-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-dev-up-smoke-
             ${{ runner.os }}-cargo-
 
       - name: Set up Node.js

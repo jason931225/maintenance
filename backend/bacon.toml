@@ -20,7 +20,7 @@ background = false
 on_change_strategy = "kill_then_restart"
 
 [jobs.test]
-command = ["cargo", "test"]
+command = ["cargo", "test", "-p", "mnt-app"]
 need_stdout = true
 
 # Mirrors the CI clippy gate (.github/workflows/ci.yml): all targets, warnings deny.
