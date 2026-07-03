@@ -1213,6 +1213,7 @@ async fn preview_policy_assignments(
 fn policy_feature_catalog() -> Vec<PolicyFeatureResponse> {
     Feature::ALL
         .into_iter()
+        .filter(|feature| policy_studio_feature_visible(*feature))
         .map(|feature| PolicyFeatureResponse {
             feature_key: feature.as_str().to_owned(),
             elevated: is_elevated_policy_feature(feature),
@@ -1237,6 +1238,7 @@ fn system_policy_roles() -> Vec<SystemPolicyRoleResponse> {
             is_system: true,
             permissions: Feature::ALL
                 .into_iter()
+                .filter(|feature| policy_studio_feature_visible(*feature))
                 .map(|feature| PolicyPermissionResponse {
                     feature_key: feature.as_str().to_owned(),
                     permission_level: permission_for(role, feature).as_str().to_owned(),
@@ -1543,6 +1545,7 @@ impl From<PolicyRoleSummary> for PolicyRoleResponse {
             permissions: value
                 .permissions
                 .into_iter()
+                .filter(|permission| policy_feature_key_visible(&permission.feature_key))
                 .map(|permission| PolicyPermissionResponse {
                     feature_key: permission.feature_key,
                     permission_level: permission.permission_level,
@@ -1644,7 +1647,7 @@ fn validate_policy_permissions(
     for permission in raw {
         let feature = Feature::from_str(&permission.feature_key)
             .map_err(|_| RestError::validation("unknown feature key"))?;
-        if is_elevated_policy_feature(feature) {
+        if !custom_role_runtime_feature_allowed(feature) {
             return Err(RestError::forbidden(
                 "custom roles cannot grant elevated or scope-widening policy features yet",
             ));
@@ -1858,7 +1861,7 @@ fn ensure_policy_roles_inside_actor_permission_ceiling(
             if matches!(requested, PermissionLevel::Deny) {
                 continue;
             }
-            if is_elevated_policy_feature(feature) {
+            if !custom_role_runtime_feature_allowed(feature) {
                 return Err(RestError::forbidden(
                     "custom roles cannot grant elevated or scope-widening policy features yet",
                 ));
@@ -2234,11 +2237,25 @@ fn team_policy_values(team: Team) -> [&'static str; 2] {
     }
 }
 
+fn policy_studio_feature_visible(feature: Feature) -> bool {
+    // ADR-0010/0016: the oyatie AI assistant is an application-layer port only.
+    // Until the real adapter/route exists, Policy Studio must not expose a
+    // catalog row, system-role permission, or custom-role affordance for it.
+    !matches!(feature, Feature::AiAssist)
+}
+
+fn policy_feature_key_visible(feature_key: &str) -> bool {
+    Feature::from_str(feature_key)
+        .map(policy_studio_feature_visible)
+        .unwrap_or(true)
+}
+
 fn custom_role_runtime_feature_allowed(feature: Feature) -> bool {
-    !matches!(
-        feature,
-        Feature::RoleManage | Feature::ElevatedRoleGrant | Feature::OrgWideQueueTriage
-    )
+    policy_studio_feature_visible(feature)
+        && !matches!(
+            feature,
+            Feature::RoleManage | Feature::ElevatedRoleGrant | Feature::OrgWideQueueTriage
+        )
 }
 
 fn is_elevated_policy_feature(feature: Feature) -> bool {
@@ -2503,6 +2520,58 @@ mod policy_role_template_tests {
                 ("target_manage", "request_only"),
                 ("mail_use", "allow"),
             ],
+        );
+    }
+
+    #[test]
+    fn policy_studio_quarantines_deferred_ai_assist_until_adapter_exists() {
+        let feature_catalog = policy_feature_catalog();
+        assert!(
+            feature_catalog
+                .iter()
+                .all(|feature| feature.feature_key != "ai_assist"),
+            "deferred AI assistant permission must not appear in the Policy Studio feature catalog"
+        );
+
+        for role in system_policy_roles() {
+            assert!(
+                role.permissions
+                    .iter()
+                    .all(|permission| permission.feature_key != "ai_assist"),
+                "deferred AI assistant permission must not appear in system role metadata for {}",
+                role.role_key
+            );
+        }
+
+        let legacy_role = PolicyRoleResponse::from(policy_role_for_test(
+            "legacy_ai_assist",
+            &[("ai_assist", "allow"), ("work_order_create", "allow")],
+            vec![],
+        ));
+        assert!(
+            legacy_role
+                .permissions
+                .iter()
+                .all(|permission| permission.feature_key != "ai_assist"),
+            "deferred AI assistant permission must be hidden from existing custom role responses"
+        );
+        assert!(
+            legacy_role
+                .permissions
+                .iter()
+                .any(|permission| permission.feature_key == "work_order_create"),
+            "visible custom-role permissions should remain intact"
+        );
+
+        let error = validate_policy_permissions(&[PolicyPermissionResponse {
+            feature_key: "ai_assist".to_owned(),
+            permission_level: "allow".to_owned(),
+        }])
+        .unwrap_err();
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            error.message,
+            "custom roles cannot grant elevated or scope-widening policy features yet"
         );
     }
 

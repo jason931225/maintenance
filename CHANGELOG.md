@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.36](https://github.com/jason931225/maintenance/compare/v0.1.35...v0.1.36) (2026-07-03)
+
+
+### Bug Fixes
+
+* **web:** attendance 비고 column + financial-test stabilization ([#154](https://github.com/jason931225/maintenance/issues/154)) ([aa62bff](https://github.com/jason931225/maintenance/commit/aa62bffc38a42ee9f53a1c58fd1fd5f4e7e192da))
+
+## [0.1.35](https://github.com/jason931225/maintenance/compare/v0.1.34...v0.1.35) (2026-07-03)
+
+
+### Bug Fixes
+
+* **api:** make generated client refreshes atomic ([#145](https://github.com/jason931225/maintenance/issues/145)) ([42dc86f](https://github.com/jason931225/maintenance/commit/42dc86fc6581c6d372d06300e04e47310c15c2de))
+* **policy:** hide deferred AI assistant permission ([#146](https://github.com/jason931225/maintenance/issues/146)) ([373241a](https://github.com/jason931225/maintenance/commit/373241adc87f6e856b267ef2d0a22d27673527dc))
+* **security:** unblock quick-xml RUSTSEC audit ([#151](https://github.com/jason931225/maintenance/issues/151)) ([9619e4d](https://github.com/jason931225/maintenance/commit/9619e4d7b2377badd1e37f1c961acd2b4295c19e))
+
+
+### Performance Improvements
+
+* **web:** add tenant-safe SWR read cache ([#149](https://github.com/jason931225/maintenance/issues/149)) ([4b713e5](https://github.com/jason931225/maintenance/commit/4b713e5fdc441be839bde943ae55a4e4acca6f13))
+
 ## [0.1.34](https://github.com/jason931225/maintenance/compare/v0.1.33...v0.1.34) (2026-07-02)
 
 

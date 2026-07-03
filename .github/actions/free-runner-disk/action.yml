@@ -1,0 +1,18 @@
+name: Free runner disk
+description: Free disk space on GitHub-hosted Linux runners before Rust builds.
+runs:
+  using: composite
+  steps:
+    - name: Free runner disk for Rust backend
+      shell: bash
+      run: |
+        df -h /
+        sudo rm -rf \
+          /usr/local/lib/android \
+          /usr/share/dotnet \
+          /opt/ghc \
+          /usr/local/.ghcup \
+          /usr/local/share/boost \
+          /opt/hostedtoolcache/CodeQL
+        docker system prune -af || true
+        df -h /

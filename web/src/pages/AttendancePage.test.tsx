@@ -117,6 +117,8 @@ describe("AttendancePage", () => {
     const user = userEvent.setup();
     renderApp();
 
+    expect(await screen.findByText("비고 없음")).toBeInTheDocument();
+
     await user.click(await screen.findByRole("button", { name: "외출 기록" }));
 
     await waitFor(() => {

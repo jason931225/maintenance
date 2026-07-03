@@ -14,8 +14,8 @@ import {
   vi,
 } from "vitest";
 
-import { AppRouter } from "../AppRouter";
 import { createConsoleApiClient } from "../api/client";
+import { PolicyStudioPage } from "./PolicyStudioPage";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 
@@ -47,6 +47,11 @@ beforeAll(() => {
 });
 beforeEach(() => {
   mockAssertPasskeyStepUp.mockResolvedValue(mockStepUpAssertion);
+  server.use(
+    http.get("*/api/v1/users", () =>
+      HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
+    ),
+  );
 });
 afterEach(() => {
   server.resetHandlers();
@@ -78,6 +83,17 @@ const features = [
   featureCatalogItem("daily_plan_review"),
   featureCatalogItem("mail_use"),
   featureCatalogItem("role_manage", true),
+];
+
+const featuresWithDeferredAiAssist = [
+  ...features,
+  {
+    feature_key: "ai_assist",
+    elevated: false,
+    default_permissions: [
+      { role_key: "SUPER_ADMIN", permission_level: "allow" },
+    ],
+  },
 ];
 
 const roleTemplates = [
@@ -145,6 +161,16 @@ const roleTemplates = [
       { feature_key: "work_order_read_all", permission_level: "allow" },
       { feature_key: "target_manage", permission_level: "request_only" },
       { feature_key: "mail_use", permission_level: "allow" },
+    ],
+  },
+];
+
+const roleTemplatesWithDeferredAiAssist = [
+  {
+    ...roleTemplates[0],
+    permissions: [
+      ...roleTemplates[0].permissions,
+      { feature_key: "ai_assist", permission_level: "allow" },
     ],
   },
 ];
@@ -237,6 +263,19 @@ const catalogWithCustomRole = {
   ],
 };
 
+const catalogWithDeferredAiAssistCustomRole = {
+  ...catalogWithCustomRole,
+  custom_roles: [
+    {
+      ...catalogWithCustomRole.custom_roles[0],
+      permissions: [
+        ...catalogWithCustomRole.custom_roles[0].permissions,
+        { feature_key: "ai_assist", permission_level: "allow" },
+      ],
+    },
+  ],
+};
+
 const policyAuditEvents = [
   {
     id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
@@ -301,7 +340,7 @@ function renderApp(path: string, ctx: AuthContextValue) {
   return render(
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={[path]}>
-        <AppRouter />
+        <PolicyStudioPage />
       </MemoryRouter>
     </AuthContext.Provider>,
   );
@@ -568,6 +607,136 @@ describe("PolicyStudioPage", () => {
     expect(
       within(card as HTMLElement).queryByLabelText("역할 정책 관리"),
     ).not.toBeInTheDocument();
+  });
+
+  it("hides the deferred AI assistant permission from the catalog and role checklist", async () => {
+    server.use(
+      http.get("*/api/v1/policy/features", () =>
+        HttpResponse.json(featuresWithDeferredAiAssist),
+      ),
+      http.get("*/api/v1/policy/roles", () => HttpResponse.json(emptyCatalog)),
+      http.get("*/api/v1/policy/role-templates", () =>
+        HttpResponse.json(roleTemplates),
+      ),
+      http.get("*/api/v1/policy/audit-events", () =>
+        HttpResponse.json(policyAuditEvents),
+      ),
+    );
+
+    renderApp("/settings/policy", makeAuthContext(superAdminSession));
+    const form = await screen.findByRole("button", { name: "역할 만들기" });
+    const card = form.closest("aside");
+    expect(card).not.toBeNull();
+    expect(await screen.findByText("work_order_create")).toBeVisible();
+    expect(
+      await within(card as HTMLElement).findByLabelText("작업 생성"),
+    ).toBeVisible();
+
+    expect(screen.queryByText("AI 지원")).not.toBeInTheDocument();
+    expect(screen.queryByText("ai_assist")).not.toBeInTheDocument();
+    expect(
+      within(card as HTMLElement).queryByLabelText("AI 지원"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("drops deferred AI assistant permissions from legacy template and edit payloads", async () => {
+    const user = userEvent.setup();
+    const created = vi.fn();
+    const patched = vi.fn();
+    server.use(
+      http.get("*/api/v1/policy/features", () =>
+        HttpResponse.json(featuresWithDeferredAiAssist),
+      ),
+      http.get("*/api/v1/policy/roles", () =>
+        HttpResponse.json(catalogWithDeferredAiAssistCustomRole),
+      ),
+      http.get("*/api/v1/policy/role-templates", () =>
+        HttpResponse.json(roleTemplatesWithDeferredAiAssist),
+      ),
+      http.get("*/api/v1/policy/audit-events", () =>
+        HttpResponse.json(policyAuditEvents),
+      ),
+      http.post("*/api/v1/policy/roles", async ({ request }) => {
+        created(await request.json());
+        return HttpResponse.json(
+          {
+            id: "99999999-9999-4999-8999-999999999999",
+            role_key: "dispatch_reception",
+            display_name: "접수·배차 코디네이터",
+            description: "접수와 배차 보조를 담당합니다.",
+            status: "DRAFT",
+            is_system: false,
+            permissions: roleTemplates[0].permissions,
+            conditions: [],
+            created_at: "2026-06-26T00:00:00Z",
+            updated_at: "2026-06-26T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+      http.patch("*/api/v1/policy/roles/:id", async ({ params, request }) => {
+        patched({ id: params.id, body: await request.json() });
+        return HttpResponse.json(catalogWithCustomRole.custom_roles[0]);
+      }),
+    );
+
+    renderApp("/settings/policy", makeAuthContext(superAdminSession));
+
+    const templateSelect = await screen.findByLabelText("시작 템플릿");
+    await screen.findByRole("option", {
+      name: "접수·배차 코디네이터 · 운영",
+    });
+    await user.selectOptions(templateSelect, "dispatch_reception");
+    expect(screen.getByLabelText("작업 생성")).toBeChecked();
+    expect(screen.queryByLabelText("AI 지원")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "역할 만들기" }));
+
+    await waitFor(() => {
+      expect(created).toHaveBeenCalledWith({
+        role_key: "dispatch_reception",
+        display_name: "접수·배차 코디네이터",
+        description: "접수와 배차 보조를 담당합니다.",
+        permissions: [
+          { feature_key: "work_order_create", permission_level: "allow" },
+          { feature_key: "daily_plan_review", permission_level: "limited" },
+        ],
+      });
+    });
+
+    const customRoleRow = (await screen.findByText("정비 관리자")).closest(
+      "tr",
+    );
+    expect(customRoleRow).not.toBeNull();
+    await user.click(
+      within(customRoleRow as HTMLElement).getByRole("button", {
+        name: "편집",
+      }),
+    );
+    expect(screen.getByLabelText("작업 생성")).toBeChecked();
+    expect(screen.queryByLabelText("AI 지원")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "변경 저장(패스키)" }));
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({
+        id: "22222222-2222-4222-8222-222222222222",
+        body: {
+          display_name: "정비 관리자",
+          description: "정비팀 관리자",
+          permissions: [
+            { feature_key: "work_order_create", permission_level: "allow" },
+          ],
+          conditions: [
+            {
+              condition_key: "department_1",
+              attribute: "department",
+              operator: "in",
+              values: ["정비팀", "야간조"],
+            },
+          ],
+          step_up: mockStepUpAssertion,
+        },
+      });
+    });
   });
 
   it("publishes a draft custom role only after passkey step-up", async () => {
