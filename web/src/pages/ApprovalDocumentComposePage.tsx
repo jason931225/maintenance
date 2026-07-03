@@ -30,11 +30,11 @@ export function ApprovalDocumentComposePage() {
   const [params, setParams] = useSearchParams();
   const initialTemplate = normalizeTemplate(params.get("template"));
   const [templateKey, setTemplateKey] = useState<TemplateKey>(initialTemplate);
-  const [title, setTitle] = useState(templates[initialTemplate].title);
+  const [title, setTitle] = useState<string>(templates[initialTemplate].title);
   const [targetDate, setTargetDate] = useState("");
   const [amount, setAmount] = useState("");
   const [relatedPeople, setRelatedPeople] = useState("");
-  const [approvalLine, setApprovalLine] = useState(
+  const [approvalLine, setApprovalLine] = useState<string>(
     templates[initialTemplate].approvalLine,
   );
   const [body, setBody] = useState("");

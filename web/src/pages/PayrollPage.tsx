@@ -591,7 +591,7 @@ function buildPayrollLedgerRows(
       id: employee.id,
       company: employee.company,
       employee: employee.name,
-      employeeNumber: employee.employee_number,
+      employeeNumber: employee.employee_number ?? "-",
       worksite: employee.worksite_name ?? employee.worksite ?? "-",
       attendanceEvents,
       workDays,
