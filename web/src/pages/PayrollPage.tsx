@@ -5,11 +5,9 @@ import type { ConsoleApiClient } from "../api/client";
 import type {
   AbsenceExitDashboardResponse,
   AttendanceSummaryPage,
-  DraftEmployeeExitApprovalRequest,
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
   EmployeeExitCase,
-  ExitSettlementInput,
   HrReadinessSummary,
 } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -20,7 +18,6 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { Input } from "../components/ui/input";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import type { Tone } from "../lib/semantic";
@@ -28,7 +25,6 @@ import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
 
 type LoadState = "loading" | "idle" | "error";
-type ActionState = "idle" | "busy" | "error";
 
 type PayrollApi = ConsoleApiClient & {
   GET(path: "/api/v1/hr/readiness-summary"): Promise<{
@@ -50,13 +46,6 @@ type PayrollApi = ConsoleApiClient & {
     path: "/api/v1/hr/absence-exit-dashboard",
     options?: { params?: { query?: { limit?: number; offset?: number } } },
   ): Promise<{ data?: AbsenceExitDashboardResponse }>;
-  POST(
-    path: "/api/v1/hr/exit-cases/{id}/approval-draft",
-    options: {
-      params: { path: { id: string } };
-      body: DraftEmployeeExitApprovalRequest;
-    },
-  ): Promise<{ data?: EmployeeExitCase }>;
 };
 
 const copy = ko.payroll;
@@ -71,8 +60,6 @@ export function PayrollPage() {
   const [employeeTotal, setEmployeeTotal] = useState(0);
   const [absenceExitDashboard, setAbsenceExitDashboard] =
     useState<AbsenceExitDashboardResponse>();
-  const [actionState, setActionState] = useState<ActionState>("idle");
-  const [actionMessage, setActionMessage] = useState<string>();
 
   const loadPayroll = useCallback(async () => {
     setState("loading");
@@ -128,32 +115,6 @@ export function PayrollPage() {
     [employees],
   );
 
-  const submitExitApproval = useCallback(
-    async (exitCase: EmployeeExitCase, settlementInput?: ExitSettlementInput) => {
-      setActionState("busy");
-      setActionMessage(undefined);
-      try {
-        await payrollApi.POST("/api/v1/hr/exit-cases/{id}/approval-draft", {
-          params: { path: { id: exitCase.id } },
-          body: {
-            submit: true,
-            note: "급여·4대보험 담당 검토 후 결제상신",
-            settlement_input: settlementInput,
-          },
-        });
-        setActionState("idle");
-        setActionMessage("퇴직금 정산 및 4대보험 상실신고 결제상신을 반영했습니다.");
-        await loadPayroll();
-      } catch {
-        setActionState("error");
-        setActionMessage(
-          "결제상신을 반영하지 못했습니다. 임금 원천과 권한을 확인해 주세요.",
-        );
-      }
-    },
-    [loadPayroll, payrollApi],
-  );
-
   return (
     <>
       <PageHeader
@@ -189,22 +150,7 @@ export function PayrollPage() {
             />
             <ExitSettlementPanel
               dashboard={absenceExitDashboard}
-              busy={actionState === "busy"}
-              onSubmitApproval={(exitCase, settlementInput) => {
-                void submitExitApproval(exitCase, settlementInput);
-              }}
             />
-            {actionMessage ? (
-              <p
-                role={actionState === "error" ? "alert" : "status"}
-                className={[
-                  "text-sm font-semibold",
-                  actionState === "error" ? "text-red-700" : "text-brand-teal",
-                ].join(" ")}
-              >
-                {actionMessage}
-              </p>
-            ) : null}
             <PayrollFlowPanel
               readiness={readiness}
               attendance={attendance}
@@ -342,81 +288,46 @@ function PayrollReadinessPanel({
   );
 }
 
-interface SettlementDraftForm {
-  average_wage_period_start: string;
-  average_wage_period_end: string;
-  average_wage_calendar_days: string;
-  average_wage_total_won: string;
-}
-
 function ExitSettlementPanel({
   dashboard,
-  busy,
-  onSubmitApproval,
 }: {
   dashboard: AbsenceExitDashboardResponse;
-  busy: boolean;
-  onSubmitApproval: (
-    exitCase: EmployeeExitCase,
-    settlementInput?: ExitSettlementInput,
-  ) => void;
 }) {
-  const [forms, setForms] = useState<Record<string, SettlementDraftForm>>({});
   const cases = dashboard.exit_cases;
   const summary = [
     {
-      label: "결근 경고",
+      label: copy.exitSettlement.summary.absenceWarnings,
       value: dashboard.summary.open_absence_alerts,
       tone: "warning" as Tone,
     },
     {
-      label: "임금 원천 필요",
+      label: copy.exitSettlement.summary.sourceNeeded,
       value: dashboard.summary.settlement_needs_source,
       tone: "danger" as Tone,
     },
     {
-      label: "상신 준비",
+      label: copy.exitSettlement.summary.ready,
       value: dashboard.summary.settlement_ready,
       tone: "success" as Tone,
     },
     {
-      label: "상신 완료",
+      label: copy.exitSettlement.summary.submitted,
       value: dashboard.summary.submitted,
       tone: "info" as Tone,
     },
   ];
-
-  function formFor(exitCase: EmployeeExitCase): SettlementDraftForm {
-    return forms[exitCase.id] ?? settlementFormFromCase(exitCase);
-  }
-
-  function updateForm(
-    exitCase: EmployeeExitCase,
-    key: keyof SettlementDraftForm,
-    value: string,
-  ) {
-    setForms((prev) => ({
-      ...prev,
-      [exitCase.id]: {
-        ...formFor(exitCase),
-        [key]: value,
-      },
-    }));
-  }
 
   return (
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-ink">
-            퇴직금·상실신고 정산
+            {copy.exitSettlement.title}
           </h2>
-          <p className="text-sm text-steel">
-            HR 확인된 퇴사 케이스의 평균임금 원천을 반영하고 결제상신까지 연결합니다.
-          </p>
+          <p className="text-sm text-steel">{copy.exitSettlement.description}</p>
         </div>
         <Button asChild size="sm" variant="secondary">
-          <Link to="/hr/insurance">상실신고 보조</Link>
+          <Link to="/hr/insurance">{copy.exitSettlement.insuranceLink}</Link>
         </Button>
       </div>
 
@@ -438,16 +349,12 @@ function ExitSettlementPanel({
 
       {cases.length === 0 ? (
         <p className="rounded-lg border border-line bg-white p-4 text-sm text-steel">
-          결근 경고에서 이어진 퇴사 정산 케이스가 없습니다.
+          {copy.exitSettlement.empty}
         </p>
       ) : (
         <div className="grid gap-3">
           {cases.slice(0, 8).map((exitCase) => {
             const settlementPackage = exitCase.settlement_package;
-            const form = formFor(exitCase);
-            const settlementInput = settlementInputFromForm(form);
-            const packageReady = isSettlementPackageReady(exitCase);
-            const canSubmit = packageReady || settlementInput !== undefined;
             const insuranceForms = insuranceFormCount(exitCase);
             return (
               <section
@@ -471,13 +378,17 @@ function ExitSettlementPanel({
 
                 <dl className="grid gap-3 text-sm md:grid-cols-4">
                   <div className="rounded border border-line bg-muted-panel/40 p-3">
-                    <dt className="font-semibold text-steel">근속일</dt>
+                    <dt className="font-semibold text-steel">
+                      {copy.exitSettlement.fields.serviceDays}
+                    </dt>
                     <dd className="text-ink">
                       {display(settlementPackage?.service_days)}
                     </dd>
                   </div>
                   <div className="rounded border border-line bg-muted-panel/40 p-3">
-                    <dt className="font-semibold text-steel">평균임금</dt>
+                    <dt className="font-semibold text-steel">
+                      {copy.exitSettlement.fields.averageWage}
+                    </dt>
                     <dd className="text-ink">
                       {formatAverageDailyWage(
                         settlementPackage?.average_daily_wage_milliwon,
@@ -485,15 +396,21 @@ function ExitSettlementPanel({
                     </dd>
                   </div>
                   <div className="rounded border border-line bg-muted-panel/40 p-3">
-                    <dt className="font-semibold text-steel">퇴직금 산출액</dt>
+                    <dt className="font-semibold text-steel">
+                      {copy.exitSettlement.fields.severancePay}
+                    </dt>
                     <dd className="text-ink">
                       {formatWon(settlementPackage?.severance_pay_won)}
                     </dd>
                   </div>
                   <div className="rounded border border-line bg-muted-panel/40 p-3">
-                    <dt className="font-semibold text-steel">상실신고 서식</dt>
+                    <dt className="font-semibold text-steel">
+                      {copy.exitSettlement.fields.insuranceForms}
+                    </dt>
                     <dd className="text-ink">
-                      {insuranceForms > 0 ? `${insuranceForms}종` : "-"}
+                      {insuranceForms > 0
+                        ? copy.exitSettlement.formCount(insuranceForms)
+                        : "-"}
                     </dd>
                   </div>
                 </dl>
@@ -508,90 +425,17 @@ function ExitSettlementPanel({
                   </div>
                 ) : null}
 
-                {!packageReady ? (
-                  <div className="grid gap-3 rounded border border-line p-3 md:grid-cols-4">
-                    <label className="grid gap-1 text-sm font-medium text-steel">
-                      평균임금 시작일
-                      <Input
-                        type="date"
-                        value={form.average_wage_period_start}
-                        onChange={(event) =>
-                          updateForm(
-                            exitCase,
-                            "average_wage_period_start",
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm font-medium text-steel">
-                      평균임금 종료일
-                      <Input
-                        type="date"
-                        value={form.average_wage_period_end}
-                        onChange={(event) =>
-                          updateForm(
-                            exitCase,
-                            "average_wage_period_end",
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm font-medium text-steel">
-                      산정 일수
-                      <Input
-                        inputMode="numeric"
-                        value={form.average_wage_calendar_days}
-                        onChange={(event) =>
-                          updateForm(
-                            exitCase,
-                            "average_wage_calendar_days",
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm font-medium text-steel">
-                      3개월 임금 합계
-                      <Input
-                        inputMode="numeric"
-                        value={form.average_wage_total_won}
-                        onChange={(event) =>
-                          updateForm(
-                            exitCase,
-                            "average_wage_total_won",
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </label>
-                  </div>
-                ) : null}
-
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    disabled={busy || !canSubmit}
-                    onClick={() =>
-                      onSubmitApproval(
-                        exitCase,
-                        packageReady ? undefined : settlementInput,
-                      )
-                    }
-                  >
-                    결제상신
+                  <Button asChild type="button" size="sm" variant="secondary">
+                    <Link to={`/hr/insurance?exitCase=${exitCase.id}`}>
+                      {copy.exitSettlement.handleInInsurance}
+                    </Link>
                   </Button>
                   <Button asChild type="button" size="sm" variant="ghost">
                     <Link to={`/approvals?source=employee-exit&focus=${exitCase.id}`}>
-                      전자결제 추적
+                      {copy.exitSettlement.trackApproval}
                     </Link>
                   </Button>
-                  {!canSubmit ? (
-                    <span className="text-xs font-semibold text-amber-800">
-                      평균임금 원천 4개 항목을 입력해야 상신할 수 있습니다.
-                    </span>
-                  ) : null}
                 </div>
               </section>
             );
@@ -770,79 +614,14 @@ function PayrollPlanPanel({
   );
 }
 
-function settlementFormFromCase(exitCase: EmployeeExitCase): SettlementDraftForm {
-  const settlementPackage = exitCase.settlement_package;
-  return {
-    average_wage_period_start:
-      settlementPackage?.average_wage_period_start ?? "",
-    average_wage_period_end: settlementPackage?.average_wage_period_end ?? "",
-    average_wage_calendar_days:
-      settlementPackage?.average_wage_calendar_days?.toString() ?? "",
-    average_wage_total_won:
-      settlementPackage?.average_wage_total_won?.toString() ?? "",
-  };
-}
-
-function settlementInputFromForm(
-  form: SettlementDraftForm,
-): ExitSettlementInput | undefined {
-  const days = positiveInteger(form.average_wage_calendar_days);
-  const totalWon = positiveInteger(form.average_wage_total_won);
-  if (
-    !form.average_wage_period_start ||
-    !form.average_wage_period_end ||
-    days === undefined ||
-    totalWon === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    average_wage_period_start: form.average_wage_period_start,
-    average_wage_period_end: form.average_wage_period_end,
-    average_wage_calendar_days: days,
-    average_wage_total_won: totalWon,
-  };
-}
-
-function positiveInteger(value: string): number | undefined {
-  const normalized = value.replaceAll(",", "").trim();
-  if (!/^[1-9]\d*$/.test(normalized)) return undefined;
-  const parsed = Number.parseInt(normalized, 10);
-  return Number.isSafeInteger(parsed) ? parsed : undefined;
-}
-
-function isSettlementPackageReady(exitCase: EmployeeExitCase): boolean {
-  const settlementPackage = exitCase.settlement_package;
-  return Boolean(
-    settlementPackage?.severance_pay_won &&
-      settlementPackage.missing_source_fields.length === 0,
-  );
-}
-
 function insuranceFormCount(exitCase: EmployeeExitCase): number {
   const forms = exitCase.settlement_package?.insurance_loss_payload.forms;
   return Array.isArray(forms) ? forms.length : 0;
 }
 
 function exitCaseStatusLabel(status: string): string {
-  switch (status) {
-    case "REPORTED":
-      return "HR 확인 대기";
-    case "HR_CONFIRMED":
-      return "사업장 HR 확인";
-    case "HQ_CONFIRMED":
-      return "HQ HR 확인";
-    case "SETTLEMENT_READY":
-      return "정산 준비";
-    case "APPROVAL_DRAFTED":
-      return "결제 초안";
-    case "SUBMITTED":
-      return "결제 상신";
-    case "REJECTED":
-      return "반려";
-    default:
-      return status;
-  }
+  const labels = copy.exitSettlement.status as Readonly<Record<string, string>>;
+  return labels[status] ?? status;
 }
 
 function exitCaseTone(status: string): Tone {
@@ -865,14 +644,16 @@ function exitCaseTone(status: string): Tone {
 
 function formatWon(value: number | null | undefined): string {
   if (value === null || value === undefined) return "-";
-  return `${new Intl.NumberFormat("ko-KR").format(value)}원`;
+  return copy.exitSettlement.won(new Intl.NumberFormat("ko-KR").format(value));
 }
 
 function formatAverageDailyWage(value: number | null | undefined): string {
   if (value === null || value === undefined) return "-";
-  return `${new Intl.NumberFormat("ko-KR", {
-    maximumFractionDigits: 3,
-  }).format(value / 1000)}원`;
+  return copy.exitSettlement.won(
+    new Intl.NumberFormat("ko-KR", {
+      maximumFractionDigits: 3,
+    }).format(value / 1000),
+  );
 }
 
 function display(value: string | number | null | undefined): string {

@@ -121,10 +121,10 @@ function DailyPlanAbsenceWarningPanel({
           />
           <div>
             <h2 className="text-base font-semibold text-ink">
-              결근 이상징후 경고
+              {ko.dailyPlan.absenceWarning.title}
             </h2>
             <p className="text-sm text-steel">
-              결근 발생 시 사업장 관리자, 담당 HR, HQ HR, 급여, 4대보험 상실 신고자에게 이어지는 후속 조치입니다.
+              {ko.dailyPlan.absenceWarning.description}
             </p>
           </div>
         </div>
@@ -153,12 +153,12 @@ function DailyPlanAbsenceWarningPanel({
             <div className="flex flex-wrap gap-2">
               <Button asChild size="xs" variant="secondary">
                 <Link to={`/hr/insurance?alert=${alert.id}`}>
-                  퇴사 확인 진행
+                  {ko.dailyPlan.absenceWarning.proceedExit}
                 </Link>
               </Button>
               <Button asChild size="xs" variant="ghost">
                 <Link to={`/payroll?employee=${alert.employee_id}`}>
-                  급여 영향 확인
+                  {ko.dailyPlan.absenceWarning.payrollImpact}
                 </Link>
               </Button>
             </div>

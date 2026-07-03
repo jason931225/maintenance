@@ -156,15 +156,15 @@ export function InsuranceAssistPage() {
             branch_id: alert.branch_id ?? undefined,
             absence_alert_id: alert.id,
             effective_exit_date: alert.work_date,
-            site_manager_note: `결근 경고(${alert.work_date}) 기반 퇴사 확인 요청`,
+            site_manager_note: copy.exitWorkflow.reportNote(alert.work_date),
           },
         });
         setActionState("idle");
-        setActionMessage("퇴사 확인 케이스를 생성했습니다.");
+        setActionMessage(copy.exitWorkflow.reportCreated);
         await loadInsurance();
       } catch {
         setActionState("error");
-        setActionMessage("퇴사 확인 케이스를 생성하지 못했습니다.");
+        setActionMessage(copy.exitWorkflow.reportFailed);
       }
     },
     [insuranceApi, loadInsurance],
@@ -180,15 +180,17 @@ export function InsuranceAssistPage() {
           body: {
             decision: "CONFIRM",
             hq_confirmation: hqConfirmation,
-            note: hqConfirmation ? "HQ 인사 확인" : "사업장 인사 확인",
+            note: hqConfirmation
+              ? copy.exitWorkflow.hqConfirmNote
+              : copy.exitWorkflow.hrConfirmNote,
           },
         });
         setActionState("idle");
-        setActionMessage("퇴사 확인과 정산 패키지 생성을 반영했습니다.");
+        setActionMessage(copy.exitWorkflow.confirmDone);
         await loadInsurance();
       } catch {
         setActionState("error");
-        setActionMessage("퇴사 확인을 반영하지 못했습니다.");
+        setActionMessage(copy.exitWorkflow.confirmFailed);
       }
     },
     [insuranceApi, loadInsurance],
@@ -265,22 +267,22 @@ function AbsenceExitWorkflowPanel({
 }) {
   const summary = [
     {
-      label: "결근 경고",
+      label: copy.exitWorkflow.summary.absenceWarnings,
       value: dashboard.summary.open_absence_alerts,
       tone: "warning" as Tone,
     },
     {
-      label: "HR 확인 대기",
+      label: copy.exitWorkflow.summary.pendingHr,
       value: dashboard.summary.exit_cases_pending_hr,
       tone: "info" as Tone,
     },
     {
-      label: "임금 원천 필요",
+      label: copy.exitWorkflow.summary.sourceNeeded,
       value: dashboard.summary.settlement_needs_source,
       tone: "danger" as Tone,
     },
     {
-      label: "결제상신 준비",
+      label: copy.exitWorkflow.summary.approvalReady,
       value: dashboard.summary.settlement_ready,
       tone: "success" as Tone,
     },
@@ -291,16 +293,14 @@ function AbsenceExitWorkflowPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-ink">
-            결근·퇴사·상실신고 경고
+            {copy.exitWorkflow.title}
           </h2>
-          <p className="text-sm text-steel">
-            결근 이상징후에서 퇴사 확인, 4대보험 상실신고, 퇴직금 정산까지 이어집니다.
-          </p>
+          <p className="text-sm text-steel">{copy.exitWorkflow.description}</p>
         </div>
         <Button asChild size="sm" variant="secondary">
           <Link to="/payroll?workflow=exit-settlement">
             <FileSpreadsheet size={16} aria-hidden="true" />
-            급여 정산으로 이동
+            {copy.exitWorkflow.payrollLink}
           </Link>
         </Button>
       </div>
@@ -325,10 +325,14 @@ function AbsenceExitWorkflowPanel({
         <section className="grid gap-3 rounded-lg border border-line bg-white p-4">
           <div className="flex items-center gap-2">
             <AlertTriangle size={18} className="text-amber-700" aria-hidden="true" />
-            <h3 className="font-semibold text-ink">결근 이상징후</h3>
+            <h3 className="font-semibold text-ink">
+              {copy.exitWorkflow.absenceTitle}
+            </h3>
           </div>
           {dashboard.alerts.length === 0 ? (
-            <p className="text-sm text-steel">현재 열린 결근 경고가 없습니다.</p>
+            <p className="text-sm text-steel">
+              {copy.exitWorkflow.absenceEmpty}
+            </p>
           ) : (
             <ul className="grid gap-3">
               {dashboard.alerts.slice(0, 5).map((alert) => (
@@ -357,7 +361,7 @@ function AbsenceExitWorkflowPanel({
                   {alert.exit_case_id ? (
                     <Button asChild size="xs" variant="ghost" className="justify-self-start">
                       <Link to={`/payroll?exitCase=${alert.exit_case_id}`}>
-                        정산 케이스 보기
+                        {copy.exitWorkflow.settlementCase}
                       </Link>
                     </Button>
                   ) : (
@@ -367,10 +371,12 @@ function AbsenceExitWorkflowPanel({
                       variant="secondary"
                       className="justify-self-start"
                       disabled={busy}
-                      onClick={() => onReportExit(alert)}
+                      onClick={() => {
+                        onReportExit(alert);
+                      }}
                     >
                       <UserX size={14} aria-hidden="true" />
-                      퇴사 확인 케이스 생성
+                      {copy.exitWorkflow.createExitCase}
                     </Button>
                   )}
                 </li>
@@ -382,10 +388,14 @@ function AbsenceExitWorkflowPanel({
         <section className="grid gap-3 rounded-lg border border-line bg-white p-4">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={18} className="text-emerald-700" aria-hidden="true" />
-            <h3 className="font-semibold text-ink">퇴사 확인 및 상실신고 준비</h3>
+            <h3 className="font-semibold text-ink">
+              {copy.exitWorkflow.confirmationTitle}
+            </h3>
           </div>
           {dashboard.exit_cases.length === 0 ? (
-            <p className="text-sm text-steel">진행 중인 퇴사 확인 케이스가 없습니다.</p>
+            <p className="text-sm text-steel">
+              {copy.exitWorkflow.confirmationEmpty}
+            </p>
           ) : (
             <ul className="grid gap-3">
               {dashboard.exit_cases.slice(0, 5).map((exitCase) => (
@@ -414,24 +424,28 @@ function AbsenceExitWorkflowPanel({
                           type="button"
                           size="xs"
                           disabled={busy}
-                          onClick={() => onConfirmExit(exitCase, false)}
+                          onClick={() => {
+                            onConfirmExit(exitCase, false);
+                          }}
                         >
-                          사업장 HR 확인
+                          {copy.exitWorkflow.hrConfirm}
                         </Button>
                         <Button
                           type="button"
                           size="xs"
                           variant="secondary"
                           disabled={busy}
-                          onClick={() => onConfirmExit(exitCase, true)}
+                          onClick={() => {
+                            onConfirmExit(exitCase, true);
+                          }}
                         >
-                          HQ HR 확인
+                          {copy.exitWorkflow.hqConfirm}
                         </Button>
                       </>
                     ) : null}
                     <Button asChild type="button" size="xs" variant="ghost">
                       <Link to={`/payroll?exitCase=${exitCase.id}`}>
-                        퇴직금/상실신고 자료 보기
+                        {copy.exitWorkflow.settlementMaterial}
                       </Link>
                     </Button>
                   </div>
@@ -693,41 +707,13 @@ function InsuranceRosterPanel({ rows }: { rows: InsuranceRow[] }) {
 }
 
 function roleLabel(role: string): string {
-  switch (role) {
-    case "site_manager":
-      return "사업장 관리자";
-    case "employee_hr_manager":
-      return "담당 HR";
-    case "hq_hr_manager":
-      return "HQ HR";
-    case "payroll_manager":
-      return "급여 담당";
-    case "insurance_loss_reporter":
-      return "4대보험 상실 신고";
-    default:
-      return role;
-  }
+  const labels = copy.exitWorkflow.roles as Readonly<Record<string, string>>;
+  return labels[role] ?? role;
 }
 
 function exitCaseStatusLabel(status: string): string {
-  switch (status) {
-    case "REPORTED":
-      return "HR 확인 대기";
-    case "HR_CONFIRMED":
-      return "사업장 HR 확인";
-    case "HQ_CONFIRMED":
-      return "HQ HR 확인";
-    case "SETTLEMENT_READY":
-      return "정산 준비";
-    case "APPROVAL_DRAFTED":
-      return "결제 초안";
-    case "SUBMITTED":
-      return "결제 상신";
-    case "REJECTED":
-      return "반려";
-    default:
-      return status;
-  }
+  const labels = copy.exitWorkflow.status as Readonly<Record<string, string>>;
+  return labels[status] ?? status;
 }
 
 function exitCaseTone(status: string): Tone {

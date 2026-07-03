@@ -5886,13 +5886,10 @@ fn build_settlement_calculation(
     };
     let hire_date = parse_yyyy_mm_dd(hire_date_text)?;
     let exit_date = parse_yyyy_mm_dd(&context.effective_exit_date)?;
-    let service_days = i32::try_from(
-        exit_date
-            .to_julian_day()
-            .saturating_sub(hire_date.to_julian_day())
-            + 1,
-    )
-    .map_err(|_| HrError::validation("service days overflow"))?;
+    let service_days = exit_date
+        .to_julian_day()
+        .saturating_sub(hire_date.to_julian_day())
+        + 1;
 
     let Some(input) = input else {
         missing.extend(missing_wage_source_fields());
