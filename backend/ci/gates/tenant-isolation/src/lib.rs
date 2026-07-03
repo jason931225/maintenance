@@ -43,7 +43,8 @@ use std::path::{Path, PathBuf};
 pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
     &[
         // Conglomerate grouping identity only. Authorization data is NOT here:
-        // group_memberships and group_role_grants are owner-only resolver tables.
+        // group membership, role grants, and grant org scopes are owner-only
+        // resolver tables.
         ("groups", "group identity metadata only, no tenant data"),
         (
             "feature_catalog",
@@ -97,6 +98,10 @@ pub fn owner_only_table_allowlist() -> &'static [(&'static str, &'static str)] {
         (
             "group_role_grants",
             "cross-tenant group role authorization; own-grants resolver only",
+        ),
+        (
+            "group_role_grant_org_scopes",
+            "cross-tenant group role subsidiary scope authorization; resolver only",
         ),
     ]
 }
@@ -1279,7 +1284,8 @@ mod tests {
         write(
             &dir,
             "0001_w.sql",
-            "CREATE TABLE group_memberships (group_id uuid, org_id uuid);\n",
+            "CREATE TABLE group_memberships (group_id uuid, org_id uuid);\n\
+             CREATE TABLE group_role_grant_org_scopes (grant_id uuid, group_id uuid, org_id uuid);\n",
         );
         let result = check_migrations_root(&dir);
         assert!(
@@ -1294,7 +1300,7 @@ mod tests {
         write(
             &dir,
             "0002_bad_grant.sql",
-            "GRANT SELECT ON group_memberships TO mnt_rt;\n",
+            "GRANT SELECT ON group_role_grant_org_scopes TO mnt_rt;\n",
         );
         let result = check_migrations_root(&dir);
         assert!(
