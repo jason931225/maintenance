@@ -160,6 +160,33 @@ function renderPlatformPage(
   );
 }
 
+function getOrgTableRow(name: string, slug?: string): HTMLTableRowElement {
+  const row = screen
+    .getAllByText(name)
+    .map((element) => element.closest("tr"))
+    .find(
+      (candidate): candidate is HTMLTableRowElement =>
+        Boolean(candidate) &&
+        (!slug || (candidate.textContent ?? "").includes(slug)),
+    );
+
+  if (!row) {
+    throw new Error(`Expected an organization table row for ${name}`);
+  }
+
+  return row;
+}
+
+async function findOrgTableRow(
+  name: string,
+  slug?: string,
+): Promise<HTMLTableRowElement> {
+  await waitFor(() => {
+    expect(getOrgTableRow(name, slug)).toBeInTheDocument();
+  });
+  return getOrgTableRow(name, slug);
+}
+
 const platformSession: AuthSession = {
   access_token: "platform-token",
   isPlatform: true,
@@ -220,7 +247,7 @@ describe("Platform console routing", () => {
       await screen.findByRole("heading", { name: "그룹 관리" }),
     ).toBeVisible();
     expect(await screen.findByText("그룹")).toBeVisible();
-    expect(screen.getByText("Acme Corporation")).toBeVisible();
+    expect(getOrgTableRow("Acme Corporation", orgs[0].slug)).toBeVisible();
   });
 
   it("routes platform admins to self-service account settings", async () => {
@@ -263,7 +290,7 @@ describe("Platform tenant list", () => {
     await user.selectOptions(screen.getByLabelText("보기 범위"), [
       `group:${orgs[0].group_id}`,
     ]);
-    expect(screen.getByText("Acme Corporation")).toBeVisible();
+    expect(getOrgTableRow("Acme Corporation", orgs[0].slug)).toBeVisible();
     expect(screen.queryByText("Globex Corporation")).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("보기 범위"), [
@@ -411,7 +438,7 @@ describe("Platform group management", () => {
     ).toBeVisible();
     expect(screen.getByRole("heading", { name: "그룹" })).toBeVisible();
     expect(screen.getByText(/소속 조직 1개/)).toBeVisible();
-    expect(screen.getByText("Acme Corporation")).toBeVisible();
+    expect(getOrgTableRow("Acme Corporation", orgs[0].slug)).toBeVisible();
     expect(screen.getAllByText("보기 범위")[0]).toBeVisible();
     expect(screen.getAllByText(/전체 그룹\/조직.*그룹.*조직/)[0]).toBeVisible();
   });
@@ -573,7 +600,7 @@ describe("Platform group management", () => {
       );
     });
     expect(await screen.findByText(/소속 조직 2개/)).toBeVisible();
-    expect(screen.getByText("Globex Corporation")).toBeVisible();
+    expect(getOrgTableRow("Globex Corporation", orgs[1].slug)).toBeVisible();
   });
 
   it("starts a writable organization-management context from a group member", async () => {
@@ -605,7 +632,7 @@ describe("Platform group management", () => {
       makeAuthContext(platformSession, { enterViewAs }),
     );
 
-    const row = (await screen.findByText("Acme Corporation")).closest("tr");
+    const row = await findOrgTableRow("Acme Corporation", orgs[0].slug);
     await user.click(
       within(row as HTMLElement).getByRole("button", { name: "조직 관리" }),
     );

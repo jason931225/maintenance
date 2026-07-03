@@ -350,6 +350,11 @@ const adminSession: AuthSession = {
   roles: ["ADMIN"],
 };
 
+const payrollManagerSession: AuthSession = {
+  ...authenticatedSession,
+  roles: ["PAYROLL_MANAGER"],
+};
+
 const mechanicSession: AuthSession = {
   ...authenticatedSession,
   roles: ["MECHANIC"],
@@ -498,7 +503,7 @@ describe("AppRouter authenticated", () => {
   });
 
   it("renders the protected dispatch page when authenticated", async () => {
-    renderAt("/dispatch");
+    renderAt("/dispatch", adminSession);
     expect(
       await screen.findByRole("heading", { name: "작업지시 목록", level: 2 }),
     ).toBeVisible();
@@ -661,9 +666,9 @@ describe("routing", () => {
   });
 
   it("renders /payroll page", async () => {
-    renderAt("/payroll", adminSession);
+    renderAt("/payroll", payrollManagerSession);
     expect(
-      await screen.findByRole("heading", { name: "급여 준비", level: 1 }),
+      await screen.findByRole("heading", { name: "급여대장", level: 1 }),
     ).toBeVisible();
     expect(
       await screen.findByRole("heading", { name: "급여 산출 준비도" }),

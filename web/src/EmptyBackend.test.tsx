@@ -212,6 +212,11 @@ const session: AuthSession = {
   branches: [BRANCH_ID],
 };
 
+const payrollSession: AuthSession = {
+  ...session,
+  roles: ["HQ_PAYROLL_MANAGER"],
+};
+
 function makeAuthContext(s: AuthSession): AuthContextValue {
   return {
     session: s,
@@ -228,9 +233,9 @@ function makeAuthContext(s: AuthSession): AuthContextValue {
   };
 }
 
-function renderAt(path: string) {
+function renderAt(path: string, authSession = session) {
   return render(
-    <AuthContext.Provider value={makeAuthContext(session)}>
+    <AuthContext.Provider value={makeAuthContext(authSession)}>
       <MemoryRouter initialEntries={[path]}>
         <AppRouter />
       </MemoryRouter>
@@ -287,9 +292,9 @@ describe("every page renders cleanly against an empty backend", () => {
   }
 
   it("renders /payroll with zero readiness counts and no crash", async () => {
-    renderAt("/payroll");
+    renderAt("/payroll", payrollSession);
     expect(
-      await screen.findByRole("heading", { name: "급여 준비", level: 1 }),
+      await screen.findByRole("heading", { name: "급여대장", level: 1 }),
     ).toBeVisible();
     expect(await screen.findByText("급여 산출 준비도")).toBeVisible();
     expect(await screen.findByText("법적 검토 게이트 차단")).toBeVisible();
