@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "goalId": "G005-workflow-builder-approvals-work-hub",
-  "updatedAt": "2026-06-30",
+  "updatedAt": "2026-07-03",
   "purpose": "Machine-readable workflow, approval, Work Hub, planned-work, notification, evidence, and object-timeline lifecycle contract for the platform-maturity ultragoal. This gate proves source-object centered workflow operations are wired through backend contracts, frontend actions, browser matrices, and regression tests before asset, collaboration, ERP, and live-rollout lanes depend on them.",
   "nonClaimPolicy": "G005 may prove local contract, browser matrix, and regression coverage. Production Argo rollout, live screenshot/trace closure, and live DB/API/browser parity remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a rollout blocker, not as live closure.",
   "routePaths": [
@@ -16,6 +16,12 @@
       "routeGroup": "approvals",
       "mustContainOwnerGoal": "G005",
       "requiredStory": "manager approval queue requires comment or rejection memo, shows source object, evidence images, approval line actors, history, and removes terminal decisions"
+    },
+    {
+      "path": "/approvals/new",
+      "routeGroup": "approvals",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "employee or manager chooses a standard document template, records approval line, target date, amount, comment and evidence context, then submits into the universal approval queue"
     },
     {
       "path": "/settings/workflows",

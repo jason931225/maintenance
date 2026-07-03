@@ -575,7 +575,7 @@
       "dataClass": "approval draft, HR leave/trip request, report, meeting minutes, expense amount, target date, approval line, workflow metadata, and audit metadata",
       "sourceObject": "approval document draft, HR leave request, business trip request, expense request, report target, meeting action item, or linked workflow object",
       "lifecycleStates": "draft, saved, submitted, pending approval, approved, rejected, linked to attendance/payroll/finance tracking, archived",
-      "e2eSpec": "Required browser story: choose document template, enter target date/amount/approval line, submit, then verify approval queue and linked HR/payroll/finance tracking",
+      "e2eSpec": "Required browser story: choose document template, enter target date/amount/approval line/comment/evidence context, submit, then verify approval queue and linked HR/payroll/finance tracking",
       "denialScopeTest": "Unauthorized document template, wrong subsidiary scope, missing approval line, and sensitive payroll/HR document access must be denied",
       "screenshotTraceEvidence": "Pending G003/G005/G008 compose trace and screenshots; current registration prevents route drift but is not final maturity proof",
       "groupScopeStory": "Group/HQ users compose and route documents only for all or selected subsidiaries granted by group role scope; site users remain limited to their legal org or worksite"

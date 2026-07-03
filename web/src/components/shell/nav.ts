@@ -269,6 +269,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
   ["leave-management", EMPLOYEE_DIRECTORY_ROLES],
   ["insurance-assist", EMPLOYEE_DIRECTORY_ROLES],
+  // Payroll readiness is high-sensitivity and intentionally separated from finance.
   ["payroll", PAYROLL_ROLES],
   ["security", ADMIN_ROLES],
   // Legacy external-account configuration is intentionally hidden. Corporate
