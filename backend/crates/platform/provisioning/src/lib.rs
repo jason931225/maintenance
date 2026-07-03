@@ -694,8 +694,10 @@ impl BootstrapCredentialStore {
 // membership from the DB, by user id, on every request, so a token-only
 // identity with no backing row would see zero branch-scoped data for any
 // non-admin role. This mirrors `apply_roster_tx`'s find-or-update-else-insert
-// shape (same tables, same `FOR UPDATE` idempotency pattern), scoped to one
-// row per (org, role) instead of a whole roster.
+// shape (same tables), scoped to one row per (org, role) instead of a whole
+// roster — but atomically, via `INSERT ... ON CONFLICT`, since a `SELECT ...
+// FOR UPDATE` finding zero rows locks nothing and cannot serialize two
+// concurrent FIRST mints of the same persona.
 // ---------------------------------------------------------------------------
 
 /// One dev-auth role-switch request: the org/role/branches an engineer wants to
