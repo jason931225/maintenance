@@ -34,8 +34,22 @@ function isLocalPreviewHost(hostname: string): boolean {
 export function isDevPreviewEnabled(): boolean {
   if (!import.meta.env.DEV || typeof window === "undefined") return false;
   if (!isLocalPreviewHost(window.location.hostname)) return false;
-  if (new URLSearchParams(window.location.search).get("dev_auto_login") === "on") {
+  const previewMode = new URLSearchParams(window.location.search).get("dev_auto_login");
+  if (previewMode === "on") {
+    try {
+      window.localStorage.setItem(DEV_PREVIEW_STORAGE_KEY, "on");
+    } catch {
+      // Ignore storage failures; the query parameter still enables this page.
+    }
     return true;
+  }
+  if (previewMode === "off") {
+    try {
+      window.localStorage.removeItem(DEV_PREVIEW_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures; the query parameter still disables this page.
+    }
+    return false;
   }
   try {
     return window.localStorage.getItem(DEV_PREVIEW_STORAGE_KEY) === "on";
