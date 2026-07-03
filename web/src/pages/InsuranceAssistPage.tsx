@@ -32,6 +32,11 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { insuranceAssistKo as copy } from "../i18n/hrWorkflows";
+import {
+  exitCaseStatusLabel,
+  exitCaseTone,
+  exitWorkflowRoleLabel,
+} from "../lib/hrExitWorkflow";
 import type { Tone } from "../lib/semantic";
 import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
@@ -103,31 +108,27 @@ export function InsuranceAssistPage() {
     setState("loading");
     const [employeesResponse, readinessResponse, absenceExitResponse] =
       await Promise.all([
-      insuranceApi
-        .GET("/api/v1/employees", {
-          params: { query: { limit: 1000, offset: 0 } },
-        })
-        .catch(() => undefined),
-      insuranceApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
+        insuranceApi
+          .GET("/api/v1/employees", {
+            params: { query: { limit: 1000, offset: 0 } },
+          })
+          .catch(() => undefined),
+        insuranceApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
         insuranceApi
           .GET("/api/v1/hr/absence-exit-dashboard", {
             params: { query: { limit: 50, offset: 0 } },
           })
           .catch(() => undefined),
-    ]);
+      ]);
 
-    if (
-      !employeesResponse?.data ||
-      !readinessResponse?.data ||
-      !absenceExitResponse?.data
-    ) {
+    if (!employeesResponse?.data || !readinessResponse?.data) {
       setState("error");
       return;
     }
 
     setEmployees(employeesResponse.data.items);
     setReadinessSummary(readinessResponse.data);
-    setAbsenceExitDashboard(absenceExitResponse.data);
+    setAbsenceExitDashboard(absenceExitResponse?.data);
     setState("idle");
   }, [insuranceApi]);
 
@@ -221,19 +222,21 @@ export function InsuranceAssistPage() {
             }}
           />
         ) : null}
-        {state === "idle" && readinessSummary && absenceExitDashboard ? (
+        {state === "idle" && readinessSummary ? (
           <>
             <InsuranceOverviewPanel rows={rows} readinessSummary={readinessSummary} />
-            <AbsenceExitWorkflowPanel
-              dashboard={absenceExitDashboard}
-              busy={actionState === "busy"}
-              onReportExit={(alert) => {
-                void reportExitFromAlert(alert);
-              }}
-              onConfirmExit={(exitCase, hqConfirmation) => {
-                void confirmExitCase(exitCase, hqConfirmation);
-              }}
-            />
+            {absenceExitDashboard ? (
+              <AbsenceExitWorkflowPanel
+                dashboard={absenceExitDashboard}
+                busy={actionState === "busy"}
+                onReportExit={(alert) => {
+                  void reportExitFromAlert(alert);
+                }}
+                onConfirmExit={(exitCase, hqConfirmation) => {
+                  void confirmExitCase(exitCase, hqConfirmation);
+                }}
+              />
+            ) : null}
             {actionMessage ? (
               <p
                 role={actionState === "error" ? "alert" : "status"}
@@ -413,7 +416,7 @@ function AbsenceExitWorkflowPanel({
                       </p>
                     </div>
                     <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
-                      {exitCaseStatusLabel(exitCase.status)}
+                      {exitStatusLabel(exitCase.status)}
                     </Badge>
                   </div>
                   <p className="text-sm text-steel">{exitCase.site_manager_note}</p>
@@ -707,31 +710,11 @@ function InsuranceRosterPanel({ rows }: { rows: InsuranceRow[] }) {
 }
 
 function roleLabel(role: string): string {
-  const labels = copy.exitWorkflow.roles as Readonly<Record<string, string>>;
-  return labels[role] ?? role;
+  return exitWorkflowRoleLabel(role, copy.exitWorkflow.roles);
 }
 
-function exitCaseStatusLabel(status: string): string {
-  const labels = copy.exitWorkflow.status as Readonly<Record<string, string>>;
-  return labels[status] ?? status;
-}
-
-function exitCaseTone(status: string): Tone {
-  switch (status) {
-    case "REPORTED":
-      return "warning";
-    case "SETTLEMENT_READY":
-    case "HQ_CONFIRMED":
-    case "HR_CONFIRMED":
-      return "success";
-    case "APPROVAL_DRAFTED":
-    case "SUBMITTED":
-      return "info";
-    case "REJECTED":
-      return "danger";
-    default:
-      return "neutral";
-  }
+function exitStatusLabel(status: EmployeeExitCase["status"]): string {
+  return exitCaseStatusLabel(status, copy.exitWorkflow.status);
 }
 
 function insuranceReport(employee: EmployeeDirectoryItem): InsuranceReport {

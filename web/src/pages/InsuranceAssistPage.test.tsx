@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
@@ -7,6 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createConsoleApiClient } from "../api/client";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { AuthContext } from "../context/auth";
+import { insuranceAssistKo as copy } from "../i18n/hrWorkflows";
 import { InsuranceAssistPage } from "./InsuranceAssistPage";
 
 const server = setupServer();
@@ -191,5 +193,172 @@ describe("InsuranceAssistPage", () => {
       "href",
       "/mail?compose=insurance",
     );
+  });
+
+  it("keeps the roster visible when the absence-exit dashboard is unavailable", async () => {
+    server.use(
+      http.get("*/api/v1/employees", () =>
+        HttpResponse.json({ items: employees, total: 3, limit: 1000, offset: 0 }),
+      ),
+      http.get("*/api/v1/hr/readiness-summary", () =>
+        HttpResponse.json(readinessSummary),
+      ),
+      http.get("*/api/v1/hr/absence-exit-dashboard", () =>
+        HttpResponse.json({ error: "temporarily unavailable" }, { status: 503 }),
+      ),
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: copy.title, level: 1 }),
+    ).toBeVisible();
+    expect(screen.getByText(copy.overview.title)).toBeVisible();
+    expect(screen.queryByText(copy.exitWorkflow.title)).not.toBeInTheDocument();
+  });
+
+  it("reports and confirms exit cases from the absence-exit workflow panel", async () => {
+    const user = userEvent.setup();
+    const reportBodies: unknown[] = [];
+    const confirmBodies: Array<{ id: string; body: unknown }> = [];
+    let dashboard = {
+      summary: {
+        open_absence_alerts: 1,
+        exit_cases_pending_hr: 1,
+        settlement_needs_source: 0,
+        settlement_ready: 0,
+        approval_drafts: 0,
+        submitted: 0,
+      },
+      alerts: [
+        {
+          id: "alert-1",
+          employee_id: "employee-1",
+          employee_name: "Workflow Employee",
+          employee_number: "A-001",
+          company: "KNL",
+          org_unit: "Operations",
+          worksite_name: "Miryang",
+          branch_id: "branch-1",
+          branch_name: "Miryang",
+          work_date: "2026-07-02",
+          source: "attendance_direct_import",
+          status: "OPEN",
+          severity: "WARNING",
+          audience_roles: ["site_manager", "payroll_manager"],
+          signal_payload: {},
+          notification_title: "Absence warning",
+          notification_message: "No clock-in was recorded.",
+          link_href: "/attendance",
+          exit_case_id: null,
+          detected_at: "2026-07-02T00:00:00Z",
+        },
+      ],
+      exit_cases: [
+        {
+          id: "exit-case-1",
+          employee_id: "employee-2",
+          employee_name: "Exit Employee",
+          employee_number: "A-002",
+          company: "KNL",
+          org_unit: "Operations",
+          worksite_name: "Miryang",
+          branch_id: "branch-1",
+          branch_name: "Miryang",
+          absence_alert_id: "alert-2",
+          status: "REPORTED",
+          effective_exit_date: "2026-07-01",
+          site_manager_note: "Confirmed by site manager",
+          reported_by: "site-manager",
+          reported_at: "2026-07-02T00:00:00Z",
+          hr_confirmed_by: null,
+          hr_confirmed_at: null,
+          hq_confirmed_by: null,
+          hq_confirmed_at: null,
+          approval_submitted_by: null,
+          approval_submitted_at: null,
+          settlement_package: null,
+          next_actions: [],
+        },
+      ],
+    };
+
+    server.use(
+      http.get("*/api/v1/employees", () =>
+        HttpResponse.json({ items: employees, total: 3, limit: 1000, offset: 0 }),
+      ),
+      http.get("*/api/v1/hr/readiness-summary", () =>
+        HttpResponse.json(readinessSummary),
+      ),
+      http.get("*/api/v1/hr/absence-exit-dashboard", () =>
+        HttpResponse.json(dashboard),
+      ),
+      http.post("*/api/v1/hr/exit-cases", async ({ request }) => {
+        reportBodies.push(await request.json());
+        dashboard = {
+          ...dashboard,
+          alerts: dashboard.alerts.map((alert) => ({
+            ...alert,
+            exit_case_id: "exit-case-created",
+          })),
+        };
+        return HttpResponse.json(dashboard.exit_cases[0]);
+      }),
+      http.post("*/api/v1/hr/exit-cases/:id/confirm", async ({ params, request }) => {
+        confirmBodies.push({
+          id: String(params.id),
+          body: await request.json(),
+        });
+        dashboard = {
+          ...dashboard,
+          summary: {
+            ...dashboard.summary,
+            exit_cases_pending_hr: 0,
+            settlement_ready: 1,
+          },
+          exit_cases: dashboard.exit_cases.map((exitCase) => ({
+            ...exitCase,
+            status: "SETTLEMENT_READY",
+          })),
+        };
+        return HttpResponse.json(dashboard.exit_cases[0]);
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText(copy.exitWorkflow.title)).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: copy.exitWorkflow.createExitCase }),
+    );
+    await waitFor(() => {
+      expect(reportBodies).toHaveLength(1);
+    });
+    expect(reportBodies).toEqual([
+      expect.objectContaining({
+        employee_id: "employee-1",
+        branch_id: "branch-1",
+        absence_alert_id: "alert-1",
+        effective_exit_date: "2026-07-02",
+      }),
+    ]);
+    expect(await screen.findByText(copy.exitWorkflow.reportCreated)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: copy.exitWorkflow.hrConfirm }));
+    await waitFor(() => {
+      expect(confirmBodies).toHaveLength(1);
+    });
+    expect(confirmBodies).toEqual([
+      expect.objectContaining({
+        id: "exit-case-1",
+        body: expect.objectContaining({
+          decision: "CONFIRM",
+          hq_confirmation: false,
+        }),
+      }),
+    ]);
+    expect(await screen.findByText(copy.exitWorkflow.confirmDone)).toBeVisible();
+    expect(screen.getByText(copy.exitWorkflow.status.SETTLEMENT_READY)).toBeVisible();
   });
 });

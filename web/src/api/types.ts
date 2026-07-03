@@ -274,6 +274,28 @@ export interface AbsenceExitSummary {
   submitted: number;
 }
 
+export type EmployeeAbsenceAlertStatus =
+  | "OPEN"
+  | "ACKNOWLEDGED"
+  | "LINKED_EXIT"
+  | "RESOLVED";
+
+export type EmployeeExitCaseStatus =
+  | "REPORTED"
+  | "HR_CONFIRMED"
+  | "HQ_CONFIRMED"
+  | "SETTLEMENT_READY"
+  | "APPROVAL_DRAFTED"
+  | "SUBMITTED"
+  | "REJECTED"
+  | "CANCELLED";
+
+export type EmployeeExitSettlementPackageStatus =
+  | "NEEDS_SOURCE"
+  | "READY_FOR_APPROVAL"
+  | "APPROVAL_DRAFTED"
+  | "SUBMITTED";
+
 export interface EmployeeAbsenceAlert {
   id: string;
   employee_id: string;
@@ -286,7 +308,7 @@ export interface EmployeeAbsenceAlert {
   branch_name?: string | null;
   work_date: string;
   source: string;
-  status: string;
+  status: EmployeeAbsenceAlertStatus;
   severity: string;
   audience_roles: string[];
   signal_payload: Record<string, unknown>;
@@ -336,7 +358,7 @@ export interface EmployeeExitCase {
   branch_id?: string | null;
   branch_name?: string | null;
   absence_alert_id?: string | null;
-  status: string;
+  status: EmployeeExitCaseStatus;
   effective_exit_date: string;
   site_manager_note: string;
   reported_by: string;
@@ -353,7 +375,7 @@ export interface EmployeeExitCase {
 
 export interface EmployeeExitSettlementPackage {
   id: string;
-  status: string;
+  status: EmployeeExitSettlementPackageStatus;
   service_days?: number | null;
   average_wage_period_start?: string | null;
   average_wage_period_end?: string | null;

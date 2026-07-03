@@ -20,6 +20,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
+import { exitCaseStatusLabel, exitCaseTone } from "../lib/hrExitWorkflow";
 import type { Tone } from "../lib/semantic";
 import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
@@ -91,8 +92,7 @@ export function PayrollPage() {
     if (
       !readinessResponse?.data ||
       !attendanceResponse?.data ||
-      !employeesResponse?.data ||
-      !absenceExitResponse?.data
+      !employeesResponse?.data
     ) {
       setState("error");
       return;
@@ -102,7 +102,7 @@ export function PayrollPage() {
     setAttendance(attendanceResponse.data);
     setEmployees(employeesResponse.data.items);
     setEmployeeTotal(employeesResponse.data.total);
-    setAbsenceExitDashboard(absenceExitResponse.data);
+    setAbsenceExitDashboard(absenceExitResponse?.data);
     setState("idle");
   }, [payrollApi]);
 
@@ -140,7 +140,7 @@ export function PayrollPage() {
             }}
           />
         ) : null}
-        {state === "idle" && readiness && absenceExitDashboard ? (
+        {state === "idle" && readiness ? (
           <>
             <PayrollReadinessPanel
               readiness={readiness}
@@ -148,9 +148,9 @@ export function PayrollPage() {
               activeEmployees={activeEmployees}
               employeeTotal={employeeTotal}
             />
-            <ExitSettlementPanel
-              dashboard={absenceExitDashboard}
-            />
+            {absenceExitDashboard ? (
+              <ExitSettlementPanel dashboard={absenceExitDashboard} />
+            ) : null}
             <PayrollFlowPanel
               readiness={readiness}
               attendance={attendance}
@@ -372,7 +372,7 @@ function ExitSettlementPanel({
                     </p>
                   </div>
                   <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
-                    {exitCaseStatusLabel(exitCase.status)}
+                    {exitStatusLabel(exitCase.status)}
                   </Badge>
                 </div>
 
@@ -619,27 +619,8 @@ function insuranceFormCount(exitCase: EmployeeExitCase): number {
   return Array.isArray(forms) ? forms.length : 0;
 }
 
-function exitCaseStatusLabel(status: string): string {
-  const labels = copy.exitSettlement.status as Readonly<Record<string, string>>;
-  return labels[status] ?? status;
-}
-
-function exitCaseTone(status: string): Tone {
-  switch (status) {
-    case "REPORTED":
-      return "warning";
-    case "HR_CONFIRMED":
-    case "HQ_CONFIRMED":
-    case "SETTLEMENT_READY":
-      return "success";
-    case "APPROVAL_DRAFTED":
-    case "SUBMITTED":
-      return "info";
-    case "REJECTED":
-      return "danger";
-    default:
-      return "neutral";
-  }
+function exitStatusLabel(status: EmployeeExitCase["status"]): string {
+  return exitCaseStatusLabel(status, copy.exitSettlement.status);
 }
 
 function formatWon(value: number | null | undefined): string {

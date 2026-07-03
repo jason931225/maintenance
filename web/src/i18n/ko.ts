@@ -187,6 +187,7 @@ export const ko = {
         APPROVAL_DRAFTED: "결제 초안",
         SUBMITTED: "결제 상신",
         REJECTED: "반려",
+        CANCELLED: "취소",
       },
       won: (value: string) => `${value}원`,
     },
