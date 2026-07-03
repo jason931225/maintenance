@@ -136,6 +136,31 @@ pub struct PayrollDraft {
     pub net_pay_won: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeverancePayInput {
+    pub hire_date: Date,
+    pub exit_date: Date,
+    pub average_wage_period_start: Date,
+    pub average_wage_period_end: Date,
+    pub average_wage_calendar_days: i64,
+    pub average_wage_total_won: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeverancePayDraft {
+    pub hire_date: Date,
+    pub exit_date: Date,
+    pub service_days: i64,
+    pub average_wage_period_start: Date,
+    pub average_wage_period_end: Date,
+    pub average_wage_calendar_days: i64,
+    pub average_wage_total_won: i64,
+    pub average_daily_wage_milliwon: i64,
+    pub statutory_30_day_wage_won: i64,
+    pub severance_pay_won: i64,
+    pub source: OfficialSource,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfessionalReviewerKind {
     LaborAttorney,
@@ -169,6 +194,26 @@ pub struct PayrollReleaseGateInput {
 #[must_use]
 pub const fn payroll_sources_verified_on() -> Date {
     date!(2026 - 06 - 27)
+}
+
+#[must_use]
+pub const fn moel_retirement_pay_source() -> OfficialSource {
+    OfficialSource {
+        authority: "Ministry of Employment and Labor",
+        title: "Retirement pay average wage formula",
+        url: "https://www.moel.go.kr/faq/faqView.do?seqRepeat=89",
+        retrieved_on: date!(2026 - 07 - 03),
+    }
+}
+
+#[must_use]
+pub const fn nhis_qualification_loss_form_source() -> OfficialSource {
+    OfficialSource {
+        authority: "National Health Insurance Service",
+        title: "4-insurance workplace subscriber qualification loss report",
+        url: "https://www.nhis.or.kr/static/html/wbdb/f/wbdbf0201.html",
+        retrieved_on: date!(2026 - 07 - 03),
+    }
 }
 
 #[must_use]
@@ -434,6 +479,79 @@ pub fn build_employee_payroll_draft(input: PayrollDraftInput) -> Result<PayrollD
     })
 }
 
+pub fn build_severance_pay_draft(
+    input: SeverancePayInput,
+) -> Result<SeverancePayDraft, KernelError> {
+    if input.exit_date < input.hire_date {
+        return Err(KernelError::validation(
+            "exit date must be on or after hire date",
+        ));
+    }
+    if input.average_wage_period_end < input.average_wage_period_start {
+        return Err(KernelError::validation(
+            "average wage period end must be on or after start",
+        ));
+    }
+    if input.average_wage_period_end > input.exit_date {
+        return Err(KernelError::validation(
+            "average wage period must not end after the exit date",
+        ));
+    }
+    if input.average_wage_calendar_days <= 0 {
+        return Err(KernelError::validation(
+            "average wage calendar days must be positive",
+        ));
+    }
+    if input.average_wage_total_won <= 0 {
+        return Err(KernelError::validation(
+            "average wage total must be positive",
+        ));
+    }
+
+    let service_days = i64::from(
+        input
+            .exit_date
+            .to_julian_day()
+            .saturating_sub(input.hire_date.to_julian_day())
+            + 1,
+    );
+    if service_days < 365 {
+        return Err(KernelError::validation(
+            "statutory severance pay requires at least one year of service",
+        ));
+    }
+
+    let average_daily_wage_milliwon = checked_i128_to_i64(
+        checked_mul_i128(input.average_wage_total_won, 1_000)?
+            / i128::from(input.average_wage_calendar_days),
+    )?;
+    let statutory_30_day_wage_won = checked_i128_to_i64(
+        checked_mul_i128(input.average_wage_total_won, 30)?
+            / i128::from(input.average_wage_calendar_days),
+    )?;
+    let severance_pay_won = checked_i128_to_i64(
+        checked_mul_i128(input.average_wage_total_won, 30)?
+            .checked_mul(i128::from(service_days))
+            .ok_or_else(|| KernelError::validation("severance calculation overflow"))?
+            / i128::from(input.average_wage_calendar_days)
+            / 365,
+    )?;
+
+    Ok(SeverancePayDraft {
+        hire_date: input.hire_date,
+        exit_date: input.exit_date,
+        service_days,
+        average_wage_period_start: input.average_wage_period_start,
+        average_wage_period_end: input.average_wage_period_end,
+        average_wage_calendar_days: input.average_wage_calendar_days,
+        average_wage_total_won: input.average_wage_total_won,
+        average_daily_wage_milliwon,
+        statutory_30_day_wage_won,
+        severance_pay_won,
+        source: moel_retirement_pay_source(),
+    })
+}
+
 pub fn validate_release_gate(input: &PayrollReleaseGateInput) -> Result<(), KernelError> {
     if input.rate_table_version.trim().is_empty() {
         return Err(KernelError::validation(
@@ -509,6 +627,16 @@ fn amount_by_ppm_floor_won(base_won: i64, ppm: u32) -> Result<i64, KernelError> 
         .checked_mul(i128::from(ppm))
         .ok_or_else(|| KernelError::validation("payroll rate multiplication overflow"))?
         / PPM_DENOMINATOR;
+    i64::try_from(amount).map_err(|_| KernelError::validation("payroll amount overflow"))
+}
+
+fn checked_mul_i128(left: i64, right: i64) -> Result<i128, KernelError> {
+    i128::from(left)
+        .checked_mul(i128::from(right))
+        .ok_or_else(|| KernelError::validation("payroll amount multiplication overflow"))
+}
+
+fn checked_i128_to_i64(amount: i128) -> Result<i64, KernelError> {
     i64::try_from(amount).map_err(|_| KernelError::validation("payroll amount overflow"))
 }
 
@@ -650,6 +778,48 @@ mod tests {
             }),
         };
         validate_release_gate(&validated).unwrap();
+    }
+
+    #[test]
+    fn builds_severance_pay_from_moel_average_wage_formula() {
+        let draft = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2024 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 9_100_000,
+        })
+        .unwrap();
+
+        assert_eq!(draft.service_days, 912);
+        assert_eq!(draft.average_daily_wage_milliwon, 100_000_000);
+        assert_eq!(draft.statutory_30_day_wage_won, 3_000_000);
+        assert_eq!(draft.severance_pay_won, 7_495_890);
+        assert_eq!(draft.source, moel_retirement_pay_source());
+    }
+
+    #[test]
+    fn severance_pay_refuses_short_service_or_missing_wage_basis() {
+        let short_service = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2026 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 9_100_000,
+        });
+        assert!(short_service.is_err());
+
+        let missing_wage = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2024 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 0,
+        });
+        assert!(missing_wage.is_err());
     }
 
     fn line_amount(draft: &PayrollDraft, code: DeductionCode) -> i64 {

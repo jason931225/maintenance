@@ -8,16 +8,21 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
+};
+use mnt_payroll_domain::{
+    SeverancePayInput, build_severance_pay_draft, moel_retirement_pay_source,
+    nhis_qualification_loss_form_source,
 };
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
+use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
-use time::OffsetDateTime;
+use time::{Date, Month, OffsetDateTime};
 use uuid::Uuid;
 
 pub const EMPLOYEES_PATH: &str = "/api/v1/employees";
@@ -40,6 +45,11 @@ pub const HR_ATTENDANCE_IMPORT_APPLY_PATH_TEMPLATE: &str =
 pub const HR_ATTENDANCE_IMPORT_SUMMARY_PATH: &str = "/api/v1/hr/attendance-import/summary";
 pub const HR_MY_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records/me";
 pub const HR_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records";
+pub const HR_ABSENCE_EXIT_DASHBOARD_PATH: &str = "/api/v1/hr/absence-exit-dashboard";
+pub const HR_EXIT_CASES_PATH: &str = "/api/v1/hr/exit-cases";
+pub const HR_EXIT_CASE_CONFIRM_PATH_TEMPLATE: &str = "/api/v1/hr/exit-cases/{id}/confirm";
+pub const HR_EXIT_CASE_APPROVAL_DRAFT_PATH_TEMPLATE: &str =
+    "/api/v1/hr/exit-cases/{id}/approval-draft";
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_IMPORT_HEADER_SCAN_ROWS: usize = 25;
 const DEFAULT_LIMIT: i64 = 500;
@@ -67,6 +77,19 @@ pub fn router(state: HrState) -> Router {
         .route(HR_LEAVE_BALANCES_PATH, get(list_leave_balances))
         .route(HR_ATTENDANCE_SUMMARY_PATH, get(list_attendance_summary))
         .route(HR_READINESS_SUMMARY_PATH, get(get_hr_readiness_summary))
+        .route(
+            HR_ABSENCE_EXIT_DASHBOARD_PATH,
+            get(get_absence_exit_dashboard),
+        )
+        .route(HR_EXIT_CASES_PATH, post(report_employee_exit_case))
+        .route(
+            HR_EXIT_CASE_CONFIRM_PATH_TEMPLATE,
+            post(confirm_employee_exit_case),
+        )
+        .route(
+            HR_EXIT_CASE_APPROVAL_DRAFT_PATH_TEMPLATE,
+            post(draft_employee_exit_approval),
+        )
         .route(
             HR_ATTENDANCE_IMPORT_PREVIEW_PATH,
             post(preview_attendance_import).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
@@ -432,6 +455,178 @@ struct EmployeeForLifecycle {
 struct HrListQuery {
     limit: Option<i64>,
     offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AbsenceExitDashboardQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    #[serde(default)]
+    employee_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct AbsenceExitDashboardResponse {
+    summary: AbsenceExitSummary,
+    alerts: Vec<EmployeeAbsenceAlertResponse>,
+    exit_cases: Vec<EmployeeExitCaseResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct AbsenceExitSummary {
+    open_absence_alerts: i64,
+    exit_cases_pending_hr: i64,
+    settlement_needs_source: i64,
+    settlement_ready: i64,
+    approval_drafts: i64,
+    submitted: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeAbsenceAlertResponse {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    employee_number: Option<String>,
+    company: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    org_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worksite_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_name: Option<String>,
+    work_date: String,
+    source: String,
+    status: String,
+    severity: String,
+    audience_roles: Vec<String>,
+    signal_payload: Value,
+    notification_title: String,
+    notification_message: String,
+    link_href: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_case_id: Option<Uuid>,
+    detected_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReportEmployeeExitCaseRequest {
+    employee_id: Uuid,
+    #[serde(default)]
+    branch_id: Option<Uuid>,
+    #[serde(default)]
+    absence_alert_id: Option<Uuid>,
+    effective_exit_date: String,
+    site_manager_note: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfirmEmployeeExitCaseRequest {
+    #[serde(default)]
+    decision: Option<String>,
+    #[serde(default)]
+    hq_confirmation: bool,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    settlement_input: Option<ExitSettlementInput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DraftEmployeeExitApprovalRequest {
+    #[serde(default)]
+    submit: bool,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    settlement_input: Option<ExitSettlementInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ExitSettlementInput {
+    average_wage_period_start: String,
+    average_wage_period_end: String,
+    average_wage_calendar_days: i64,
+    average_wage_total_won: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeExitCaseResponse {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    employee_number: Option<String>,
+    company: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    org_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worksite_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    absence_alert_id: Option<Uuid>,
+    status: String,
+    effective_exit_date: String,
+    site_manager_note: String,
+    reported_by: Uuid,
+    reported_at: OffsetDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hr_confirmed_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hr_confirmed_at: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hq_confirmed_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hq_confirmed_at: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_submitted_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_submitted_at: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settlement_package: Option<EmployeeExitSettlementPackageResponse>,
+    next_actions: Vec<ExitCaseNextAction>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeExitSettlementPackageResponse {
+    id: Uuid,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_days: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_period_start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_period_end: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_calendar_days: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_total_won: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_daily_wage_milliwon: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    severance_pay_won: Option<i64>,
+    missing_source_fields: Vec<String>,
+    statutory_basis: Value,
+    insurance_loss_payload: Value,
+    approval_payload: Value,
+    generated_at: OffsetDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    submitted_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    submitted_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExitCaseNextAction {
+    key: String,
+    label: String,
+    href: String,
 }
 
 async fn list_employees(
@@ -1090,6 +1285,381 @@ async fn get_hr_readiness_summary(
     .await?;
 
     Ok(Json(summary))
+}
+
+async fn get_absence_exit_dashboard(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<AbsenceExitDashboardQuery>,
+) -> Result<Json<AbsenceExitDashboardResponse>, HrError> {
+    authorize_hr_scoped(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("absence_exit_dashboard");
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let scope = principal.branch_scope.clone();
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let employee_id = query.employee_id;
+
+    let dashboard = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            materialize_absence_alerts_from_imports(tx, org_uuid, &scope).await?;
+            let summary = load_absence_exit_summary(tx, &scope).await?;
+            let alerts = load_absence_alerts(tx, &scope, employee_id, limit, offset).await?;
+            let exit_cases = load_exit_cases(tx, &scope, employee_id, limit, offset).await?;
+            Ok(AbsenceExitDashboardResponse {
+                summary,
+                alerts,
+                exit_cases,
+            })
+        })
+    })
+    .await?;
+
+    Ok(Json(dashboard))
+}
+
+async fn report_employee_exit_case(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<ReportEmployeeExitCaseRequest>,
+) -> Result<Json<EmployeeExitCaseResponse>, HrError> {
+    let effective_exit_date = normalize_date_text(&body.effective_exit_date)?;
+    let site_manager_note =
+        normalize_limited_text(body.site_manager_note, 1000, "site_manager_note")?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.exit.report").map_err(HrError::from_kernel)?,
+        "employee",
+        body.employee_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "employee_id": body.employee_id,
+            "absence_alert_id": body.absence_alert_id,
+            "effective_exit_date": effective_exit_date,
+            "branch_id": body.branch_id
+        })),
+    );
+
+    let exit_case = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let branch_id = resolve_exit_case_branch(
+                tx,
+                org_uuid,
+                body.employee_id,
+                body.branch_id,
+                body.absence_alert_id,
+            )
+            .await?;
+            authorize_hr_scoped_write(&principal, Feature::EmployeeDirectoryManage, branch_id)?;
+            ensure_employee_exists(tx, org_uuid, body.employee_id).await?;
+
+            let case_id: Uuid = sqlx::query_scalar(
+                r#"
+                INSERT INTO employee_exit_cases (
+                    org_id, employee_id, branch_id, absence_alert_id,
+                    effective_exit_date, site_manager_note, reported_by
+                )
+                VALUES ($1, $2, $3, $4, $5::DATE, $6, $7)
+                RETURNING id
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(body.employee_id)
+            .bind(branch_id)
+            .bind(body.absence_alert_id)
+            .bind(&effective_exit_date)
+            .bind(&site_manager_note)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            if let Some(alert_id) = body.absence_alert_id {
+                sqlx::query(
+                    r#"
+                    UPDATE employee_absence_alerts
+                    SET status = 'LINKED_EXIT',
+                        linked_exit_case_id = $3,
+                        updated_at = now()
+                    WHERE org_id = $1 AND id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(alert_id)
+                .bind(case_id)
+                .execute(tx.as_mut())
+                .await?;
+            }
+
+            load_exit_case_by_id(tx, org_uuid, case_id).await
+        })
+    })
+    .await?;
+
+    Ok(Json(exit_case))
+}
+
+async fn confirm_employee_exit_case(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(case_id): Path<Uuid>,
+    Json(body): Json<ConfirmEmployeeExitCaseRequest>,
+) -> Result<Json<EmployeeExitCaseResponse>, HrError> {
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let decision = body
+        .decision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("CONFIRM")
+        .to_ascii_uppercase();
+    let note = normalize_optional_limited_text(body.note, 1000, "note")?;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.exit.confirm").map_err(HrError::from_kernel)?,
+        "employee_exit_case",
+        case_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "exit_case_id": case_id,
+            "decision": decision,
+            "hq_confirmation": body.hq_confirmation
+        })),
+    );
+
+    let exit_case = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let context = load_exit_case_context(tx, org_uuid, case_id, true).await?;
+            authorize_hr_scoped_write(
+                &principal,
+                Feature::EmployeeDirectoryManage,
+                context.branch_id,
+            )?;
+
+            if decision == "REJECT" {
+                sqlx::query(
+                    r#"
+                    UPDATE employee_exit_cases
+                    SET status = 'REJECTED',
+                        confirmation_note = $3,
+                        updated_at = now()
+                    WHERE org_id = $1 AND id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(case_id)
+                .bind(note.as_deref())
+                .execute(tx.as_mut())
+                .await?;
+                return load_exit_case_by_id(tx, org_uuid, case_id).await;
+            }
+            if decision != "CONFIRM" {
+                return Err(HrError::validation("decision must be CONFIRM or REJECT"));
+            }
+
+            insert_confirmed_exit_lifecycle_event(tx, org_uuid, actor, &context, note.as_deref())
+                .await?;
+
+            let next_status = if body.hq_confirmation {
+                "HQ_CONFIRMED"
+            } else {
+                "HR_CONFIRMED"
+            };
+            sqlx::query(
+                r#"
+                UPDATE employee_exit_cases
+                SET status = $3,
+                    hr_confirmed_by = COALESCE(hr_confirmed_by, $4),
+                    hr_confirmed_at = COALESCE(hr_confirmed_at, now()),
+                    hq_confirmed_by = CASE WHEN $5 THEN $4 ELSE hq_confirmed_by END,
+                    hq_confirmed_at = CASE WHEN $5 THEN COALESCE(hq_confirmed_at, now()) ELSE hq_confirmed_at END,
+                    confirmation_note = $6,
+                    updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(case_id)
+            .bind(next_status)
+            .bind(*actor.as_uuid())
+            .bind(body.hq_confirmation)
+            .bind(note.as_deref())
+            .execute(tx.as_mut())
+            .await?;
+
+            upsert_exit_settlement_package(tx, org_uuid, case_id, body.settlement_input.clone())
+                .await?;
+            load_exit_case_by_id(tx, org_uuid, case_id).await
+        })
+    })
+    .await?;
+
+    Ok(Json(exit_case))
+}
+
+async fn draft_employee_exit_approval(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(case_id): Path<Uuid>,
+    Json(body): Json<DraftEmployeeExitApprovalRequest>,
+) -> Result<Json<EmployeeExitCaseResponse>, HrError> {
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let note = normalize_optional_limited_text(body.note, 1000, "note")?;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.exit.approval_draft").map_err(HrError::from_kernel)?,
+        "employee_exit_case",
+        case_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "exit_case_id": case_id,
+            "submit": body.submit,
+            "has_settlement_input": body.settlement_input.is_some()
+        })),
+    );
+
+    let exit_case = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let context = load_exit_case_context(tx, org_uuid, case_id, true).await?;
+            authorize_hr_scoped_write(
+                &principal,
+                Feature::EmployeeDirectoryManage,
+                context.branch_id,
+            )?;
+            if !matches!(
+                context.status.as_str(),
+                "HR_CONFIRMED" | "HQ_CONFIRMED" | "SETTLEMENT_READY" | "APPROVAL_DRAFTED"
+            ) {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    "exit approval draft requires HR or HQ confirmation first",
+                )));
+            }
+
+            let existing_ready_package_id = if body.settlement_input.is_none() {
+                sqlx::query_scalar::<_, Uuid>(
+                    r#"
+                    SELECT id
+                    FROM employee_exit_settlement_packages
+                    WHERE org_id = $1
+                      AND exit_case_id = $2
+                      AND severance_pay_won IS NOT NULL
+                      AND CARDINALITY(missing_source_fields) = 0
+                    ORDER BY updated_at DESC, generated_at DESC
+                    LIMIT 1
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(case_id)
+                .fetch_optional(tx.as_mut())
+                .await?
+            } else {
+                None
+            };
+            let package_id = if let Some(package_id) = existing_ready_package_id {
+                package_id
+            } else {
+                upsert_exit_settlement_package(tx, org_uuid, case_id, body.settlement_input.clone())
+                    .await?
+            };
+            let package_ready = sqlx::query(
+                r#"
+                SELECT severance_pay_won, missing_source_fields
+                FROM employee_exit_settlement_packages
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(package_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+            let severance_pay_won: Option<i64> = package_ready.try_get("severance_pay_won")?;
+            let missing_source_fields: Vec<String> =
+                package_ready.try_get("missing_source_fields")?;
+            if severance_pay_won.is_none() || !missing_source_fields.is_empty() {
+                return Err(HrError::validation(
+                    "exit settlement requires complete wage source fields before approval draft",
+                ));
+            }
+
+            let approval_payload = build_exit_approval_payload(&context, note.as_deref());
+            let package_status = if body.submit {
+                "SUBMITTED"
+            } else {
+                "APPROVAL_DRAFTED"
+            };
+            sqlx::query(
+                r#"
+                UPDATE employee_exit_settlement_packages
+                SET status = $3,
+                    approval_payload = $4,
+                    submitted_by = CASE WHEN $5 THEN $6 ELSE submitted_by END,
+                    submitted_at = CASE WHEN $5 THEN now() ELSE submitted_at END,
+                    updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(package_id)
+            .bind(package_status)
+            .bind(approval_payload)
+            .bind(body.submit)
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
+
+            sqlx::query(
+                r#"
+                UPDATE employee_exit_cases
+                SET status = $3,
+                    approval_submitted_by = CASE WHEN $4 THEN $5 ELSE approval_submitted_by END,
+                    approval_submitted_at = CASE WHEN $4 THEN now() ELSE approval_submitted_at END,
+                    updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(case_id)
+            .bind(if body.submit {
+                "SUBMITTED"
+            } else {
+                "APPROVAL_DRAFTED"
+            })
+            .bind(body.submit)
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
+
+            load_exit_case_by_id(tx, org_uuid, case_id).await
+        })
+    })
+    .await?;
+
+    Ok(Json(exit_case))
 }
 
 async fn preview_attendance_import(
@@ -4683,6 +5253,887 @@ fn default_lifecycle_status(event_type: &str) -> &'static str {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ExitCaseContext {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_name: String,
+    employee_number: Option<String>,
+    company: String,
+    org_unit: Option<String>,
+    position: Option<String>,
+    worksite_name: Option<String>,
+    hire_date: Option<String>,
+    branch_id: Option<Uuid>,
+    branch_name: Option<String>,
+    status: String,
+    effective_exit_date: String,
+    site_manager_note: String,
+}
+
+async fn materialize_absence_alerts_from_imports(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    scope: &BranchScope,
+) -> Result<(), HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO employee_absence_alerts (
+            org_id, employee_id, branch_id, work_date, source, severity, signal_payload
+        )
+        SELECT DISTINCT ON (a.employee_id, a.work_date::DATE)
+            a.org_id,
+            a.employee_id,
+            a.branch_id,
+            a.work_date::DATE,
+            'attendance_direct_import',
+            'WARNING',
+            jsonb_build_object(
+                'signal', 'NO_CLOCK_OR_ZERO_MINUTES',
+                'source_sheet', a.source_sheet,
+                'source_row', a.source_row,
+                'source_key', a.source_key,
+                'employee_name', a.employee_name,
+                'branch_name', a.branch_name,
+                'work_date', a.work_date,
+                'message', 'Imported attendance row has no clock-in/out and zero worked minutes.'
+            )
+        FROM attendance_direct_import_events a
+        JOIN employees e
+          ON e.id = a.employee_id
+         AND e.org_id = a.org_id
+        WHERE a.org_id =
+        "#,
+    );
+    builder.push_bind(org_uuid);
+    builder.push(
+        r#"
+          AND e.employment_status = 'ACTIVE'
+          AND a.check_in_at IS NULL
+          AND a.check_out_at IS NULL
+          AND COALESCE(a.minutes_worked, 0) = 0
+          AND
+        "#,
+    );
+    push_branch_scope_column(&mut builder, scope, "a.branch_id");
+    builder.push(
+        r#"
+        ORDER BY a.employee_id, a.work_date::DATE, a.created_at DESC, a.id DESC
+        ON CONFLICT (org_id, employee_id, work_date, source)
+        DO UPDATE SET
+            branch_id = EXCLUDED.branch_id,
+            severity = EXCLUDED.severity,
+            signal_payload = EXCLUDED.signal_payload,
+            updated_at = now()
+        WHERE employee_absence_alerts.status = 'OPEN'
+        "#,
+    );
+    builder.build().execute(tx.as_mut()).await?;
+    Ok(())
+}
+
+async fn load_absence_exit_summary(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+) -> Result<AbsenceExitSummary, HrError> {
+    Ok(AbsenceExitSummary {
+        open_absence_alerts: count_absence_alerts(tx, scope, "a.status = 'OPEN'").await?,
+        exit_cases_pending_hr: count_exit_cases(tx, scope, "c.status = 'REPORTED'").await?,
+        settlement_needs_source: count_exit_packages(tx, scope, "p.status = 'NEEDS_SOURCE'")
+            .await?,
+        settlement_ready: count_exit_packages(tx, scope, "p.status = 'READY_FOR_APPROVAL'").await?,
+        approval_drafts: count_exit_packages(tx, scope, "p.status = 'APPROVAL_DRAFTED'").await?,
+        submitted: count_exit_cases(tx, scope, "c.status = 'SUBMITTED'").await?,
+    })
+}
+
+async fn count_absence_alerts(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    predicate: &'static str,
+) -> Result<i64, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*)::BIGINT FROM employee_absence_alerts a WHERE ",
+    );
+    builder.push(predicate);
+    builder.push(" AND ");
+    push_branch_scope_column(&mut builder, scope, "a.branch_id");
+    Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?)
+}
+
+async fn count_exit_cases(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    predicate: &'static str,
+) -> Result<i64, HrError> {
+    let mut builder =
+        QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM employee_exit_cases c WHERE ");
+    builder.push(predicate);
+    builder.push(" AND ");
+    push_branch_scope_column(&mut builder, scope, "c.branch_id");
+    Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?)
+}
+
+async fn count_exit_packages(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    predicate: &'static str,
+) -> Result<i64, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT COUNT(*)::BIGINT
+        FROM employee_exit_settlement_packages p
+        JOIN employee_exit_cases c
+          ON c.id = p.exit_case_id
+         AND c.org_id = p.org_id
+        WHERE
+        "#,
+    );
+    builder.push(predicate);
+    builder.push(" AND ");
+    push_branch_scope_column(&mut builder, scope, "c.branch_id");
+    Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?)
+}
+
+async fn load_absence_alerts(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    employee_id: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<EmployeeAbsenceAlertResponse>, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            a.id,
+            a.employee_id,
+            e.name AS employee_name,
+            e.employee_number,
+            e.company,
+            e.org_unit,
+            e.worksite_name,
+            a.branch_id,
+            b.name AS branch_name,
+            a.work_date::TEXT AS work_date,
+            a.source,
+            a.status,
+            a.severity,
+            a.audience_roles,
+            a.signal_payload,
+            a.linked_exit_case_id AS exit_case_id,
+            a.detected_at
+        FROM employee_absence_alerts a
+        JOIN employees e
+          ON e.id = a.employee_id
+         AND e.org_id = a.org_id
+        LEFT JOIN branches b
+          ON b.id = a.branch_id
+         AND b.org_id = a.org_id
+        WHERE
+        "#,
+    );
+    push_branch_scope_column(&mut builder, scope, "a.branch_id");
+    if let Some(employee_id) = employee_id {
+        builder.push(" AND a.employee_id = ");
+        builder.push_bind(employee_id);
+    }
+    builder.push(" ORDER BY a.work_date DESC, a.detected_at DESC, a.id DESC LIMIT ");
+    builder.push_bind(limit);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
+
+    builder
+        .build()
+        .fetch_all(tx.as_mut())
+        .await?
+        .into_iter()
+        .map(absence_alert_from_row)
+        .collect::<Result<Vec<_>, HrError>>()
+}
+
+async fn load_exit_cases(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    employee_id: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<EmployeeExitCaseResponse>, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(exit_case_select_sql());
+    builder.push(" WHERE ");
+    push_branch_scope_column(&mut builder, scope, "c.branch_id");
+    if let Some(employee_id) = employee_id {
+        builder.push(" AND c.employee_id = ");
+        builder.push_bind(employee_id);
+    }
+    builder.push(" ORDER BY c.updated_at DESC, c.reported_at DESC, c.id DESC LIMIT ");
+    builder.push_bind(limit);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
+
+    builder
+        .build()
+        .fetch_all(tx.as_mut())
+        .await?
+        .into_iter()
+        .map(exit_case_from_row)
+        .collect::<Result<Vec<_>, HrError>>()
+}
+
+async fn load_exit_case_by_id(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    case_id: Uuid,
+) -> Result<EmployeeExitCaseResponse, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(exit_case_select_sql());
+    builder.push(" WHERE c.org_id = ");
+    builder.push_bind(org_uuid);
+    builder.push(" AND c.id = ");
+    builder.push_bind(case_id);
+
+    let row = builder
+        .build()
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| HrError::from_kernel(KernelError::not_found("exit case not found")))?;
+    exit_case_from_row(row)
+}
+
+fn exit_case_select_sql() -> &'static str {
+    r#"
+    SELECT
+        c.id,
+        c.employee_id,
+        e.name AS employee_name,
+        e.employee_number,
+        e.company,
+        e.org_unit,
+        e.worksite_name,
+        c.branch_id,
+        b.name AS branch_name,
+        c.absence_alert_id,
+        c.status,
+        c.effective_exit_date::TEXT AS effective_exit_date,
+        c.site_manager_note,
+        c.reported_by,
+        c.reported_at,
+        c.hr_confirmed_by,
+        c.hr_confirmed_at,
+        c.hq_confirmed_by,
+        c.hq_confirmed_at,
+        c.approval_submitted_by,
+        c.approval_submitted_at,
+        p.id AS package_id,
+        p.status AS package_status,
+        p.service_days,
+        p.average_wage_period_start::TEXT AS average_wage_period_start,
+        p.average_wage_period_end::TEXT AS average_wage_period_end,
+        p.average_wage_calendar_days,
+        p.average_wage_total_won,
+        p.average_daily_wage_milliwon,
+        p.severance_pay_won,
+        p.missing_source_fields,
+        p.statutory_basis,
+        p.insurance_loss_payload,
+        p.approval_payload,
+        p.generated_at,
+        p.submitted_by,
+        p.submitted_at
+    FROM employee_exit_cases c
+    JOIN employees e
+      ON e.id = c.employee_id
+     AND e.org_id = c.org_id
+    LEFT JOIN branches b
+      ON b.id = c.branch_id
+     AND b.org_id = c.org_id
+    LEFT JOIN employee_exit_settlement_packages p
+      ON p.exit_case_id = c.id
+     AND p.org_id = c.org_id
+    "#
+}
+
+async fn load_exit_case_context(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    case_id: Uuid,
+    lock_case: bool,
+) -> Result<ExitCaseContext, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            c.id,
+            c.employee_id,
+            e.name AS employee_name,
+            e.employee_number,
+            e.company,
+            e.org_unit,
+            e.position,
+            e.worksite_name,
+            e.hire_date,
+            c.branch_id,
+            b.name AS branch_name,
+            c.status,
+            c.effective_exit_date::TEXT AS effective_exit_date,
+            c.site_manager_note
+        FROM employee_exit_cases c
+        JOIN employees e
+          ON e.id = c.employee_id
+         AND e.org_id = c.org_id
+        LEFT JOIN branches b
+          ON b.id = c.branch_id
+         AND b.org_id = c.org_id
+        WHERE c.org_id =
+        "#,
+    );
+    builder.push_bind(org_uuid);
+    builder.push(" AND c.id = ");
+    builder.push_bind(case_id);
+    if lock_case {
+        builder.push(" FOR UPDATE OF c");
+    }
+
+    let row = builder
+        .build()
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| HrError::from_kernel(KernelError::not_found("exit case not found")))?;
+
+    Ok(ExitCaseContext {
+        id: row.try_get("id")?,
+        employee_id: row.try_get("employee_id")?,
+        employee_name: row.try_get("employee_name")?,
+        employee_number: row.try_get("employee_number")?,
+        company: row.try_get("company")?,
+        org_unit: row.try_get("org_unit")?,
+        position: row.try_get("position")?,
+        worksite_name: row.try_get("worksite_name")?,
+        hire_date: row.try_get("hire_date")?,
+        branch_id: row.try_get("branch_id")?,
+        branch_name: row.try_get("branch_name")?,
+        status: row.try_get("status")?,
+        effective_exit_date: row.try_get("effective_exit_date")?,
+        site_manager_note: row.try_get("site_manager_note")?,
+    })
+}
+
+async fn resolve_exit_case_branch(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    employee_id: Uuid,
+    requested_branch_id: Option<Uuid>,
+    absence_alert_id: Option<Uuid>,
+) -> Result<Option<Uuid>, HrError> {
+    if requested_branch_id.is_some() {
+        return Ok(requested_branch_id);
+    }
+    if let Some(alert_id) = absence_alert_id {
+        let branch_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT branch_id FROM employee_absence_alerts WHERE org_id = $1 AND id = $2 AND employee_id = $3",
+        )
+        .bind(org_uuid)
+        .bind(alert_id)
+        .bind(employee_id)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .flatten();
+        if branch_id.is_some() {
+            return Ok(branch_id);
+        }
+    }
+    let branch_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT branch_id
+        FROM attendance_direct_import_events
+        WHERE org_id = $1 AND employee_id = $2
+        ORDER BY work_date DESC, created_at DESC, id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(employee_id)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    Ok(branch_id)
+}
+
+async fn ensure_employee_exists(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    employee_id: Uuid,
+) -> Result<(), HrError> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM employees WHERE org_id = $1 AND id = $2)")
+            .bind(org_uuid)
+            .bind(employee_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+    if !exists {
+        return Err(HrError::from_kernel(KernelError::not_found(
+            "employee not found",
+        )));
+    }
+    Ok(())
+}
+
+async fn insert_confirmed_exit_lifecycle_event(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    actor: UserId,
+    context: &ExitCaseContext,
+    note: Option<&str>,
+) -> Result<(), HrError> {
+    let current = load_employee_for_lifecycle(tx, org_uuid, context.employee_id).await?;
+    if normalize_enum_text(current.employment_status.clone()) == "EXITED" {
+        return Ok(());
+    }
+    let transition = NormalizedEmployeeLifecycleTransition {
+        event_type: "TERMINATE".to_owned(),
+        to_status: "EXITED".to_owned(),
+        to_company: None,
+        to_org_unit: None,
+        to_position: None,
+        effective_date: context.effective_exit_date.clone(),
+        comment: note
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("Exit confirmed from case {}", context.id)),
+        signoffs: EmployeeLifecycleSignoffs {
+            privacy_notice_ack: true,
+            korean_labor_law_ack: true,
+            payroll_cutoff_ack: true,
+            retirement_settlement_ack: true,
+        },
+    };
+    validate_lifecycle_transition(&current, &transition)?;
+
+    let lifecycle_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO employee_lifecycle_events (
+            id, org_id, employee_id, event_type, from_status, to_status,
+            from_company, to_company, from_org_unit, to_org_unit,
+            from_position, to_position, effective_date, comment,
+            signoffs, created_by
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10,
+            $11, $12, $13, $14,
+            $15, $16
+        )
+        "#,
+    )
+    .bind(lifecycle_id)
+    .bind(org_uuid)
+    .bind(context.employee_id)
+    .bind(&transition.event_type)
+    .bind(&current.employment_status)
+    .bind(&transition.to_status)
+    .bind(&current.company)
+    .bind(&current.company)
+    .bind(current.org_unit.as_deref())
+    .bind(current.org_unit.as_deref())
+    .bind(current.position.as_deref())
+    .bind(current.position.as_deref())
+    .bind(&transition.effective_date)
+    .bind(&transition.comment)
+    .bind(json!(&transition.signoffs))
+    .bind(*actor.as_uuid())
+    .execute(tx.as_mut())
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE employees
+        SET employment_status = 'EXITED',
+            exit_date = $3,
+            updated_at = now()
+        WHERE org_id = $1 AND id = $2
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(context.employee_id)
+    .bind(&context.effective_exit_date)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn upsert_exit_settlement_package(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    case_id: Uuid,
+    settlement_input: Option<ExitSettlementInput>,
+) -> Result<Uuid, HrError> {
+    let context = load_exit_case_context(tx, org_uuid, case_id, false).await?;
+    let (
+        package_status,
+        service_days,
+        period_start,
+        period_end,
+        calendar_days,
+        total_won,
+        daily_milliwon,
+        severance_pay_won,
+        missing_source_fields,
+    ) = build_settlement_calculation(&context, settlement_input.as_ref())?;
+    let statutory_basis = exit_statutory_basis();
+    let insurance_loss_payload = build_insurance_loss_payload(&context);
+
+    let package_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO employee_exit_settlement_packages (
+            org_id, exit_case_id, employee_id, status, service_days,
+            average_wage_period_start, average_wage_period_end,
+            average_wage_calendar_days, average_wage_total_won,
+            average_daily_wage_milliwon, severance_pay_won,
+            missing_source_fields, statutory_basis, insurance_loss_payload,
+            generated_at
+        )
+        VALUES (
+            $1, $2, $3, $4, $5,
+            $6::DATE, $7::DATE,
+            $8, $9,
+            $10, $11,
+            $12, $13, $14,
+            now()
+        )
+        ON CONFLICT (org_id, exit_case_id)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            service_days = EXCLUDED.service_days,
+            average_wage_period_start = EXCLUDED.average_wage_period_start,
+            average_wage_period_end = EXCLUDED.average_wage_period_end,
+            average_wage_calendar_days = EXCLUDED.average_wage_calendar_days,
+            average_wage_total_won = EXCLUDED.average_wage_total_won,
+            average_daily_wage_milliwon = EXCLUDED.average_daily_wage_milliwon,
+            severance_pay_won = EXCLUDED.severance_pay_won,
+            missing_source_fields = EXCLUDED.missing_source_fields,
+            statutory_basis = EXCLUDED.statutory_basis,
+            insurance_loss_payload = EXCLUDED.insurance_loss_payload,
+            generated_at = now(),
+            updated_at = now()
+        RETURNING id
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(case_id)
+    .bind(context.employee_id)
+    .bind(package_status)
+    .bind(service_days)
+    .bind(period_start.as_deref())
+    .bind(period_end.as_deref())
+    .bind(calendar_days)
+    .bind(total_won)
+    .bind(daily_milliwon)
+    .bind(severance_pay_won)
+    .bind(missing_source_fields)
+    .bind(statutory_basis)
+    .bind(insurance_loss_payload)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    if package_status == "READY_FOR_APPROVAL" {
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_cases
+            SET status = CASE
+                    WHEN status IN ('HR_CONFIRMED','HQ_CONFIRMED') THEN 'SETTLEMENT_READY'
+                    ELSE status
+                END,
+                updated_at = now()
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(case_id)
+        .execute(tx.as_mut())
+        .await?;
+    }
+
+    Ok(package_id)
+}
+
+type SettlementCalculation = (
+    &'static str,
+    Option<i32>,
+    Option<String>,
+    Option<String>,
+    Option<i32>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Vec<String>,
+);
+
+fn build_settlement_calculation(
+    context: &ExitCaseContext,
+    input: Option<&ExitSettlementInput>,
+) -> Result<SettlementCalculation, HrError> {
+    let mut missing = Vec::new();
+    let Some(hire_date_text) = context.hire_date.as_deref() else {
+        missing.push("hire_date".to_owned());
+        missing.extend(missing_wage_source_fields());
+        return Ok((
+            "NEEDS_SOURCE",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            missing,
+        ));
+    };
+    let hire_date = parse_yyyy_mm_dd(hire_date_text)?;
+    let exit_date = parse_yyyy_mm_dd(&context.effective_exit_date)?;
+    let service_days = i32::try_from(
+        exit_date
+            .to_julian_day()
+            .saturating_sub(hire_date.to_julian_day())
+            + 1,
+    )
+    .map_err(|_| HrError::validation("service days overflow"))?;
+
+    let Some(input) = input else {
+        missing.extend(missing_wage_source_fields());
+        return Ok((
+            "NEEDS_SOURCE",
+            Some(service_days),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            missing,
+        ));
+    };
+
+    let period_start = parse_yyyy_mm_dd(&input.average_wage_period_start)?;
+    let period_end = parse_yyyy_mm_dd(&input.average_wage_period_end)?;
+    let draft = build_severance_pay_draft(SeverancePayInput {
+        hire_date,
+        exit_date,
+        average_wage_period_start: period_start,
+        average_wage_period_end: period_end,
+        average_wage_calendar_days: input.average_wage_calendar_days,
+        average_wage_total_won: input.average_wage_total_won,
+    })
+    .map_err(HrError::from_kernel)?;
+
+    let service_days = i32::try_from(draft.service_days)
+        .map_err(|_| HrError::validation("service days overflow"))?;
+    let calendar_days = i32::try_from(draft.average_wage_calendar_days)
+        .map_err(|_| HrError::validation("average wage calendar days overflow"))?;
+    Ok((
+        "READY_FOR_APPROVAL",
+        Some(service_days),
+        Some(draft.average_wage_period_start.to_string()),
+        Some(draft.average_wage_period_end.to_string()),
+        Some(calendar_days),
+        Some(draft.average_wage_total_won),
+        Some(draft.average_daily_wage_milliwon),
+        Some(draft.severance_pay_won),
+        missing,
+    ))
+}
+
+fn missing_wage_source_fields() -> Vec<String> {
+    vec![
+        "average_wage_period_start".to_owned(),
+        "average_wage_period_end".to_owned(),
+        "average_wage_calendar_days".to_owned(),
+        "average_wage_total_won".to_owned(),
+        "pre_exit_three_month_wage_sources".to_owned(),
+    ]
+}
+
+fn exit_statutory_basis() -> Value {
+    json!({
+        "retirement_pay": {
+            "authority": moel_retirement_pay_source().authority,
+            "title": moel_retirement_pay_source().title,
+            "url": moel_retirement_pay_source().url,
+            "retrieved_on": moel_retirement_pay_source().retrieved_on.to_string(),
+            "formula": "average_daily_wage * 30 * service_days / 365"
+        },
+        "insurance_loss": {
+            "authority": nhis_qualification_loss_form_source().authority,
+            "title": nhis_qualification_loss_form_source().title,
+            "url": nhis_qualification_loss_form_source().url,
+            "retrieved_on": nhis_qualification_loss_form_source().retrieved_on.to_string()
+        }
+    })
+}
+
+fn build_insurance_loss_payload(context: &ExitCaseContext) -> Value {
+    json!({
+        "employee": {
+            "id": context.employee_id,
+            "name": context.employee_name,
+            "employee_number": context.employee_number,
+            "company": context.company,
+            "org_unit": context.org_unit,
+            "position": context.position,
+            "worksite_name": context.worksite_name
+        },
+        "exit": {
+            "case_id": context.id,
+            "effective_exit_date": context.effective_exit_date,
+            "reported_reason": context.site_manager_note
+        },
+        "forms": [
+            "national_pension_workplace_subscriber_loss",
+            "health_insurance_workplace_subscriber_loss",
+            "employment_insurance_insured_loss",
+            "workers_compensation_insured_loss"
+        ],
+        "source_url": nhis_qualification_loss_form_source().url
+    })
+}
+
+fn build_exit_approval_payload(context: &ExitCaseContext, note: Option<&str>) -> Value {
+    json!({
+        "document_type": "employee_exit_settlement",
+        "title": format!("{} 퇴사 정산 및 4대보험 상실신고", context.employee_name),
+        "target_date": context.effective_exit_date,
+        "employee_id": context.employee_id,
+        "company": context.company,
+        "org_unit": context.org_unit,
+        "branch_id": context.branch_id,
+        "branch_name": context.branch_name,
+        "requested_note": note,
+        "approval_line": [
+            "site_manager",
+            "employee_hr_manager",
+            "hq_hr_manager",
+            "payroll_manager",
+            "insurance_loss_reporter"
+        ],
+        "tracking": {
+            "payroll_cutoff": true,
+            "insurance_loss_report": true,
+            "retirement_settlement": true
+        },
+        "href": format!("/approvals?source=employee-exit&focus={}", context.id)
+    })
+}
+
+fn absence_alert_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<EmployeeAbsenceAlertResponse, HrError> {
+    let id: Uuid = row.try_get("id")?;
+    let employee_id: Uuid = row.try_get("employee_id")?;
+    let employee_name: String = row.try_get("employee_name")?;
+    let work_date: String = row.try_get("work_date")?;
+    let branch_name: Option<String> = row.try_get("branch_name")?;
+    let audience_roles: Vec<String> = row.try_get("audience_roles")?;
+    let notification_title = format!("결근 이상징후: {employee_name}");
+    let notification_message = match branch_name.as_deref() {
+        Some(branch) => {
+            format!("{work_date} {branch} 근태자료에서 출퇴근 기록이 확인되지 않았습니다.")
+        }
+        None => format!("{work_date} 근태자료에서 출퇴근 기록이 확인되지 않았습니다."),
+    };
+    Ok(EmployeeAbsenceAlertResponse {
+        id,
+        employee_id,
+        employee_name,
+        employee_number: row.try_get("employee_number")?,
+        company: row.try_get("company")?,
+        org_unit: row.try_get("org_unit")?,
+        worksite_name: row.try_get("worksite_name")?,
+        branch_id: row.try_get("branch_id")?,
+        branch_name,
+        work_date,
+        source: row.try_get("source")?,
+        status: row.try_get("status")?,
+        severity: row.try_get("severity")?,
+        audience_roles,
+        signal_payload: row.try_get("signal_payload")?,
+        notification_title,
+        notification_message,
+        link_href: format!("/insurance-assist?employee={employee_id}&alert={id}"),
+        exit_case_id: row.try_get("exit_case_id")?,
+        detected_at: row.try_get("detected_at")?,
+    })
+}
+
+fn exit_case_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeExitCaseResponse, HrError> {
+    let package_id: Option<Uuid> = row.try_get("package_id")?;
+    let settlement_package = if let Some(id) = package_id {
+        Some(EmployeeExitSettlementPackageResponse {
+            id,
+            status: row.try_get("package_status")?,
+            service_days: row.try_get("service_days")?,
+            average_wage_period_start: row.try_get("average_wage_period_start")?,
+            average_wage_period_end: row.try_get("average_wage_period_end")?,
+            average_wage_calendar_days: row.try_get("average_wage_calendar_days")?,
+            average_wage_total_won: row.try_get("average_wage_total_won")?,
+            average_daily_wage_milliwon: row.try_get("average_daily_wage_milliwon")?,
+            severance_pay_won: row.try_get("severance_pay_won")?,
+            missing_source_fields: row.try_get("missing_source_fields")?,
+            statutory_basis: row.try_get("statutory_basis")?,
+            insurance_loss_payload: row.try_get("insurance_loss_payload")?,
+            approval_payload: row.try_get("approval_payload")?,
+            generated_at: row.try_get("generated_at")?,
+            submitted_by: row.try_get("submitted_by")?,
+            submitted_at: row.try_get("submitted_at")?,
+        })
+    } else {
+        None
+    };
+    let case_id: Uuid = row.try_get("id")?;
+    let status: String = row.try_get("status")?;
+    Ok(EmployeeExitCaseResponse {
+        id: case_id,
+        employee_id: row.try_get("employee_id")?,
+        employee_name: row.try_get("employee_name")?,
+        employee_number: row.try_get("employee_number")?,
+        company: row.try_get("company")?,
+        org_unit: row.try_get("org_unit")?,
+        worksite_name: row.try_get("worksite_name")?,
+        branch_id: row.try_get("branch_id")?,
+        branch_name: row.try_get("branch_name")?,
+        absence_alert_id: row.try_get("absence_alert_id")?,
+        status: status.clone(),
+        effective_exit_date: row.try_get("effective_exit_date")?,
+        site_manager_note: row.try_get("site_manager_note")?,
+        reported_by: row.try_get("reported_by")?,
+        reported_at: row.try_get("reported_at")?,
+        hr_confirmed_by: row.try_get("hr_confirmed_by")?,
+        hr_confirmed_at: row.try_get("hr_confirmed_at")?,
+        hq_confirmed_by: row.try_get("hq_confirmed_by")?,
+        hq_confirmed_at: row.try_get("hq_confirmed_at")?,
+        approval_submitted_by: row.try_get("approval_submitted_by")?,
+        approval_submitted_at: row.try_get("approval_submitted_at")?,
+        settlement_package,
+        next_actions: exit_case_next_actions(case_id, &status),
+    })
+}
+
+fn exit_case_next_actions(case_id: Uuid, status: &str) -> Vec<ExitCaseNextAction> {
+    let mut actions = Vec::new();
+    if status == "REPORTED" {
+        actions.push(ExitCaseNextAction {
+            key: "confirm_exit".to_owned(),
+            label: "퇴사 확인/승인".to_owned(),
+            href: format!("/insurance-assist?exitCase={case_id}"),
+        });
+    }
+    if matches!(
+        status,
+        "HR_CONFIRMED" | "HQ_CONFIRMED" | "SETTLEMENT_READY" | "APPROVAL_DRAFTED"
+    ) {
+        actions.push(ExitCaseNextAction {
+            key: "prepare_settlement".to_owned(),
+            label: "4대보험/퇴직금 결제상신".to_owned(),
+            href: format!("/payroll?exitCase={case_id}"),
+        });
+    }
+    actions
+}
+
 fn validate_lifecycle_transition(
     current: &EmployeeForLifecycle,
     transition: &NormalizedEmployeeLifecycleTransition,
@@ -5360,6 +6811,31 @@ fn push_attendance_branch_scope(builder: &mut QueryBuilder<Postgres>, scope: &Br
     };
 }
 
+fn push_branch_scope_column(
+    builder: &mut QueryBuilder<Postgres>,
+    scope: &BranchScope,
+    column: &'static str,
+) {
+    match scope {
+        BranchScope::All => {
+            builder.push(" TRUE ");
+        }
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" FALSE ");
+        }
+        BranchScope::Branches(branches) => {
+            let ids = branches
+                .iter()
+                .map(|branch| *branch.as_uuid())
+                .collect::<Vec<_>>();
+            builder.push(column);
+            builder.push(" = ANY(");
+            builder.push_bind(ids);
+            builder.push(") ");
+        }
+    };
+}
+
 fn record_hr_read(surface: &'static str) {
     metrics::counter!("hr_core_requests_total", "surface" => surface).increment(1);
 }
@@ -5373,6 +6849,96 @@ fn record_hr_import(inserted: usize, updated: usize) {
 
 fn authorize_hr_org_wide(principal: &Principal, feature: Feature) -> Result<(), HrError> {
     authorize_org_wide(principal, Action::new(feature)).map_err(HrError::from_kernel)
+}
+
+fn authorize_hr_scoped(principal: &Principal, feature: Feature) -> Result<(), HrError> {
+    match &principal.branch_scope {
+        BranchScope::All => authorize_hr_org_wide(principal, feature),
+        BranchScope::Branches(branches) if branches.is_empty() => Err(HrError::from_kernel(
+            KernelError::forbidden("branch-scoped HR access requires at least one branch"),
+        )),
+        BranchScope::Branches(branches) => {
+            let action = Action::new(feature);
+            if branches
+                .iter()
+                .any(|branch| authorize(principal, action, *branch).is_ok())
+            {
+                Ok(())
+            } else {
+                Err(HrError::from_kernel(KernelError::forbidden(
+                    "role is not allowed to use feature",
+                )))
+            }
+        }
+    }
+}
+
+fn authorize_hr_scoped_write(
+    principal: &Principal,
+    feature: Feature,
+    branch_id: Option<Uuid>,
+) -> Result<(), HrError> {
+    if let Some(branch_id) = branch_id {
+        return authorize(
+            principal,
+            Action::new(feature),
+            BranchId::from_uuid(branch_id),
+        )
+        .map_err(HrError::from_kernel);
+    }
+    authorize_hr_scoped(principal, feature)
+}
+
+fn normalize_date_text(value: &str) -> Result<String, HrError> {
+    Ok(parse_yyyy_mm_dd(value)?.to_string())
+}
+
+fn parse_yyyy_mm_dd(value: &str) -> Result<Date, HrError> {
+    let value = value.trim();
+    let parts = value.split('-').collect::<Vec<_>>();
+    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return Err(HrError::validation("date must use YYYY-MM-DD"));
+    }
+    let year = parts[0]
+        .parse::<i32>()
+        .map_err(|_| HrError::validation("date year must be numeric"))?;
+    let month = parts[1]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("date month must be numeric"))?;
+    let day = parts[2]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("date day must be numeric"))?;
+    let month = Month::try_from(month).map_err(|_| HrError::validation("date month is invalid"))?;
+    Date::from_calendar_date(year, month, day)
+        .map_err(|_| HrError::validation("date day is invalid"))
+}
+
+fn normalize_limited_text(
+    value: String,
+    max_chars: usize,
+    field: &'static str,
+) -> Result<String, HrError> {
+    let value = normalize_optional_text(Some(value))
+        .ok_or_else(|| HrError::validation(format!("{field} is required")))?;
+    if value.chars().count() > max_chars {
+        return Err(HrError::validation(format!(
+            "{field} must be {max_chars} characters or fewer"
+        )));
+    }
+    Ok(value)
+}
+
+fn normalize_optional_limited_text(
+    value: Option<String>,
+    max_chars: usize,
+    field: &'static str,
+) -> Result<Option<String>, HrError> {
+    match normalize_optional_text(value) {
+        Some(value) if value.chars().count() > max_chars => Err(HrError::validation(format!(
+            "{field} must be {max_chars} characters or fewer"
+        ))),
+        value => Ok(value),
+    }
 }
 
 #[derive(Debug)]
