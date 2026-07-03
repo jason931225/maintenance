@@ -460,6 +460,18 @@ function databaseUrl() {
   return `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${PORTS.postgres}/${POSTGRES_DB}`;
 }
 
+// Each of `runMigrations`, `buildAppEnv`, and backend/bacon.toml's
+// `env.SQLX_OFFLINE` sets SQLX_OFFLINE=true independently — they're three
+// separate `cargo`/`bacon` invocations (migrate role, api role, bacon's own
+// jobs) that don't share a process, so the flag can't be set once and
+// inherited.
+//
+// Feature split (W3, not wired here yet — dev-auth doesn't exist on this
+// branch): once available, `up`'s bacon-managed api role is meant to build
+// with `--features dev-auth` for the interactive role-switcher, while
+// `bootstrap` (and this CI smoke job) stays on the default feature set —
+// the same build the release image ships, so the dev-auth absence gate is
+// exercised by the thing that actually runs in CI, not a special case.
 function runMigrations() {
   log("running migrations (MNT_APP_ROLE=migrate cargo run -p mnt-app)...");
   const env = {
