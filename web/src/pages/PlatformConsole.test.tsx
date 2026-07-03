@@ -167,7 +167,7 @@ function getOrgTableRow(name: string, slug?: string): HTMLTableRowElement {
     .find(
       (candidate): candidate is HTMLTableRowElement =>
         Boolean(candidate) &&
-        (!slug || (candidate.textContent ?? "").includes(slug)),
+        (!slug || candidate.textContent.includes(slug)),
     );
 
   if (!row) {
