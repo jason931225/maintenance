@@ -1376,7 +1376,7 @@ async fn report_employee_exit_case(
                 body.absence_alert_id,
             )
             .await?;
-            authorize_hr_scoped_write(&principal, Feature::EmployeeDirectoryManage, branch_id)?;
+            authorize_hr_scoped_write(&principal, Feature::ExitCaseReport, branch_id)?;
             ensure_employee_exists(tx, org_uuid, body.employee_id).await?;
 
             let case_id: Uuid = sqlx::query_scalar(
@@ -1463,13 +1463,25 @@ async fn confirm_employee_exit_case(
     let exit_case = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
         Box::pin(async move {
             let context = load_exit_case_context(tx, org_uuid, case_id, true).await?;
-            authorize_hr_scoped_write(
-                &principal,
-                Feature::EmployeeDirectoryManage,
-                context.branch_id,
-            )?;
+
+            // Separation-of-duties capability gate (replaces the coarse
+            // EmployeeDirectoryManage gate). A REJECT may be performed by anyone
+            // holding either confirmation capability; a CONFIRM is gated per tier
+            // below. Both are checked as capabilities against the case's branch,
+            // consistent with the move toward capability (not role-string) authz.
+            let holds_hr_confirm =
+                authorize_hr_scoped_write(&principal, Feature::ExitCaseHrConfirm, context.branch_id)
+                    .is_ok();
+            let holds_hq_confirm =
+                authorize_hr_scoped_write(&principal, Feature::ExitCaseHqConfirm, context.branch_id)
+                    .is_ok();
 
             if decision == "REJECT" {
+                if !(holds_hr_confirm || holds_hq_confirm) {
+                    return Err(HrError::from_kernel(KernelError::forbidden(
+                        "rejecting an exit case requires an exit-case confirmation capability",
+                    )));
+                }
                 sqlx::query(
                     r#"
                     UPDATE employee_exit_cases
@@ -1488,6 +1500,26 @@ async fn confirm_employee_exit_case(
             }
             if decision != "CONFIRM" {
                 return Err(HrError::validation("decision must be CONFIRM or REJECT"));
+            }
+
+            // Two-tier separation of duties enforced in CODE — the client
+            // `hq_confirmation` boolean only selects which tier is attempted; the
+            // capability + stored-state + distinct-actor checks are the authority.
+            if body.hq_confirmation {
+                if !holds_hq_confirm {
+                    return Err(HrError::from_kernel(KernelError::forbidden(
+                        "HQ confirmation requires the exit-case HQ confirmation capability",
+                    )));
+                }
+                authorize_exit_confirmation_hq_tier(
+                    &context.status,
+                    context.hr_confirmed_by,
+                    *actor.as_uuid(),
+                )?;
+            } else if !holds_hr_confirm {
+                return Err(HrError::from_kernel(KernelError::forbidden(
+                    "HR confirmation requires the exit-case HR confirmation capability",
+                )));
             }
 
             insert_confirmed_exit_lifecycle_event(tx, org_uuid, actor, &context, note.as_deref())
@@ -1564,7 +1596,7 @@ async fn draft_employee_exit_approval(
             let context = load_exit_case_context(tx, org_uuid, case_id, true).await?;
             authorize_hr_scoped_write(
                 &principal,
-                Feature::EmployeeDirectoryManage,
+                Feature::ExitSettlementManage,
                 context.branch_id,
             )?;
             if !matches!(
@@ -5289,6 +5321,10 @@ struct ExitCaseContext {
     branch_id: Option<Uuid>,
     branch_name: Option<String>,
     status: String,
+    /// Who recorded the first-tier (HR) confirmation, if any. Authoritative
+    /// input to the two-tier separation-of-duties check in the confirm handler:
+    /// the HQ confirmer must differ from this actor.
+    hr_confirmed_by: Option<Uuid>,
     effective_exit_date: String,
     site_manager_note: String,
 }
@@ -5596,6 +5632,7 @@ async fn load_exit_case_context(
             c.branch_id,
             b.name AS branch_name,
             c.status,
+            c.hr_confirmed_by,
             c.effective_exit_date::TEXT AS effective_exit_date,
             c.site_manager_note
         FROM employee_exit_cases c
@@ -5634,6 +5671,7 @@ async fn load_exit_case_context(
         branch_id: row.try_get("branch_id")?,
         branch_name: row.try_get("branch_name")?,
         status: row.try_get("status")?,
+        hr_confirmed_by: row.try_get("hr_confirmed_by")?,
         effective_exit_date: row.try_get("effective_exit_date")?,
         site_manager_note: row.try_get("site_manager_note")?,
     })
@@ -7053,6 +7091,33 @@ fn authorize_hr_scoped(principal: &Principal, feature: Feature) -> Result<(), Hr
                 )))
             }
         }
+    }
+}
+
+/// Enforce the second-tier (HQ) separation of duties for an exit-case
+/// confirmation. Called only after the `ExitCaseHqConfirm` capability check has
+/// passed. The stored case state plus the distinct-actor rule — never the
+/// client `hq_confirmation` boolean — is the authority: HQ confirmation is
+/// allowed only when the case is already `HR_CONFIRMED` AND the recorded HR
+/// confirmer is a DIFFERENT actor than the one now attempting HQ confirmation.
+fn authorize_exit_confirmation_hq_tier(
+    current_status: &str,
+    hr_confirmed_by: Option<Uuid>,
+    actor: Uuid,
+) -> Result<(), HrError> {
+    if current_status != "HR_CONFIRMED" {
+        return Err(HrError::from_kernel(KernelError::invalid_transition(
+            "HQ confirmation requires a prior HR confirmation",
+        )));
+    }
+    match hr_confirmed_by {
+        Some(hr_actor) if hr_actor == actor => Err(HrError::from_kernel(KernelError::forbidden(
+            "HQ confirmation must be performed by a different actor than the HR confirmer",
+        ))),
+        Some(_) => Ok(()),
+        None => Err(HrError::from_kernel(KernelError::invalid_transition(
+            "HQ confirmation requires a recorded HR confirmer",
+        ))),
     }
 }
 
@@ -8733,6 +8798,241 @@ E-001,홍길동,본사,2026-07-01,abc
             Some(&Value::String("CERTIFIED".to_owned())),
             "approval payload must reflect CERTIFIED once the digest matches"
         );
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    async fn seed_exit_confirmer(
+        pool: &sqlx::PgPool,
+        org_id: Uuid,
+        role: &str,
+    ) -> Result<Uuid, String> {
+        let user_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY[$3]::TEXT[], true, $4)",
+        )
+        .bind(user_id)
+        .bind(format!("Exit {role}"))
+        .bind(role)
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed confirmer failed: {err}"))?;
+        Ok(user_id)
+    }
+
+    /// US-005 two-tier separation of duties, pure decision function: HQ
+    /// confirmation is gated on stored state + a distinct actor, never the
+    /// client `hq_confirmation` boolean alone.
+    #[test]
+    fn exit_confirmation_hq_tier_enforces_state_and_distinct_actor() -> Result<(), String> {
+        let hr_actor = Uuid::new_v4();
+        let hq_actor = Uuid::new_v4();
+
+        let reject = |status: &str, hr_by: Option<Uuid>, actor: Uuid, label: &str| {
+            match authorize_exit_confirmation_hq_tier(status, hr_by, actor) {
+                Ok(()) => Err(format!("{label} should have been rejected")),
+                Err(err) => Ok(err),
+            }
+        };
+
+        // (a) the actor who recorded the HR confirmation cannot also HQ-confirm.
+        let same_actor = reject("HR_CONFIRMED", Some(hr_actor), hr_actor, "same-actor HQ")?;
+        assert_eq!(same_actor.status, StatusCode::FORBIDDEN);
+
+        // (b) HQ confirmation attempted while the case is still REPORTED (no HR
+        // confirmation yet) is rejected out of order.
+        let out_of_order = reject("REPORTED", None, hq_actor, "HQ-before-HR")?;
+        assert_eq!(out_of_order.code, "invalid_transition");
+
+        // An HR_CONFIRMED status with no recorded confirmer is still refused.
+        let missing_hr = reject(
+            "HR_CONFIRMED",
+            None,
+            hq_actor,
+            "HQ with no recorded HR confirmer",
+        )?;
+        assert_eq!(missing_hr.code, "invalid_transition");
+
+        // (c) happy path: a DISTINCT HQ actor on an HR_CONFIRMED case is allowed.
+        authorize_exit_confirmation_hq_tier("HR_CONFIRMED", Some(hr_actor), hq_actor)
+            .map_err(|err| format!("distinct HQ actor was rejected: {}", err.message))?;
+        Ok(())
+    }
+
+    /// US-005 per-endpoint capability matrix, checked as capabilities against a
+    /// real case's branch as `mnt_rt`: a role lacking each new capability is
+    /// rejected on the corresponding endpoint's gate.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn exit_endpoints_reject_roles_lacking_the_new_capabilities(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        use mnt_platform_authz::Role;
+
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let context = load_exit_case_context(&mut tx, org_id, case_id, false)
+            .await
+            .map_err(|err| format!("load context failed: {err:?}"))?;
+        let branch = context.branch_id;
+        let branch_scope = branch.map_or_else(BranchScope::none, |b| {
+            BranchScope::single(BranchId::from_uuid(b))
+        });
+        let scoped = |role: Role, scope: BranchScope| {
+            Principal::new(UserId::new(), OrgId::knl(), BTreeSet::from([role]), scope)
+        };
+
+        // MECHANIC holds none of the exit-workflow capabilities.
+        let mechanic = scoped(Role::Mechanic, branch_scope.clone());
+        for feature in [
+            Feature::ExitCaseReport,
+            Feature::ExitCaseHrConfirm,
+            Feature::ExitCaseHqConfirm,
+            Feature::ExitSettlementManage,
+        ] {
+            assert!(
+                authorize_hr_scoped_write(&mechanic, feature, branch).is_err(),
+                "MECHANIC must be rejected for {feature:?}"
+            );
+        }
+
+        // Branch ADMIN holds report / HR-confirm / settlement, but NOT HQ-confirm.
+        let admin = scoped(Role::Admin, branch_scope);
+        for feature in [
+            Feature::ExitCaseReport,
+            Feature::ExitCaseHrConfirm,
+            Feature::ExitSettlementManage,
+        ] {
+            authorize_hr_scoped_write(&admin, feature, branch)
+                .map_err(|err| format!("ADMIN unexpectedly rejected for {feature:?}: {err:?}"))?;
+        }
+        assert!(
+            authorize_hr_scoped_write(&admin, Feature::ExitCaseHqConfirm, branch).is_err(),
+            "a branch ADMIN must NOT hold the HQ confirmation capability"
+        );
+
+        // Org-wide EXECUTIVE holds HQ-confirm, but NOT the HR-manager write tier.
+        let executive = scoped(Role::Executive, BranchScope::All);
+        authorize_hr_scoped_write(&executive, Feature::ExitCaseHqConfirm, branch)
+            .map_err(|err| format!("EXECUTIVE unexpectedly rejected for HQ confirm: {err:?}"))?;
+        for feature in [
+            Feature::ExitCaseReport,
+            Feature::ExitCaseHrConfirm,
+            Feature::ExitSettlementManage,
+        ] {
+            assert!(
+                authorize_hr_scoped_write(&executive, feature, branch).is_err(),
+                "EXECUTIVE (read/oversight tier) must NOT hold {feature:?}"
+            );
+        }
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    /// US-005 two-tier enforcement against REAL stored state read as `mnt_rt`:
+    /// the decision derives from the persisted status + `hr_confirmed_by`, not
+    /// the client flag. Covers (a) same-actor HQ rejected, (b) out-of-order HQ
+    /// (still REPORTED) rejected, (c) a distinct HQ actor allowed.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn exit_confirmation_two_tier_uses_stored_state_not_client_flag(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let hr_actor = seed_exit_confirmer(&pool, org_id, "ADMIN").await?;
+        let hq_actor = seed_exit_confirmer(&pool, org_id, "EXECUTIVE").await?;
+
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        // Record the first-tier (HR) confirmation on the seeded HR_CONFIRMED case
+        // as mnt_rt (proves the runtime role can write the case under RLS).
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_cases
+            SET hr_confirmed_by = $3, hr_confirmed_at = now()
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(case_id)
+        .bind(hr_actor)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("record HR confirmer failed: {err}"))?;
+
+        // Read the authoritative state back as mnt_rt (proves RLS + the new
+        // hr_confirmed_by column read on the load path).
+        let confirmed = load_exit_case_context(&mut tx, org_id, case_id, true)
+            .await
+            .map_err(|err| format!("load HR_CONFIRMED context failed: {err:?}"))?;
+        assert_eq!(confirmed.status, "HR_CONFIRMED");
+        assert_eq!(confirmed.hr_confirmed_by, Some(hr_actor));
+
+        // (a) the HR confirmer cannot also HQ-confirm the same case.
+        let same_actor = match authorize_exit_confirmation_hq_tier(
+            &confirmed.status,
+            confirmed.hr_confirmed_by,
+            hr_actor,
+        ) {
+            Ok(()) => {
+                return Err(
+                    "the HR confirmer must not be able to HQ-confirm the same case".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
+        assert_eq!(same_actor.status, StatusCode::FORBIDDEN);
+
+        // (c) a distinct HQ actor may HQ-confirm the HR-confirmed case.
+        authorize_exit_confirmation_hq_tier(&confirmed.status, confirmed.hr_confirmed_by, hq_actor)
+            .map_err(|err| format!("distinct HQ actor was rejected: {}", err.message))?;
+
+        // (b) reset the case to REPORTED with no HR confirmer and prove an HQ
+        // attempt is rejected out of order.
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_cases
+            SET status = 'REPORTED', hr_confirmed_by = NULL, hr_confirmed_at = NULL
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(case_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("reset to REPORTED failed: {err}"))?;
+
+        let reported = load_exit_case_context(&mut tx, org_id, case_id, true)
+            .await
+            .map_err(|err| format!("load REPORTED context failed: {err:?}"))?;
+        assert_eq!(reported.status, "REPORTED");
+        let out_of_order = match authorize_exit_confirmation_hq_tier(
+            &reported.status,
+            reported.hr_confirmed_by,
+            hq_actor,
+        ) {
+            Ok(()) => {
+                return Err(
+                    "HQ confirmation before any HR confirmation must be rejected".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
+        assert_eq!(out_of_order.code, "invalid_transition");
 
         tx.rollback()
             .await

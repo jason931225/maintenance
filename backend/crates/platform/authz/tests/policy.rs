@@ -19,12 +19,13 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 45] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 49] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage, EmployeeDirectoryRead,
         EquipmentCostLedgerRead, EquipmentCostLedgerWrite, EquipmentManage, EvidenceAttach,
-        ExcelDownload, InspectionRoundComplete, InspectionScheduleManage, IntegrityFindingTriage,
+        ExcelDownload, ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport, ExitSettlementManage,
+        InspectionRoundComplete, InspectionScheduleManage, IntegrityFindingTriage,
         IntegrityFindingsRead, KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse,
         MasterListImport, OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
         PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
@@ -92,6 +93,15 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 45] {
         (MailUse, [D, A, D, A, A, A]),
         (EmployeeDirectoryRead, [D, D, D, A, A, A]),
         (EmployeeDirectoryManage, [D, D, D, A, D, A]),
+        // Absence → exit → settlement separation of duties. Report / HR confirm /
+        // settlement are the branch HR-manager tier (ADMIN + SUPER_ADMIN); HQ
+        // confirm is the org-wide leadership tier (EXECUTIVE + SUPER_ADMIN),
+        // mirroring OrgWideQueueTriage. The confirm handler's distinct-actor rule
+        // still forbids one person from performing both confirmation tiers.
+        (ExitCaseReport, [D, D, D, A, D, A]),
+        (ExitCaseHrConfirm, [D, D, D, A, D, A]),
+        (ExitCaseHqConfirm, [D, D, D, D, A, A]),
+        (ExitSettlementManage, [D, D, D, A, D, A]),
     ]
 }
 
@@ -144,7 +154,7 @@ fn member_role_is_default_deny_except_login() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 45);
+    assert_eq!(Feature::ALL.len(), 49);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {
@@ -190,6 +200,56 @@ fn org_wide_queue_triage_is_executive_and_super_admin_only() {
     assert!(!holds(Role::Receptionist), "RECEPTIONIST must NOT hold it");
     assert!(!holds(Role::Mechanic), "MECHANIC must NOT hold it");
     assert!(!holds(Role::Member), "MEMBER must NOT hold it");
+}
+
+#[test]
+fn exit_workflow_capabilities_enforce_separation_of_duties() {
+    // US-005: the absence → exit → settlement chain is split into distinct
+    // capabilities so no single coarse gate authorizes the whole flow. Report,
+    // HR-confirm and settlement are the branch HR/manager tier (ADMIN +
+    // SUPER_ADMIN); HQ-confirm is the org-wide leadership tier (EXECUTIVE +
+    // SUPER_ADMIN), so the two confirmation tiers land on DIFFERENT built-in
+    // roles by default (ADMIN vs EXECUTIVE), with SUPER_ADMIN the only overlap
+    // — and even then the confirm handler's distinct-actor rule forbids one
+    // person doing both tiers on the same case.
+    let allows =
+        |role: Role, feature: Feature| permission_for(role, feature) == PermissionLevel::Allow;
+
+    for (feature, holder, non_holder) in [
+        (Feature::ExitCaseReport, Role::Admin, Role::Mechanic),
+        (Feature::ExitCaseHrConfirm, Role::Admin, Role::Executive),
+        (Feature::ExitCaseHqConfirm, Role::Executive, Role::Admin),
+        (
+            Feature::ExitSettlementManage,
+            Role::Admin,
+            Role::Receptionist,
+        ),
+    ] {
+        assert!(allows(holder, feature), "{holder:?} must hold {feature:?}");
+        assert!(
+            allows(Role::SuperAdmin, feature),
+            "SUPER_ADMIN must hold {feature:?}"
+        );
+        assert!(
+            !allows(non_holder, feature),
+            "{non_holder:?} must NOT hold {feature:?}"
+        );
+        assert!(
+            !allows(Role::Member, feature),
+            "MEMBER must NOT hold {feature:?}"
+        );
+    }
+
+    // The two confirmation tiers must not both default to the same non-super
+    // role, or the built-in matrix alone would let one role complete both tiers.
+    assert!(
+        !allows(Role::Admin, Feature::ExitCaseHqConfirm),
+        "a branch ADMIN must NOT hold the HQ confirmation tier"
+    );
+    assert!(
+        !allows(Role::Executive, Feature::ExitCaseHrConfirm),
+        "an org-wide EXECUTIVE must NOT hold the HR confirmation tier"
+    );
 }
 
 #[test]
