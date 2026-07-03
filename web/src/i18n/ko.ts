@@ -4,6 +4,7 @@ import {
   SALES_PHONE_DISPLAY,
   SALES_PHONE_HREF,
 } from "../lib/contact";
+import { exitCaseStatusLabels } from "./hrWorkflows";
 
 export const ko = {
   nav: {
@@ -179,16 +180,7 @@ export const ko = {
       formCount: (count: number) => `${String(count)}종`,
       trackApproval: "전자결제 추적",
       handleInInsurance: "정산·상신 처리",
-      status: {
-        REPORTED: "HR 확인 대기",
-        HR_CONFIRMED: "사업장 HR 확인",
-        HQ_CONFIRMED: "HQ HR 확인",
-        SETTLEMENT_READY: "정산 준비",
-        APPROVAL_DRAFTED: "결제 초안",
-        SUBMITTED: "결제 상신",
-        REJECTED: "반려",
-        CANCELLED: "취소",
-      },
+      status: exitCaseStatusLabels,
       won: (value: string) => `${value}원`,
     },
   },

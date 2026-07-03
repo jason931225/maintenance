@@ -416,7 +416,7 @@ function AbsenceExitWorkflowPanel({
                       </p>
                     </div>
                     <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
-                      {exitStatusLabel(exitCase.status)}
+                      {exitCaseStatusLabel(exitCase.status, copy.exitWorkflow.status)}
                     </Badge>
                   </div>
                   <p className="text-sm text-steel">{exitCase.site_manager_note}</p>
@@ -711,10 +711,6 @@ function InsuranceRosterPanel({ rows }: { rows: InsuranceRow[] }) {
 
 function roleLabel(role: string): string {
   return exitWorkflowRoleLabel(role, copy.exitWorkflow.roles);
-}
-
-function exitStatusLabel(status: EmployeeExitCase["status"]): string {
-  return exitCaseStatusLabel(status, copy.exitWorkflow.status);
 }
 
 function insuranceReport(employee: EmployeeDirectoryItem): InsuranceReport {

@@ -372,7 +372,7 @@ function ExitSettlementPanel({
                     </p>
                   </div>
                   <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
-                    {exitStatusLabel(exitCase.status)}
+                    {exitCaseStatusLabel(exitCase.status, copy.exitSettlement.status)}
                   </Badge>
                 </div>
 
@@ -617,10 +617,6 @@ function PayrollPlanPanel({
 function insuranceFormCount(exitCase: EmployeeExitCase): number {
   const forms = exitCase.settlement_package?.insurance_loss_payload.forms;
   return Array.isArray(forms) ? forms.length : 0;
-}
-
-function exitStatusLabel(status: EmployeeExitCase["status"]): string {
-  return exitCaseStatusLabel(status, copy.exitSettlement.status);
 }
 
 function formatWon(value: number | null | undefined): string {

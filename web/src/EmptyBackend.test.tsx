@@ -8,6 +8,7 @@ import { AppRouter } from "./AppRouter";
 import { AuthContext } from "./context/auth";
 import type { AuthContextValue, AuthSession } from "./context/auth";
 import { createConsoleApiClient } from "./api/client";
+import type { AbsenceExitDashboardResponse } from "./api/types";
 
 // ── Empty backend ───────────────────────────────────────────────────────────
 // The production database is empty (0 work orders, 0 equipment, 0 branches).
@@ -79,7 +80,7 @@ const emptyHrReadinessSummary = {
   },
 };
 
-const emptyAbsenceExitDashboard = {
+const emptyAbsenceExitDashboard: AbsenceExitDashboardResponse = {
   summary: {
     open_absence_alerts: 0,
     exit_cases_pending_hr: 0,

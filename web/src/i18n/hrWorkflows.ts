@@ -1,3 +1,16 @@
+import type { EmployeeExitCaseStatus } from "../api/types";
+
+export const exitCaseStatusLabels = {
+  REPORTED: "HR 확인 대기",
+  HR_CONFIRMED: "사업장 HR 확인",
+  HQ_CONFIRMED: "HQ HR 확인",
+  SETTLEMENT_READY: "정산 준비",
+  APPROVAL_DRAFTED: "결제 초안",
+  SUBMITTED: "결제 상신",
+  REJECTED: "반려",
+  CANCELLED: "취소",
+} satisfies Record<EmployeeExitCaseStatus, string>;
+
 export const approvalDocumentDeskKo = {
   title: "전자결재 문서·연동 데스크",
   description:
@@ -253,16 +266,7 @@ export const insuranceAssistKo = {
       payroll_manager: "급여 담당",
       insurance_loss_reporter: "4대보험 상실 신고",
     },
-    status: {
-      REPORTED: "HR 확인 대기",
-      HR_CONFIRMED: "사업장 HR 확인",
-      HQ_CONFIRMED: "HQ HR 확인",
-      SETTLEMENT_READY: "정산 준비",
-      APPROVAL_DRAFTED: "결제 초안",
-      SUBMITTED: "결제 상신",
-      REJECTED: "반려",
-      CANCELLED: "취소",
-    },
+    status: exitCaseStatusLabels,
   },
   roster: {
     title: "신고 대상자 점검",
