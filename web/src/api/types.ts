@@ -390,6 +390,13 @@ export interface EmployeeExitSettlementPackage {
   average_wage_total_won?: number | null;
   average_daily_wage_milliwon?: number | null;
   severance_pay_won?: number | null;
+  // 통상임금 (ordinary-wage) statutory basis: the monthly ordinary wage a
+  // reviewer signs, the 통상일급 derived from it (209h/8h rule), and the daily
+  // wage that actually governed severance = max(average, ordinary). Auditable
+  // money trail; digest-bound on the backend.
+  monthly_ordinary_wage_won?: number | null;
+  ordinary_daily_wage_won?: number | null;
+  statutory_daily_wage_milliwon?: number | null;
   missing_source_fields: string[];
   statutory_basis: Record<string, unknown>;
   insurance_loss_payload: Record<string, unknown>;

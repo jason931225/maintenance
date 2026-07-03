@@ -554,6 +554,12 @@ function ExitSettlementCaseCard({
               settlementPackage?.average_daily_wage_milliwon,
             )}
           </dd>
+          {settlementPackage?.ordinary_daily_wage_won != null ? (
+            <dd className="mt-1 text-xs text-steel">
+              {copy.exitSettlement.fields.ordinaryDailyWage}:{" "}
+              {formatWon(settlementPackage.ordinary_daily_wage_won)}
+            </dd>
+          ) : null}
         </div>
         <div className="rounded border border-line bg-muted-panel/40 p-3">
           <dt className="font-semibold text-steel">

@@ -616,6 +616,17 @@ struct EmployeeExitSettlementPackageResponse {
     average_daily_wage_milliwon: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     severance_pay_won: Option<i64>,
+    /// 통상임금 (ordinary-wage) statutory basis (0093 review HIGH #2): the monthly
+    /// ordinary wage a reviewer signs, the 통상일급 derived from it via the 209h/8h
+    /// rule, and the daily wage that actually governed severance = max(average,
+    /// ordinary). Persisted, digest-covered, and exposed so the money trail is
+    /// auditable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    monthly_ordinary_wage_won: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ordinary_daily_wage_won: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    statutory_daily_wage_milliwon: Option<i64>,
     missing_source_fields: Vec<String>,
     statutory_basis: Value,
     /// The generated MOEL/NHIS insurance-loss document. Also carries a
@@ -1313,21 +1324,57 @@ async fn get_absence_exit_dashboard(
     let org = principal.org_id;
     let org_uuid = *org.as_uuid();
     let scope = principal.branch_scope.clone();
+    let actor = principal.user_id;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let offset = query.offset.unwrap_or(0).max(0);
     let employee_id = query.employee_id;
 
-    let dashboard = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+    // `with_audits` (not `with_org_conn`): the read-path materializer mutates the
+    // audited `employee_absence_alerts` table, so a changed pass must land an
+    // audit row in the SAME transaction (0093 review MEDIUM #5). It emits ZERO
+    // events on an unchanged read, so the materializer's idempotency/write-storm
+    // guard is preserved — no audit spam on repeated dashboard GETs.
+    let dashboard = with_audits::<_, _, HrError>(&state.pool, org, move |tx| {
         Box::pin(async move {
-            materialize_absence_alerts_from_imports(tx, org_uuid, &scope).await?;
+            let changed_alert_ids =
+                materialize_absence_alerts_from_imports(tx, org_uuid, &scope).await?;
             let summary = load_absence_exit_summary(tx, &scope).await?;
             let alerts = load_absence_alerts(tx, &scope, employee_id, limit, offset).await?;
             let exit_cases = load_exit_cases(tx, &scope, employee_id, limit, offset).await?;
-            Ok(AbsenceExitDashboardResponse {
-                summary,
-                alerts,
-                exit_cases,
-            })
+
+            let mut events = Vec::new();
+            if !changed_alert_ids.is_empty() {
+                events.push(
+                    AuditEvent::new(
+                        Some(actor),
+                        AuditAction::new("employee.absence_alert.materialize")
+                            .map_err(HrError::from_kernel)?,
+                        "employee_absence_alerts",
+                        org_uuid.to_string(),
+                        TraceContext::generate(),
+                        OffsetDateTime::now_utc(),
+                    )
+                    .with_org(org)
+                    .with_snapshots(
+                        None,
+                        Some(json!({
+                            "changed_count": changed_alert_ids.len(),
+                            "changed_alert_ids": changed_alert_ids,
+                            "source": "attendance_direct_import",
+                            "trigger": "absence_exit_dashboard_read",
+                        })),
+                    ),
+                );
+            }
+
+            Ok((
+                AbsenceExitDashboardResponse {
+                    summary,
+                    alerts,
+                    exit_cases,
+                },
+                events,
+            ))
         })
     })
     .await?;
@@ -1650,7 +1697,9 @@ async fn draft_employee_exit_approval(
             };
             let package_ready = sqlx::query(
                 r#"
-                SELECT severance_pay_won, missing_source_fields
+                SELECT severance_pay_won, missing_source_fields,
+                       monthly_ordinary_wage_won, ordinary_daily_wage_won,
+                       statutory_daily_wage_milliwon
                 FROM employee_exit_settlement_packages
                 WHERE org_id = $1 AND id = $2
                 "#,
@@ -1668,7 +1717,15 @@ async fn draft_employee_exit_approval(
                 ));
             }
 
-            let approval_payload = build_exit_approval_payload(&context, note.as_deref());
+            // Embed the 통상임금 basis into the filed approval document too (0093
+            // review HIGH #2), from the same persisted columns the digest covers,
+            // so a read-path digest recompute stays consistent.
+            let approval_payload = with_ordinary_wage_basis(
+                build_exit_approval_payload(&context, note.as_deref()),
+                package_ready.try_get("monthly_ordinary_wage_won")?,
+                package_ready.try_get("ordinary_daily_wage_won")?,
+                package_ready.try_get("statutory_daily_wage_milliwon")?,
+            );
             let package_status = if body.submit {
                 "SUBMITTED"
             } else {
@@ -5343,11 +5400,17 @@ struct ExitCaseContext {
     site_manager_note: String,
 }
 
+/// Materialize absence alerts from imported attendance facts, returning the ids
+/// of the rows this pass actually INSERTed or UPDATEd. On unchanged imports the
+/// `IS DISTINCT FROM` guard on the ON CONFLICT UPDATE (plus DO NOTHING on true
+/// duplicates) means `RETURNING` yields nothing — so a repeated dashboard read
+/// reports zero changed rows and emits no audit event (0093 review MEDIUM #5:
+/// the caller audits only real mutations, preserving the write-storm guard).
 async fn materialize_absence_alerts_from_imports(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     org_uuid: Uuid,
     scope: &BranchScope,
-) -> Result<(), HrError> {
+) -> Result<Vec<Uuid>, HrError> {
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
         INSERT INTO employee_absence_alerts (
@@ -5409,10 +5472,11 @@ async fn materialize_absence_alerts_from_imports(
             OR employee_absence_alerts.severity IS DISTINCT FROM EXCLUDED.severity
             OR employee_absence_alerts.signal_payload IS DISTINCT FROM EXCLUDED.signal_payload
           )
+        RETURNING id
         "#,
     );
-    builder.build().execute(tx.as_mut()).await?;
-    Ok(())
+    let changed_ids: Vec<Uuid> = builder.build_query_scalar().fetch_all(tx.as_mut()).await?;
+    Ok(changed_ids)
 }
 
 async fn load_absence_exit_summary(
@@ -5614,6 +5678,9 @@ fn exit_case_select_sql() -> &'static str {
         p.average_wage_total_won,
         p.average_daily_wage_milliwon,
         p.severance_pay_won,
+        p.monthly_ordinary_wage_won,
+        p.ordinary_daily_wage_won,
+        p.statutory_daily_wage_milliwon,
         p.missing_source_fields,
         p.statutory_basis,
         p.insurance_loss_payload,
@@ -5861,9 +5928,17 @@ async fn upsert_exit_settlement_package(
         daily_milliwon,
         severance_pay_won,
         missing_source_fields,
+        monthly_ordinary_wage_won,
+        ordinary_daily_wage_won,
+        statutory_daily_wage_milliwon,
     ) = build_settlement_calculation(&context, settlement_input.as_ref())?;
     let statutory_basis = exit_statutory_basis();
-    let insurance_loss_payload = build_insurance_loss_payload(&context);
+    let insurance_loss_payload = with_ordinary_wage_basis(
+        build_insurance_loss_payload(&context),
+        monthly_ordinary_wage_won,
+        ordinary_daily_wage_won,
+        statutory_daily_wage_milliwon,
+    );
 
     let package_id: Uuid = sqlx::query_scalar(
         r#"
@@ -5873,6 +5948,8 @@ async fn upsert_exit_settlement_package(
             average_wage_calendar_days, average_wage_total_won,
             average_daily_wage_milliwon, severance_pay_won,
             missing_source_fields, statutory_basis, insurance_loss_payload,
+            monthly_ordinary_wage_won, ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
             generated_at
         )
         VALUES (
@@ -5881,6 +5958,8 @@ async fn upsert_exit_settlement_package(
             $8, $9,
             $10, $11,
             $12, $13, $14,
+            $15, $16,
+            $17,
             now()
         )
         ON CONFLICT (org_id, exit_case_id)
@@ -5896,10 +5975,14 @@ async fn upsert_exit_settlement_package(
             missing_source_fields = EXCLUDED.missing_source_fields,
             statutory_basis = EXCLUDED.statutory_basis,
             insurance_loss_payload = EXCLUDED.insurance_loss_payload,
-            -- Atomic re-uncertification (0093 HIGH): recomputing settlement fields
-            -- invalidates any prior 노무사/세무사 certification. Reset in the SAME
-            -- statement so a CERTIFIED flag can never outlive the numbers it
-            -- certified. This path is never itself a certification action.
+            monthly_ordinary_wage_won = EXCLUDED.monthly_ordinary_wage_won,
+            ordinary_daily_wage_won = EXCLUDED.ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon = EXCLUDED.statutory_daily_wage_milliwon,
+            -- Atomic re-uncertification (0093 HIGH #1): recomputing settlement fields
+            -- invalidates any prior 노무사/세무사 certification. Reset here explicitly
+            -- AND enforced for every write path by migration 0094's
+            -- enforce_settlement_certification_reset() BEFORE UPDATE trigger. This
+            -- path is never itself a certification action.
             certification_status = 'UNCERTIFIED_DRAFT',
             certification_artifact = NULL,
             certified_package_digest = NULL,
@@ -5922,6 +6005,9 @@ async fn upsert_exit_settlement_package(
     .bind(missing_source_fields)
     .bind(statutory_basis)
     .bind(insurance_loss_payload)
+    .bind(monthly_ordinary_wage_won)
+    .bind(ordinary_daily_wage_won)
+    .bind(statutory_daily_wage_milliwon)
     .fetch_one(tx.as_mut())
     .await?;
 
@@ -5956,6 +6042,12 @@ type SettlementCalculation = (
     Option<i64>,
     Option<i64>,
     Vec<String>,
+    // 통상임금 (ordinary-wage) statutory basis (0093 review HIGH #2), all `None`
+    // until the wage source arrives: monthly ordinary wage, derived ordinary
+    // daily wage, and the daily wage that actually governed severance.
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
 );
 
 /// 월 소정근로시간 (statutory monthly standard hours) for a 주40시간 worker.
@@ -5963,16 +6055,46 @@ const MONTHLY_STANDARD_HOURS: i64 = 209;
 /// 1일 소정근로시간 (contractual daily hours).
 const DAILY_CONTRACTUAL_HOURS: i64 = 8;
 
+/// 통상일급 (1-day ordinary wage) from the monthly 통상임금 via the statutory
+/// 기준시간 rule: 통상시급 = 월 통상임금 / 209h, 통상일급 = 통상시급 × 8h.
+///
+/// STANDARD-WORKER ASSUMPTION (explicit, v1 scope): 209h/month and 8h/day are the
+/// 주40시간·1일 8시간 standard-worker convention (the official Minimum Wage
+/// Commission tables publish hourly, 8-hour daily, and "monthly (209h basis)"
+/// figures on exactly this basis). This derivation is valid ONLY for standard
+/// 40h-week / 8h-day workers; non-standard schedules (shorter contractual hours,
+/// shift patterns) need schedule-specific monthly standard hours and are OUT OF
+/// v1 SCOPE.
+///
+/// 0093 review HIGH #3 (money bug): multiply BEFORE dividing —
+/// `(monthly * 8) / 209`, not `(monthly / 209) * 8` — in checked i128 wide
+/// arithmetic. Flooring `monthly / 209` first understated the daily figure by up
+/// to 7 won/day, which under-paid severance whenever the ordinary floor governed.
+fn ordinary_daily_wage_won_from_monthly(monthly_ordinary_wage_won: i64) -> Result<i64, HrError> {
+    let daily = i128::from(monthly_ordinary_wage_won) * i128::from(DAILY_CONTRACTUAL_HOURS)
+        / i128::from(MONTHLY_STANDARD_HOURS);
+    i64::try_from(daily).map_err(|_| HrError::validation("ordinary daily wage overflow"))
+}
+
 /// Deterministic SHA-256 that binds a settlement package's CERTIFIED state to
 /// the exact revision a 노무사/세무사 signed off (0093 HIGH: a non-null artifact
 /// only proves an artifact exists, not that it certified *these* numbers).
 ///
 /// Covers every certification-relevant field persisted on the row: the
 /// severance figure, the statutory basis, the insurance-loss payload, the
-/// approval payload, and the wage-source-derived inputs (period bounds, calendar
-/// days, wage total, average daily wage, service days). The 통상임금 floor input
-/// is bound transitively — any change to the monthly ordinary wage changes
-/// `severance_pay_won`.
+/// approval payload, the wage-source-derived inputs (period bounds, calendar
+/// days, wage total, average daily wage, service days), AND the 통상임금
+/// (ordinary-wage) basis (monthly ordinary wage, derived ordinary daily wage,
+/// and the statutory daily wage that governed). The ordinary-wage basis is bound
+/// DIRECTLY (0093 review HIGH #2): binding it only transitively via
+/// `severance_pay_won` was false, because the ordinary wage can change while the
+/// average wage still governs, or two ordinary inputs can floor to the same
+/// severance.
+///
+/// This covered-field set MUST stay byte-identical to the certification-covered
+/// column set enforced by migration 0094's
+/// `enforce_settlement_certification_reset()` BEFORE UPDATE trigger — the two are
+/// cross-referenced so any covered write invalidates a stale certification.
 ///
 /// Order-stable: this workspace builds `serde_json` without `preserve_order`, so
 /// its object map is a `BTreeMap` that serializes with sorted keys, and embedded
@@ -5990,6 +6112,9 @@ fn compute_certified_package_digest(
     average_wage_total_won: Option<i64>,
     average_daily_wage_milliwon: Option<i64>,
     service_days: Option<i32>,
+    monthly_ordinary_wage_won: Option<i64>,
+    ordinary_daily_wage_won: Option<i64>,
+    statutory_daily_wage_milliwon: Option<i64>,
 ) -> String {
     let canonical = json!({
         "severance_pay_won": severance_pay_won,
@@ -6002,6 +6127,9 @@ fn compute_certified_package_digest(
         "average_wage_total_won": average_wage_total_won,
         "average_daily_wage_milliwon": average_daily_wage_milliwon,
         "service_days": service_days,
+        "monthly_ordinary_wage_won": monthly_ordinary_wage_won,
+        "ordinary_daily_wage_won": ordinary_daily_wage_won,
+        "statutory_daily_wage_milliwon": statutory_daily_wage_milliwon,
     });
     // `Value::to_string()` is serde_json's infallible `Display` serializer and
     // yields the same compact bytes as `serde_json::to_vec`, so the digest is
@@ -6021,6 +6149,36 @@ fn with_certification_status_marker(mut payload: Value, certification_status: &s
         map.insert(
             "certification_status".to_owned(),
             Value::String(certification_status.to_owned()),
+        );
+    }
+    payload
+}
+
+/// Embeds the 통상임금 (ordinary-wage) statutory basis into a generated payload
+/// (insurance-loss or approval) so the filed MOEL/NHIS document itself records
+/// which ordinary-wage input was compared against the average wage (0093 review
+/// HIGH #2 — the money trail must be auditable in the document, not just on the
+/// row). No-op unless the payload is a JSON object AND all three basis figures
+/// are present (i.e. the package reached READY_FOR_APPROVAL).
+fn with_ordinary_wage_basis(
+    mut payload: Value,
+    monthly_ordinary_wage_won: Option<i64>,
+    ordinary_daily_wage_won: Option<i64>,
+    statutory_daily_wage_milliwon: Option<i64>,
+) -> Value {
+    if let (Value::Object(map), Some(monthly), Some(daily), Some(statutory_daily)) = (
+        &mut payload,
+        monthly_ordinary_wage_won,
+        ordinary_daily_wage_won,
+        statutory_daily_wage_milliwon,
+    ) {
+        map.insert(
+            "ordinary_wage_basis".to_owned(),
+            json!({
+                "monthly_ordinary_wage_won": monthly,
+                "ordinary_daily_wage_won": daily,
+                "statutory_daily_wage_milliwon": statutory_daily,
+            }),
         );
     }
     payload
@@ -6067,6 +6225,9 @@ fn build_settlement_calculation(
             None,
             None,
             missing,
+            None,
+            None,
+            None,
         ));
     };
     let hire_date = parse_yyyy_mm_dd(hire_date_text)?;
@@ -6088,24 +6249,27 @@ fn build_settlement_calculation(
             None,
             None,
             missing,
+            None,
+            None,
+            None,
         ));
     };
 
     let period_start = parse_yyyy_mm_dd(&input.average_wage_period_start)?;
     let period_end = parse_yyyy_mm_dd(&input.average_wage_period_end)?;
     // 통상일급 (1-day ordinary wage) derived from the monthly 통상임금 via the
-    // statutory 기준시간 209h/month rule: 통상시급 = 월 통상임금 / 209,
-    // 통상일급 = 통상시급 × 8h (1일 소정근로 8시간). This derivation policy lives
-    // in the app layer, not the payroll kernel (which only enforces the floor).
-    // Fail loud rather than default so the depressed-window population is never
-    // under-calculated by silently skipping the floor.
+    // 기준시간 209h/8h rule (see `ordinary_daily_wage_won_from_monthly`). This
+    // derivation policy lives in the app layer, not the payroll kernel (which
+    // only enforces the max(average, ordinary) floor). Fail loud rather than
+    // default so the depressed-window population is never under-calculated by
+    // silently skipping the floor.
     if input.monthly_ordinary_wage_won <= 0 {
         return Err(HrError::validation(
             "monthly ordinary wage (월 통상임금) is required and must be positive for the 통상임금 floor",
         ));
     }
     let ordinary_daily_wage_won =
-        input.monthly_ordinary_wage_won / MONTHLY_STANDARD_HOURS * DAILY_CONTRACTUAL_HOURS;
+        ordinary_daily_wage_won_from_monthly(input.monthly_ordinary_wage_won)?;
     let draft = build_severance_pay_draft(SeverancePayInput {
         hire_date,
         exit_date,
@@ -6131,6 +6295,11 @@ fn build_settlement_calculation(
         Some(draft.average_daily_wage_milliwon),
         Some(draft.severance_pay_won),
         missing,
+        // 통상임금 basis (0093 review HIGH #2): monthly input, derived daily, and
+        // the daily wage that actually governed = max(average, ordinary).
+        Some(input.monthly_ordinary_wage_won),
+        Some(draft.ordinary_daily_wage_won),
+        Some(draft.statutory_daily_wage_milliwon),
     ))
 }
 
@@ -6266,6 +6435,10 @@ fn exit_case_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeExitCaseResp
         let average_daily_wage_milliwon: Option<i64> =
             row.try_get("average_daily_wage_milliwon")?;
         let severance_pay_won: Option<i64> = row.try_get("severance_pay_won")?;
+        let monthly_ordinary_wage_won: Option<i64> = row.try_get("monthly_ordinary_wage_won")?;
+        let ordinary_daily_wage_won: Option<i64> = row.try_get("ordinary_daily_wage_won")?;
+        let statutory_daily_wage_milliwon: Option<i64> =
+            row.try_get("statutory_daily_wage_milliwon")?;
         let statutory_basis: Value = row.try_get("statutory_basis")?;
         let insurance_loss_payload: Value = row.try_get("insurance_loss_payload")?;
         let approval_payload: Value = row.try_get("approval_payload")?;
@@ -6287,6 +6460,9 @@ fn exit_case_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeExitCaseResp
             average_wage_total_won,
             average_daily_wage_milliwon,
             service_days,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
         );
         let certification_status = if stored_certification_status == "CERTIFIED"
             && stored_digest.as_deref() == Some(recomputed_digest.as_str())
@@ -6319,6 +6495,9 @@ fn exit_case_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeExitCaseResp
             average_wage_total_won,
             average_daily_wage_milliwon,
             severance_pay_won,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
             missing_source_fields: row.try_get("missing_source_fields")?,
             statutory_basis,
             insurance_loss_payload,
@@ -8392,6 +8571,9 @@ E-001,홍길동,본사,2026-07-01,abc
                 Some(9_000_000),
                 Some(98_901),
                 Some(2373),
+                Some(3_000_000),
+                Some(114_832),
+                Some(98_901),
             )
         };
         let d1 = digest(Some(30_000_000), &statutory);
@@ -8419,6 +8601,72 @@ E-001,홍길동,본사,2026-07-01,abc
             digest(Some(30_000_000), &reordered),
             "key order in embedded JSON must not change the digest"
         );
+    }
+
+    /// 0093 review HIGH #2: the certified digest must bind the 통상임금 basis
+    /// DIRECTLY, not merely transitively through `severance_pay_won`. Changing
+    /// ONLY the monthly ordinary wage (holding severance and every other covered
+    /// field byte-identical — the case where the average wage governs the floor)
+    /// must still change the digest.
+    #[test]
+    fn certified_digest_binds_ordinary_wage_even_when_severance_unchanged() {
+        let statutory = json!({"formula": "avg*30*days/365"});
+        let insurance = json!({"forms": ["np", "hi"]});
+        let approval = json!({"document_type": "employee_exit_settlement"});
+        let digest = |monthly: Option<i64>| {
+            compute_certified_package_digest(
+                // Severance + every non-ordinary covered field held CONSTANT.
+                Some(30_000_000),
+                &statutory,
+                &insurance,
+                &approval,
+                Some("2026-04-01"),
+                Some("2026-06-30"),
+                Some(91),
+                Some(9_000_000),
+                Some(98_901),
+                Some(2373),
+                monthly,
+                Some(114_832),
+                Some(98_901),
+            )
+        };
+        assert_ne!(
+            digest(Some(3_000_000)),
+            digest(Some(3_100_000)),
+            "changing the ordinary wage must change the digest even when severance is unchanged"
+        );
+    }
+
+    /// 0093 review HIGH #3 (money bug): the 통상일급 derivation must multiply
+    /// BEFORE dividing (`(monthly * 8) / 209`), never floor `monthly / 209` first.
+    /// Flooring first understated the daily ordinary wage by up to 7 won/day and
+    /// under-paid severance whenever the ordinary floor governed.
+    #[test]
+    fn ordinary_daily_wage_multiplies_before_dividing() -> Result<(), String> {
+        // monthly % 209 != 0 and the remainder × 8 crosses 209, so the buggy
+        // floor-first formula and the corrected formula actually diverge.
+        let monthly = 3_000_100_i64;
+        assert_ne!(
+            monthly % MONTHLY_STANDARD_HOURS,
+            0,
+            "must exercise a remainder"
+        );
+        // Buggy floor-first: floor(3_000_100 / 209) * 8 = 14_354 * 8 = 114_832.
+        let buggy_floor_first = monthly / MONTHLY_STANDARD_HOURS * DAILY_CONTRACTUAL_HOURS;
+        assert_eq!(
+            buggy_floor_first, 114_832,
+            "buggy floor-first value for reference"
+        );
+        // Corrected multiply-before-divide: (3_000_100 * 8) / 209 = 114_836.
+        let corrected = ordinary_daily_wage_won_from_monthly(monthly)
+            .map_err(|err| format!("unexpected overflow: {}", err.message))?;
+        assert_eq!(corrected, 114_836, "must be (monthly * 8) / 209");
+        assert!(
+            corrected > buggy_floor_first,
+            "multiply-before-divide must not understate the daily wage (corrected {corrected} vs buggy {buggy_floor_first})"
+        );
+        Ok(())
     }
 
     #[sqlx::test(migrations = "../crates/platform/db/migrations")]
@@ -8536,7 +8784,9 @@ E-001,홍길동,본사,2026-07-01,abc
                    average_wage_period_start::TEXT AS average_wage_period_start,
                    average_wage_period_end::TEXT AS average_wage_period_end,
                    average_wage_calendar_days, average_wage_total_won,
-                   average_daily_wage_milliwon, service_days
+                   average_daily_wage_milliwon, service_days,
+                   monthly_ordinary_wage_won, ordinary_daily_wage_won,
+                   statutory_daily_wage_milliwon
             FROM employee_exit_settlement_packages
             WHERE org_id = $1 AND id = $2
             "#,
@@ -8576,6 +8826,15 @@ E-001,홍길동,본사,2026-07-01,abc
         let service_days: Option<i32> = covered
             .try_get("service_days")
             .map_err(|err| format!("{err}"))?;
+        let monthly_ordinary_wage_won: Option<i64> = covered
+            .try_get("monthly_ordinary_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let ordinary_daily_wage_won: Option<i64> = covered
+            .try_get("ordinary_daily_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_daily_wage_milliwon: Option<i64> = covered
+            .try_get("statutory_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
         let matching_digest = compute_certified_package_digest(
             severance_pay_won,
             &statutory_basis,
@@ -8587,6 +8846,9 @@ E-001,홍길동,본사,2026-07-01,abc
             total_won,
             daily_milliwon,
             service_days,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
         );
         let validation = ProfessionalValidation {
             reviewer_kind: ProfessionalReviewerKind::TaxAccountant,
@@ -8654,6 +8916,128 @@ E-001,홍길동,본사,2026-07-01,abc
         tx.rollback()
             .await
             .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    /// 0093 review HIGH #1: certification invalidation is a TABLE invariant, not
+    /// an app convention. A DIRECT covered-field SQL UPDATE (as the real `mnt_rt`
+    /// runtime role) on a CERTIFIED row must leave the STORED
+    /// certification_status = UNCERTIFIED_DRAFT with artifact/digest cleared —
+    /// proving migration 0094's `enforce_settlement_certification_reset()` BEFORE
+    /// UPDATE trigger fires for ANY write path, not just the two app statements.
+    /// This asserts the STORED row (not merely the read-path demotion).
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn direct_covered_field_update_resets_stored_certification(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("upsert failed: {err:?}"))?;
+
+        // Certify as mnt_rt: this UPDATE touches ONLY the three certification
+        // columns (none certification-covered), so the trigger leaves it intact.
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::LaborAttorney,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "a".repeat(64),
+            reviewer_reference: "노무법인 검증 2026-9".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind("b".repeat(64))
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("certify failed: {err}"))?;
+
+        let before: String = sqlx::query_scalar(
+            "SELECT certification_status FROM employee_exit_settlement_packages WHERE org_id = $1 AND id = $2",
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("read pre-update status failed: {err}"))?;
+        assert_eq!(
+            before, "CERTIFIED",
+            "certification must persist before the covered write"
+        );
+
+        // DIRECT covered-field UPDATE that does NOT touch any certification column.
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET severance_pay_won = severance_pay_won + 1
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("direct covered-field update failed: {err}"))?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT certification_status,
+                   certification_artifact IS NULL AS artifact_null,
+                   certified_package_digest IS NULL AS digest_null
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("reload row failed: {err}"))?;
+        let status: String = row
+            .try_get("certification_status")
+            .map_err(|err| format!("read status failed: {err}"))?;
+        let artifact_null: bool = row
+            .try_get("artifact_null")
+            .map_err(|err| format!("read artifact_null failed: {err}"))?;
+        let digest_null: bool = row
+            .try_get("digest_null")
+            .map_err(|err| format!("read digest_null failed: {err}"))?;
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+
+        assert_eq!(
+            status, "UNCERTIFIED_DRAFT",
+            "the DB trigger must reset STORED certification on ANY covered-field UPDATE"
+        );
+        assert!(
+            artifact_null,
+            "trigger must clear the STORED certification_artifact"
+        );
+        assert!(
+            digest_null,
+            "trigger must clear the STORED certified_package_digest"
+        );
         Ok(())
     }
 
@@ -8732,7 +9116,9 @@ E-001,홍길동,본사,2026-07-01,abc
                    average_wage_period_start::TEXT AS average_wage_period_start,
                    average_wage_period_end::TEXT AS average_wage_period_end,
                    average_wage_calendar_days, average_wage_total_won,
-                   average_daily_wage_milliwon, service_days
+                   average_daily_wage_milliwon, service_days,
+                   monthly_ordinary_wage_won, ordinary_daily_wage_won,
+                   statutory_daily_wage_milliwon
             FROM employee_exit_settlement_packages
             WHERE org_id = $1 AND id = $2
             "#,
@@ -8772,6 +9158,15 @@ E-001,홍길동,본사,2026-07-01,abc
         let service_days: Option<i32> = covered
             .try_get("service_days")
             .map_err(|err| format!("{err}"))?;
+        let monthly_ordinary_wage_won: Option<i64> = covered
+            .try_get("monthly_ordinary_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let ordinary_daily_wage_won: Option<i64> = covered
+            .try_get("ordinary_daily_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_daily_wage_milliwon: Option<i64> = covered
+            .try_get("statutory_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
         let matching_digest = compute_certified_package_digest(
             severance_pay_won,
             &statutory_basis,
@@ -8783,6 +9178,9 @@ E-001,홍길동,본사,2026-07-01,abc
             total_won,
             daily_milliwon,
             service_days,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
         );
         let validation = ProfessionalValidation {
             reviewer_kind: ProfessionalReviewerKind::LaborAttorney,
@@ -9633,6 +10031,155 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(
             fingerprint_first, fingerprint_second,
             "second materialization must rewrite no row (bounded write set — no write-storm)"
+        );
+        Ok(())
+    }
+
+    /// 0093 review MEDIUM #5: the dashboard-path materializer mutates the audited
+    /// `employee_absence_alerts` table, so the FIRST (changed) dashboard read must
+    /// emit an audit event that records the changed row count/ids + source facts.
+    /// A SECOND read over unchanged imports must emit NO further event, so the
+    /// idempotency / write-storm guard is preserved (audit real mutations only).
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn dashboard_materializer_emits_audit_on_changed_facts(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        use mnt_platform_authz::Role;
+
+        let (org_id, branch_id, employee_id, user_id) = seed_g009_base(&pool).await?;
+
+        // Seed one absent imported attendance fact so the first read materializes.
+        let run_id = Uuid::new_v4();
+        let source_sha256 = "a".repeat(64);
+        sqlx::query(
+            r#"
+            INSERT INTO data_import_runs (
+                id, org_id, entity_type, status, source_filename, source_format,
+                source_sha256, mapping_profile, input_rows, candidate_rows, preserved_rows
+            )
+            VALUES ($1, $2, 'attendance_direct', 'DRY_RUN', 'attendance.csv', 'csv', $3, '{}', 1, 1, 0)
+            "#,
+        )
+        .bind(run_id)
+        .bind(org_id)
+        .bind(&source_sha256)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed import run failed: {err}"))?;
+        let import_row_id = Uuid::new_v4();
+        let source_key = "sheet:CSV|row:2".to_owned();
+        sqlx::query(
+            r#"
+            INSERT INTO data_import_rows (
+                id, org_id, run_id, source_sheet, source_row, source_key,
+                row_status, raw_row, canonical_row, validation
+            )
+            VALUES ($1, $2, $3, 'CSV', 2, $4, 'CANDIDATE', '{}', '{}',
+                    '{"status":"ok","errors":[],"warnings":[]}')
+            "#,
+        )
+        .bind(import_row_id)
+        .bind(org_id)
+        .bind(run_id)
+        .bind(&source_key)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed import row failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO attendance_direct_import_events (
+                org_id, run_id, import_row_id, employee_id, branch_id,
+                source_sheet, source_row, source_key, source_sha256, fact_key,
+                employee_name, branch_name, work_date,
+                check_in_at, check_out_at, minutes_worked
+            )
+            VALUES ($1, $2, $3, $4, $5, 'CSV', 2, $6, $7, 'fact-1',
+                    '홍길동', '본사', '2026-07-01', NULL, NULL, 0)
+            "#,
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .bind(import_row_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .bind(&source_key)
+        .bind(&source_sha256)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed attendance event failed: {err}"))?;
+
+        let org = OrgId::from_uuid(org_id);
+        let state = HrState::new(pool.clone(), None);
+        // Executive + org-wide scope: `authorize_org_wide` limits built-in
+        // org-wide reads to SUPER_ADMIN/EXECUTIVE, so a branch-scoped ADMIN
+        // cannot drive the org-wide dashboard read.
+        let principal = Principal::new(
+            UserId::from_uuid(user_id),
+            org,
+            BTreeSet::from([Role::Executive]),
+            BranchScope::All,
+        );
+        let query = || AbsenceExitDashboardQuery {
+            limit: None,
+            offset: None,
+            employee_id: None,
+        };
+
+        // First read: materializes one alert → one audit event.
+        let _ = get_absence_exit_dashboard(
+            State(state.clone()),
+            Extension(principal.clone()),
+            Query(query()),
+        )
+        .await
+        .map_err(|err| format!("first dashboard read failed: {err:?}"))?;
+
+        let (event_count, changed_count): (i64, Option<i64>) = {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.absence_alert.materialize'",
+            )
+            .bind(org_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|err| format!("count materialize audit failed: {err}"))?;
+            let changed: Option<i64> = sqlx::query_scalar(
+                "SELECT (after_snap->>'changed_count')::BIGINT FROM audit_events WHERE org_id = $1 AND action = 'employee.absence_alert.materialize' LIMIT 1",
+            )
+            .bind(org_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|err| format!("read changed_count failed: {err}"))?;
+            (count, changed)
+        };
+        assert_eq!(
+            event_count, 1,
+            "first materialization must emit exactly one audit event"
+        );
+        assert_eq!(
+            changed_count,
+            Some(1),
+            "the audit event must record the changed row count"
+        );
+
+        // Second read over the identical facts: no change → no new audit event.
+        let _ = get_absence_exit_dashboard(
+            State(state.clone()),
+            Extension(principal.clone()),
+            Query(query()),
+        )
+        .await
+        .map_err(|err| format!("second dashboard read failed: {err:?}"))?;
+
+        let event_count_after_second: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.absence_alert.materialize'",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("recount materialize audit failed: {err}"))?;
+        assert_eq!(
+            event_count_after_second, 1,
+            "an unchanged dashboard read must not emit a second audit event (write-storm guard preserved)"
         );
         Ok(())
     }

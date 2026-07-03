@@ -177,6 +177,7 @@ export const ko = {
       fields: {
         serviceDays: "근속일",
         averageWage: "평균임금",
+        ordinaryDailyWage: "통상일급",
         severancePay: "퇴직금 산출액",
         insuranceForms: "상실신고 서식",
         uncertifiedDraftLabel: uncertifiedSettlementDraftLabel,
