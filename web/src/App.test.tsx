@@ -206,7 +206,7 @@ const server = setupServer(
         {
           id: "employee-1",
           name: "김현장",
-          company: "베스텍",
+          company: "그룹운영",
           employee_number: "B-001",
           org_unit: "물류팀",
           worksite_name: "인천센터",

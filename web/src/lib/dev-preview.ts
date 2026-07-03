@@ -229,7 +229,7 @@ export function devWorkOrderListPage(): WorkOrderListPage {
   const items: WorkOrderListItem[] = [
     {
       id: workOrderId,
-      request_no: "BESTEC-20260702-001",
+      request_no: "GROUP-20260702-001",
       branch_id: DEV_PREVIEW_BRANCH_ID,
       status: "ADMIN_REVIEW",
       priority: "P1",
@@ -241,14 +241,14 @@ export function devWorkOrderListPage(): WorkOrderListPage {
         id: "aaaaaaaa-0000-4000-8000-000000000001",
         equipment_no: "B-25-290",
         management_no: "290",
-        model: "BESTEC GTS25",
+        model: "GROUP GTS25",
         status: "rented",
         specification: "2.5t",
         ton_text: "2.5",
       },
       customer: {
         id: "aaaaaaaa-0000-4000-8000-000000000002",
-        name: "BESTEC",
+        name: ko.devPreview.groupCommonName,
       },
       site: {
         id: "aaaaaaaa-0000-4000-8000-000000000003",
@@ -257,7 +257,7 @@ export function devWorkOrderListPage(): WorkOrderListPage {
       site_contact: {
         name: "Kim Field",
         phone: "010-0000-1001",
-        email: "field@bestec.example",
+        email: "field@group.example",
       },
       assignments: [
         {
@@ -301,7 +301,7 @@ export function devWorkOrderListPage(): WorkOrderListPage {
         ],
       },
       listograms: {
-        customers: [{ id: "aaaaaaaa-0000-4000-8000-000000000002", name: "BESTEC", count: 1, filters: { customer_id: "aaaaaaaa-0000-4000-8000-000000000002" } }],
+        customers: [{ id: "aaaaaaaa-0000-4000-8000-000000000002", name: ko.devPreview.groupCommonName, count: 1, filters: { customer_id: "aaaaaaaa-0000-4000-8000-000000000002" } }],
         sites: [{ id: "aaaaaaaa-0000-4000-8000-000000000003", name: "Incheon Center", count: 1, filters: { site_id: "aaaaaaaa-0000-4000-8000-000000000003" } }],
       },
     },
@@ -320,8 +320,8 @@ export function devDailyPlanListPage(): DailyPlanListPage {
         items: [
           {
             work_order_id: workOrderId,
-            request_no: "BESTEC-20260702-001",
-            customer_name: "BESTEC",
+            request_no: "GROUP-20260702-001",
+            customer_name: ko.devPreview.groupCommonName,
             site_name: "Incheon Center",
             description: ko.devPreview.dailyPlanItemDescription,
             sort_order: 1,
@@ -541,7 +541,7 @@ export function devKpiReport(): KpiReport {
     rollups: [
       {
         scope: { kind: "company" },
-        scope_display_name: "BESTEC",
+        scope_display_name: ko.devPreview.groupScopeDisplayName,
         approved_report_count: 18,
         completed_count: 16,
         weighted_completed_points: 24,
@@ -622,10 +622,10 @@ const devMailDetail: MailThreadDetail = {
       id: "aaaaaaaa-0000-4000-8000-000000000012",
       thread_id: mailThreadId,
       direction: "IN",
-      message_id: "<bestec-payroll-20260702@example>",
+      message_id: "<group-payroll-20260702@example>",
       in_reply_to: null,
-      from_address: "hr@bestec.example",
-      from_name: "BESTEC HR",
+      from_address: "hr@group.example",
+      from_name: ko.devPreview.groupHrName,
       to: [{ address: "payroll@knllogistic.local", name: "K-NL Payroll" }],
       cc: [],
       subject: ko.devPreview.mailPayrollSubject,
@@ -640,7 +640,7 @@ const devMailDetail: MailThreadDetail = {
       attachments: [
         {
           id: "aaaaaaaa-0000-4000-8000-000000000013",
-          filename: "bestec-payroll-202607.xlsx",
+          filename: "group-payroll-202607.xlsx",
           content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           size_bytes: 18240,
           is_inline: false,
@@ -693,7 +693,7 @@ export function devEmployeeDirectoryPage(): EmployeeDirectoryPage {
     items: [
       {
         id: devEmployeeOneId,
-        company: "BESTEC",
+        company: ko.devPreview.knlCompanyName,
         name: ko.devPreview.fieldTechnicianName,
         employee_number: "B-1001",
         org_unit: ko.devPreview.fieldTechnicianTeam,
@@ -716,7 +716,7 @@ export function devEmployeeDirectoryPage(): EmployeeDirectoryPage {
       },
       {
         id: devEmployeeTwoId,
-        company: "BESTEC",
+        company: ko.devPreview.cossCompanyName,
         name: ko.devPreview.dispatcherName,
         employee_number: "B-1002",
         org_unit: ko.devPreview.dispatcherTeam,
@@ -739,7 +739,7 @@ export function devEmployeeDirectoryPage(): EmployeeDirectoryPage {
       },
       {
         id: devEmployeeThreeId,
-        company: "BESTEC",
+        company: ko.devPreview.elsoCompanyName,
         name: ko.devPreview.adminName,
         employee_number: "B-0901",
         org_unit: "HR",
