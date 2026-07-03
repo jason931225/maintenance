@@ -247,6 +247,7 @@ import com.maintenance.api.client.model.UpdateSiteRequest
 import com.maintenance.api.client.model.UpdateUserRequest
 import com.maintenance.api.client.model.UpdateWorkOrderIntakeRequest
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
+import com.maintenance.api.client.model.UpdateWorkflowDefinitionRequest
 import com.maintenance.api.client.model.UserPage
 import com.maintenance.api.client.model.UserSummary
 import com.maintenance.api.client.model.VotePollRequest
@@ -2145,6 +2146,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/approve".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/v1/workflow-studio/definitions/{id}
+     * Delete a draft workflow definition
+     * Soft-deletes a DRAFT workflow definition by moving the mutable pointer to RETIRED while preserving append-only versions, change events, and audit evidence. Requires a fresh passkey step-up assertion.
+     * @param id
+     * @param workflowStepUpRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun archiveWorkflowDefinition(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = archiveWorkflowDefinitionWithHttpInfo(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/workflow-studio/definitions/{id}
+     * Delete a draft workflow definition
+     * Soft-deletes a DRAFT workflow definition by moving the mutable pointer to RETIRED while preserving append-only versions, change events, and audit evidence. Requires a fresh passkey step-up assertion.
+     * @param id
+     * @param workflowStepUpRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun archiveWorkflowDefinitionWithHttpInfo(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = archiveWorkflowDefinitionRequestConfig(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext request<WorkflowStepUpRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation archiveWorkflowDefinition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return RequestConfig
+     */
+    fun archiveWorkflowDefinitionRequestConfig(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : RequestConfig<WorkflowStepUpRequest> {
+        val localVariableBody = workflowStepUpRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/workflow-studio/definitions/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -16539,6 +16617,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/work-orders/{workOrderId}/priority".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/workflow-studio/definitions/{id}
+     * Update a draft workflow definition
+     * Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
+     * @param id
+     * @param updateWorkflowDefinitionRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateWorkflowDefinition(id: java.util.UUID, updateWorkflowDefinitionRequest: UpdateWorkflowDefinitionRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = updateWorkflowDefinitionWithHttpInfo(id = id, updateWorkflowDefinitionRequest = updateWorkflowDefinitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/workflow-studio/definitions/{id}
+     * Update a draft workflow definition
+     * Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
+     * @param id
+     * @param updateWorkflowDefinitionRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateWorkflowDefinitionWithHttpInfo(id: java.util.UUID, updateWorkflowDefinitionRequest: UpdateWorkflowDefinitionRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateWorkflowDefinitionRequestConfig(id = id, updateWorkflowDefinitionRequest = updateWorkflowDefinitionRequest)
+
+        return@withContext request<UpdateWorkflowDefinitionRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateWorkflowDefinition
+     *
+     * @param id
+     * @param updateWorkflowDefinitionRequest
+     * @return RequestConfig
+     */
+    fun updateWorkflowDefinitionRequestConfig(id: java.util.UUID, updateWorkflowDefinitionRequest: UpdateWorkflowDefinitionRequest) : RequestConfig<UpdateWorkflowDefinitionRequest> {
+        val localVariableBody = updateWorkflowDefinitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/workflow-studio/definitions/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

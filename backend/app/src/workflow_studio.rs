@@ -1,7 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
 use mnt_kernel_core::{AuditAction, AuditEvent, ErrorKind, KernelError, TraceContext, UserId};
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
@@ -15,6 +15,8 @@ use uuid::Uuid;
 
 pub const WORKFLOW_STUDIO_CATALOG_PATH: &str = "/api/v1/workflow-studio/catalog";
 pub const WORKFLOW_STUDIO_DEFINITIONS_PATH: &str = "/api/v1/workflow-studio/definitions";
+pub const WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}";
 pub const WORKFLOW_STUDIO_DEFINITION_HISTORY_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/history";
 pub const WORKFLOW_STUDIO_DEFINITION_SIMULATE_PATH_TEMPLATE: &str =
@@ -119,6 +121,10 @@ pub fn router(state: WorkflowStudioState) -> Router {
         .route(
             WORKFLOW_STUDIO_DEFINITIONS_PATH,
             get(list_definitions).post(create_definition),
+        )
+        .route(
+            WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE,
+            patch(update_definition).delete(archive_definition),
         )
         .route(
             WORKFLOW_STUDIO_DEFINITION_HISTORY_PATH_TEMPLATE,
@@ -250,6 +256,26 @@ struct CreateWorkflowDefinitionRequest {
     required_approval_line: bool,
     #[serde(default)]
     required_payment_line: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateWorkflowDefinitionRequest {
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    definition: Option<Value>,
+    #[serde(default)]
+    approval_line: Option<Vec<Value>>,
+    #[serde(default)]
+    payment_line: Option<Vec<Value>>,
+    #[serde(default)]
+    notification_rules: Option<Vec<Value>>,
+    #[serde(default)]
+    action_allowlist: Option<Vec<Value>>,
+    #[serde(default)]
+    required_approval_line: Option<bool>,
+    #[serde(default)]
+    required_payment_line: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -391,6 +417,7 @@ async fn list_definitions(
                     ON v.definition_id = d.id
                    AND v.org_id = d.org_id
                    AND v.version = d.latest_version
+                WHERE d.status <> 'RETIRED'
                 ORDER BY d.updated_at DESC, d.display_name ASC
                 "#,
             )
@@ -518,6 +545,156 @@ async fn create_definition(
     })
     .await?;
     record_workflow_studio_request("create_draft", "success");
+    Ok(Json(response))
+}
+
+async fn update_definition(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateWorkflowDefinitionRequest>,
+) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let update = normalize_update_request(body)?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let trace = TraceContext::generate();
+    let now = OffsetDateTime::now_utc();
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_definition.update_draft")?,
+        "workflow_definition",
+        id.to_string(),
+        trace,
+        now,
+    )
+    .with_org(org);
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = load_latest_version(tx, id, true).await?;
+            let before = snapshot_from_row(&current);
+            let next = apply_draft_update(&current, update)?;
+            let new_version = current.latest_version + 1;
+            let updated = insert_version_and_update_definition(
+                tx,
+                WorkflowVersionMutation {
+                    org,
+                    actor,
+                    source: &next,
+                    new_version,
+                    version_status: "DRAFT",
+                    definition_status: "DRAFT",
+                    active_version: current.active_version,
+                },
+            )
+            .await?;
+
+            insert_workflow_event(
+                tx,
+                WorkflowAuditEvent {
+                    org,
+                    definition_id: id,
+                    version: Some(new_version),
+                    action: "workflow_definition.update_draft",
+                    actor: Some(actor),
+                    summary: "초안 편집",
+                    before_snap: Some(before),
+                    after_snap: Some(snapshot_from_response(&updated)),
+                },
+            )
+            .await?;
+
+            Ok(updated)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("update_draft", "success");
+    Ok(Json(response))
+}
+
+async fn archive_definition(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<WorkflowStepUpRequest>,
+) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    verify_workflow_step_up(&state, &principal, body.step_up).await?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let trace = TraceContext::generate();
+    let now = OffsetDateTime::now_utc();
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_definition.archive_draft")?,
+        "workflow_definition",
+        id.to_string(),
+        trace,
+        now,
+    )
+    .with_org(org);
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = load_latest_version(tx, id, true).await?;
+            ensure_draft_definition(&current, "archived")?;
+            let before = snapshot_from_row(&current);
+            let row = sqlx::query(
+                r#"
+                UPDATE workflow_definitions
+                   SET status = 'RETIRED',
+                       updated_by = $2,
+                       updated_at = now()
+                 WHERE id = $1
+                RETURNING id, workflow_key, display_name, object_type, status,
+                    latest_version, active_version, created_at, updated_at
+                "#,
+            )
+            .bind(id)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let updated = WorkflowDefinitionResponse {
+                id: row.try_get("id")?,
+                workflow_key: row.try_get("workflow_key")?,
+                display_name: row.try_get("display_name")?,
+                object_type: row.try_get("object_type")?,
+                status: row.try_get("status")?,
+                latest_version: row.try_get("latest_version")?,
+                active_version: row.try_get("active_version")?,
+                definition: current.definition.clone(),
+                approval_line: current.approval_line.clone(),
+                payment_line: current.payment_line.clone(),
+                notification_rules: current.notification_rules.clone(),
+                action_allowlist: current.action_allowlist.clone(),
+                required_approval_line: current.required_approval_line,
+                required_payment_line: current.required_payment_line,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            };
+
+            insert_workflow_event(
+                tx,
+                WorkflowAuditEvent {
+                    org,
+                    definition_id: id,
+                    version: Some(current.latest_version),
+                    action: "workflow_definition.archive_draft",
+                    actor: Some(actor),
+                    summary: "초안 삭제",
+                    before_snap: Some(before),
+                    after_snap: Some(snapshot_from_response(&updated)),
+                },
+            )
+            .await?;
+
+            Ok(updated)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("archive_draft", "success");
     Ok(Json(response))
 }
 
@@ -732,6 +909,7 @@ async fn clone_definition(
     let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
         Box::pin(async move {
             let source = load_latest_version(tx, id, true).await?;
+            ensure_not_retired(&source)?;
             let workflow_key = match body.workflow_key {
                 Some(value) => normalize_workflow_key(&value)?,
                 None => format!(
@@ -867,6 +1045,7 @@ where
     let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
         Box::pin(async move {
             let current = load_latest_version(tx, definition_id, true).await?;
+            ensure_not_retired(&current)?;
             let before = snapshot_from_row(&current);
             let (definition_status, version_status, new_version, active_version_override) =
                 transition(&current)?;
@@ -937,6 +1116,7 @@ async fn mutate_definition_with_source_version(
     let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
         Box::pin(async move {
             let current = load_latest_version(tx, definition_id, true).await?;
+            ensure_not_retired(&current)?;
             let source = load_specific_version(tx, definition_id, target_version).await?;
             let before = snapshot_from_row(&current);
             let new_version = current.latest_version + 1;
@@ -1029,10 +1209,11 @@ async fn insert_version_and_update_definition(
     let row = sqlx::query(
         r#"
         UPDATE workflow_definitions
-           SET status = $2,
-               latest_version = $3,
-               active_version = $4,
-               updated_by = $5,
+           SET display_name = $2,
+               status = $3,
+               latest_version = $4,
+               active_version = $5,
+               updated_by = $6,
                updated_at = now()
          WHERE id = $1
         RETURNING id, workflow_key, display_name, object_type, status,
@@ -1040,6 +1221,7 @@ async fn insert_version_and_update_definition(
         "#,
     )
     .bind(mutation.source.definition_id)
+    .bind(&mutation.source.display_name)
     .bind(mutation.definition_status)
     .bind(mutation.new_version)
     .bind(mutation.active_version)
@@ -1298,6 +1480,104 @@ fn normalize_create_request(
         required_approval_line: body.required_approval_line,
         required_payment_line: body.required_payment_line,
     })
+}
+
+struct NormalizedWorkflowDefinitionUpdate {
+    display_name: Option<String>,
+    definition: Option<Value>,
+    approval_line: Option<Vec<Value>>,
+    payment_line: Option<Vec<Value>>,
+    notification_rules: Option<Vec<Value>>,
+    action_allowlist: Option<Vec<Value>>,
+    required_approval_line: Option<bool>,
+    required_payment_line: Option<bool>,
+}
+
+fn normalize_update_request(
+    body: UpdateWorkflowDefinitionRequest,
+) -> Result<NormalizedWorkflowDefinitionUpdate, WorkflowStudioError> {
+    let display_name = body
+        .display_name
+        .map(|value| normalize_display_name(&value))
+        .transpose()?;
+    let definition = body
+        .definition
+        .map(validate_definition_object)
+        .transpose()?;
+    if let Some(action_allowlist) = &body.action_allowlist {
+        validate_action_allowlist(action_allowlist)?;
+    }
+    if let Some(notification_rules) = &body.notification_rules {
+        validate_notification_rules(notification_rules)?;
+    }
+    Ok(NormalizedWorkflowDefinitionUpdate {
+        display_name,
+        definition,
+        approval_line: body.approval_line,
+        payment_line: body.payment_line,
+        notification_rules: body.notification_rules,
+        action_allowlist: body.action_allowlist,
+        required_approval_line: body.required_approval_line,
+        required_payment_line: body.required_payment_line,
+    })
+}
+
+fn apply_draft_update(
+    current: &WorkflowVersionRow,
+    update: NormalizedWorkflowDefinitionUpdate,
+) -> Result<WorkflowVersionRow, WorkflowStudioError> {
+    ensure_draft_definition(current, "edited")?;
+    let mut next = current.clone();
+    if let Some(display_name) = update.display_name {
+        next.display_name = display_name;
+    }
+    if let Some(definition) = update.definition {
+        next.definition = definition;
+    }
+    if let Some(approval_line) = update.approval_line {
+        next.approval_line = approval_line;
+    }
+    if let Some(payment_line) = update.payment_line {
+        next.payment_line = payment_line;
+    }
+    if let Some(notification_rules) = update.notification_rules {
+        next.notification_rules = notification_rules;
+    }
+    if let Some(action_allowlist) = update.action_allowlist {
+        next.action_allowlist = action_allowlist;
+    }
+    if let Some(required_approval_line) = update.required_approval_line {
+        next.required_approval_line = required_approval_line;
+    }
+    if let Some(required_payment_line) = update.required_payment_line {
+        next.required_payment_line = required_payment_line;
+    }
+    Ok(next)
+}
+
+fn ensure_draft_definition(
+    row: &WorkflowVersionRow,
+    operation: &'static str,
+) -> Result<(), WorkflowStudioError> {
+    if row.status == "DRAFT" {
+        Ok(())
+    } else {
+        Err(KernelError::invalid_transition(format!(
+            "only DRAFT workflow definitions can be {operation}"
+        ))
+        .into())
+    }
+}
+
+fn ensure_not_retired(row: &WorkflowVersionRow) -> Result<(), WorkflowStudioError> {
+    if row.status == "RETIRED" {
+        Err(
+            KernelError::invalid_transition("archived workflow definitions cannot be changed")
+                .into(),
+        )
+    } else {
+        Ok(())
+    }
 }
 
 fn normalize_workflow_key(raw: &str) -> Result<String, WorkflowStudioError> {
@@ -1994,6 +2274,81 @@ mod tests {
         assert!(findings.iter().any(|finding| {
             finding.code == "invalid_policy_decision" && finding.message.contains("scope")
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn draft_update_merges_partial_payload_without_mutating_identity() -> Result<(), String> {
+        let current = policy_row(policy_decision_definition());
+        let next = apply_draft_update(
+            &current,
+            NormalizedWorkflowDefinitionUpdate {
+                display_name: Some("Updated policy draft".to_owned()),
+                definition: None,
+                approval_line: Some(vec![json!({
+                    "step_key": "owner",
+                    "approver_role": "MAINTENANCE_MANAGER",
+                    "required": true
+                })]),
+                payment_line: None,
+                notification_rules: Some(vec![]),
+                action_allowlist: None,
+                required_approval_line: Some(false),
+                required_payment_line: None,
+            },
+        )
+        .map_err(|err| err.message)?;
+
+        assert_eq!(next.definition_id, current.definition_id);
+        assert_eq!(next.workflow_key, current.workflow_key);
+        assert_eq!(next.object_type, current.object_type);
+        assert_eq!(next.display_name, "Updated policy draft");
+        assert_eq!(next.approval_line.len(), 1);
+        assert!(next.notification_rules.is_empty());
+        assert!(!next.required_approval_line);
+        assert_eq!(next.definition, current.definition);
+        Ok(())
+    }
+
+    #[test]
+    fn draft_update_requires_draft_status() -> Result<(), String> {
+        let mut current = policy_row(policy_decision_definition());
+        current.status = "ACTIVE".to_owned();
+
+        let err = match apply_draft_update(
+            &current,
+            NormalizedWorkflowDefinitionUpdate {
+                display_name: Some("Cannot edit".to_owned()),
+                definition: None,
+                approval_line: None,
+                payment_line: None,
+                notification_rules: None,
+                action_allowlist: None,
+                required_approval_line: None,
+                required_payment_line: None,
+            },
+        ) {
+            Ok(_) => return Err("published definitions must not be editable drafts".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
+        Ok(())
+    }
+
+    #[test]
+    fn retired_definitions_cannot_take_sensitive_lifecycle_actions() -> Result<(), String> {
+        let mut current = policy_row(policy_decision_definition());
+        current.status = "RETIRED".to_owned();
+
+        let err = match ensure_not_retired(&current) {
+            Ok(()) => return Err("retired definitions must fail closed".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
         Ok(())
     }
 }

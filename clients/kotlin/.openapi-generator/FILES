@@ -372,6 +372,7 @@ src/main/kotlin/com/maintenance/api/client/model/UpdateSiteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateUserRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderIntakeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpdateWorkflowDefinitionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UserPage.kt
 src/main/kotlin/com/maintenance/api/client/model/UserSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/VotePollRequest.kt
