@@ -12,8 +12,8 @@ use mnt_kernel_core::{
     UserId,
 };
 use mnt_payroll_domain::{
-    SeverancePayInput, build_severance_pay_draft, moel_retirement_pay_source,
-    nhis_qualification_loss_form_source,
+    ProfessionalReviewerKind, ProfessionalValidation, SeverancePayInput, build_severance_pay_draft,
+    moel_retirement_pay_source, nhis_qualification_loss_form_source,
 };
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
@@ -551,6 +551,11 @@ struct ExitSettlementInput {
     average_wage_period_end: String,
     average_wage_calendar_days: i64,
     average_wage_total_won: i64,
+    /// Monthly 통상임금 (ordinary wage) in won, gathered alongside the average-wage
+    /// source fields. Mandatory (no `#[serde(default)]`): the request fails to
+    /// deserialize when absent, so the statutory 통상임금 floor can never be
+    /// silently skipped for the depressed-window absence→exit population.
+    monthly_ordinary_wage_won: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -615,6 +620,11 @@ struct EmployeeExitSettlementPackageResponse {
     statutory_basis: Value,
     insurance_loss_payload: Value,
     approval_payload: Value,
+    /// EFFECTIVE certification state (single source for the "산정 초안 — 노무사
+    /// 검증 전" label): reported `CERTIFIED` only when the stored
+    /// `certification_status` is CERTIFIED AND the stored digest still binds the
+    /// current numbers; a stale/absent digest is reported `UNCERTIFIED_DRAFT`.
+    certification_status: String,
     generated_at: OffsetDateTime,
     #[serde(skip_serializing_if = "Option::is_none")]
     submitted_by: Option<Uuid>,
@@ -1619,6 +1629,12 @@ async fn draft_employee_exit_approval(
                     approval_payload = $4,
                     submitted_by = CASE WHEN $5 THEN $6 ELSE submitted_by END,
                     submitted_at = CASE WHEN $5 THEN now() ELSE submitted_at END,
+                    -- Atomic re-uncertification (0093 HIGH): approval_payload is a
+                    -- certification-covered field, so writing it invalidates any
+                    -- prior certification in the same statement.
+                    certification_status = 'UNCERTIFIED_DRAFT',
+                    certification_artifact = NULL,
+                    certified_package_digest = NULL,
                     updated_at = now()
                 WHERE org_id = $1 AND id = $2
                 "#,
@@ -5535,6 +5551,8 @@ fn exit_case_select_sql() -> &'static str {
         p.statutory_basis,
         p.insurance_loss_payload,
         p.approval_payload,
+        p.certification_status,
+        p.certified_package_digest,
         p.generated_at,
         p.submitted_by,
         p.submitted_at
@@ -5809,6 +5827,13 @@ async fn upsert_exit_settlement_package(
             missing_source_fields = EXCLUDED.missing_source_fields,
             statutory_basis = EXCLUDED.statutory_basis,
             insurance_loss_payload = EXCLUDED.insurance_loss_payload,
+            -- Atomic re-uncertification (0093 HIGH): recomputing settlement fields
+            -- invalidates any prior 노무사/세무사 certification. Reset in the SAME
+            -- statement so a CERTIFIED flag can never outlive the numbers it
+            -- certified. This path is never itself a certification action.
+            certification_status = 'UNCERTIFIED_DRAFT',
+            certification_artifact = NULL,
+            certified_package_digest = NULL,
             generated_at = now(),
             updated_at = now()
         RETURNING id
@@ -5864,6 +5889,79 @@ type SettlementCalculation = (
     Vec<String>,
 );
 
+/// 월 소정근로시간 (statutory monthly standard hours) for a 주40시간 worker.
+const MONTHLY_STANDARD_HOURS: i64 = 209;
+/// 1일 소정근로시간 (contractual daily hours).
+const DAILY_CONTRACTUAL_HOURS: i64 = 8;
+
+/// Deterministic SHA-256 that binds a settlement package's CERTIFIED state to
+/// the exact revision a 노무사/세무사 signed off (0093 HIGH: a non-null artifact
+/// only proves an artifact exists, not that it certified *these* numbers).
+///
+/// Covers every certification-relevant field persisted on the row: the
+/// severance figure, the statutory basis, the insurance-loss payload, the
+/// approval payload, and the wage-source-derived inputs (period bounds, calendar
+/// days, wage total, average daily wage, service days). The 통상임금 floor input
+/// is bound transitively — any change to the monthly ordinary wage changes
+/// `severance_pay_won`.
+///
+/// Order-stable: this workspace builds `serde_json` without `preserve_order`, so
+/// its object map is a `BTreeMap` that serializes with sorted keys, and embedded
+/// JSONB values round-trip through the same `BTreeMap`. Identical inputs
+/// therefore always hash identically regardless of column or JSON key order.
+#[allow(clippy::too_many_arguments)]
+fn compute_certified_package_digest(
+    severance_pay_won: Option<i64>,
+    statutory_basis: &Value,
+    insurance_loss_payload: &Value,
+    approval_payload: &Value,
+    average_wage_period_start: Option<&str>,
+    average_wage_period_end: Option<&str>,
+    average_wage_calendar_days: Option<i32>,
+    average_wage_total_won: Option<i64>,
+    average_daily_wage_milliwon: Option<i64>,
+    service_days: Option<i32>,
+) -> String {
+    let canonical = json!({
+        "severance_pay_won": severance_pay_won,
+        "statutory_basis": statutory_basis,
+        "insurance_loss_payload": insurance_loss_payload,
+        "approval_payload": approval_payload,
+        "average_wage_period_start": average_wage_period_start,
+        "average_wage_period_end": average_wage_period_end,
+        "average_wage_calendar_days": average_wage_calendar_days,
+        "average_wage_total_won": average_wage_total_won,
+        "average_daily_wage_milliwon": average_daily_wage_milliwon,
+        "service_days": service_days,
+    });
+    let bytes = serde_json::to_vec(&canonical)
+        .expect("canonical settlement digest json is always serializable");
+    sha256_hex(&bytes)
+}
+
+/// Serialize a `ProfessionalValidation` into the exact 4-key JSON artifact that
+/// migration 0093's `..._cert_artifact_shape_chk` CHECK requires, emitting
+/// `reviewer_kind` as exactly `LABOR_ATTORNEY` / `TAX_ACCOUNTANT`.
+///
+/// This is the write-side shape a future 노무사 certification-recording endpoint
+/// persists. v1 ships no such endpoint, so `CERTIFIED` is unreachable-by-design
+/// in production (safe — nothing gates on it yet, and the atomic reset in every
+/// settlement UPDATE plus the digest-match honoring below hold the invariant the
+/// moment a recording path is added). It is exercised by the certification tests.
+#[cfg_attr(not(test), allow(dead_code))]
+fn certification_artifact_json(validation: &ProfessionalValidation) -> Value {
+    let reviewer_kind = match validation.reviewer_kind {
+        ProfessionalReviewerKind::LaborAttorney => "LABOR_ATTORNEY",
+        ProfessionalReviewerKind::TaxAccountant => "TAX_ACCOUNTANT",
+    };
+    json!({
+        "reviewer_kind": reviewer_kind,
+        "reviewed_on": validation.reviewed_on.to_string(),
+        "artifact_sha256": validation.artifact_sha256,
+        "reviewer_reference": validation.reviewer_reference,
+    })
+}
+
 fn build_settlement_calculation(
     context: &ExitCaseContext,
     input: Option<&ExitSettlementInput>,
@@ -5908,6 +6006,19 @@ fn build_settlement_calculation(
 
     let period_start = parse_yyyy_mm_dd(&input.average_wage_period_start)?;
     let period_end = parse_yyyy_mm_dd(&input.average_wage_period_end)?;
+    // 통상일급 (1-day ordinary wage) derived from the monthly 통상임금 via the
+    // statutory 기준시간 209h/month rule: 통상시급 = 월 통상임금 / 209,
+    // 통상일급 = 통상시급 × 8h (1일 소정근로 8시간). This derivation policy lives
+    // in the app layer, not the payroll kernel (which only enforces the floor).
+    // Fail loud rather than default so the depressed-window population is never
+    // under-calculated by silently skipping the floor.
+    if input.monthly_ordinary_wage_won <= 0 {
+        return Err(HrError::validation(
+            "monthly ordinary wage (월 통상임금) is required and must be positive for the 통상임금 floor",
+        ));
+    }
+    let ordinary_daily_wage_won =
+        input.monthly_ordinary_wage_won / MONTHLY_STANDARD_HOURS * DAILY_CONTRACTUAL_HOURS;
     let draft = build_severance_pay_draft(SeverancePayInput {
         hire_date,
         exit_date,
@@ -5915,6 +6026,7 @@ fn build_settlement_calculation(
         average_wage_period_end: period_end,
         average_wage_calendar_days: input.average_wage_calendar_days,
         average_wage_total_won: input.average_wage_total_won,
+        ordinary_daily_wage_won,
     })
     .map_err(HrError::from_kernel)?;
 
@@ -6059,20 +6171,59 @@ fn absence_alert_from_row(
 fn exit_case_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeExitCaseResponse, HrError> {
     let package_id: Option<Uuid> = row.try_get("package_id")?;
     let settlement_package = if let Some(id) = package_id {
+        let service_days: Option<i32> = row.try_get("service_days")?;
+        let average_wage_period_start: Option<String> = row.try_get("average_wage_period_start")?;
+        let average_wage_period_end: Option<String> = row.try_get("average_wage_period_end")?;
+        let average_wage_calendar_days: Option<i32> = row.try_get("average_wage_calendar_days")?;
+        let average_wage_total_won: Option<i64> = row.try_get("average_wage_total_won")?;
+        let average_daily_wage_milliwon: Option<i64> =
+            row.try_get("average_daily_wage_milliwon")?;
+        let severance_pay_won: Option<i64> = row.try_get("severance_pay_won")?;
+        let statutory_basis: Value = row.try_get("statutory_basis")?;
+        let insurance_loss_payload: Value = row.try_get("insurance_loss_payload")?;
+        let approval_payload: Value = row.try_get("approval_payload")?;
+        let stored_certification_status: String = row.try_get("certification_status")?;
+        let stored_digest: Option<String> = row.try_get("certified_package_digest")?;
+
+        // Honor CERTIFIED only when the stored digest still binds the CURRENT
+        // numbers. A stale digest (numbers recomputed after certification) or a
+        // missing digest is reported as UNCERTIFIED_DRAFT — the code, not the DB
+        // CHECK, is what proves the artifact certified *these* figures.
+        let recomputed_digest = compute_certified_package_digest(
+            severance_pay_won,
+            &statutory_basis,
+            &insurance_loss_payload,
+            &approval_payload,
+            average_wage_period_start.as_deref(),
+            average_wage_period_end.as_deref(),
+            average_wage_calendar_days,
+            average_wage_total_won,
+            average_daily_wage_milliwon,
+            service_days,
+        );
+        let certification_status = if stored_certification_status == "CERTIFIED"
+            && stored_digest.as_deref() == Some(recomputed_digest.as_str())
+        {
+            "CERTIFIED".to_owned()
+        } else {
+            "UNCERTIFIED_DRAFT".to_owned()
+        };
+
         Some(EmployeeExitSettlementPackageResponse {
             id,
             status: row.try_get("package_status")?,
-            service_days: row.try_get("service_days")?,
-            average_wage_period_start: row.try_get("average_wage_period_start")?,
-            average_wage_period_end: row.try_get("average_wage_period_end")?,
-            average_wage_calendar_days: row.try_get("average_wage_calendar_days")?,
-            average_wage_total_won: row.try_get("average_wage_total_won")?,
-            average_daily_wage_milliwon: row.try_get("average_daily_wage_milliwon")?,
-            severance_pay_won: row.try_get("severance_pay_won")?,
+            service_days,
+            average_wage_period_start,
+            average_wage_period_end,
+            average_wage_calendar_days,
+            average_wage_total_won,
+            average_daily_wage_milliwon,
+            severance_pay_won,
             missing_source_fields: row.try_get("missing_source_fields")?,
-            statutory_basis: row.try_get("statutory_basis")?,
-            insurance_loss_payload: row.try_get("insurance_loss_payload")?,
-            approval_payload: row.try_get("approval_payload")?,
+            statutory_basis,
+            insurance_loss_payload,
+            approval_payload,
+            certification_status,
             generated_at: row.try_get("generated_at")?,
             submitted_by: row.try_get("submitted_by")?,
             submitted_at: row.try_get("submitted_at")?,
@@ -7996,5 +8147,386 @@ E-001,홍길동,본사,2026-07-01,abc
             normalize_attendance_note(Some("x".repeat(501))).is_err(),
             "long attendance notes must be rejected before persistence"
         );
+    }
+
+    fn sample_settlement_input() -> ExitSettlementInput {
+        ExitSettlementInput {
+            average_wage_period_start: "2026-04-01".to_owned(),
+            average_wage_period_end: "2026-06-30".to_owned(),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 9_000_000,
+            monthly_ordinary_wage_won: 3_000_000,
+        }
+    }
+
+    async fn arm_mnt_rt(
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        org_id: Uuid,
+    ) -> Result<(), String> {
+        sqlx::query("SET LOCAL ROLE mnt_rt")
+            .execute(tx.as_mut())
+            .await
+            .map_err(|err| format!("set runtime role failed: {err}"))?;
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_id.to_string())
+            .execute(tx.as_mut())
+            .await
+            .map_err(|err| format!("arm current org failed: {err}"))?;
+        Ok(())
+    }
+
+    async fn seed_exit_case(pool: &sqlx::PgPool) -> Result<(Uuid, Uuid), String> {
+        let org_id = Uuid::new_v4();
+        let region_id = Uuid::new_v4();
+        let branch_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let employee_id = Uuid::new_v4();
+        let case_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(org_id)
+            .bind(format!("exit-{}", &org_id.to_string()[..8]))
+            .bind("Exit Settlement Test")
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed organization failed: {err}"))?;
+        sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
+            .bind(region_id)
+            .bind("정산지역")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed region failed: {err}"))?;
+        sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
+            .bind(branch_id)
+            .bind(region_id)
+            .bind("본사")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed branch failed: {err}"))?;
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY['ADMIN']::TEXT[], true, $3)",
+        )
+        .bind(user_id)
+        .bind("Exit HR Manager")
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed user failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employees (
+                id, org_id, company, name, employee_number, hire_date,
+                source_filename, source_sheet, source_row, source_key, raw_row, source_metadata
+            )
+            VALUES ($1, $2, '테스트', '홍길동', 'E-001', '2020-01-01',
+                    'employees.xlsx', '직원', 2, 'employee-row-2', '{}', '{}')
+            "#,
+        )
+        .bind(employee_id)
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed employee failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employee_exit_cases (
+                id, org_id, employee_id, branch_id, status,
+                effective_exit_date, site_manager_note, reported_by
+            )
+            VALUES ($1, $2, $3, $4, 'HR_CONFIRMED', '2026-06-30', '무단결근 확인', $5)
+            "#,
+        )
+        .bind(case_id)
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed exit case failed: {err}"))?;
+        Ok((org_id, case_id))
+    }
+
+    #[test]
+    fn certified_package_digest_is_deterministic_and_canonical() {
+        let statutory = json!({"formula": "avg*30*days/365", "authority": "MOEL"});
+        let insurance = json!({"forms": ["np", "hi"]});
+        let approval = json!({"document_type": "employee_exit_settlement"});
+        let digest = |severance: Option<i64>, basis: &Value| {
+            compute_certified_package_digest(
+                severance,
+                basis,
+                &insurance,
+                &approval,
+                Some("2026-04-01"),
+                Some("2026-06-30"),
+                Some(91),
+                Some(9_000_000),
+                Some(98_901),
+                Some(2373),
+            )
+        };
+        let d1 = digest(Some(30_000_000), &statutory);
+        let d2 = digest(Some(30_000_000), &statutory);
+        assert_eq!(d1, d2, "identical inputs must hash identically");
+        assert_eq!(d1.len(), 64, "digest is a 64-hex SHA-256");
+        assert!(
+            d1.chars().all(|c| c.is_ascii_hexdigit()),
+            "digest must be lowercase hex"
+        );
+
+        let changed = digest(Some(30_000_001), &statutory);
+        assert_ne!(
+            d1, changed,
+            "a changed severance figure must change the digest"
+        );
+
+        // Embedded-JSON key order must not affect the digest (canonical form).
+        let mut reordered = serde_json::Map::new();
+        reordered.insert("authority".to_owned(), json!("MOEL"));
+        reordered.insert("formula".to_owned(), json!("avg*30*days/365"));
+        let reordered = Value::Object(reordered);
+        assert_eq!(
+            d1,
+            digest(Some(30_000_000), &reordered),
+            "key order in embedded JSON must not change the digest"
+        );
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn settlement_recalculation_reverts_certification(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        // Build the settlement package via the real code path, as mnt_rt.
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("initial upsert failed: {err:?}"))?;
+
+        // Simulate the (deferred) 노무사 recording action: mark CERTIFIED with a
+        // valid artifact + digest as mnt_rt.
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::LaborAttorney,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "a".repeat(64),
+            reviewer_reference: "노무법인 검증 2026-1".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind("b".repeat(64))
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("simulate certification failed: {err}"))?;
+
+        // Recompute settlement fields via the normal code path.
+        upsert_exit_settlement_package(&mut tx, org_id, case_id, Some(sample_settlement_input()))
+            .await
+            .map_err(|err| format!("recompute upsert failed: {err:?}"))?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT certification_status,
+                   certification_artifact IS NULL AS artifact_null,
+                   certified_package_digest IS NULL AS digest_null
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("reload package failed: {err}"))?;
+        let status: String = row
+            .try_get("certification_status")
+            .map_err(|err| format!("read status failed: {err}"))?;
+        let artifact_null: bool = row
+            .try_get("artifact_null")
+            .map_err(|err| format!("read artifact_null failed: {err}"))?;
+        let digest_null: bool = row
+            .try_get("digest_null")
+            .map_err(|err| format!("read digest_null failed: {err}"))?;
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+
+        assert_eq!(
+            status, "UNCERTIFIED_DRAFT",
+            "a settlement recompute must revert certification_status"
+        );
+        assert!(artifact_null, "recompute must clear certification_artifact");
+        assert!(digest_null, "recompute must clear certified_package_digest");
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn certification_honored_only_when_digest_binds_current_numbers(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("upsert failed: {err:?}"))?;
+
+        // Compute the digest that binds the CURRENT row and certify with it.
+        let covered = sqlx::query(
+            r#"
+            SELECT severance_pay_won, statutory_basis, insurance_loss_payload, approval_payload,
+                   average_wage_period_start::TEXT AS average_wage_period_start,
+                   average_wage_period_end::TEXT AS average_wage_period_end,
+                   average_wage_calendar_days, average_wage_total_won,
+                   average_daily_wage_milliwon, service_days
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("load covered fields failed: {err}"))?;
+        let severance_pay_won: Option<i64> = covered
+            .try_get("severance_pay_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_basis: Value = covered
+            .try_get("statutory_basis")
+            .map_err(|err| format!("{err}"))?;
+        let insurance_loss_payload: Value = covered
+            .try_get("insurance_loss_payload")
+            .map_err(|err| format!("{err}"))?;
+        let approval_payload: Value = covered
+            .try_get("approval_payload")
+            .map_err(|err| format!("{err}"))?;
+        let period_start: Option<String> = covered
+            .try_get("average_wage_period_start")
+            .map_err(|err| format!("{err}"))?;
+        let period_end: Option<String> = covered
+            .try_get("average_wage_period_end")
+            .map_err(|err| format!("{err}"))?;
+        let calendar_days: Option<i32> = covered
+            .try_get("average_wage_calendar_days")
+            .map_err(|err| format!("{err}"))?;
+        let total_won: Option<i64> = covered
+            .try_get("average_wage_total_won")
+            .map_err(|err| format!("{err}"))?;
+        let daily_milliwon: Option<i64> = covered
+            .try_get("average_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
+        let service_days: Option<i32> = covered
+            .try_get("service_days")
+            .map_err(|err| format!("{err}"))?;
+        let matching_digest = compute_certified_package_digest(
+            severance_pay_won,
+            &statutory_basis,
+            &insurance_loss_payload,
+            &approval_payload,
+            period_start.as_deref(),
+            period_end.as_deref(),
+            calendar_days,
+            total_won,
+            daily_milliwon,
+            service_days,
+        );
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::TaxAccountant,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "c".repeat(64),
+            reviewer_reference: "세무법인 검증 2026-2".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind(&matching_digest)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("certify with matching digest failed: {err}"))?;
+
+        // Matching digest → the read path honors CERTIFIED.
+        let honored = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (matching) failed: {err:?}"))?;
+        assert_eq!(
+            honored
+                .settlement_package
+                .as_ref()
+                .map(|p| p.certification_status.as_str()),
+            Some("CERTIFIED"),
+            "a digest that binds the current numbers must be honored"
+        );
+
+        // Interleave a recompute the DB CHECK cannot catch: change a covered field
+        // WITHOUT resetting certification, leaving a stale-certified row.
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET severance_pay_won = severance_pay_won + 1
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("mutate covered field failed: {err}"))?;
+
+        let stale = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (stale) failed: {err:?}"))?;
+        assert_eq!(
+            stale
+                .settlement_package
+                .as_ref()
+                .map(|p| p.certification_status.as_str()),
+            Some("UNCERTIFIED_DRAFT"),
+            "a stale digest must NOT be honored as certified even if the row says CERTIFIED"
+        );
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
     }
 }
