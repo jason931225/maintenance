@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.36](https://github.com/jason931225/maintenance/compare/v0.1.35...v0.1.36) (2026-07-03)
+
+
+### Bug Fixes
+
+* **web:** attendance 비고 column + financial-test stabilization ([#154](https://github.com/jason931225/maintenance/issues/154)) ([aa62bff](https://github.com/jason931225/maintenance/commit/aa62bffc38a42ee9f53a1c58fd1fd5f4e7e192da))
+
 ## [0.1.35](https://github.com/jason931225/maintenance/compare/v0.1.34...v0.1.35) (2026-07-03)
 
 
