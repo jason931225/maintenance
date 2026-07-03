@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.38](https://github.com/jason931225/maintenance/compare/v0.1.37...v0.1.38) (2026-07-03)
+
+
+### Features
+
+* **auth:** compile-time dev-auth role-switcher, delete dev-preview fixtures ([#156](https://github.com/jason931225/maintenance/issues/156)) ([87368bb](https://github.com/jason931225/maintenance/commit/87368bb70a006d231175681c4a518f6c0e9d9cf0))
+
 ## [0.1.37](https://github.com/jason931225/maintenance/compare/v0.1.36...v0.1.37) (2026-07-03)
 
 
