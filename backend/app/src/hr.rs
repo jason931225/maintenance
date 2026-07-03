@@ -1587,7 +1587,12 @@ async fn draft_employee_exit_approval(
         Some(json!({
             "exit_case_id": case_id,
             "submit": body.submit,
-            "has_settlement_input": body.settlement_input.is_some()
+            "has_settlement_input": body.settlement_input.is_some(),
+            // Certification state is captured in the audit trail: writing the
+            // approval_payload (a certification-covered field) atomically resets
+            // the package to UNCERTIFIED_DRAFT below, so the settlement figure
+            // being drafted/submitted is, by construction, an uncertified draft.
+            "certification_status": "UNCERTIFIED_DRAFT"
         })),
     );
 
@@ -5384,6 +5389,17 @@ async fn materialize_absence_alerts_from_imports(
             signal_payload = EXCLUDED.signal_payload,
             updated_at = now()
         WHERE employee_absence_alerts.status = 'OPEN'
+          -- Write-storm bound (S6.3): this materializer runs on the dashboard GET
+          -- path, so an unconditional DO UPDATE would rewrite every OPEN alert on
+          -- every read (dead tuples + WAL per request). The IS DISTINCT FROM guard
+          -- makes a repeated read over unchanged imports touch ZERO rows, so the
+          -- per-request write set is bounded to alerts whose import facts actually
+          -- changed, while still refreshing an alert when a re-import corrects it.
+          AND (
+            employee_absence_alerts.branch_id IS DISTINCT FROM EXCLUDED.branch_id
+            OR employee_absence_alerts.severity IS DISTINCT FROM EXCLUDED.severity
+            OR employee_absence_alerts.signal_payload IS DISTINCT FROM EXCLUDED.signal_payload
+          )
         "#,
     );
     builder.build().execute(tx.as_mut()).await?;
@@ -5978,9 +5994,11 @@ fn compute_certified_package_digest(
         "average_daily_wage_milliwon": average_daily_wage_milliwon,
         "service_days": service_days,
     });
-    let bytes = serde_json::to_vec(&canonical)
-        .expect("canonical settlement digest json is always serializable");
-    sha256_hex(&bytes)
+    // `Value::to_string()` is serde_json's infallible `Display` serializer and
+    // yields the same compact bytes as `serde_json::to_vec`, so the digest is
+    // byte-identical while the money path carries no panic branch (this also
+    // removes the `clippy::expect_used` deny without needing an allow).
+    sha256_hex(canonical.to_string().as_bytes())
 }
 
 /// Stamps the EFFECTIVE `certification_status` onto a generated payload
@@ -8684,7 +8702,7 @@ E-001,홍길동,본사,2026-07-01,abc
         let package = uncertified
             .settlement_package
             .as_ref()
-            .expect("settlement package must exist after upsert");
+            .ok_or("settlement package must exist after upsert")?;
         assert_eq!(package.certification_status, "UNCERTIFIED_DRAFT");
         assert_eq!(
             package.insurance_loss_payload.get("certification_status"),
@@ -8786,7 +8804,7 @@ E-001,홍길동,본사,2026-07-01,abc
         let package = certified
             .settlement_package
             .as_ref()
-            .expect("settlement package must exist after certification");
+            .ok_or("settlement package must exist after certification")?;
         assert_eq!(package.certification_status, "CERTIFIED");
         assert_eq!(
             package.insurance_loss_payload.get("certification_status"),
@@ -9037,6 +9055,576 @@ E-001,홍길동,본사,2026-07-01,abc
         tx.rollback()
             .await
             .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------
+    // US-006: tenant isolation, audit coverage, and materializer discipline.
+    // ---------------------------------------------------------------------
+
+    /// Begin a transaction already dropped to the `mnt_rt` runtime role with the
+    /// org GUC armed — the ONLY correct way to exercise RLS here, since the test
+    /// pool logs in as the superuser/BYPASSRLS migration role and `mnt_rt` is
+    /// NOLOGIN (cannot be a login pool).
+    async fn armed_tx(
+        pool: &sqlx::PgPool,
+        org_id: Uuid,
+    ) -> Result<sqlx::Transaction<'_, Postgres>, String> {
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+        Ok(tx)
+    }
+
+    /// Seed one fully-formed org (region + branch + ACTIVE employee + a user) as
+    /// the superuser pool role. Returns `(org_id, branch_id, employee_id,
+    /// user_id)`. Seeding deliberately bypasses RLS; the isolation checks run in
+    /// a separate `mnt_rt` transaction.
+    async fn seed_g009_base(pool: &sqlx::PgPool) -> Result<(Uuid, Uuid, Uuid, Uuid), String> {
+        let org_id = Uuid::new_v4();
+        let region_id = Uuid::new_v4();
+        let branch_id = Uuid::new_v4();
+        let employee_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(org_id)
+            .bind(format!("g009-{}", &org_id.to_string()[..8]))
+            .bind("G009 Isolation Test")
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed organization failed: {err}"))?;
+        sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
+            .bind(region_id)
+            .bind("이탈지역")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed region failed: {err}"))?;
+        sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
+            .bind(branch_id)
+            .bind(region_id)
+            .bind("본사")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed branch failed: {err}"))?;
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY['ADMIN']::TEXT[], true, $3)",
+        )
+        .bind(user_id)
+        .bind("G009 Reporter")
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed user failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employees (
+                id, org_id, company, name, employee_number, hire_date,
+                source_filename, source_sheet, source_row, source_key, raw_row, source_metadata
+            )
+            VALUES ($1, $2, '테스트', '홍길동', 'E-001', '2020-01-01',
+                    'employees.xlsx', '직원', 2, 'employee-row-2', '{}', '{}')
+            "#,
+        )
+        .bind(employee_id)
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed employee failed: {err}"))?;
+        Ok((org_id, branch_id, employee_id, user_id))
+    }
+
+    /// Seed one row into each of the three G009 tenant tables for `org_id`.
+    /// Returns `(alert_id, case_id, package_id)`.
+    async fn seed_g009_rows(
+        pool: &sqlx::PgPool,
+        org_id: Uuid,
+        branch_id: Uuid,
+        employee_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(Uuid, Uuid, Uuid), String> {
+        let alert_id = Uuid::new_v4();
+        let case_id = Uuid::new_v4();
+        let package_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO employee_absence_alerts (id, org_id, employee_id, branch_id, work_date)
+            VALUES ($1, $2, $3, $4, '2026-07-01')
+            "#,
+        )
+        .bind(alert_id)
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed absence alert failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employee_exit_cases (
+                id, org_id, employee_id, branch_id, status,
+                effective_exit_date, site_manager_note, reported_by
+            )
+            VALUES ($1, $2, $3, $4, 'REPORTED', '2026-06-30', '무단결근 확인', $5)
+            "#,
+        )
+        .bind(case_id)
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed exit case failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employee_exit_settlement_packages (id, org_id, exit_case_id, employee_id)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(package_id)
+        .bind(org_id)
+        .bind(case_id)
+        .bind(employee_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed settlement package failed: {err}"))?;
+        Ok((alert_id, case_id, package_id))
+    }
+
+    /// Every G009 tenant table is invisible AND un-writable across orgs when
+    /// queried as the real `mnt_rt` runtime role armed to a different tenant.
+    /// Seeding runs as the superuser pool role; the assertions run strictly as
+    /// `mnt_rt` (via `arm_mnt_rt`), so a broken `org_isolation` policy cannot be
+    /// masked by BYPASSRLS.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn g009_tables_isolate_tenants_as_mnt_rt(pool: sqlx::PgPool) -> Result<(), String> {
+        let (org_a, branch_a, emp_a, user_a) = seed_g009_base(&pool).await?;
+        seed_g009_rows(&pool, org_a, branch_a, emp_a, user_a).await?;
+        let (org_b, branch_b, emp_b, user_b) = seed_g009_base(&pool).await?;
+        let (alert_b, case_b, pkg_b) =
+            seed_g009_rows(&pool, org_b, branch_b, emp_b, user_b).await?;
+
+        // Reads + filtered updates, as mnt_rt armed to org A.
+        let mut tx = armed_tx(&pool, org_a).await?;
+        for (table, b_id) in [
+            ("employee_absence_alerts", alert_b),
+            ("employee_exit_cases", case_b),
+            ("employee_exit_settlement_packages", pkg_b),
+        ] {
+            // sqlx 0.9 only accepts `&'static str` in `query`; dynamic table
+            // names go through QueryBuilder (the file's own idiom).
+            let visible: i64 =
+                QueryBuilder::<Postgres>::new(format!("SELECT COUNT(*) FROM {table}"))
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await
+                    .map_err(|err| format!("{table}: count as mnt_rt failed: {err}"))?;
+            assert_eq!(
+                visible, 1,
+                "{table}: org A must see only its own row under RLS"
+            );
+
+            let mut b_lookup =
+                QueryBuilder::<Postgres>::new(format!("SELECT COUNT(*) FROM {table} WHERE id = "));
+            b_lookup.push_bind(b_id);
+            let b_visible: i64 = b_lookup
+                .build_query_scalar()
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(|err| format!("{table}: org B lookup failed: {err}"))?;
+            assert_eq!(
+                b_visible, 0,
+                "{table}: an org B row must be invisible to org A"
+            );
+
+            let mut cross_org_update = QueryBuilder::<Postgres>::new(format!(
+                "UPDATE {table} SET updated_at = now() WHERE id = "
+            ));
+            cross_org_update.push_bind(b_id);
+            let updated = cross_org_update
+                .build()
+                .execute(tx.as_mut())
+                .await
+                .map_err(|err| format!("{table}: cross-org update failed: {err}"))?;
+            assert_eq!(
+                updated.rows_affected(),
+                0,
+                "{table}: org A must not update an org B row (RLS USING filters it out)"
+            );
+        }
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+
+        // Cross-org INSERTs must be rejected by the RLS WITH CHECK. A failed
+        // statement aborts its transaction, so each runs in its own armed tx.
+        {
+            let mut tx = armed_tx(&pool, org_a).await?;
+            let res = sqlx::query(
+                "INSERT INTO employee_absence_alerts (org_id, employee_id, branch_id, work_date) VALUES ($1, $2, $3, '2026-07-09')",
+            )
+            .bind(org_b)
+            .bind(emp_b)
+            .bind(branch_b)
+            .execute(tx.as_mut())
+            .await;
+            assert!(
+                res.is_err(),
+                "org A (mnt_rt) must not INSERT an org B absence alert"
+            );
+            let _ = tx.rollback().await;
+        }
+        {
+            let mut tx = armed_tx(&pool, org_a).await?;
+            let res = sqlx::query(
+                "INSERT INTO employee_exit_cases (org_id, employee_id, branch_id, status, effective_exit_date, site_manager_note, reported_by) VALUES ($1, $2, $3, 'REPORTED', '2026-06-30', 'x', $4)",
+            )
+            .bind(org_b)
+            .bind(emp_b)
+            .bind(branch_b)
+            .bind(user_b)
+            .execute(tx.as_mut())
+            .await;
+            assert!(
+                res.is_err(),
+                "org A (mnt_rt) must not INSERT an org B exit case"
+            );
+            let _ = tx.rollback().await;
+        }
+        {
+            let mut tx = armed_tx(&pool, org_a).await?;
+            let res = sqlx::query(
+                "INSERT INTO employee_exit_settlement_packages (org_id, exit_case_id, employee_id) VALUES ($1, $2, $3)",
+            )
+            .bind(org_b)
+            .bind(case_b)
+            .bind(emp_b)
+            .execute(tx.as_mut())
+            .await;
+            assert!(
+                res.is_err(),
+                "org A (mnt_rt) must not INSERT an org B settlement package"
+            );
+            let _ = tx.rollback().await;
+        }
+        Ok(())
+    }
+
+    /// Every G009 state-mutation handler routes its write through `with_audit`,
+    /// so an `audit_events` row lands for the exit report, HR confirmation, HQ
+    /// confirmation, and approval draft + submission. The settlement upsert is a
+    /// side effect INSIDE the confirm/approval-draft audited transaction (there
+    /// is no standalone settlement endpoint), so those events cover it, and the
+    /// certification-bearing approval-draft event captures the resulting
+    /// certification state. This drives the real handlers through the test pool
+    /// role (audit emission is role-independent); the RLS proof is the dedicated
+    /// `mnt_rt` test above.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn exit_workflow_handlers_emit_audit_events(pool: sqlx::PgPool) -> Result<(), String> {
+        use mnt_platform_authz::Role;
+
+        let (org_id, branch_id, employee_id, hr_user) = seed_g009_base(&pool).await?;
+        let hq_user = seed_exit_confirmer(&pool, org_id, "EXECUTIVE").await?;
+        let org = OrgId::from_uuid(org_id);
+        let state = HrState::new(pool.clone(), None);
+
+        let hr_principal = Principal::new(
+            UserId::from_uuid(hr_user),
+            org,
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(BranchId::from_uuid(branch_id)),
+        );
+        let hq_principal = Principal::new(
+            UserId::from_uuid(hq_user),
+            org,
+            BTreeSet::from([Role::Executive]),
+            BranchScope::All,
+        );
+
+        // (1) site-manager exit report.
+        let reported = report_employee_exit_case(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Json(ReportEmployeeExitCaseRequest {
+                employee_id,
+                branch_id: Some(branch_id),
+                absence_alert_id: None,
+                effective_exit_date: "2026-06-30".to_owned(),
+                site_manager_note: "무단결근 3일 — 이탈 보고".to_owned(),
+            }),
+        )
+        .await
+        .map_err(|err| format!("report failed: {err:?}"))?;
+        let case_id = reported.0.id;
+
+        // (2) HR confirmation (no wage source yet, so the case stays HR_CONFIRMED
+        // for the HQ tier rather than being bumped to SETTLEMENT_READY).
+        let _ = confirm_employee_exit_case(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Path(case_id),
+            Json(ConfirmEmployeeExitCaseRequest {
+                decision: None,
+                hq_confirmation: false,
+                note: None,
+                settlement_input: None,
+            }),
+        )
+        .await
+        .map_err(|err| format!("HR confirm failed: {err:?}"))?;
+
+        // (3) HQ confirmation by a DISTINCT actor.
+        let _ = confirm_employee_exit_case(
+            State(state.clone()),
+            Extension(hq_principal.clone()),
+            Path(case_id),
+            Json(ConfirmEmployeeExitCaseRequest {
+                decision: None,
+                hq_confirmation: true,
+                note: None,
+                settlement_input: None,
+            }),
+        )
+        .await
+        .map_err(|err| format!("HQ confirm failed: {err:?}"))?;
+
+        // (4) approval draft — the wage source arrives here and the severance is
+        // computed, then (5) submission of the same ready package.
+        let _ = draft_employee_exit_approval(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Path(case_id),
+            Json(DraftEmployeeExitApprovalRequest {
+                submit: false,
+                note: None,
+                settlement_input: Some(sample_settlement_input()),
+            }),
+        )
+        .await
+        .map_err(|err| format!("approval draft failed: {err:?}"))?;
+        let _ = draft_employee_exit_approval(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Path(case_id),
+            Json(DraftEmployeeExitApprovalRequest {
+                submit: true,
+                note: None,
+                settlement_input: None,
+            }),
+        )
+        .await
+        .map_err(|err| format!("approval submission failed: {err:?}"))?;
+
+        let report_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.report'",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count report audit failed: {err}"))?;
+        assert_eq!(report_events, 1, "exit report must write one audit event");
+
+        let hr_confirm_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.confirm' AND actor = $2",
+        )
+        .bind(org_id)
+        .bind(hr_user)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count HR confirm audit failed: {err}"))?;
+        assert_eq!(
+            hr_confirm_events, 1,
+            "HR confirmation must write one audit event for the HR actor"
+        );
+
+        let hq_confirm_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.confirm' AND actor = $2",
+        )
+        .bind(org_id)
+        .bind(hq_user)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count HQ confirm audit failed: {err}"))?;
+        assert_eq!(
+            hq_confirm_events, 1,
+            "HQ confirmation must write one audit event for the distinct HQ actor"
+        );
+
+        let draft_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.approval_draft'",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count approval draft audit failed: {err}"))?;
+        assert_eq!(
+            draft_events, 2,
+            "approval draft + submission must each write an audit event"
+        );
+
+        // Certification-bearing path: the approval-draft audit captures the
+        // certification state of the figure being drafted/submitted.
+        let cert_state: Option<String> = sqlx::query_scalar(
+            "SELECT after_snap->>'certification_status' FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.approval_draft' LIMIT 1",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("read approval-draft snapshot failed: {err}"))?;
+        assert_eq!(
+            cert_state.as_deref(),
+            Some("UNCERTIFIED_DRAFT"),
+            "the approval-draft audit must record the certification state of the drafted figure"
+        );
+
+        // The settlement upsert (side effect of the audited confirm/draft
+        // transactions) persisted an uncertified package for this case.
+        let pkg_cert: String = sqlx::query_scalar(
+            "SELECT certification_status FROM employee_exit_settlement_packages WHERE org_id = $1 AND exit_case_id = $2",
+        )
+        .bind(org_id)
+        .bind(case_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("read settlement certification failed: {err}"))?;
+        assert_eq!(pkg_cert, "UNCERTIFIED_DRAFT");
+        Ok(())
+    }
+
+    /// The dashboard-path absence-alert materializer is idempotent AND
+    /// write-bounded. Run twice over the SAME imported attendance facts (as
+    /// `mnt_rt`): the second pass creates no duplicate alert (UNIQUE(org_id,
+    /// employee_id, work_date, source)) AND rewrites no existing row (the
+    /// IS DISTINCT FROM guard on the ON CONFLICT UPDATE), proving a repeated
+    /// dashboard GET cannot write-storm.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn absence_alert_materializer_is_idempotent_and_write_bounded(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, branch_id, employee_id, _user_id) = seed_g009_base(&pool).await?;
+        let run_id = Uuid::new_v4();
+        let source_sha256 = "a".repeat(64);
+        sqlx::query(
+            r#"
+            INSERT INTO data_import_runs (
+                id, org_id, entity_type, status, source_filename, source_format,
+                source_sha256, mapping_profile, input_rows, candidate_rows, preserved_rows
+            )
+            VALUES ($1, $2, 'attendance_direct', 'DRY_RUN', 'attendance.csv', 'csv', $3, '{}', 2, 2, 0)
+            "#,
+        )
+        .bind(run_id)
+        .bind(org_id)
+        .bind(&source_sha256)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed import run failed: {err}"))?;
+        for (idx, work_date) in ["2026-07-01", "2026-07-02"].into_iter().enumerate() {
+            let import_row_id = Uuid::new_v4();
+            let source_key = format!("sheet:CSV|row:{}", idx + 2);
+            sqlx::query(
+                r#"
+                INSERT INTO data_import_rows (
+                    id, org_id, run_id, source_sheet, source_row, source_key,
+                    row_status, raw_row, canonical_row, validation
+                )
+                VALUES ($1, $2, $3, 'CSV', $4, $5, 'CANDIDATE', '{}', '{}',
+                        '{"status":"ok","errors":[],"warnings":[]}')
+                "#,
+            )
+            .bind(import_row_id)
+            .bind(org_id)
+            .bind(run_id)
+            .bind(idx as i32 + 2)
+            .bind(&source_key)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed import row failed: {err}"))?;
+            sqlx::query(
+                r#"
+                INSERT INTO attendance_direct_import_events (
+                    org_id, run_id, import_row_id, employee_id, branch_id,
+                    source_sheet, source_row, source_key, source_sha256, fact_key,
+                    employee_name, branch_name, work_date,
+                    check_in_at, check_out_at, minutes_worked
+                )
+                VALUES ($1, $2, $3, $4, $5, 'CSV', $6, $7, $8, $9,
+                        '홍길동', '본사', $10, NULL, NULL, 0)
+                "#,
+            )
+            .bind(org_id)
+            .bind(run_id)
+            .bind(import_row_id)
+            .bind(employee_id)
+            .bind(branch_id)
+            .bind(idx as i32 + 2)
+            .bind(&source_key)
+            .bind(&source_sha256)
+            .bind(format!("fact-{idx}-{work_date}"))
+            .bind(work_date)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed attendance event failed: {err}"))?;
+        }
+
+        let fingerprint = |pool: sqlx::PgPool, org: Uuid| async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT COALESCE(string_agg(xmin::text, ',' ORDER BY id), '') FROM employee_absence_alerts WHERE org_id = $1",
+            )
+            .bind(org)
+            .fetch_one(&pool)
+            .await
+            .map_err(|err| format!("fingerprint failed: {err}"))
+        };
+
+        // First materialization pass, as mnt_rt.
+        {
+            let mut tx = armed_tx(&pool, org_id).await?;
+            materialize_absence_alerts_from_imports(&mut tx, org_id, &BranchScope::All)
+                .await
+                .map_err(|err| format!("first materialize failed: {err:?}"))?;
+            tx.commit()
+                .await
+                .map_err(|err| format!("commit first pass failed: {err}"))?;
+        }
+        let count_first: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM employee_absence_alerts WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("count after first pass failed: {err}"))?;
+        assert_eq!(count_first, 2, "one alert per absent work-date");
+        let fingerprint_first = fingerprint(pool.clone(), org_id).await?;
+
+        // Second pass over the identical facts, as mnt_rt.
+        {
+            let mut tx = armed_tx(&pool, org_id).await?;
+            materialize_absence_alerts_from_imports(&mut tx, org_id, &BranchScope::All)
+                .await
+                .map_err(|err| format!("second materialize failed: {err:?}"))?;
+            tx.commit()
+                .await
+                .map_err(|err| format!("commit second pass failed: {err}"))?;
+        }
+        let count_second: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM employee_absence_alerts WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("count after second pass failed: {err}"))?;
+        assert_eq!(
+            count_second, 2,
+            "re-materializing the same facts must not create duplicate alerts"
+        );
+        let fingerprint_second = fingerprint(pool.clone(), org_id).await?;
+        assert_eq!(
+            fingerprint_first, fingerprint_second,
+            "second materialization must rewrite no row (bounded write set — no write-storm)"
+        );
         Ok(())
     }
 }
