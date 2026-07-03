@@ -1,7 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
 use mnt_kernel_core::{AuditAction, AuditEvent, ErrorKind, KernelError, TraceContext, UserId};
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
@@ -15,6 +15,8 @@ use uuid::Uuid;
 
 pub const WORKFLOW_STUDIO_CATALOG_PATH: &str = "/api/v1/workflow-studio/catalog";
 pub const WORKFLOW_STUDIO_DEFINITIONS_PATH: &str = "/api/v1/workflow-studio/definitions";
+pub const WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}";
 pub const WORKFLOW_STUDIO_DEFINITION_HISTORY_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/history";
 pub const WORKFLOW_STUDIO_DEFINITION_SIMULATE_PATH_TEMPLATE: &str =
@@ -29,6 +31,9 @@ pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/clone";
 
 const WORKFLOW_STUDIO_REQUESTS_TOTAL: &str = "workflow_studio_requests_total";
+const WORKFLOW_DEFINITION_SCHEMA_VERSION: &str = "workflow.definition.v1";
+const POLICY_TEMPLATE_EQUIPMENT_LOCATION_ACCESS: &str = "equipment_location_access";
+const POLICY_ACTION_START_WORK_ORDER: &str = "maintenance:StartWorkOrder";
 
 const ALLOWED_CONNECTORS: &[ConnectorDescriptor] = &[
     ConnectorDescriptor {
@@ -54,6 +59,13 @@ const ALLOWED_CONNECTORS: &[ConnectorDescriptor] = &[
 ];
 
 const WORKFLOW_TEMPLATES: &[WorkflowTemplate] = &[
+    WorkflowTemplate {
+        template_key: "equipment_location_access_policy",
+        display_name: "장비·위치 접근 정책",
+        object_type: "equipment",
+        required_approval_line: true,
+        required_payment_line: false,
+    },
     WorkflowTemplate {
         template_key: "maintenance_completion_approval",
         display_name: "정비 완료 승인",
@@ -109,6 +121,10 @@ pub fn router(state: WorkflowStudioState) -> Router {
         .route(
             WORKFLOW_STUDIO_DEFINITIONS_PATH,
             get(list_definitions).post(create_definition),
+        )
+        .route(
+            WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE,
+            patch(update_definition).delete(archive_definition),
         )
         .route(
             WORKFLOW_STUDIO_DEFINITION_HISTORY_PATH_TEMPLATE,
@@ -240,6 +256,26 @@ struct CreateWorkflowDefinitionRequest {
     required_approval_line: bool,
     #[serde(default)]
     required_payment_line: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateWorkflowDefinitionRequest {
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    definition: Option<Value>,
+    #[serde(default)]
+    approval_line: Option<Vec<Value>>,
+    #[serde(default)]
+    payment_line: Option<Vec<Value>>,
+    #[serde(default)]
+    notification_rules: Option<Vec<Value>>,
+    #[serde(default)]
+    action_allowlist: Option<Vec<Value>>,
+    #[serde(default)]
+    required_approval_line: Option<bool>,
+    #[serde(default)]
+    required_payment_line: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -381,6 +417,7 @@ async fn list_definitions(
                     ON v.definition_id = d.id
                    AND v.org_id = d.org_id
                    AND v.version = d.latest_version
+                WHERE d.status <> 'RETIRED'
                 ORDER BY d.updated_at DESC, d.display_name ASC
                 "#,
             )
@@ -508,6 +545,156 @@ async fn create_definition(
     })
     .await?;
     record_workflow_studio_request("create_draft", "success");
+    Ok(Json(response))
+}
+
+async fn update_definition(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateWorkflowDefinitionRequest>,
+) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let update = normalize_update_request(body)?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let trace = TraceContext::generate();
+    let now = OffsetDateTime::now_utc();
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_definition.update_draft")?,
+        "workflow_definition",
+        id.to_string(),
+        trace,
+        now,
+    )
+    .with_org(org);
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = load_latest_version(tx, id, true).await?;
+            let before = snapshot_from_row(&current);
+            let next = apply_draft_update(&current, update)?;
+            let new_version = current.latest_version + 1;
+            let updated = insert_version_and_update_definition(
+                tx,
+                WorkflowVersionMutation {
+                    org,
+                    actor,
+                    source: &next,
+                    new_version,
+                    version_status: "DRAFT",
+                    definition_status: "DRAFT",
+                    active_version: current.active_version,
+                },
+            )
+            .await?;
+
+            insert_workflow_event(
+                tx,
+                WorkflowAuditEvent {
+                    org,
+                    definition_id: id,
+                    version: Some(new_version),
+                    action: "workflow_definition.update_draft",
+                    actor: Some(actor),
+                    summary: "초안 편집",
+                    before_snap: Some(before),
+                    after_snap: Some(snapshot_from_response(&updated)),
+                },
+            )
+            .await?;
+
+            Ok(updated)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("update_draft", "success");
+    Ok(Json(response))
+}
+
+async fn archive_definition(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<WorkflowStepUpRequest>,
+) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    verify_workflow_step_up(&state, &principal, body.step_up).await?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let trace = TraceContext::generate();
+    let now = OffsetDateTime::now_utc();
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_definition.archive_draft")?,
+        "workflow_definition",
+        id.to_string(),
+        trace,
+        now,
+    )
+    .with_org(org);
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = load_latest_version(tx, id, true).await?;
+            ensure_draft_definition(&current, "archived")?;
+            let before = snapshot_from_row(&current);
+            let row = sqlx::query(
+                r#"
+                UPDATE workflow_definitions
+                   SET status = 'RETIRED',
+                       updated_by = $2,
+                       updated_at = now()
+                 WHERE id = $1
+                RETURNING id, workflow_key, display_name, object_type, status,
+                    latest_version, active_version, created_at, updated_at
+                "#,
+            )
+            .bind(id)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            let updated = WorkflowDefinitionResponse {
+                id: row.try_get("id")?,
+                workflow_key: row.try_get("workflow_key")?,
+                display_name: row.try_get("display_name")?,
+                object_type: row.try_get("object_type")?,
+                status: row.try_get("status")?,
+                latest_version: row.try_get("latest_version")?,
+                active_version: row.try_get("active_version")?,
+                definition: current.definition.clone(),
+                approval_line: current.approval_line.clone(),
+                payment_line: current.payment_line.clone(),
+                notification_rules: current.notification_rules.clone(),
+                action_allowlist: current.action_allowlist.clone(),
+                required_approval_line: current.required_approval_line,
+                required_payment_line: current.required_payment_line,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+            };
+
+            insert_workflow_event(
+                tx,
+                WorkflowAuditEvent {
+                    org,
+                    definition_id: id,
+                    version: Some(current.latest_version),
+                    action: "workflow_definition.archive_draft",
+                    actor: Some(actor),
+                    summary: "초안 삭제",
+                    before_snap: Some(before),
+                    after_snap: Some(snapshot_from_response(&updated)),
+                },
+            )
+            .await?;
+
+            Ok(updated)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("archive_draft", "success");
     Ok(Json(response))
 }
 
@@ -722,6 +909,7 @@ async fn clone_definition(
     let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
         Box::pin(async move {
             let source = load_latest_version(tx, id, true).await?;
+            ensure_not_retired(&source)?;
             let workflow_key = match body.workflow_key {
                 Some(value) => normalize_workflow_key(&value)?,
                 None => format!(
@@ -857,6 +1045,7 @@ where
     let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
         Box::pin(async move {
             let current = load_latest_version(tx, definition_id, true).await?;
+            ensure_not_retired(&current)?;
             let before = snapshot_from_row(&current);
             let (definition_status, version_status, new_version, active_version_override) =
                 transition(&current)?;
@@ -927,6 +1116,7 @@ async fn mutate_definition_with_source_version(
     let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
         Box::pin(async move {
             let current = load_latest_version(tx, definition_id, true).await?;
+            ensure_not_retired(&current)?;
             let source = load_specific_version(tx, definition_id, target_version).await?;
             let before = snapshot_from_row(&current);
             let new_version = current.latest_version + 1;
@@ -1019,10 +1209,11 @@ async fn insert_version_and_update_definition(
     let row = sqlx::query(
         r#"
         UPDATE workflow_definitions
-           SET status = $2,
-               latest_version = $3,
-               active_version = $4,
-               updated_by = $5,
+           SET display_name = $2,
+               status = $3,
+               latest_version = $4,
+               active_version = $5,
+               updated_by = $6,
                updated_at = now()
          WHERE id = $1
         RETURNING id, workflow_key, display_name, object_type, status,
@@ -1030,6 +1221,7 @@ async fn insert_version_and_update_definition(
         "#,
     )
     .bind(mutation.source.definition_id)
+    .bind(&mutation.source.display_name)
     .bind(mutation.definition_status)
     .bind(mutation.new_version)
     .bind(mutation.active_version)
@@ -1290,6 +1482,117 @@ fn normalize_create_request(
     })
 }
 
+struct NormalizedWorkflowDefinitionUpdate {
+    display_name: Option<String>,
+    definition: Option<Value>,
+    approval_line: Option<Vec<Value>>,
+    payment_line: Option<Vec<Value>>,
+    notification_rules: Option<Vec<Value>>,
+    action_allowlist: Option<Vec<Value>>,
+    required_approval_line: Option<bool>,
+    required_payment_line: Option<bool>,
+}
+
+fn normalize_update_request(
+    body: UpdateWorkflowDefinitionRequest,
+) -> Result<NormalizedWorkflowDefinitionUpdate, WorkflowStudioError> {
+    if body.display_name.is_none()
+        && body.definition.is_none()
+        && body.approval_line.is_none()
+        && body.payment_line.is_none()
+        && body.notification_rules.is_none()
+        && body.action_allowlist.is_none()
+        && body.required_approval_line.is_none()
+        && body.required_payment_line.is_none()
+    {
+        return Err(WorkflowStudioError::validation(
+            "workflow draft update requires at least one field",
+        ));
+    }
+    let display_name = body
+        .display_name
+        .map(|value| normalize_display_name(&value))
+        .transpose()?;
+    let definition = body
+        .definition
+        .map(validate_definition_object)
+        .transpose()?;
+    if let Some(action_allowlist) = &body.action_allowlist {
+        validate_action_allowlist(action_allowlist)?;
+    }
+    if let Some(notification_rules) = &body.notification_rules {
+        validate_notification_rules(notification_rules)?;
+    }
+    Ok(NormalizedWorkflowDefinitionUpdate {
+        display_name,
+        definition,
+        approval_line: body.approval_line,
+        payment_line: body.payment_line,
+        notification_rules: body.notification_rules,
+        action_allowlist: body.action_allowlist,
+        required_approval_line: body.required_approval_line,
+        required_payment_line: body.required_payment_line,
+    })
+}
+
+fn apply_draft_update(
+    current: &WorkflowVersionRow,
+    update: NormalizedWorkflowDefinitionUpdate,
+) -> Result<WorkflowVersionRow, WorkflowStudioError> {
+    ensure_draft_definition(current, "edited")?;
+    let mut next = current.clone();
+    if let Some(display_name) = update.display_name {
+        next.display_name = display_name;
+    }
+    if let Some(definition) = update.definition {
+        next.definition = definition;
+    }
+    if let Some(approval_line) = update.approval_line {
+        next.approval_line = approval_line;
+    }
+    if let Some(payment_line) = update.payment_line {
+        next.payment_line = payment_line;
+    }
+    if let Some(notification_rules) = update.notification_rules {
+        next.notification_rules = notification_rules;
+    }
+    if let Some(action_allowlist) = update.action_allowlist {
+        next.action_allowlist = action_allowlist;
+    }
+    if let Some(required_approval_line) = update.required_approval_line {
+        next.required_approval_line = required_approval_line;
+    }
+    if let Some(required_payment_line) = update.required_payment_line {
+        next.required_payment_line = required_payment_line;
+    }
+    Ok(next)
+}
+
+fn ensure_draft_definition(
+    row: &WorkflowVersionRow,
+    operation: &'static str,
+) -> Result<(), WorkflowStudioError> {
+    if row.status == "DRAFT" {
+        Ok(())
+    } else {
+        Err(KernelError::invalid_transition(format!(
+            "only DRAFT workflow definitions can be {operation}"
+        ))
+        .into())
+    }
+}
+
+fn ensure_not_retired(row: &WorkflowVersionRow) -> Result<(), WorkflowStudioError> {
+    if row.status == "RETIRED" {
+        Err(
+            KernelError::invalid_transition("archived workflow definitions cannot be changed")
+                .into(),
+        )
+    } else {
+        Ok(())
+    }
+}
+
 fn normalize_workflow_key(raw: &str) -> Result<String, WorkflowStudioError> {
     let value = raw.trim().to_ascii_lowercase();
     let valid = value.split('.').count() >= 2
@@ -1339,13 +1642,126 @@ fn normalize_display_name(raw: &str) -> Result<String, WorkflowStudioError> {
 }
 
 fn validate_definition_object(value: Value) -> Result<Value, WorkflowStudioError> {
-    if value.is_object() {
-        Ok(value)
-    } else {
-        Err(WorkflowStudioError::validation(
+    let Some(object) = value.as_object() else {
+        return Err(WorkflowStudioError::validation(
             "definition must be a JSON object",
-        ))
+        ));
+    };
+    if object.get("schema_version").and_then(Value::as_str)
+        != Some(WORKFLOW_DEFINITION_SCHEMA_VERSION)
+    {
+        return Err(WorkflowStudioError::validation(format!(
+            "definition schema_version must be {WORKFLOW_DEFINITION_SCHEMA_VERSION}"
+        )));
     }
+    if object.contains_key("cedar_policy") || object.contains_key("cedar_policy_text") {
+        return Err(WorkflowStudioError::validation(
+            "Workflow Studio policy decisions must use policy_decision templates, not arbitrary Cedar text",
+        ));
+    }
+    if let Some(policy_decision) = object.get("policy_decision") {
+        validate_policy_decision(policy_decision)?;
+    }
+    Ok(value)
+}
+
+fn validate_policy_decision(value: &Value) -> Result<(), WorkflowStudioError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| WorkflowStudioError::validation("policy_decision must be a JSON object"))?;
+    let template_key = required_string(object, "template_key")?;
+    if template_key != POLICY_TEMPLATE_EQUIPMENT_LOCATION_ACCESS {
+        Err(WorkflowStudioError::validation(
+            "only equipment_location_access policy_decision is supported in this slice",
+        ))
+    } else if required_string(object, "effect")? != "allow" {
+        Err(WorkflowStudioError::validation(
+            "policy_decision effect must be allow",
+        ))
+    } else if required_string(object, "action")? != POLICY_ACTION_START_WORK_ORDER {
+        Err(WorkflowStudioError::validation(format!(
+            "policy_decision action must be {POLICY_ACTION_START_WORK_ORDER}"
+        )))
+    } else {
+        validate_policy_resource(required_object(object, "resource")?)?;
+        validate_policy_context(required_object(object, "context")?)?;
+        validate_policy_scope(required_object(object, "scope")?)?;
+        validate_policy_requirements(required_object(object, "requirements")?)?;
+        Ok(())
+    }
+}
+
+fn validate_policy_resource(
+    resource: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    if required_string(resource, "type")? != "equipment" {
+        return Err(WorkflowStudioError::validation(
+            "policy_decision resource.type must be equipment",
+        ));
+    }
+    required_string(resource, "id")?;
+    Ok(())
+}
+
+fn validate_policy_context(
+    context: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    for key in ["org_id", "location_id", "subject_role"] {
+        required_string(context, key)?;
+    }
+    if context
+        .get("passkey_step_up_satisfied")
+        .and_then(Value::as_bool)
+        != Some(true)
+    {
+        return Err(WorkflowStudioError::validation(
+            "policy_decision context.passkey_step_up_satisfied must be true",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_policy_scope(
+    scope: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    for key in ["org_id", "location_id"] {
+        required_string(scope, key)?;
+    }
+    Ok(())
+}
+
+fn validate_policy_requirements(
+    requirements: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    if requirements.get("passkey_step_up").and_then(Value::as_bool) != Some(true) {
+        return Err(WorkflowStudioError::validation(
+            "policy_decision requirements.passkey_step_up must be true",
+        ));
+    }
+    required_string(requirements, "audit_event")?;
+    Ok(())
+}
+
+fn required_object<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    key: &'static str,
+) -> Result<&'a serde_json::Map<String, Value>, WorkflowStudioError> {
+    object.get(key).and_then(Value::as_object).ok_or_else(|| {
+        WorkflowStudioError::validation(format!("policy_decision {key} is required"))
+    })
+}
+
+fn required_string<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    key: &'static str,
+) -> Result<&'a str, WorkflowStudioError> {
+    object
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            WorkflowStudioError::validation(format!("policy_decision {key} is required"))
+        })
 }
 
 fn validate_action_allowlist(actions: &[Value]) -> Result<(), WorkflowStudioError> {
@@ -1396,7 +1812,7 @@ fn connector_allows(connector_key: &str, action_key: &str) -> bool {
     })
 }
 
-fn validate_publishable(row: &WorkflowVersionRow) -> Vec<WorkflowSimulationFinding> {
+fn validation_findings(row: &WorkflowVersionRow) -> Vec<WorkflowSimulationFinding> {
     let mut findings = Vec::new();
     if row.required_approval_line && row.approval_line.is_empty() {
         findings.push(WorkflowSimulationFinding {
@@ -1433,14 +1849,30 @@ fn validate_publishable(row: &WorkflowVersionRow) -> Vec<WorkflowSimulationFindi
             message: error.message,
         });
     }
+    if row.definition.get("policy_decision").is_some()
+        && let Err(error) = validate_definition_object(row.definition.clone())
+    {
+        findings.push(WorkflowSimulationFinding {
+            severity: "blocker".to_owned(),
+            code: "invalid_policy_decision".to_owned(),
+            message: error.message,
+        });
+    }
     findings
+}
+
+fn validate_publishable(row: &WorkflowVersionRow) -> Vec<WorkflowSimulationFinding> {
+    validation_findings(row)
         .into_iter()
         .filter(|finding| finding.severity == "blocker")
         .collect()
 }
 
 fn simulation_for(row: &WorkflowVersionRow) -> WorkflowSimulationResponse {
-    let findings = validate_publishable(row);
+    let mut findings = validation_findings(row);
+    if let Some(finding) = policy_decision_metadata_finding(&row.definition) {
+        findings.push(finding);
+    }
     let decision = if findings.iter().any(|finding| finding.severity == "blocker") {
         "blocked"
     } else {
@@ -1450,6 +1882,31 @@ fn simulation_for(row: &WorkflowVersionRow) -> WorkflowSimulationResponse {
         decision: decision.to_owned(),
         findings,
     }
+}
+
+fn policy_decision_metadata_finding(definition: &Value) -> Option<WorkflowSimulationFinding> {
+    if validate_definition_object(definition.clone()).is_err() {
+        return None;
+    }
+    let decision = definition.get("policy_decision")?;
+    let object = decision.as_object()?;
+    let resource = object.get("resource")?.as_object()?;
+    let scope = object.get("scope")?.as_object()?;
+    Some(WorkflowSimulationFinding {
+        severity: "info".to_owned(),
+        code: "policy_decision_metadata".to_owned(),
+        message: format!(
+            "Cedar/PBAC tuple schema={} template={} effect={} action={} resource={}:{} context=org_id,location_id,subject_role,passkey_step_up_satisfied scope={}/{}",
+            WORKFLOW_DEFINITION_SCHEMA_VERSION,
+            object.get("template_key")?.as_str()?,
+            object.get("effect")?.as_str()?,
+            object.get("action")?.as_str()?,
+            resource.get("type")?.as_str()?,
+            resource.get("id")?.as_str()?,
+            scope.get("org_id")?.as_str()?,
+            scope.get("location_id")?.as_str()?
+        ),
+    })
 }
 
 async fn verify_workflow_step_up(
@@ -1669,5 +2126,263 @@ mod tests {
                 .iter()
                 .any(|finding| finding.code == "missing_payment_line")
         );
+    }
+
+    fn policy_decision_definition() -> Value {
+        json!({
+            "schema_version": "workflow.definition.v1",
+            "policy_decision": {
+                "template_key": "equipment_location_access",
+                "effect": "allow",
+                "action": "maintenance:StartWorkOrder",
+                "resource": { "type": "equipment", "id": "EQ-BOILER-17" },
+                "context": {
+                    "org_id": "org_demo_001",
+                    "location_id": "loc_plant_2",
+                    "subject_role": "MAINTENANCE_MANAGER",
+                    "passkey_step_up_satisfied": true
+                },
+                "scope": {
+                    "org_id": "org_demo_001",
+                    "location_id": "loc_plant_2"
+                },
+                "requirements": {
+                    "passkey_step_up": true,
+                    "audit_event": "workflow_definition.publish"
+                }
+            }
+        })
+    }
+
+    fn policy_row(definition: Value) -> WorkflowVersionRow {
+        WorkflowVersionRow {
+            definition_id: Uuid::new_v4(),
+            workflow_key: "equipment.equipment_location_access_policy".to_owned(),
+            display_name: "Equipment Location Access".to_owned(),
+            object_type: "equipment".to_owned(),
+            status: "DRAFT".to_owned(),
+            latest_version: 1,
+            active_version: None,
+            definition,
+            approval_line: vec![json!({
+                "step_key": "manager",
+                "approver_role": "MAINTENANCE_MANAGER",
+                "required": true
+            })],
+            payment_line: vec![],
+            notification_rules: vec![],
+            action_allowlist: vec![json!({
+                "connector_key": "internal.audit",
+                "action_key": "append_timeline_event"
+            })],
+            required_approval_line: true,
+            required_payment_line: false,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn policy_decision_blocks_unsupported_templates() -> Result<(), String> {
+        let mut definition = policy_decision_definition();
+        definition["policy_decision"]["template_key"] = json!("approve_work_order");
+        definition["policy_decision"]["action"] = json!("maintenance:ApproveWorkOrder");
+        definition["policy_decision"]["resource"] = json!({ "type": "work_order", "id": "WO-17" });
+
+        let err = match validate_definition_object(definition) {
+            Ok(_) => return Err("unsupported policy template must fail closed".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(err.message.contains("equipment_location_access"));
+        Ok(())
+    }
+
+    #[test]
+    fn definition_schema_version_is_required() -> Result<(), String> {
+        let err = match validate_definition_object(json!({ "trigger": "work_order.completed" })) {
+            Ok(_) => return Err("missing schema_version must fail closed".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(err.message.contains("schema_version"));
+        Ok(())
+    }
+
+    #[test]
+    fn definition_schema_version_must_match_supported_version() -> Result<(), String> {
+        let err = match validate_definition_object(json!({
+            "schema_version": "workflow.definition.v0",
+            "trigger": "work_order.completed"
+        })) {
+            Ok(_) => return Err("mismatched schema_version must fail closed".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(err.message.contains(WORKFLOW_DEFINITION_SCHEMA_VERSION));
+        Ok(())
+    }
+
+    #[test]
+    fn policy_decision_simulation_surfaces_cedar_pbac_tuple() {
+        let simulation = simulation_for(&policy_row(policy_decision_definition()));
+
+        assert_eq!(simulation.decision, "ready");
+        assert!(simulation.findings.iter().any(|finding| {
+            finding.code == "policy_decision_metadata"
+                && finding.message.contains("maintenance:StartWorkOrder")
+                && finding.message.contains("equipment")
+                && finding.message.contains("subject_role")
+        }));
+    }
+
+    #[test]
+    fn policy_decision_metadata_requires_valid_schema() {
+        let mut definition = policy_decision_definition();
+        definition["schema_version"] = json!("workflow.definition.v0");
+
+        let simulation = simulation_for(&policy_row(definition));
+
+        assert_eq!(simulation.decision, "blocked");
+        assert!(simulation.findings.iter().any(|finding| {
+            finding.code == "invalid_policy_decision" && finding.message.contains("schema_version")
+        }));
+        assert!(
+            simulation
+                .findings
+                .iter()
+                .all(|finding| finding.code != "policy_decision_metadata")
+        );
+    }
+
+    #[test]
+    fn simulation_surfaces_non_blocking_findings() {
+        let mut row = policy_row(json!({}));
+        row.action_allowlist = vec![];
+
+        let simulation = simulation_for(&row);
+
+        assert_eq!(simulation.decision, "ready");
+        assert!(
+            simulation
+                .findings
+                .iter()
+                .any(|finding| finding.code == "empty_action_allowlist")
+        );
+    }
+
+    #[test]
+    fn policy_decision_missing_scope_blocks_publish() -> Result<(), String> {
+        let mut definition = policy_decision_definition();
+        definition["policy_decision"]
+            .as_object_mut()
+            .ok_or_else(|| "policy_decision fixture must be an object".to_owned())?
+            .remove("scope");
+
+        let findings = validate_publishable(&policy_row(definition));
+
+        assert!(findings.iter().any(|finding| {
+            finding.code == "invalid_policy_decision" && finding.message.contains("scope")
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn draft_update_merges_partial_payload_without_mutating_identity() -> Result<(), String> {
+        let current = policy_row(policy_decision_definition());
+        let next = apply_draft_update(
+            &current,
+            NormalizedWorkflowDefinitionUpdate {
+                display_name: Some("Updated policy draft".to_owned()),
+                definition: None,
+                approval_line: Some(vec![json!({
+                    "step_key": "owner",
+                    "approver_role": "MAINTENANCE_MANAGER",
+                    "required": true
+                })]),
+                payment_line: None,
+                notification_rules: Some(vec![]),
+                action_allowlist: None,
+                required_approval_line: Some(false),
+                required_payment_line: None,
+            },
+        )
+        .map_err(|err| err.message)?;
+
+        assert_eq!(next.definition_id, current.definition_id);
+        assert_eq!(next.workflow_key, current.workflow_key);
+        assert_eq!(next.object_type, current.object_type);
+        assert_eq!(next.display_name, "Updated policy draft");
+        assert_eq!(next.approval_line.len(), 1);
+        assert!(next.notification_rules.is_empty());
+        assert!(!next.required_approval_line);
+        assert_eq!(next.definition, current.definition);
+        Ok(())
+    }
+
+    #[test]
+    fn draft_update_requires_draft_status() -> Result<(), String> {
+        let mut current = policy_row(policy_decision_definition());
+        current.status = "ACTIVE".to_owned();
+
+        let err = match apply_draft_update(
+            &current,
+            NormalizedWorkflowDefinitionUpdate {
+                display_name: Some("Cannot edit".to_owned()),
+                definition: None,
+                approval_line: None,
+                payment_line: None,
+                notification_rules: None,
+                action_allowlist: None,
+                required_approval_line: None,
+                required_payment_line: None,
+            },
+        ) {
+            Ok(_) => return Err("published definitions must not be editable drafts".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
+        Ok(())
+    }
+
+    #[test]
+    fn draft_update_rejects_empty_payload() -> Result<(), String> {
+        let err = match normalize_update_request(UpdateWorkflowDefinitionRequest {
+            display_name: None,
+            definition: None,
+            approval_line: None,
+            payment_line: None,
+            notification_rules: None,
+            action_allowlist: None,
+            required_approval_line: None,
+            required_payment_line: None,
+        }) {
+            Ok(_) => return Err("empty updates must not append no-op draft versions".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(err.code, "validation");
+        Ok(())
+    }
+
+    #[test]
+    fn retired_definitions_cannot_take_sensitive_lifecycle_actions() -> Result<(), String> {
+        let mut current = policy_row(policy_decision_definition());
+        current.status = "RETIRED".to_owned();
+
+        let err = match ensure_not_retired(&current) {
+            Ok(()) => return Err("retired definitions must fail closed".to_owned()),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.code, "invalid_transition");
+        Ok(())
     }
 }

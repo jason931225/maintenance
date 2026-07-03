@@ -223,7 +223,9 @@ jobs:
   release-probe:
     name: mnt-app image — dev-auth route absence probe
     needs: images
-    runs-on: ubuntu-latest
+    # Must match the images job's arch: mnt-app is built linux/arm64-only, so an
+    # amd64 runner fails the pull with "no matching manifest for linux/amd64".
+    runs-on: ubuntu-24.04-arm
     services:
       postgres:
         image: postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20

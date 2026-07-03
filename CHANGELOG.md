@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.40](https://github.com/jason931225/maintenance/compare/v0.1.39...v0.1.40) (2026-07-03)
+
+
+### Features
+
+* **workflow:** add no-code policy template ([#164](https://github.com/jason931225/maintenance/issues/164)) ([80a10bc](https://github.com/jason931225/maintenance/commit/80a10bc2712232ffd94d9f6912274c0277188744))
+
+## [0.1.39](https://github.com/jason931225/maintenance/compare/v0.1.38...v0.1.39) (2026-07-03)
+
+
+### Bug Fixes
+
+* **ci:** run release-probe on arm64 runner to match arm64-only images ([#162](https://github.com/jason931225/maintenance/issues/162)) ([8061db4](https://github.com/jason931225/maintenance/commit/8061db4e5e5fbb1db82898395150f068f724bcfe))
+
 ## [0.1.38](https://github.com/jason931225/maintenance/compare/v0.1.37...v0.1.38) (2026-07-03)
 
 

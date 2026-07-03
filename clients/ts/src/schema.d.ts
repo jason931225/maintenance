@@ -3622,6 +3622,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-studio/definitions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a draft workflow definition
+         * @description Soft-deletes a DRAFT workflow definition by moving the mutable pointer to RETIRED while preserving append-only versions, change events, and audit evidence. Requires a fresh passkey step-up assertion.
+         */
+        delete: operations["archiveWorkflowDefinition"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a draft workflow definition
+         * @description Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
+         */
+        patch: operations["updateWorkflowDefinition"];
+        trace?: never;
+    };
     "/api/v1/workflow-studio/definitions/{id}/history": {
         parameters: {
             query?: never;
@@ -4522,9 +4546,28 @@ export interface components {
             required_approval_line?: boolean;
             required_payment_line?: boolean;
         };
+        /** @description Partial update for a DRAFT workflow definition. Workflow key and object type are immutable. */
+        UpdateWorkflowDefinitionRequest: {
+            display_name?: string;
+            definition?: {
+                [key: string]: unknown;
+            };
+            approval_line?: {
+                [key: string]: unknown;
+            }[];
+            payment_line?: {
+                [key: string]: unknown;
+            }[];
+            notification_rules?: {
+                [key: string]: unknown;
+            }[];
+            action_allowlist?: components["schemas"]["WorkflowActionAllowlistEntry"][];
+            required_approval_line?: boolean;
+            required_payment_line?: boolean;
+        };
         /** @description Fresh passkey step-up assertion for a sensitive Workflow Studio mutation. */
         WorkflowStepUpRequest: {
-            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
         };
         RollbackWorkflowDefinitionRequest: {
             /** Format: int32 */
@@ -12738,6 +12781,76 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    archiveWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Archived workflow definition draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkflowDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated draft workflow definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
         };
