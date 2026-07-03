@@ -11,10 +11,6 @@ import { createConsoleApiClient } from "../api/client";
 import type { ConsoleApiClient } from "../api/client";
 import { setRefreshCallbacks } from "../api/refresh";
 import {
-  createDevPreviewAccessToken,
-  isDevPreviewEnabled,
-} from "../lib/dev-preview";
-import {
   finishPasskeyLogin,
   logout as logoutWebAuthn,
   refreshToken as refreshTokenFn,
@@ -256,16 +252,11 @@ function sessionFromAccessToken(
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const devPreviewSession = isDevPreviewEnabled()
-    ? sessionFromAccessToken(createDevPreviewAccessToken())
-    : undefined;
   // The access token lives ONLY in memory; the refresh token never reaches JS
   // (it is an HttpOnly cookie). On boot there is therefore nothing to hydrate
   // synchronously — we recover the session via a silent cookie refresh instead.
-  const [session, setSession] = useState<AuthSession | undefined>(
-    devPreviewSession,
-  );
-  const [restoring, setRestoring] = useState(!devPreviewSession);
+  const [session, setSession] = useState<AuthSession | undefined>(undefined);
+  const [restoring, setRestoring] = useState(true);
   // Active read-only impersonation, if any. While set, the app runs as the
   // impersonated tenant/role (see `activeSession` below) and the banner shows.
   const [viewAs, setViewAs] = useState<ViewAsState | undefined>(undefined);
@@ -331,49 +322,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Boot-time silent refresh: POST /refresh with the HttpOnly cookie. Success ->
   // authenticated with a fresh access token; any failure (e.g. 401, no cookie)
-  // -> unauthenticated. Runs exactly once. The cancellation flag lives on a ref
-  // object so an unmount mid-flight skips the state updates.
-  const booted = useRef(false);
-  const cancelled = useRef(false);
+  // -> unauthenticated.
+  //
+  // Two StrictMode (dev-only) hazards, both handled below:
+  // 1. `cancelled` is a LOCAL variable captured per effect invocation (NOT a
+  //    ref): a shared ref (or a `booted`-style "run once" guard) would let the
+  //    FIRST invocation's mount -> cleanup -> mount double-invoke poison a
+  //    flag the SECOND (surviving) invocation never resets, permanently
+  //    skipping its own `setRestoring(false)` and leaving every sign-in flow
+  //    (passkey/OTP/dev-auth) unable to navigate away from /login.
+  // 2. `bootRefreshPromiseRef` dedupes the ACTUAL NETWORK CALL across both
+  //    invocations (the ref, unlike `cancelled`, is shared — refs persist
+  //    across StrictMode's double-invoke). Without this, both invocations
+  //    would POST the SAME single-use refresh token concurrently, and the
+  //    backend's reuse-detection would treat the second arrival as a replay
+  //    and revoke the whole refresh family (see refresh-tokens tests).
+  // Intentionally never reset after being set once: `bootApi` is a stable
+  // (useMemo, empty-deps) client, so this effect's `[bootApi]` dependency
+  // never changes and the boot refresh runs exactly one real "session" of the
+  // app's lifetime — there is no later point where re-arming the ref would be
+  // correct.
+  const bootRefreshPromiseRef = useRef<ReturnType<typeof refreshTokenFn> | null>(
+    null,
+  );
   useEffect(() => {
-    if (booted.current) return;
-    booted.current = true;
-    cancelled.current = false;
-    if (isDevPreviewEnabled()) return;
+    let cancelled = false;
     async function bootRefresh() {
       try {
-        const tokens = await refreshTokenFn(bootApi);
-        if (!cancelled.current) {
+        bootRefreshPromiseRef.current ??= refreshTokenFn(bootApi);
+        const tokens = await bootRefreshPromiseRef.current;
+        // Guard against a race with an explicit sign-in (passkey/OTP/dev-auth)
+        // completing WHILE this boot-time refresh is still in flight: never
+        // clobber a session someone else already established.
+        if (!cancelled) {
           setSession(
-            sessionFromAccessToken(
-              tokens.access_token,
-              tokens.requires_passkey_setup,
-            ),
+            (current) =>
+              current ??
+              sessionFromAccessToken(
+                tokens.access_token,
+                tokens.requires_passkey_setup,
+              ),
           );
         }
       } catch {
-        if (!cancelled.current) {
-          setSession(
-            isDevPreviewEnabled()
-              ? sessionFromAccessToken(createDevPreviewAccessToken())
-              : undefined,
-          );
-        }
+        // No cookie / expired / etc. — leave `session` exactly as it is: still
+        // `undefined` in the normal case, but NOT clobbered if an explicit
+        // sign-in already set it while this refresh was in flight.
+        // (intentionally no setSession call here)
       } finally {
-        if (!cancelled.current) setRestoring(false);
+        if (!cancelled) setRestoring(false);
       }
     }
     void bootRefresh();
     return () => {
-      cancelled.current = true;
+      cancelled = true;
     };
   }, [bootApi]);
 
   async function login() {
-    if (isDevPreviewEnabled()) {
-      setSession(sessionFromAccessToken(createDevPreviewAccessToken()));
-      return;
-    }
     const ceremony = await startPasskeyLogin(api);
     const tokens = await finishPasskeyLogin(api, ceremony);
     setSession(

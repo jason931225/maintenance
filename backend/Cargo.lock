@@ -2721,6 +2721,13 @@ name = "mnt-gate-audit-coverage"
 version = "0.1.0"
 
 [[package]]
+name = "mnt-gate-dev-auth-absence"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "mnt-gate-layer-boundary"
 version = "0.1.0"
 dependencies = [
@@ -3003,12 +3010,16 @@ dependencies = [
  "mnt-platform-group",
  "mnt-platform-provisioning",
  "mnt-platform-request-context",
+ "p256",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "sqlx 0.9.0",
  "thiserror 2.0.18",
  "time",
+ "tokio",
+ "tower",
+ "tracing",
  "url",
  "uuid",
 ]

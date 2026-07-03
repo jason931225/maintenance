@@ -12,8 +12,11 @@ env.CARGO_TERM_COLOR = "always"
 env.SQLX_OFFLINE = "true"
 
 # mnt-app is a long-running server: restart on change instead of waiting for exit.
+# `--features dev-auth` (W3.5): local dev always runs with the role-switcher
+# endpoint on; it's compiled out by default everywhere else (see
+# mnt-gate-dev-auth-absence).
 [jobs.run]
-command = ["cargo", "run", "-p", "mnt-app"]
+command = ["cargo", "run", "-p", "mnt-app", "--features", "dev-auth"]
 need_stdout = true
 allow_warnings = true
 background = false

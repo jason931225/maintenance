@@ -6,18 +6,6 @@ import {
 } from "../lib/contact";
 
 export const ko = {
-  devPreview: {
-    adminName: "로컬 미리보기 관리자",
-    messengerThreadTitle: "정비팀 메신저",
-    fieldTechnicianName: "김현장",
-    fieldTechnicianTeam: "정비1팀",
-    dispatcherName: "박배차",
-    dispatcherTeam: "운영지원",
-    messengerIncoming: "오늘 오전 정비 일정 확인했습니다.",
-    messengerReply: "확인했습니다. 현장 도착 후 사진도 같이 올려주세요.",
-    messengerReadProgressProbe:
-      "읽음 카운트가 실시간 메시지와 동일하게 표시되는지 확인용입니다.",
-  },
   nav: {
     "work-hub": "업무 허브",
     "my-attendance": "근태 기록",
@@ -755,6 +743,31 @@ export const ko = {
     phoneApproving: "승인 중",
     phoneApproveDone: "PC 로그인을 승인했습니다.",
     phoneApproveFailed: "PC 로그인 승인에 실패했습니다.",
+    roleSwitcher: {
+      reveal: "[개발용] 역할 전환 로그인",
+      title: "로컬 역할 전환",
+      description:
+        "선택한 조직·역할·지점으로 실제 백엔드에 로그인합니다 (dev-auth 빌드에서만 동작).",
+      roleLabel: "역할",
+      // One entry per dev-auth ROLE_OPTIONS value (RoleSwitcher.tsx) — kept
+      // complete here (rather than borrowed from platform.viewAs.roles) so
+      // TypeScript's structural typing guarantees every option has a real
+      // label, never a raw role code.
+      roles: {
+        SUPER_ADMIN: "최고 관리자",
+        ADMIN: "관리자",
+        EXECUTIVE: "임원",
+        MECHANIC: "정비사",
+        RECEPTIONIST: "접수 담당",
+        MEMBER: "일반 멤버",
+      },
+      orgLabel: "조직 ID",
+      branchLabel: "지점 ID (쉼표로 구분, 관리자 외 역할은 필수)",
+      submit: "역할로 로그인",
+      submitting: "로그인 중",
+      orgRequired: "조직 ID를 입력하세요.",
+      failed: "역할 전환 로그인에 실패했습니다.",
+    },
   },
   onboarding: {
     title: "패스키 등록",
@@ -2830,6 +2843,7 @@ export const ko = {
     searchResults: "검색 결과",
     searching: "검색 중",
     searchEmpty: "검색 결과가 없습니다.",
+    searchFailed: "메시지를 검색하지 못했습니다.",
     openThread: "대화 열기",
     openSearchResult: (threadTitle: string) => `${threadTitle} 대화 열기`,
     memberCount: "명",

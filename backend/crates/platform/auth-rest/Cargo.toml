@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Local role-switch dev-auth endpoint. NOT in `default` — see the crate-level
+# docs on the `dev_auth` module and `mnt-gate-dev-auth-absence`.
+dev-auth = []
+
 [dependencies]
 axum = { workspace = true }
 http = { workspace = true }
@@ -24,8 +29,14 @@ sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
+tracing = { workspace = true }
 url = "2.5.8"
 uuid = { workspace = true }
+
+[dev-dependencies]
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+tokio = { workspace = true }
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

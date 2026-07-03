@@ -2013,6 +2013,9 @@ impl TelemetryGuard {
 }
 
 pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
+    if let DatabaseDependency::Postgres(pool) = &state.database {
+        assert_no_dev_auth_personas(pool).await?;
+    }
     match config.role {
         AppRole::Api => serve_api(config, state).await,
         AppRole::Worker => run_dispatch_worker(config, state).await,
@@ -2020,6 +2023,38 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
         // wiring); it is dispatched in `main` before `from_config` runs.
         AppRole::Migrate => run_migrations(&config).await,
     }
+}
+
+/// Refuse to boot (api or worker role) if a dev-auth persona row leaked into
+/// this database. `dev-auth:<org>:<role>` is the synthetic `phone` key
+/// `DevPrincipalProvisioner` (mnt-platform-provisioning) upserts for the
+/// local role-switch endpoint; that endpoint only exists in a build compiled
+/// with `--features dev-auth`, so any such row in a build WITHOUT that
+/// feature means a dev database dump (or a devved-up environment's data)
+/// reached somewhere it should not have. Compiled out entirely under
+/// `dev-auth` (a dev-auth build is expected to have these rows).
+///
+/// `pub` (rather than private) so `backend/app/tests/*` can exercise both cfg
+/// bodies directly without booting a full HTTP server.
+#[cfg(not(feature = "dev-auth"))]
+pub async fn assert_no_dev_auth_personas(pool: &sqlx::PgPool) -> Result<(), AppError> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE phone LIKE 'dev-auth:%'")
+        .fetch_one(pool)
+        .await
+        .map_err(AppError::Database)?;
+    if count > 0 {
+        return Err(AppError::Internal(format!(
+            "refusing to start: {count} dev-auth:* persona row(s) found in `users` — a dev-only \
+             database dump reached a build without the dev-auth feature. Purge them before \
+             starting this environment: DELETE FROM users WHERE phone LIKE 'dev-auth:%';"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "dev-auth")]
+pub async fn assert_no_dev_auth_personas(_pool: &sqlx::PgPool) -> Result<(), AppError> {
+    Ok(())
 }
 
 /// Apply the embedded schema migrations against `DATABASE_URL`, then return.
