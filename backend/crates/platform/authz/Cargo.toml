@@ -17,8 +17,7 @@ uuid = { workspace = true }
 cedar-policy = "=4.11.2"
 sha2 = { workspace = true }
 hex = { workspace = true }
-
-[dev-dependencies]
+# Coexistence-map loader (cedar_pbac::map) parses the canonical map JSON at runtime.
 serde_json = { workspace = true }
 
 [lints]
