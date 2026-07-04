@@ -124,3 +124,26 @@ describe("Oyatie console CSS tokens", () => {
     }
   });
 });
+
+describe("Oyatie console motion rules", () => {
+  it("exposes reusable pop, toast, and pulse motion classes", () => {
+    expect(css).toMatch(/@keyframes\s+pop-in\b/);
+    expect(css).toMatch(/@keyframes\s+toast-in\b/);
+    expect(css).toMatch(/@keyframes\s+pulse-dot\b/);
+    expect(css).toMatch(
+      /\.console-motion-pop\s*\{[^}]*animation:\s*pop-in\s+0\.14s\s+ease\s+both;/s,
+    );
+    expect(css).toMatch(
+      /\.console-motion-toast\s*\{[^}]*animation:\s*toast-in\s+0\.18s\s+ease\s+both;/s,
+    );
+    expect(css).toMatch(
+      /\.console-motion-pulse-dot\s*\{[^}]*animation:\s*pulse-dot\s+1\.2s\s+ease-in-out\s+infinite;/s,
+    );
+  });
+
+  it("disables reusable motion for reduced-motion users", () => {
+    expect(css).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*\.console-motion-pop,[\s\S]*\.console-motion-toast,[\s\S]*\.console-motion-pulse-dot\s*\{[\s\S]*animation:\s*none\s*!important;/,
+    );
+  });
+});

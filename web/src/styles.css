@@ -340,6 +340,18 @@ select {
   }
 }
 
+.console-motion-pop {
+  animation: pop-in 0.14s ease both;
+}
+
+.console-motion-toast {
+  animation: toast-in 0.18s ease both;
+}
+
+.console-motion-pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
 /* Respect users who ask for less motion: neutralise transitions/animations. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -349,5 +361,11 @@ select {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .console-motion-pop,
+  .console-motion-toast,
+  .console-motion-pulse-dot {
+    animation: none !important;
   }
 }
