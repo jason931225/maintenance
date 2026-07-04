@@ -14,9 +14,9 @@
 //! # Graceful missing key
 //!
 //! The master KEK ([`mnt_comms_credential_cipher`]) is OPTIONAL at boot. When it
-//! is absent the router still mounts (so the paths exist for the OpenAPI gate),
-//! but every endpoint returns `503 email_not_configured` — the app boots and the
-//! rest of the platform is unaffected.
+//! is absent the router still mounts (so the paths exist for the OpenAPI gate):
+//! read-only mailbox endpoints degrade to a clean no-account/empty state, while
+//! credential-using endpoints fail closed with `503 email_not_configured`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use std::str::FromStr;
@@ -79,8 +79,8 @@ pub struct CommsRestState {
     store: PgMailStore,
     sender: LettreMailSender,
     imap: AsyncImapClient,
-    /// The master-key cipher. `None` when `MNT_MAIL_MASTER_KEY` is absent — the
-    /// feature is then unavailable (503) but the app still boots.
+    /// The master-key cipher. `None` when `MNT_MAIL_MASTER_KEY` is absent —
+    /// credential-using endpoints are then unavailable (503) but the app still boots.
     cipher: Option<Arc<EnvelopeCredentialCipher>>,
     /// The object store for inbound attachment presigned GETs. `None` when
     /// storage is unconfigured — the attachment-download endpoint then 503s.
@@ -217,12 +217,9 @@ async fn get_account(
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailAccountManage)?;
-    let cipher = state.cipher_ref()?;
-    let service = AccountService::new(state.store.clone(), state.sender.clone(), cipher);
-    let view: Option<AccountView> = service
-        .get_account()
-        .await
-        .map_err(RestError::from_service)?;
+    let view: Option<AccountView> = read_account(&state, principal.org_id)
+        .await?
+        .map(|account| account.to_view());
     match view {
         Some(view) => Ok(Json(view).into_response()),
         None => Ok(StatusCode::NO_CONTENT.into_response()),
@@ -418,7 +415,6 @@ async fn list_folders(
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
-    let _cipher = state.cipher_ref()?; // gate the feature on a configured KEK
     let Some(account) = read_account(&state, principal.org_id).await? else {
         return Ok(Json(Vec::<FolderView>::new()).into_response());
     };
@@ -437,7 +433,6 @@ async fn list_threads(
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
-    let _cipher = state.cipher_ref()?;
     let Some(account) = read_account(&state, principal.org_id).await? else {
         return Ok(Json(Vec::<ThreadView>::new()).into_response());
     };
@@ -470,7 +465,6 @@ async fn get_thread(
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
-    let _cipher = state.cipher_ref()?;
     let thread_id =
         uuid::Uuid::from_str(&id).map_err(|_| RestError::bad_request("invalid thread id"))?;
     let detail: Option<ThreadDetail> = state
@@ -496,7 +490,6 @@ async fn set_thread_read_state(
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
-    let _cipher = state.cipher_ref()?;
     let thread_id =
         uuid::Uuid::from_str(&id).map_err(|_| RestError::bad_request("invalid thread id"))?;
     let detail = state
@@ -549,7 +542,6 @@ async fn get_message(
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
-    let _cipher = state.cipher_ref()?;
     let message_id =
         EmailMessageId::from_str(&id).map_err(|_| RestError::bad_request("invalid message id"))?;
     let message: Option<MessageView> = state
@@ -574,7 +566,6 @@ async fn download_attachment(
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_feature(&principal, Feature::MailUse)?;
-    let _cipher = state.cipher_ref()?;
     let attachment_id =
         uuid::Uuid::from_str(&id).map_err(|_| RestError::bad_request("invalid attachment id"))?;
     let attachments = state
