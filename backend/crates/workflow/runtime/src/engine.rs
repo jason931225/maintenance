@@ -6,7 +6,9 @@
 //! node; the port arms `app.current_org` and writes audit rows in the same
 //! transaction as each mutation.
 
-use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, OrgId, Timestamp, TraceContext, UserId};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, KernelError, OrgId, Timestamp, TraceContext, UserId,
+};
 use mnt_workflow_domain::{
     NewNodeRun, NewRun, NodeStatus, NodeStepCommit, RunStatus, RunTransition, TriggerType,
     WorkflowRuntimePort, validate_node_transition, validate_run_transition,
@@ -124,7 +126,8 @@ pub async fn start_run<P: WorkflowRuntimePort + ?Sized>(
         Some(json!({ "status": RunStatus::Starting.as_db_str() })),
         Some(json!({ "status": RunStatus::Running.as_db_str() })),
     )?;
-    port.transition_run(org, transition, transition_audit).await?;
+    port.transition_run(org, transition, transition_audit)
+        .await?;
 
     Ok(run_id)
 }

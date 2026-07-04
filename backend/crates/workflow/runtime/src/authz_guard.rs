@@ -18,8 +18,8 @@ use std::str::FromStr;
 use mnt_kernel_core::{BranchId, KernelError, OrgId};
 use mnt_platform_authz::{
     Action, AuthorizationAuditEvent, AuthorizationDecision, AuthorizationRequest,
-    AuthorizationResource, CedarEvaluation, CoexistenceMapEntry, DualEngineMode, Feature, Principal,
-    RlsScopeProof, evaluate_cedar_pbac_boundary, observe_cedar_pbac_decision,
+    AuthorizationResource, CedarEvaluation, CoexistenceMapEntry, DualEngineMode, Feature,
+    Principal, RlsScopeProof, evaluate_cedar_pbac_boundary, observe_cedar_pbac_decision,
 };
 
 /// Policy domain for a business-mutating node transition guard.
