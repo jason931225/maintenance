@@ -51,8 +51,9 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
 - [x] **Migrations append-only through 0023**; migration-safety gate enforces no
   destructive change to `audit_events` or audited tables.
 - [x] **No stubs/mocks in shipped paths.** Integration seams (oyatie
-  `AiAssistantPort`, Bitween `IdentityProviderPort`) are port definitions only,
-  with the local identity provider as the real implementation.
+  `AiAssistantPort`) are port definitions only until a real adapter lands.
+  Identity is implemented locally with passkey-backed maintenance accounts; no
+  external identity-provider seam ships.
 
 ## 2. 위치정보법 / PIPA compliance
 

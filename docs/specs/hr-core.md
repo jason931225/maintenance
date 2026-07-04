@@ -1,7 +1,7 @@
 # G011 HR Core Slice
 
 ## Objective
-Provide the first production HR setup surface for imported people data: employee roster, 직급/직책 and org-chart grouping, imported annual-leave balances, and clock/attendance visibility. This is an incremental HR core, not payroll calculation and not a Bitween replacement.
+Provide the first production HR setup surface for imported people data: employee roster, 직급/직책 and org-chart grouping, imported annual-leave balances, and clock/attendance visibility. This is an incremental HR core, not payroll calculation and not a replacement for any future HR/payroll system of record.
 
 ## Scope
 - Preserve source workbook rows exactly in `employees.raw_row` / `source_metadata`.
