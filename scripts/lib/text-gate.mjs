@@ -42,9 +42,16 @@ export function createTextGate(options = {}) {
     record(label, "notInclude");
   }
 
+  function testPattern(pattern, text) {
+    pattern.lastIndex = 0;
+    const matched = pattern.test(text);
+    pattern.lastIndex = 0;
+    return matched;
+  }
+
   function requireMatches(path, pattern, label) {
     const text = read(path);
-    if (!pattern.test(text)) {
+    if (!testPattern(pattern, text)) {
       throw new Error(matchFailure({ path, pattern, label }));
     }
     record(label, "match");
@@ -52,7 +59,7 @@ export function createTextGate(options = {}) {
 
   function requireAbsent(path, pattern, label) {
     const text = read(path);
-    if (pattern.test(text)) {
+    if (testPattern(pattern, text)) {
       throw new Error(absentFailure({ path, pattern, label }));
     }
     record(label, "absent");

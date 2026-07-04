@@ -1,63 +1,33 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const failures = [];
-const passes = [];
+import { createTextGate } from "./lib/text-gate.mjs";
 
-function read(path) {
-  const abs = resolve(root, path);
-  if (!existsSync(abs)) {
-    failures.push(`${path}: missing`);
-    return "";
-  }
-  return readFileSync(abs, "utf8");
-}
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const textGate = createTextGate({
+  root,
+  includeFailure: ({ path, needle, label }) => `${label}: ${path} must include ${JSON.stringify(needle)}`,
+  notIncludeFailure: ({ path, needle, label }) => `${label}: ${path} must not include ${JSON.stringify(needle)}`,
+});
+const { checks: passes, read, requireIncludes, requireNotIncludes } = textGate;
 
 function requireFile(path, label = path) {
   if (existsSync(resolve(root, path))) {
     passes.push(`${label}: present`);
-  } else {
-    failures.push(`${label}: missing (${path})`);
+    return;
   }
-}
-
-function requireIncludes(path, needle, label) {
-  const text = read(path);
-  if (text.includes(needle)) {
-    passes.push(label);
-  } else {
-    failures.push(`${label}: ${path} must include ${JSON.stringify(needle)}`);
-  }
-}
-
-function requireNotIncludes(path, needle, label) {
-  const text = read(path);
-  if (!text.includes(needle)) {
-    passes.push(label);
-  } else {
-    failures.push(`${label}: ${path} must not include ${JSON.stringify(needle)}`);
-  }
+  throw new Error(`${label}: missing (${path})`);
 }
 
 function requireAny(path, needles, label) {
   const text = read(path);
   if (needles.some((needle) => text.includes(needle))) {
     passes.push(label);
-  } else {
-    failures.push(`${label}: ${path} must include one of ${needles.map((needle) => JSON.stringify(needle)).join(", ")}`);
+    return;
   }
-}
-
-function requireScript(name) {
-  const pkg = JSON.parse(read("package.json"));
-  if (pkg.scripts?.[name]) {
-    passes.push(`package script ${name}: ${pkg.scripts[name]}`);
-  } else {
-    failures.push(`package script ${name}: missing`);
-  }
+  throw new Error(`${label}: ${path} must include one of ${needles.map((needle) => JSON.stringify(needle)).join(", ")}`);
 }
 
 // Canonical backlog and foundation-gate docs.
@@ -96,8 +66,8 @@ requireIncludes("backend/openapi/openapi.yaml", "status update is a sensitive pa
 requireIncludes("backend/openapi/openapi.yaml", "Append-only Policy Studio audit evidence", "policy audit evidence contract");
 
 // CI/CD/security/release baseline.
-requireScript("check:foundation-gates");
-requireScript("test:text-gate");
+requireIncludes("package.json", "\"check:foundation-gates\": \"node scripts/check-foundation-gates.mjs\"", "package script check:foundation-gates");
+requireIncludes("package.json", "\"test:text-gate\": \"node --test scripts/lib/text-gate.test.mjs\"", "package script test:text-gate");
 requireIncludes(".github/workflows/ci.yml", "npm run check:foundation-gates", "CI runs foundation gate contract");
 requireIncludes(".github/workflows/ci.yml", "npm run test:text-gate", "CI runs shared text-gate tests");
 requireIncludes(".github/workflows/ci.yml", "docs/specs/**", "CI watches docs/specs gate inputs");
@@ -163,13 +133,9 @@ if (
 ) {
   passes.push("omx team 6:executor launch syntax and executor role metadata recorded in repo-owned gate contract");
 } else {
-  failures.push("omx team launch path evidence missing from docs/specs/foundation-gates.md");
+  throw new Error("omx team launch path evidence missing from docs/specs/foundation-gates.md");
 }
 
-if (failures.length) {
-  console.error("Foundation gate check failed:\n" + failures.map((failure) => `- ${failure}`).join("\n"));
-  process.exit(1);
-}
 
 console.log(`Foundation gate check passed (${passes.length} checks).`);
 for (const pass of passes) {

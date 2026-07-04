@@ -121,6 +121,29 @@ test("people HR-style custom absent failures can omit the pattern", () => {
   );
 });
 
+test("requireMatches and requireAbsent reset global regex state", () => {
+  const root = withFixture({
+    "sample.txt": "alpha ready",
+  });
+  const gate = createTextGate({ root });
+  const readyPattern = /ready/g;
+  const forbiddenPattern = /alpha/g;
+
+  assert.doesNotThrow(() => gate.requireMatches("sample.txt", readyPattern, "first ready check"));
+  assert.doesNotThrow(() => gate.requireMatches("sample.txt", readyPattern, "second ready check"));
+  assert.equal(readyPattern.lastIndex, 0);
+
+  assert.throws(
+    () => gate.requireAbsent("sample.txt", forbiddenPattern, "first alpha absence check"),
+    /first alpha absence check: sample\.txt must not match \/alpha\/g/,
+  );
+  assert.throws(
+    () => gate.requireAbsent("sample.txt", forbiddenPattern, "second alpha absence check"),
+    /second alpha absence check: sample\.txt must not match \/alpha\/g/,
+  );
+  assert.equal(forbiddenPattern.lastIndex, 0);
+});
+
 test("reportGate prints the gate message with recorded check count", () => {
   const root = withFixture({
     "sample.txt": "alpha",
