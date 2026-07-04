@@ -6101,6 +6101,30 @@ fn ordinary_daily_wage_won_from_monthly(monthly_ordinary_wage_won: i64) -> Resul
 /// JSONB values round-trip through the same `BTreeMap`. Identical inputs
 /// therefore always hash identically regardless of column or JSON key order.
 #[allow(clippy::too_many_arguments)]
+/// Recursively re-key every JSON object in sorted key order so a digest over the
+/// result is canonical regardless of serde_json's `preserve_order` feature. A
+/// transitive dependency (e.g. cedar-policy -> schemars) can enable
+/// `serde_json/preserve_order` workspace-wide, flipping `Value` objects from a
+/// sorted `BTreeMap` to an insertion-order `IndexMap`; a statutory certification
+/// digest must never depend on such a global cargo feature. Sorting at every
+/// level yields the same bytes serde_json produced by default (sorted) before any
+/// such feature was present, so this does NOT change any already-stored digest.
+fn canonical_json(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let sorted: BTreeMap<&String, &Value> = map.iter().collect();
+            Value::Object(
+                sorted
+                    .into_iter()
+                    .map(|(k, v)| (k.clone(), canonical_json(v)))
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonical_json).collect()),
+        scalar => scalar.clone(),
+    }
+}
+
 fn compute_certified_package_digest(
     severance_pay_won: Option<i64>,
     statutory_basis: &Value,
@@ -6131,11 +6155,13 @@ fn compute_certified_package_digest(
         "ordinary_daily_wage_won": ordinary_daily_wage_won,
         "statutory_daily_wage_milliwon": statutory_daily_wage_milliwon,
     });
-    // `Value::to_string()` is serde_json's infallible `Display` serializer and
-    // yields the same compact bytes as `serde_json::to_vec`, so the digest is
-    // byte-identical while the money path carries no panic branch (this also
-    // removes the `clippy::expect_used` deny without needing an allow).
-    sha256_hex(canonical.to_string().as_bytes())
+    // `canonical_json` sorts every object key recursively so the digest is
+    // independent of serde_json's `preserve_order` feature (a transitive dep can
+    // enable it workspace-wide). `Value::to_string()` is serde_json's infallible
+    // `Display` serializer (same compact bytes as `serde_json::to_vec`), so the
+    // money path carries no panic branch (also avoids the `clippy::expect_used`
+    // deny without an allow).
+    sha256_hex(canonical_json(&canonical).to_string().as_bytes())
 }
 
 /// Stamps the EFFECTIVE `certification_status` onto a generated payload
