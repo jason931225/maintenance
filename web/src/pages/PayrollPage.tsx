@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ConsoleApiClient } from "../api/client";
 import type {
+  AbsenceExitDashboardResponse,
   AttendanceSummaryPage,
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
+  EmployeeExitCase,
   HrReadinessSummary,
 } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -13,10 +15,14 @@ import { RefreshButton } from "../components/shell/RefreshButton";
 import { isNavItemVisible } from "../components/shell/nav";
 import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
+import { exitCaseStatusLabel, exitCaseTone } from "../lib/hrExitWorkflow";
+import type { Tone } from "../lib/semantic";
+import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
 
 type LoadState = "loading" | "idle" | "error";
@@ -37,6 +43,10 @@ type PayrollApi = ConsoleApiClient & {
       };
     },
   ): Promise<{ data?: EmployeeDirectoryPage }>;
+  GET(
+    path: "/api/v1/hr/absence-exit-dashboard",
+    options?: { params?: { query?: { limit?: number; offset?: number } } },
+  ): Promise<{ data?: AbsenceExitDashboardResponse }>;
 };
 
 const copy = ko.payroll;
@@ -49,10 +59,17 @@ export function PayrollPage() {
   const [attendance, setAttendance] = useState<AttendanceSummaryPage>();
   const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([]);
   const [employeeTotal, setEmployeeTotal] = useState(0);
+  const [absenceExitDashboard, setAbsenceExitDashboard] =
+    useState<AbsenceExitDashboardResponse>();
 
   const loadPayroll = useCallback(async () => {
     setState("loading");
-    const [readinessResponse, attendanceResponse, employeesResponse] =
+    const [
+      readinessResponse,
+      attendanceResponse,
+      employeesResponse,
+      absenceExitResponse,
+    ] =
       await Promise.all([
         payrollApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
         payrollApi
@@ -63,6 +80,11 @@ export function PayrollPage() {
         payrollApi
           .GET("/api/v1/employees", {
             params: { query: { limit: 1000, offset: 0 } },
+          })
+          .catch(() => undefined),
+        payrollApi
+          .GET("/api/v1/hr/absence-exit-dashboard", {
+            params: { query: { limit: 50, offset: 0 } },
           })
           .catch(() => undefined),
       ]);
@@ -80,6 +102,7 @@ export function PayrollPage() {
     setAttendance(attendanceResponse.data);
     setEmployees(employeesResponse.data.items);
     setEmployeeTotal(employeesResponse.data.total);
+    setAbsenceExitDashboard(absenceExitResponse?.data);
     setState("idle");
   }, [payrollApi]);
 
@@ -125,6 +148,9 @@ export function PayrollPage() {
               activeEmployees={activeEmployees}
               employeeTotal={employeeTotal}
             />
+            {absenceExitDashboard ? (
+              <ExitSettlementPanel dashboard={absenceExitDashboard} />
+            ) : null}
             <PayrollFlowPanel
               readiness={readiness}
               attendance={attendance}
@@ -259,6 +285,183 @@ function PayrollReadinessPanel({
         </div>
       </dl>
     </Card>
+  );
+}
+
+function ExitSettlementPanel({
+  dashboard,
+}: {
+  dashboard: AbsenceExitDashboardResponse;
+}) {
+  const cases = dashboard.exit_cases;
+  const summary = [
+    {
+      label: copy.exitSettlement.summary.absenceWarnings,
+      value: dashboard.summary.open_absence_alerts,
+      tone: "warning" as Tone,
+    },
+    {
+      label: copy.exitSettlement.summary.sourceNeeded,
+      value: dashboard.summary.settlement_needs_source,
+      tone: "danger" as Tone,
+    },
+    {
+      label: copy.exitSettlement.summary.ready,
+      value: dashboard.summary.settlement_ready,
+      tone: "success" as Tone,
+    },
+    {
+      label: copy.exitSettlement.summary.submitted,
+      value: dashboard.summary.submitted,
+      tone: "info" as Tone,
+    },
+  ];
+
+  return (
+    <Card className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">
+            {copy.exitSettlement.title}
+          </h2>
+          <p className="text-sm text-steel">{copy.exitSettlement.description}</p>
+        </div>
+        <Button asChild size="sm" variant="secondary">
+          <Link to="/hr/insurance">{copy.exitSettlement.insuranceLink}</Link>
+        </Button>
+      </div>
+
+      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {summary.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-lg border border-line bg-muted-panel/40 p-3"
+          >
+            <dt className="text-xs font-semibold text-steel">{item.label}</dt>
+            <dd className="mt-1">
+              <Badge className={toneBadgeClass(item.tone)}>
+                {formatListCount(item.value)}
+              </Badge>
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      {cases.length === 0 ? (
+        <p className="rounded-lg border border-line bg-white p-4 text-sm text-steel">
+          {copy.exitSettlement.empty}
+        </p>
+      ) : (
+        <div className="grid gap-3">
+          {cases.slice(0, 8).map((exitCase) => (
+            <ExitSettlementCaseCard key={exitCase.id} exitCase={exitCase} />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Read-only review card: the severance figure and its uncertified-draft label
+ * are DISPLAY only here. Wage-source entry, draft generation, and approval
+ * submission are mutations and live on the insurance-assist exit-workflow
+ * surface (InsuranceAssistPage) instead — see check:payroll-release-gate.
+ */
+function ExitSettlementCaseCard({ exitCase }: { exitCase: EmployeeExitCase }) {
+  const settlementPackage = exitCase.settlement_package;
+  const insuranceForms = insuranceFormCount(exitCase);
+
+  return (
+    <section className="grid gap-4 rounded-lg border border-line bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-ink">
+            {exitCase.employee_name} · {exitCase.effective_exit_date}
+          </h3>
+          <p className="text-xs text-steel">
+            {display(exitCase.company)} /{" "}
+            {display(exitCase.branch_name ?? exitCase.worksite_name)}
+          </p>
+        </div>
+        <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
+          {exitCaseStatusLabel(exitCase.status, copy.exitSettlement.status)}
+        </Badge>
+      </div>
+
+      <dl className="grid gap-3 text-sm md:grid-cols-4">
+        <div className="rounded border border-line bg-muted-panel/40 p-3">
+          <dt className="font-semibold text-steel">
+            {copy.exitSettlement.fields.serviceDays}
+          </dt>
+          <dd className="text-ink">{display(settlementPackage?.service_days)}</dd>
+        </div>
+        <div className="rounded border border-line bg-muted-panel/40 p-3">
+          <dt className="font-semibold text-steel">
+            {copy.exitSettlement.fields.averageWage}
+          </dt>
+          <dd className="text-ink">
+            {formatAverageDailyWage(
+              settlementPackage?.average_daily_wage_milliwon,
+            )}
+          </dd>
+          {settlementPackage?.ordinary_daily_wage_won != null ? (
+            <dd className="mt-1 text-xs text-steel">
+              {copy.exitSettlement.fields.ordinaryDailyWage}:{" "}
+              {formatWon(settlementPackage.ordinary_daily_wage_won)}
+            </dd>
+          ) : null}
+        </div>
+        <div className="rounded border border-line bg-muted-panel/40 p-3">
+          <dt className="font-semibold text-steel">
+            {copy.exitSettlement.fields.severancePay}
+          </dt>
+          <dd className="text-ink">
+            {formatWon(settlementPackage?.severance_pay_won)}
+          </dd>
+          {settlementPackage?.certification_status === "UNCERTIFIED_DRAFT" ? (
+            <dd className="mt-1">
+              <Badge className={toneBadgeClass("warning")}>
+                {copy.exitSettlement.fields.uncertifiedDraftLabel}
+              </Badge>
+            </dd>
+          ) : null}
+        </div>
+        <div className="rounded border border-line bg-muted-panel/40 p-3">
+          <dt className="font-semibold text-steel">
+            {copy.exitSettlement.fields.insuranceForms}
+          </dt>
+          <dd className="text-ink">
+            {insuranceForms > 0
+              ? copy.exitSettlement.formCount(insuranceForms)
+              : "-"}
+          </dd>
+        </div>
+      </dl>
+
+      {settlementPackage?.missing_source_fields.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {settlementPackage.missing_source_fields.map((field) => (
+            <Badge key={field} className={toneBadgeClass("warning")}>
+              {field}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button asChild type="button" size="sm" variant="secondary">
+          <Link to={`/hr/insurance?exitCase=${exitCase.id}`}>
+            {copy.exitSettlement.handleInInsurance}
+          </Link>
+        </Button>
+        <Button asChild type="button" size="sm" variant="ghost">
+          <Link to={`/approvals?source=employee-exit&focus=${exitCase.id}`}>
+            {copy.exitSettlement.trackApproval}
+          </Link>
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -427,6 +630,25 @@ function PayrollPlanPanel({
         ))}
       </ol>
     </Card>
+  );
+}
+
+function insuranceFormCount(exitCase: EmployeeExitCase): number {
+  const forms = exitCase.settlement_package?.insurance_loss_payload.forms;
+  return Array.isArray(forms) ? forms.length : 0;
+}
+
+function formatWon(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "-";
+  return copy.exitSettlement.won(new Intl.NumberFormat("ko-KR").format(value));
+}
+
+function formatAverageDailyWage(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "-";
+  return copy.exitSettlement.won(
+    new Intl.NumberFormat("ko-KR", {
+      maximumFractionDigits: 3,
+    }).format(value / 1000),
   );
 }
 

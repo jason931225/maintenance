@@ -1,4 +1,6 @@
 import {
+  AlertTriangle,
+  CheckCircle2,
   ClipboardCheck,
   FileSpreadsheet,
   Mail,
@@ -12,9 +14,16 @@ import { Link } from "react-router-dom";
 
 import type { ConsoleApiClient } from "../api/client";
 import type {
+  AbsenceExitDashboardResponse,
+  ConfirmEmployeeExitCaseRequest,
+  DraftEmployeeExitApprovalRequest,
   EmployeeDirectoryItem,
   EmployeeDirectoryPage,
+  EmployeeAbsenceAlert,
+  EmployeeExitCase,
+  ExitSettlementInput,
   HrReadinessSummary,
+  ReportEmployeeExitCaseRequest,
 } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
@@ -23,13 +32,20 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { useAuth } from "../context/auth";
 import { insuranceAssistKo as copy } from "../i18n/hrWorkflows";
+import {
+  exitCaseStatusLabel,
+  exitCaseTone,
+  exitWorkflowRoleLabel,
+} from "../lib/hrExitWorkflow";
 import type { Tone } from "../lib/semantic";
 import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
 
 type LoadState = "loading" | "idle" | "error";
+type ActionState = "idle" | "busy" | "error";
 type InsuranceReportKind =
   | "acquisition"
   | "loss"
@@ -49,7 +65,37 @@ type InsuranceAssistApi = ConsoleApiClient & {
   GET(path: "/api/v1/hr/readiness-summary"): Promise<{
     data?: HrReadinessSummary;
   }>;
+  GET(
+    path: "/api/v1/hr/absence-exit-dashboard",
+    options?: { params?: { query?: { limit?: number; offset?: number } } },
+  ): Promise<{ data?: AbsenceExitDashboardResponse }>;
+  POST(
+    path: "/api/v1/hr/exit-cases",
+    options: { body: ReportEmployeeExitCaseRequest },
+  ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
+  POST(
+    path: "/api/v1/hr/exit-cases/{id}/confirm",
+    options: {
+      params: { path: { id: string } };
+      body: ConfirmEmployeeExitCaseRequest;
+    },
+  ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
+  POST(
+    path: "/api/v1/hr/exit-cases/{id}/approval-draft",
+    options: {
+      params: { path: { id: string } };
+      body: DraftEmployeeExitApprovalRequest;
+    },
+  ): Promise<{ data?: EmployeeExitCase; error?: unknown }>;
 };
+
+/** Statuses at which the exit settlement (wage source + approval) can be worked. */
+const SETTLEMENT_WORKABLE_STATUSES = new Set([
+  "HR_CONFIRMED",
+  "HQ_CONFIRMED",
+  "SETTLEMENT_READY",
+  "APPROVAL_DRAFTED",
+]);
 
 interface InsuranceRow {
   employee: EmployeeDirectoryItem;
@@ -71,17 +117,27 @@ export function InsuranceAssistPage() {
   const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([]);
   const [readinessSummary, setReadinessSummary] =
     useState<HrReadinessSummary>();
+  const [absenceExitDashboard, setAbsenceExitDashboard] =
+    useState<AbsenceExitDashboardResponse>();
+  const [actionState, setActionState] = useState<ActionState>("idle");
+  const [actionMessage, setActionMessage] = useState<string>();
 
   const loadInsurance = useCallback(async () => {
     setState("loading");
-    const [employeesResponse, readinessResponse] = await Promise.all([
-      insuranceApi
-        .GET("/api/v1/employees", {
-          params: { query: { limit: 1000, offset: 0 } },
-        })
-        .catch(() => undefined),
-      insuranceApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
-    ]);
+    const [employeesResponse, readinessResponse, absenceExitResponse] =
+      await Promise.all([
+        insuranceApi
+          .GET("/api/v1/employees", {
+            params: { query: { limit: 1000, offset: 0 } },
+          })
+          .catch(() => undefined),
+        insuranceApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
+        insuranceApi
+          .GET("/api/v1/hr/absence-exit-dashboard", {
+            params: { query: { limit: 50, offset: 0 } },
+          })
+          .catch(() => undefined),
+      ]);
 
     if (!employeesResponse?.data || !readinessResponse?.data) {
       setState("error");
@@ -90,6 +146,7 @@ export function InsuranceAssistPage() {
 
     setEmployees(employeesResponse.data.items);
     setReadinessSummary(readinessResponse.data);
+    setAbsenceExitDashboard(absenceExitResponse?.data);
     setState("idle");
   }, [insuranceApi]);
 
@@ -105,6 +162,126 @@ export function InsuranceAssistPage() {
         missingFields: insuranceMissingFields(employee),
       })),
     [employees],
+  );
+
+  const reportExitFromAlert = useCallback(
+    async (alert: EmployeeAbsenceAlert) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        const { error } = await insuranceApi.POST("/api/v1/hr/exit-cases", {
+          body: {
+            employee_id: alert.employee_id,
+            branch_id: alert.branch_id ?? undefined,
+            absence_alert_id: alert.id,
+            effective_exit_date: alert.work_date,
+            site_manager_note: copy.exitWorkflow.reportNote(alert.work_date),
+          },
+        });
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.reportFailed);
+          return;
+        }
+        setActionState("idle");
+        setActionMessage(copy.exitWorkflow.reportCreated);
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage(copy.exitWorkflow.reportFailed);
+      }
+    },
+    [insuranceApi, loadInsurance],
+  );
+
+  const confirmExitCase = useCallback(
+    async (exitCase: EmployeeExitCase, hqConfirmation: boolean) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        const { error } = await insuranceApi.POST(
+          "/api/v1/hr/exit-cases/{id}/confirm",
+          {
+            params: { path: { id: exitCase.id } },
+            body: {
+              decision: "CONFIRM",
+              hq_confirmation: hqConfirmation,
+              note: hqConfirmation
+                ? copy.exitWorkflow.hqConfirmNote
+                : copy.exitWorkflow.hrConfirmNote,
+            },
+          },
+        );
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.confirmFailed);
+          return;
+        }
+        setActionState("idle");
+        setActionMessage(copy.exitWorkflow.confirmDone);
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage(copy.exitWorkflow.confirmFailed);
+      }
+    },
+    [insuranceApi, loadInsurance],
+  );
+
+  const draftSettlement = useCallback(
+    async (caseId: string, input: ExitSettlementInput) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        const { error } = await insuranceApi.POST(
+          "/api/v1/hr/exit-cases/{id}/approval-draft",
+          {
+            params: { path: { id: caseId } },
+            body: { submit: false, settlement_input: input },
+          },
+        );
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.wageSource.draftFailed);
+          return;
+        }
+        setActionState("idle");
+        setActionMessage(copy.exitWorkflow.wageSource.draftCreated);
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage(copy.exitWorkflow.wageSource.draftFailed);
+      }
+    },
+    [insuranceApi, loadInsurance],
+  );
+
+  const submitSettlement = useCallback(
+    async (caseId: string) => {
+      setActionState("busy");
+      setActionMessage(undefined);
+      try {
+        const { error } = await insuranceApi.POST(
+          "/api/v1/hr/exit-cases/{id}/approval-draft",
+          {
+            params: { path: { id: caseId } },
+            body: { submit: true },
+          },
+        );
+        if (error) {
+          setActionState("error");
+          setActionMessage(copy.exitWorkflow.wageSource.submitFailed);
+          return;
+        }
+        setActionState("idle");
+        setActionMessage(copy.exitWorkflow.wageSource.submitDone);
+        await loadInsurance();
+      } catch {
+        setActionState("error");
+        setActionMessage(copy.exitWorkflow.wageSource.submitFailed);
+      }
+    },
+    [insuranceApi, loadInsurance],
   );
 
   return (
@@ -135,12 +312,400 @@ export function InsuranceAssistPage() {
         {state === "idle" && readinessSummary ? (
           <>
             <InsuranceOverviewPanel rows={rows} readinessSummary={readinessSummary} />
+            {absenceExitDashboard ? (
+              <AbsenceExitWorkflowPanel
+                dashboard={absenceExitDashboard}
+                busy={actionState === "busy"}
+                onReportExit={(alert) => {
+                  void reportExitFromAlert(alert);
+                }}
+                onConfirmExit={(exitCase, hqConfirmation) => {
+                  void confirmExitCase(exitCase, hqConfirmation);
+                }}
+                onDraftSettlement={(caseId, input) => {
+                  void draftSettlement(caseId, input);
+                }}
+                onSubmitSettlement={(caseId) => {
+                  void submitSettlement(caseId);
+                }}
+              />
+            ) : null}
+            {actionMessage ? (
+              <p
+                role={actionState === "error" ? "alert" : "status"}
+                className={[
+                  "text-sm font-semibold",
+                  actionState === "error" ? "text-red-700" : "text-brand-teal",
+                ].join(" ")}
+              >
+                {actionMessage}
+              </p>
+            ) : null}
             <InsuranceWorkflowPanel readinessSummary={readinessSummary} />
             <InsuranceRosterPanel rows={rows} />
           </>
         ) : null}
       </div>
     </>
+  );
+}
+
+function AbsenceExitWorkflowPanel({
+  dashboard,
+  busy,
+  onReportExit,
+  onConfirmExit,
+  onDraftSettlement,
+  onSubmitSettlement,
+}: {
+  dashboard: AbsenceExitDashboardResponse;
+  busy: boolean;
+  onReportExit: (alert: EmployeeAbsenceAlert) => void;
+  onConfirmExit: (exitCase: EmployeeExitCase, hqConfirmation: boolean) => void;
+  onDraftSettlement: (caseId: string, input: ExitSettlementInput) => void;
+  onSubmitSettlement: (caseId: string) => void;
+}) {
+  const summary = [
+    {
+      label: copy.exitWorkflow.summary.absenceWarnings,
+      value: dashboard.summary.open_absence_alerts,
+      tone: "warning" as Tone,
+    },
+    {
+      label: copy.exitWorkflow.summary.pendingHr,
+      value: dashboard.summary.exit_cases_pending_hr,
+      tone: "info" as Tone,
+    },
+    {
+      label: copy.exitWorkflow.summary.sourceNeeded,
+      value: dashboard.summary.settlement_needs_source,
+      tone: "danger" as Tone,
+    },
+    {
+      label: copy.exitWorkflow.summary.approvalReady,
+      value: dashboard.summary.settlement_ready,
+      tone: "success" as Tone,
+    },
+  ];
+
+  return (
+    <Card className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">
+            {copy.exitWorkflow.title}
+          </h2>
+          <p className="text-sm text-steel">{copy.exitWorkflow.description}</p>
+        </div>
+        <Button asChild size="sm" variant="secondary">
+          <Link to="/payroll?workflow=exit-settlement">
+            <FileSpreadsheet size={16} aria-hidden="true" />
+            {copy.exitWorkflow.payrollLink}
+          </Link>
+        </Button>
+      </div>
+
+      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {summary.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-lg border border-line bg-muted-panel/40 p-3"
+          >
+            <dt className="text-xs font-semibold text-steel">{item.label}</dt>
+            <dd className="mt-1 flex items-center gap-2 text-2xl font-semibold text-ink">
+              <Badge className={toneBadgeClass(item.tone)}>
+                {formatListCount(item.value)}
+              </Badge>
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        <section className="grid gap-3 rounded-lg border border-line bg-white p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-700" aria-hidden="true" />
+            <h3 className="font-semibold text-ink">
+              {copy.exitWorkflow.absenceTitle}
+            </h3>
+          </div>
+          {dashboard.alerts.length === 0 ? (
+            <p className="text-sm text-steel">
+              {copy.exitWorkflow.absenceEmpty}
+            </p>
+          ) : (
+            <ul className="grid gap-3">
+              {dashboard.alerts.slice(0, 5).map((alert) => (
+                <li key={alert.id} className="grid gap-2 rounded border border-line p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {alert.employee_name} · {alert.work_date}
+                      </p>
+                      <p className="text-xs text-steel">
+                        {display(alert.company)} / {display(alert.branch_name ?? alert.worksite_name)}
+                      </p>
+                    </div>
+                    <Badge className={toneBadgeClass("warning")}>
+                      {alert.severity}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-steel">{alert.notification_message}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {alert.audience_roles.map((role) => (
+                      <Badge key={role} className={toneBadgeClass("info")}>
+                        {roleLabel(role)}
+                      </Badge>
+                    ))}
+                  </div>
+                  {alert.exit_case_id ? (
+                    <Button asChild size="xs" variant="ghost" className="justify-self-start">
+                      <Link to={`/payroll?exitCase=${alert.exit_case_id}`}>
+                        {copy.exitWorkflow.settlementCase}
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="secondary"
+                      className="justify-self-start"
+                      disabled={busy}
+                      onClick={() => {
+                        onReportExit(alert);
+                      }}
+                    >
+                      <UserX size={14} aria-hidden="true" />
+                      {copy.exitWorkflow.createExitCase}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="grid gap-3 rounded-lg border border-line bg-white p-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-emerald-700" aria-hidden="true" />
+            <h3 className="font-semibold text-ink">
+              {copy.exitWorkflow.confirmationTitle}
+            </h3>
+          </div>
+          {dashboard.exit_cases.length === 0 ? (
+            <p className="text-sm text-steel">
+              {copy.exitWorkflow.confirmationEmpty}
+            </p>
+          ) : (
+            <ul className="grid gap-3">
+              {dashboard.exit_cases.slice(0, 5).map((exitCase) => (
+                <ExitCaseConfirmItem
+                  key={exitCase.id}
+                  exitCase={exitCase}
+                  busy={busy}
+                  onConfirmExit={onConfirmExit}
+                  onDraftSettlement={onDraftSettlement}
+                  onSubmitSettlement={onSubmitSettlement}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The exit-settlement mutation surface: wage-source entry, severance-draft
+ * generation, and approval submission. This is the READ/WRITE counterpart to
+ * PayrollPage's read-only severance display — see check:payroll-release-gate,
+ * which forbids mutation API calls on the payroll readiness page.
+ */
+function ExitCaseConfirmItem({
+  exitCase,
+  busy,
+  onConfirmExit,
+  onDraftSettlement,
+  onSubmitSettlement,
+}: {
+  exitCase: EmployeeExitCase;
+  busy: boolean;
+  onConfirmExit: (exitCase: EmployeeExitCase, hqConfirmation: boolean) => void;
+  onDraftSettlement: (caseId: string, input: ExitSettlementInput) => void;
+  onSubmitSettlement: (caseId: string) => void;
+}) {
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [calendarDays, setCalendarDays] = useState("");
+  const [totalWon, setTotalWon] = useState("");
+  const [ordinaryWage, setOrdinaryWage] = useState("");
+
+  const settlementPackage = exitCase.settlement_package;
+  const workable = SETTLEMENT_WORKABLE_STATUSES.has(exitCase.status);
+  const packageReady =
+    settlementPackage?.severance_pay_won != null &&
+    settlementPackage.missing_source_fields.length === 0;
+  const submitted = exitCase.status === "SUBMITTED";
+  const wageCopy = copy.exitWorkflow.wageSource;
+
+  const draftReady =
+    periodStart !== "" &&
+    periodEnd !== "" &&
+    calendarDays !== "" &&
+    totalWon !== "" &&
+    ordinaryWage !== "";
+
+  return (
+    <li className="grid gap-2 rounded border border-line p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-ink">
+            {exitCase.employee_name} · {exitCase.effective_exit_date}
+          </p>
+          <p className="text-xs text-steel">
+            {display(exitCase.company)} / {display(exitCase.branch_name ?? exitCase.worksite_name)}
+          </p>
+        </div>
+        <Badge className={toneBadgeClass(exitCaseTone(exitCase.status))}>
+          {exitCaseStatusLabel(exitCase.status, copy.exitWorkflow.status)}
+        </Badge>
+      </div>
+      <p className="text-sm text-steel">{exitCase.site_manager_note}</p>
+      <div className="flex flex-wrap gap-2">
+        {exitCase.status === "REPORTED" ? (
+          <Button
+            type="button"
+            size="xs"
+            disabled={busy}
+            onClick={() => {
+              onConfirmExit(exitCase, false);
+            }}
+          >
+            {copy.exitWorkflow.hrConfirm}
+          </Button>
+        ) : null}
+        {/* HQ confirmation is a distinct second tier: the backend
+            state machine only allows it once a DIFFERENT actor has
+            recorded the HR confirmation (status HR_CONFIRMED), so
+            the button appears only then. */}
+        {exitCase.status === "HR_CONFIRMED" ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              onConfirmExit(exitCase, true);
+            }}
+          >
+            {copy.exitWorkflow.hqConfirm}
+          </Button>
+        ) : null}
+        <Button asChild type="button" size="xs" variant="ghost">
+          <Link to={`/payroll?exitCase=${exitCase.id}`}>
+            {copy.exitWorkflow.settlementMaterial}
+          </Link>
+        </Button>
+      </div>
+
+      {!submitted && workable ? (
+        <form
+          className="grid gap-3 rounded-lg border border-line bg-muted-panel/30 p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onDraftSettlement(exitCase.id, {
+              average_wage_period_start: periodStart,
+              average_wage_period_end: periodEnd,
+              average_wage_calendar_days: Number(calendarDays),
+              average_wage_total_won: Number(totalWon),
+              monthly_ordinary_wage_won: Number(ordinaryWage),
+            });
+          }}
+        >
+          <div>
+            <h4 className="font-semibold text-ink">{wageCopy.title}</h4>
+            <p className="text-xs text-steel">{wageCopy.description}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.periodStart}
+              <Input
+                type="date"
+                value={periodStart}
+                onChange={(event) => {
+                  setPeriodStart(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.periodEnd}
+              <Input
+                type="date"
+                value={periodEnd}
+                onChange={(event) => {
+                  setPeriodEnd(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.calendarDays}
+              <Input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                value={calendarDays}
+                onChange={(event) => {
+                  setCalendarDays(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.totalWon}
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={totalWon}
+                onChange={(event) => {
+                  setTotalWon(event.currentTarget.value);
+                }}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-steel">
+              {wageCopy.monthlyOrdinaryWage}
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={ordinaryWage}
+                onChange={(event) => {
+                  setOrdinaryWage(event.currentTarget.value);
+                }}
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="submit" size="sm" disabled={busy || !draftReady}>
+              {busy ? wageCopy.generating : wageCopy.generateDraft}
+            </Button>
+            {packageReady ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  onSubmitSettlement(exitCase.id);
+                }}
+              >
+                {busy ? wageCopy.submitting : wageCopy.submit}
+              </Button>
+            ) : null}
+          </div>
+        </form>
+      ) : null}
+    </li>
   );
 }
 
@@ -391,6 +956,10 @@ function InsuranceRosterPanel({ rows }: { rows: InsuranceRow[] }) {
   );
 }
 
+function roleLabel(role: string): string {
+  return exitWorkflowRoleLabel(role, copy.exitWorkflow.roles);
+}
+
 function insuranceReport(employee: EmployeeDirectoryItem): InsuranceReport {
   if (employee.exit_date || employee.status === "EXITED") {
     return {
@@ -460,4 +1029,8 @@ function isActiveEmployee(employee: EmployeeDirectoryItem): boolean {
 function text(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "-";
   return String(value);
+}
+
+function display(value: string | number | null | undefined): string {
+  return text(value);
 }

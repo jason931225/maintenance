@@ -28,7 +28,8 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
-const DEV_AUTH_SPEC = /auth-09-dev-role-switcher\.spec\.ts$/;
+const DEV_AUTH_SPEC =
+  /(?:auth-09-dev-role-switcher|hr-30-absence-exit-settlement)\.spec\.ts$/;
 const DEV_AUTH_E2E = process.env.MNT_DEV_AUTH_E2E === "1";
 
 export default defineConfig({

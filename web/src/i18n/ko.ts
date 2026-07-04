@@ -4,6 +4,10 @@ import {
   SALES_PHONE_DISPLAY,
   SALES_PHONE_HREF,
 } from "../lib/contact";
+import {
+  exitCaseStatusLabels,
+  uncertifiedSettlementDraftLabel,
+} from "./hrWorkflows";
 
 export const ko = {
   nav: {
@@ -158,6 +162,32 @@ export const ko = {
           "인건비, 가동률, 결근/지각, 휴가 사용률, 부서별 인력 부하를 KPI와 보고서 원천으로 연결합니다.",
       },
     ],
+    exitSettlement: {
+      summary: {
+        absenceWarnings: "결근 경고",
+        sourceNeeded: "임금 원천 필요",
+        ready: "상신 준비",
+        submitted: "상신 완료",
+      },
+      title: "퇴직금·상실신고 정산",
+      description:
+        "HR 확인된 퇴사 케이스의 평균임금 원천, 퇴직금 산출액, 4대보험 상실신고 자료를 함께 확인합니다.",
+      insuranceLink: "상실신고 보조",
+      empty: "결근 경고에서 이어진 퇴사 정산 케이스가 없습니다.",
+      fields: {
+        serviceDays: "근속일",
+        averageWage: "평균임금",
+        ordinaryDailyWage: "통상일급",
+        severancePay: "퇴직금 산출액",
+        insuranceForms: "상실신고 서식",
+        uncertifiedDraftLabel: uncertifiedSettlementDraftLabel,
+      },
+      formCount: (count: number) => `${String(count)}종`,
+      trackApproval: "전자결제 추적",
+      handleInInsurance: "정산·상신 처리",
+      status: exitCaseStatusLabels,
+      won: (value: string) => `${value}원`,
+    },
   },
   intelligence: {
     title: "운영 인텔리전스",
@@ -3331,6 +3361,13 @@ export const ko = {
     refresh: "새로고침",
     open: "열기",
     selectedPlan: "선택한 계획",
+    absenceWarning: {
+      title: "결근 이상징후 경고",
+      description:
+        "결근 발생 시 사업장 관리자, 담당 HR, HQ HR, 급여, 4대보험 상실 신고자에게 이어지는 후속 조치입니다.",
+      proceedExit: "퇴사 확인 진행",
+      payrollImpact: "급여 영향 확인",
+    },
     statuses: {
       DRAFT: "작성 중",
       REQUESTED: "검토 요청됨",

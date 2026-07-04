@@ -1,3 +1,23 @@
+import type { EmployeeExitCaseStatus } from "../api/types";
+
+// Uncertified-draft marker for a severance/settlement figure. MUST derive
+// from the API-provided `certification_status` on every rendering surface —
+// never hand-placed unconditionally (0093 pre-mortem #4: a human must never
+// be able to file an uncertified figure with MOEL/NHIS because a label was
+// missing on one surface).
+export const uncertifiedSettlementDraftLabel = "산정 초안 — 노무사 검증 전";
+
+export const exitCaseStatusLabels = {
+  REPORTED: "HR 확인 대기",
+  HR_CONFIRMED: "사업장 HR 확인",
+  HQ_CONFIRMED: "HQ HR 확인",
+  SETTLEMENT_READY: "정산 준비",
+  APPROVAL_DRAFTED: "결제 초안",
+  SUBMITTED: "결제 상신",
+  REJECTED: "반려",
+  CANCELLED: "취소",
+} satisfies Record<EmployeeExitCaseStatus, string>;
+
 export const approvalDocumentDeskKo = {
   title: "전자결재 문서·연동 데스크",
   description:
@@ -218,6 +238,62 @@ export const insuranceAssistKo = {
       detail: (payrollCount: string, attendanceCount: string) =>
         `급여 원천 ${payrollCount}건과 근태 원천 ${attendanceCount}건을 신고 전 점검합니다.`,
     },
+  },
+  exitWorkflow: {
+    reportNote: (date: string) => `결근 경고(${date}) 기반 퇴사 확인 요청`,
+    reportCreated: "퇴사 확인 케이스를 생성했습니다.",
+    reportFailed: "퇴사 확인 케이스를 생성하지 못했습니다.",
+    hqConfirmNote: "HQ 인사 확인",
+    hrConfirmNote: "사업장 인사 확인",
+    confirmDone: "퇴사 확인과 정산 패키지 생성을 반영했습니다.",
+    confirmFailed: "퇴사 확인을 반영하지 못했습니다.",
+    summary: {
+      absenceWarnings: "결근 경고",
+      pendingHr: "HR 확인 대기",
+      sourceNeeded: "임금 원천 필요",
+      approvalReady: "결제상신 준비",
+    },
+    title: "결근·퇴사·상실신고 경고",
+    description:
+      "결근 이상징후에서 퇴사 확인, 4대보험 상실신고, 퇴직금 정산까지 이어집니다.",
+    payrollLink: "급여 정산으로 이동",
+    absenceTitle: "결근 이상징후",
+    absenceEmpty: "현재 열린 결근 경고가 없습니다.",
+    settlementCase: "정산 케이스 보기",
+    createExitCase: "퇴사 확인 케이스 생성",
+    confirmationTitle: "퇴사 확인 및 상실신고 준비",
+    confirmationEmpty: "진행 중인 퇴사 확인 케이스가 없습니다.",
+    hrConfirm: "사업장 HR 확인",
+    hqConfirm: "HQ HR 확인",
+    settlementMaterial: "퇴직금/상실신고 자료 보기",
+    wageSource: {
+      title: "평균임금 원천 입력",
+      description:
+        "HR·HQ 확인이 끝난 케이스의 평균임금 산정 기간과 통상임금을 입력하면 퇴직금 초안을 산출합니다.",
+      awaitingConfirmation:
+        "HR·HQ 확인이 끝난 뒤 평균임금 원천을 입력할 수 있습니다.",
+      periodStart: "산정 시작일",
+      periodEnd: "산정 종료일",
+      calendarDays: "산정 역일수",
+      totalWon: "산정 기간 임금총액(원)",
+      monthlyOrdinaryWage: "월 통상임금(원)",
+      generateDraft: "정산 초안 산출",
+      generating: "산출 중…",
+      submit: "승인 상신",
+      submitting: "상신 중…",
+      draftCreated: "퇴직금 정산 초안을 산출했습니다.",
+      draftFailed: "정산 초안을 산출하지 못했습니다. 원천 값을 확인하세요.",
+      submitDone: "퇴직금 정산을 승인 상신했습니다.",
+      submitFailed: "승인 상신에 실패했습니다.",
+    },
+    roles: {
+      site_manager: "사업장 관리자",
+      employee_hr_manager: "담당 HR",
+      hq_hr_manager: "HQ HR",
+      payroll_manager: "급여 담당",
+      insurance_loss_reporter: "4대보험 상실 신고",
+    },
+    status: exitCaseStatusLabels,
   },
   roster: {
     title: "신고 대상자 점검",

@@ -185,10 +185,28 @@ pub enum Feature {
     /// Import/manage tenant HR employee rows. ADMIN + SUPER_ADMIN only; employees
     /// are deliberately not auth users.
     EmployeeDirectoryManage,
+    /// Report a staff exit case (무단결근 → 퇴사 보고). The branch/site manager
+    /// tier — ADMIN + SUPER_ADMIN. Distinct from HR/HQ confirmation so a site
+    /// manager can open a case without holding the confirmation authority.
+    ExitCaseReport,
+    /// First-tier (HR) confirmation of a reported exit case. ADMIN + SUPER_ADMIN.
+    /// Separation of duties: the code additionally requires the HQ confirmer to
+    /// differ from the recorded HR confirmer, so holding this capability is
+    /// necessary but not sufficient to also HQ-confirm the same case.
+    ExitCaseHrConfirm,
+    /// Second-tier (HQ) confirmation of an already HR-confirmed exit case.
+    /// EXECUTIVE + SUPER_ADMIN — the headquarters/leadership tier, mirroring the
+    /// org-wide tier of [`OrgWideQueueTriage`]. The client `hq_confirmation`
+    /// boolean is NOT the authority: this capability plus a prior HR_CONFIRMED by
+    /// a DIFFERENT actor is.
+    ExitCaseHqConfirm,
+    /// Generate/draft the exit settlement package + submit it for approval
+    /// (퇴직 정산 초안/승인 상신). ADMIN + SUPER_ADMIN — the HR settlement tier.
+    ExitSettlementManage,
 }
 
 impl Feature {
-    pub const ALL: [Self; 45] = [
+    pub const ALL: [Self; 49] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -234,6 +252,10 @@ impl Feature {
         Self::MailUse,
         Self::EmployeeDirectoryRead,
         Self::EmployeeDirectoryManage,
+        Self::ExitCaseReport,
+        Self::ExitCaseHrConfirm,
+        Self::ExitCaseHqConfirm,
+        Self::ExitSettlementManage,
     ];
 
     #[must_use]
@@ -284,6 +306,10 @@ impl Feature {
             Self::MailUse => "mail_use",
             Self::EmployeeDirectoryRead => "employee_directory_read",
             Self::EmployeeDirectoryManage => "employee_directory_manage",
+            Self::ExitCaseReport => "exit_case_report",
+            Self::ExitCaseHrConfirm => "exit_case_hr_confirm",
+            Self::ExitCaseHqConfirm => "exit_case_hq_confirm",
+            Self::ExitSettlementManage => "exit_settlement_manage",
         }
     }
 
@@ -350,6 +376,17 @@ impl Feature {
             Self::MailUse => [D, A, D, A, A, A],
             Self::EmployeeDirectoryRead => [D, D, D, A, A, A],
             Self::EmployeeDirectoryManage => [D, D, D, A, D, A],
+            // Separation of duties across the absence → exit → settlement chain.
+            // Report + HR confirm + settlement are the branch HR/manager tier
+            // (ADMIN + SUPER_ADMIN); HQ confirm is the org-wide leadership tier
+            // (EXECUTIVE + SUPER_ADMIN), matching OrgWideQueueTriage. A single
+            // SUPER_ADMIN could hold both confirm cells, but the confirm handler's
+            // distinct-actor check still forbids one person from doing both tiers
+            // on the same case.
+            Self::ExitCaseReport => [D, D, D, A, D, A],
+            Self::ExitCaseHrConfirm => [D, D, D, A, D, A],
+            Self::ExitCaseHqConfirm => [D, D, D, D, A, A],
+            Self::ExitSettlementManage => [D, D, D, A, D, A],
         }
     }
 }
@@ -404,6 +441,10 @@ impl FromStr for Feature {
             "mail_use" => Ok(Self::MailUse),
             "employee_directory_read" => Ok(Self::EmployeeDirectoryRead),
             "employee_directory_manage" => Ok(Self::EmployeeDirectoryManage),
+            "exit_case_report" => Ok(Self::ExitCaseReport),
+            "exit_case_hr_confirm" => Ok(Self::ExitCaseHrConfirm),
+            "exit_case_hq_confirm" => Ok(Self::ExitCaseHqConfirm),
+            "exit_settlement_manage" => Ok(Self::ExitSettlementManage),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
