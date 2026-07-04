@@ -1,8 +1,13 @@
 //! M2 workflow-runtime payroll outbox drainer (design §B/§F).
 //!
 //! A single background task (mirroring `mail_sync::spawn`) ticks on a fixed
-//! cadence and, PER tenant, drains the JOB payroll outbox into idempotent
-//! `payroll_draft_runs` staging rows via the workflow runtime adapter.
+//! cadence and, PER tenant, (1) runs the crash-recovery reconciler
+//! (`m2_strangler::reconcile_completion_tails`) to restage any FINAL_COMPLETED work
+//! order whose runtime tail died before recording a run, then (2) drains the JOB
+//! payroll outbox into idempotent `payroll_draft_runs` staging rows via the workflow
+//! runtime adapter. Reconciling before draining means a tail restaged this tick is
+//! drained into a payroll draft in the same tick. Both steps are dark-safe no-ops
+//! for un-enrolled tenants.
 //!
 //! Because the app connects as the non-owner `mnt_rt` role under RLS, the loop
 //! cannot see any tenant's rows without arming `app.current_org`. Each tick:
@@ -99,6 +104,33 @@ async fn run_tick(pool: &sqlx::PgPool, store: &PgWorkflowRuntimeStore) {
 
     for org_uuid in orgs {
         let org = OrgId::from_uuid(org_uuid);
+
+        // Recovery reconciler (crash-safety): the legacy path commits FINAL_COMPLETED
+        // and only then runs the runtime tail in a separate txn — a crash in between
+        // leaves a completed work order with no run, so no outbox event for the
+        // drainer to claim. Re-drive those orphaned tails idempotently BEFORE
+        // draining, so a tail restaged this tick is drained into a payroll draft in
+        // the same tick. Dark-safe: a no-op unless the tenant is flag-on with a
+        // published completion definition.
+        match scope_org(
+            org,
+            mnt_workorder_rest::m2_strangler::reconcile_completion_tails(store, org),
+        )
+        .await
+        {
+            Ok(0) => {}
+            Ok(restaged) => tracing::info!(
+                org = %org,
+                restaged,
+                "workflow drain: reconciler restaged crash-orphaned completion tails"
+            ),
+            Err(err) => tracing::warn!(
+                org = %org,
+                error = %err,
+                "workflow drain: reconciler pass failed"
+            ),
+        }
+
         // Re-enter the tenant scope before the adapter call. The adapter arms
         // app.current_org from the org argument for its own txn; scope_org keeps
         // CURRENT_ORG consistent for any task-local reader on this path.

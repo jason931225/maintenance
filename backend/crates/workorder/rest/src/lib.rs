@@ -55,7 +55,11 @@ use time::format_description::well_known::Rfc3339;
 // strings the web/mobile clients send. This module aligns the wire format.
 time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
-mod m2_strangler;
+/// M2 workflow-runtime strangler seam. `pub` so the app's outbox drain worker can
+/// call the crash-recovery reconciler ([`m2_strangler::reconcile_completion_tails`])
+/// and so the completion tail can be driven directly in integration tests; the REST
+/// entry (`drive_completion_if_enabled`) stays crate-private.
+pub mod m2_strangler;
 
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";

@@ -120,6 +120,55 @@ impl PgWorkflowRuntimeStore {
         .map_err(KernelError::from)
     }
 
+    /// Load a run by its tenant-scoped natural `idempotency_key`
+    /// (`UNIQUE(org_id, idempotency_key)`, 0077:34), read as `mnt_rt` under the
+    /// armed `app.current_org` (via `with_org_conn`). Used by the completion-tail
+    /// strangler to RESUME an existing (partial) run on the deterministic
+    /// completion-key conflict instead of aborting: the caller derives the same
+    /// `run_completion_key`, and this returns the run already recorded under it so
+    /// the tail continues idempotently. `None` when no run exists for that key.
+    pub async fn load_run_by_idempotency_key(
+        &self,
+        org: OrgId,
+        idempotency_key: String,
+    ) -> Result<Option<RunRecord>, KernelError> {
+        with_org_conn::<_, Option<RunRecord>, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT id, org_id, status, definition_id, definition_version, \
+                            object_type, object_id \
+                     FROM workflow_runs WHERE idempotency_key = $1",
+                )
+                .bind(idempotency_key)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let Some(row) = row else {
+                    return Ok(None);
+                };
+                let status_str: String = row.try_get("status")?;
+                let id: Uuid = row.try_get("id")?;
+                let org_uuid: Uuid = row.try_get("org_id")?;
+                let definition_id: Uuid = row.try_get("definition_id")?;
+                let definition_version: i32 = row.try_get("definition_version")?;
+                let object_type: Option<String> = row.try_get("object_type")?;
+                let object_id: Option<Uuid> = row.try_get("object_id")?;
+                Ok(Some(RunRecord {
+                    id,
+                    org_id: OrgId::from_uuid(org_uuid),
+                    status: RunStatus::from_db_str(&status_str)?,
+                    definition_id,
+                    definition_version,
+                    object_type,
+                    object_id,
+                }))
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+
     /// STEP 5 — drain up to `limit` PENDING/FAILED JOB payroll outbox events for
     /// `org` in ONE `with_audits` transaction (design §F). For each event claimed
     /// with `FOR UPDATE SKIP LOCKED` (matching the partial index
@@ -399,12 +448,19 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                     } = commit;
                     let org_uuid = *org.as_uuid();
 
-                    // 1. Insert the node run PENDING.
+                    // 1. Insert the node run PENDING. ON CONFLICT DO NOTHING on the
+                    //    reused UNIQUE(org_id, idempotency_key) (0077:69) so a RESUMED
+                    //    completion tail (a reconciler re-drive after a crash) does not
+                    //    23505-abort on a node it already recorded — the node key is
+                    //    deterministic (node:{run_id}:{node_key}:{attempt}), so a re-run
+                    //    of the same node is a no-op and the subsequent status UPDATEs
+                    //    (guarded on the fresh node id) simply match zero rows.
                     sqlx::query(
                         "INSERT INTO workflow_node_runs \
                              (id, org_id, run_id, node_key, node_type, status, attempt, \
                               idempotency_key, input_payload) \
-                         VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8)",
+                         VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8) \
+                         ON CONFLICT (org_id, idempotency_key) DO NOTHING",
                     )
                     .bind(new_node.id)
                     .bind(org_uuid)
@@ -429,13 +485,17 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                     .await
                     .map_err(PgWorkflowRuntimeError::from)?;
 
-                    // 3. Transactional-outbox emissions.
+                    // 3. Transactional-outbox emissions. ON CONFLICT DO NOTHING on the
+                    //    reused UNIQUE(org_id, idempotency_key) (0077:149) so re-running
+                    //    a node whose emission was already enqueued (a resumed tail)
+                    //    never duplicates the outbox row nor 23505-aborts.
                     for emission in emissions {
                         sqlx::query(
                             "INSERT INTO workflow_outbox_events \
                                  (org_id, run_id, node_run_id, channel, destination_ref, \
                                   idempotency_key, status, payload) \
-                             VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7)",
+                             VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7) \
+                             ON CONFLICT (org_id, idempotency_key) DO NOTHING",
                         )
                         .bind(org_uuid)
                         .bind(new_node.run_id)

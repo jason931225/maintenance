@@ -118,7 +118,11 @@ requireMatches(
 for (const table of ["workflow_runs", "workflow_node_runs", "workflow_outbox_events"]) {
   requireIncludes(e2e, E2E, table, `the E2E drives the spine table ${table}`);
 }
-for (const state of ["'STARTING'", "'RUNNING'", "'WAITING'"]) {
+// The completion tail's run FSM walks STARTING→RUNNING→SUCCEEDED: the payroll JOB
+// node is terminal (production emit_payroll sets run_target=SUCCEEDED), so the run
+// lands SUCCEEDED rather than parking WAITING (the strangler treats the approval
+// gate as an already-satisfied precondition).
+for (const state of ["'STARTING'", "'RUNNING'", "'SUCCEEDED'"]) {
   requireIncludes(e2e, E2E, state, `the E2E walks the run FSM through ${state}`);
 }
 for (const state of ["'PENDING'", "'SUCCEEDED'"]) {

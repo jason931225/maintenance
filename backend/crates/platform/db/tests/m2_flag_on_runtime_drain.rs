@@ -7,9 +7,12 @@
 //! With the per-tenant `workflow_runtime_m2_strangler` flag turned ON for a single
 //! TEST tenant (enrolled here, never in a shipped migration/seed), the new runtime:
 //!   1. drives one run→node finite-state machine on the reused ADR-0018 spine
-//!      (`workflow_runs` STARTING→RUNNING→WAITING, `workflow_node_runs`
+//!      (`workflow_runs` STARTING→RUNNING→SUCCEEDED, `workflow_node_runs`
 //!      PENDING→RUNNING→SUCCEEDED, one `workflow_outbox_events` JOB row), creating
-//!      exactly ONE `workflow_runs` row for the tenant;
+//!      exactly ONE `workflow_runs` row for the tenant. The payroll JOB node leaves
+//!      the run SUCCEEDED — matching production `emit_payroll` (run_target=SUCCEEDED),
+//!      not WAITING (the strangler treats the approval gate as an already-satisfied
+//!      precondition, so the tail never parks);
 //!   2. drains the JOB outbox event (`FOR UPDATE SKIP LOCKED`) and, keyed on the
 //!      deterministic per-run natural key `workflow_runtime_m2:run:{run_id}`,
 //!      creates exactly ONE `payroll_draft_runs` row landing status
@@ -241,8 +244,9 @@ async fn start_run(pool: &PgPool, org: Uuid, definition_id: Uuid, version: i32) 
 
 /// Process the terminal payroll node in ONE transaction (the transactional-outbox
 /// pattern): the node walks PENDING→RUNNING→SUCCEEDED, emits exactly one JOB
-/// outbox event to `internal.jobs`, and the run parks in WAITING (blocked on the
-/// legal gate). Returns `(node_run_id, outbox_idempotency_key)`.
+/// outbox event to `internal.jobs`, and the run lands SUCCEEDED — matching
+/// production `emit_payroll` (run_target=SUCCEEDED). Returns
+/// `(node_run_id, outbox_idempotency_key)`.
 async fn process_payroll_node(pool: &PgPool, org: Uuid, run_id: Uuid) -> (Uuid, String) {
     let node_run_id = Uuid::new_v4();
     let outbox_idempotency_key = format!("outbox:{run_id}:{node_run_id}:job:payroll_draft");
@@ -287,7 +291,10 @@ async fn process_payroll_node(pool: &PgPool, org: Uuid, run_id: Uuid) -> (Uuid, 
     .await
     .unwrap();
 
-    // Node SUCCEEDED (it enqueued the job); run parks in WAITING on the legal gate.
+    // Node SUCCEEDED (it enqueued the job); run lands SUCCEEDED — the payroll JOB
+    // node is the tail's terminal step, exactly as production emit_payroll drives it
+    // (run_target=SUCCEEDED). completed_at is stamped so the 0077 terminal-timestamp
+    // CHECK matches the adapter's run_transition write.
     sqlx::query(
         "UPDATE workflow_node_runs \
          SET status = 'SUCCEEDED', finished_at = now(), updated_at = now(), \
@@ -299,11 +306,15 @@ async fn process_payroll_node(pool: &PgPool, org: Uuid, run_id: Uuid) -> (Uuid, 
     .execute(&mut *tx)
     .await
     .unwrap();
-    sqlx::query("UPDATE workflow_runs SET status = 'WAITING', updated_at = now() WHERE id = $1")
-        .bind(run_id)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE workflow_runs \
+         SET status = 'SUCCEEDED', completed_at = now(), updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(run_id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
 
     tx.commit().await.unwrap();
     (node_run_id, outbox_idempotency_key)
@@ -665,11 +676,11 @@ async fn flag_on_runtime_drives_one_run_and_one_blocked_legal_gate_draft(pool: P
         "a BLOCKED_LEGAL_GATE draft must keep calculation disabled (fails closed)"
     );
 
-    // The run parks WAITING on the legal gate; the outbox event is DELIVERED.
+    // The run lands SUCCEEDED (matching production emit_payroll); outbox DELIVERED.
     let (run_status, outbox_status) = run_and_outbox_status(&pool, TEST_TENANT, run_id).await;
     assert_eq!(
-        run_status, "WAITING",
-        "the run must park in WAITING on the legal gate after emitting the payroll job"
+        run_status, "SUCCEEDED",
+        "the run must land SUCCEEDED after emitting the payroll job (production emit_payroll sets run_target=SUCCEEDED)"
     );
     assert_eq!(
         outbox_status, "DELIVERED",
