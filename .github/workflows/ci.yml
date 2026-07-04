@@ -325,6 +325,9 @@ jobs:
       - name: Workflow runtime spine gate
         run: npm run check:workflow-runtime-spine
 
+      - name: Workflow runtime M2 outbox-drainer transactional-idempotency gate
+        run: npm run check:workflow-runtime-m2-drainer
+
       - name: G006 asset equipment dispatch lifecycle gate
         run: npm run check:g006-asset-dispatch-lifecycle
 

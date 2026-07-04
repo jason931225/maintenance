@@ -1,0 +1,120 @@
+//! M2 workflow-runtime payroll outbox drainer (design §B/§F).
+//!
+//! A single background task (mirroring `mail_sync::spawn`) ticks on a fixed
+//! cadence and, PER tenant, drains the JOB payroll outbox into idempotent
+//! `payroll_draft_runs` staging rows via the workflow runtime adapter.
+//!
+//! Because the app connects as the non-owner `mnt_rt` role under RLS, the loop
+//! cannot see any tenant's rows without arming `app.current_org`. Each tick:
+//!   1. ENUMERATES every real tenant via the `platform_list_organizations()`
+//!      SECURITY DEFINER function (id-only) — the one read that legitimately
+//!      spans tenants and the only RLS-safe way for `mnt_rt` to discover orgs;
+//!      then
+//!   2. for each org, re-enters the tenant scope with `scope_org(org, ..)` (a
+//!      bare `tokio::spawn`/loop iteration does NOT inherit `CURRENT_ORG`, which
+//!      would leave the GUC unset → RLS zero rows) and calls the adapter drainer,
+//!      which arms `app.current_org` to that org for its own `with_audits` txn.
+//!
+//! Draining an un-enrolled tenant is a cheap no-op: it has emitted no JOB payroll
+//! outbox events, so the claim returns nothing. M2 lands dark — nothing enrolls a
+//! tenant in a shipped migration/seed — so in production this loop finds no work.
+//!
+//! ponytail: per-tick full-org scan + one claim txn per org. Fine while M2 is
+//! dark and org count is small; swap the enumerate step for a
+//! `comms_due_email_accounts`-style SECURITY DEFINER "orgs with pending JOB
+//! events" function if org count or event volume ever makes the empty passes hurt.
+
+use std::time::Duration;
+
+use mnt_kernel_core::OrgId;
+use mnt_platform_request_context::scope_org;
+use mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore;
+use tokio::sync::watch;
+use uuid::Uuid;
+
+/// Seconds between drain ticks.
+const DEFAULT_TICK_SECS: u64 = 30;
+
+/// Max JOB payroll events claimed per tenant per tick (bounds one txn's size).
+const DRAIN_BATCH_LIMIT: i64 = 100;
+
+/// A handle that stops the drainer loop on explicit shutdown.
+#[derive(Debug)]
+pub struct WorkflowDrainHandle {
+    shutdown_tx: watch::Sender<bool>,
+}
+
+impl WorkflowDrainHandle {
+    /// Signal the drainer loop to stop.
+    pub fn shutdown(&self) {
+        let _ = self.shutdown_tx.send(true);
+    }
+}
+
+/// Spawn the workflow payroll outbox drainer on the app pool. The loop runs until
+/// the returned handle is shut down.
+#[must_use]
+pub fn spawn(pool: sqlx::PgPool) -> WorkflowDrainHandle {
+    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    let store = PgWorkflowRuntimeStore::new(pool.clone());
+
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(DEFAULT_TICK_SECS));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        tracing::info!(
+            tick_secs = DEFAULT_TICK_SECS,
+            "workflow payroll outbox drainer started"
+        );
+
+        loop {
+            tokio::select! {
+                changed = shutdown_rx.changed() => {
+                    if changed.is_err() || *shutdown_rx.borrow() {
+                        tracing::info!("workflow payroll outbox drainer stopping");
+                        break;
+                    }
+                }
+                _ = ticker.tick() => {
+                    run_tick(&pool, &store).await;
+                }
+            }
+        }
+    });
+
+    WorkflowDrainHandle { shutdown_tx }
+}
+
+/// One drain tick: enumerate tenants, then drain each under its armed org.
+async fn run_tick(pool: &sqlx::PgPool, store: &PgWorkflowRuntimeStore) {
+    let orgs: Vec<Uuid> = match sqlx::query_scalar("SELECT id FROM platform_list_organizations()")
+        .fetch_all(pool)
+        .await
+    {
+        Ok(orgs) => orgs,
+        Err(err) => {
+            tracing::warn!(error = %err, "workflow drain: enumerate tenants failed");
+            return;
+        }
+    };
+
+    for org_uuid in orgs {
+        let org = OrgId::from_uuid(org_uuid);
+        // Re-enter the tenant scope before the adapter call. The adapter arms
+        // app.current_org from the org argument for its own txn; scope_org keeps
+        // CURRENT_ORG consistent for any task-local reader on this path.
+        let result = scope_org(org, store.drain_payroll_job_outbox(org, DRAIN_BATCH_LIMIT)).await;
+        match result {
+            Ok(0) => {}
+            Ok(created) => tracing::info!(
+                org = %org,
+                drafts_created = created,
+                "workflow drain: staged payroll drafts"
+            ),
+            Err(err) => tracing::warn!(
+                org = %org,
+                error = %err,
+                "workflow drain: tenant pass failed"
+            ),
+        }
+    }
+}

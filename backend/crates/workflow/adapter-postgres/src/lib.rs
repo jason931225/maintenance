@@ -9,7 +9,7 @@
 //! offline query cache cannot be regenerated in this environment.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use mnt_kernel_core::{AuditEvent, KernelError, OrgId};
+use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, OrgId, TraceContext};
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_workflow_domain::{
     NewRun, NodeStepCommit, PortFuture, RunRecord, RunStatus, RunTerminalTimestamp, RunTransition,
@@ -17,6 +17,15 @@ use mnt_workflow_domain::{
 };
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+/// The per-tenant strangler flag (migration 0095) that routes a tenant through
+/// the M2 workflow runtime. Resolved via `org_runtime_flag_enabled`; an absent
+/// row resolves to `false` (dark default / fail-closed).
+pub const M2_STRANGLER_FLAG: &str = "workflow_runtime_m2_strangler";
+
+/// Audit action stamped when the drainer consumes a JOB payroll outbox event.
+/// Matches the `audit_events.action` regex (≥2 dot-separated `[a-z0-9_]` segments).
+const DRAIN_AUDIT_ACTION: &str = "workflow_runtime.outbox_drain";
 
 /// Adapter error. `Db` wraps the platform DB error (so `with_audit`'s
 /// `E: From<DbError>` bound is satisfied); `Domain` carries a kernel error raised
@@ -83,6 +92,152 @@ impl PgWorkflowRuntimeStore {
     #[must_use]
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// STEP 4 — resolve the per-tenant strangler flag by calling the SQL resolver
+    /// `org_runtime_flag_enabled(flag_key)` (migration 0095) under an armed
+    /// `mnt_rt` connection (`with_org_conn` sets `app.current_org` so the
+    /// SECURITY INVOKER resolver reads only this tenant's row). An absent flag row
+    /// resolves to `false` — the dark default that keeps un-enrolled tenants on
+    /// the legacy path.
+    pub async fn strangler_flag_enabled(
+        &self,
+        org: OrgId,
+        flag_key: &str,
+    ) -> Result<bool, KernelError> {
+        let flag_key = flag_key.to_owned();
+        with_org_conn::<_, bool, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let enabled: bool = sqlx::query_scalar("SELECT org_runtime_flag_enabled($1)")
+                    .bind(flag_key)
+                    .fetch_one(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+                Ok(enabled)
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// STEP 5 — drain up to `limit` PENDING/FAILED JOB payroll outbox events for
+    /// `org` in ONE `with_audits` transaction (design §F). For each event claimed
+    /// with `FOR UPDATE SKIP LOCKED` (matching the partial index
+    /// `idx_workflow_outbox_events_pending`) this idempotently stages the
+    /// `payroll_draft_runs` row — keyed on the deterministic per-run natural key
+    /// `workflow_runtime_m2:run:{run_id}` with `ON CONFLICT DO NOTHING`, landing
+    /// `BLOCKED_LEGAL_GATE` with `calculation_enabled = FALSE` (the column
+    /// default) so nothing calculates without the legal gate — marks the event
+    /// `DELIVERED` (0078 requires `delivered_at`), and lands one
+    /// `workflow_runtime.outbox_drain` audit row. All three writes share the one
+    /// txn, so a failure rolls every one back and leaves the event PENDING for a
+    /// later retry; a replay claims nothing (the event is DELIVERED) and the
+    /// draft's natural key collides, so it is an exactly-once no-op. Returns the
+    /// number of payroll drafts actually created.
+    // mnt-gate: state-changing-handler
+    pub async fn drain_payroll_job_outbox(
+        &self,
+        org: OrgId,
+        limit: i64,
+    ) -> Result<u64, KernelError> {
+        with_audits::<_, u64, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // Claim due JOB payroll events. The lease is the row lock itself
+                // (FOR UPDATE SKIP LOCKED); a competing drainer skips a held row.
+                let claimed = sqlx::query(
+                    "SELECT id, run_id \
+                     FROM workflow_outbox_events \
+                     WHERE channel = 'JOB' \
+                       AND payload->>'job' = 'payroll_draft' \
+                       AND status IN ('PENDING', 'FAILED') \
+                       AND coalesce(next_attempt_at, created_at) <= now() \
+                     ORDER BY created_at \
+                     FOR UPDATE SKIP LOCKED \
+                     LIMIT $1",
+                )
+                .bind(limit)
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let mut created: u64 = 0;
+                let mut audit_events: Vec<AuditEvent> = Vec::with_capacity(claimed.len());
+
+                for row in &claimed {
+                    let event_id: Uuid = row.try_get("id")?;
+                    let run_id: Uuid = row.try_get("run_id")?;
+
+                    // (a) Idempotent draft create keyed on the reused payroll
+                    // natural key. period_start/end + connector/job come from the
+                    // event payload; a replay of the same run collides on
+                    // UNIQUE(org_id, period_start, period_end, source_label).
+                    let inserted: Vec<Uuid> = sqlx::query_scalar(
+                        "INSERT INTO payroll_draft_runs \
+                             (org_id, period_start, period_end, source_label, status, \
+                              source_summary) \
+                         SELECT o.org_id, \
+                                (o.payload->>'period_start')::date, \
+                                (o.payload->>'period_end')::date, \
+                                'workflow_runtime_m2:run:' || o.run_id::text, \
+                                'BLOCKED_LEGAL_GATE', \
+                                jsonb_build_object( \
+                                    'outbox_event_id', o.id, \
+                                    'run_id', o.run_id, \
+                                    'connector', o.payload->>'connector', \
+                                    'job', o.payload->>'job') \
+                         FROM workflow_outbox_events o \
+                         WHERE o.id = $1 \
+                         ON CONFLICT (org_id, period_start, period_end, source_label) \
+                             DO NOTHING \
+                         RETURNING id",
+                    )
+                    .bind(event_id)
+                    .fetch_all(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+                    let drafts_created = inserted.len() as u64;
+                    created += drafts_created;
+
+                    // (b) Ack the event DELIVERED in the SAME txn.
+                    sqlx::query(
+                        "UPDATE workflow_outbox_events \
+                         SET status = 'DELIVERED', delivered_at = now(), \
+                             attempt_count = attempt_count + 1, updated_at = now() \
+                         WHERE id = $1",
+                    )
+                    .bind(event_id)
+                    .execute(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+
+                    // (c) One audit row per consumed event, in the SAME txn.
+                    let action = AuditAction::new(DRAIN_AUDIT_ACTION)
+                        .map_err(PgWorkflowRuntimeError::from)?;
+                    let event = AuditEvent::new(
+                        None,
+                        action,
+                        "workflow_outbox_event",
+                        event_id.to_string(),
+                        TraceContext::generate(),
+                        time::OffsetDateTime::now_utc(),
+                    )
+                    .with_org(org)
+                    .with_snapshots(
+                        Some(serde_json::json!({ "status": "PENDING" })),
+                        Some(serde_json::json!({
+                            "status": "DELIVERED",
+                            "payroll_drafts_created": drafts_created,
+                            "source_label": format!("workflow_runtime_m2:run:{run_id}"),
+                        })),
+                    );
+                    audit_events.push(event);
+                }
+
+                Ok((created, audit_events))
+            })
+        })
+        .await
+        .map_err(KernelError::from)
     }
 }
 
