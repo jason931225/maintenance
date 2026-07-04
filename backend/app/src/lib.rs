@@ -811,7 +811,8 @@ pub struct AppState {
     realtime_bridge: Option<PostgresBridgeHandle>,
     /// The webmail master-key cipher (envelope AEAD for SMTP/IMAP credentials).
     /// `None` when `MNT_MAIL_MASTER_KEY` is absent at boot — the app STILL boots
-    /// and the mail router still mounts, but every mail endpoint returns a clear
+    /// and the mail router still mounts. Read-only mail endpoints degrade to a
+    /// clean no-account/empty state; credential-using endpoints return a clear
     /// `503 email_not_configured`. The cipher feature is lazily/optionally init'd
     /// so a missing key is never a panic.
     mail_cipher: Option<Arc<EnvelopeCredentialCipher>>,
@@ -964,14 +965,15 @@ impl AppState {
         // Webmail master key (envelope AEAD KEK) — GRACEFULLY OPTIONAL. When
         // `MNT_MAIL_MASTER_KEY` is present + valid it arms the webmail credential
         // cipher; when it is absent the app STILL boots and the mail router still
-        // mounts (so the OpenAPI paths exist), but every mail endpoint returns a
-        // clear 503. A malformed key is a real misconfiguration → surfaced as a
+        // mounts (so the OpenAPI paths exist). Read-only mail endpoints degrade to
+        // a clean no-account/empty state; credential-using endpoints return a clear
+        // `503 email_not_configured`. If it is present but malformed, that's a
         // boot error so it is caught immediately rather than at first use.
         match EnvelopeCredentialCipher::from_env() {
             Ok(cipher) => state.mail_cipher = Some(Arc::new(cipher)),
             Err(_) if std::env::var(mnt_comms_credential_cipher::MASTER_KEY_ENV).is_err() => {
                 tracing::info!(
-                    "MNT_MAIL_MASTER_KEY unset: webmail is unavailable (endpoints return 503); the app boots normally"
+                    "MNT_MAIL_MASTER_KEY unset: credential-using webmail endpoints are unavailable; read paths stay clean and the app boots normally"
                 );
             }
             Err(_) => {
@@ -1408,7 +1410,8 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the
                 // OpenAPI paths exist and the app boots without the master key;
-                // when `state.mail_cipher` is `None` every endpoint returns 503.
+                // when `state.mail_cipher` is `None`, read paths degrade cleanly
+                // while credential-using endpoints return 503.
                 // The inbound-attachment object store (presigned GET) is wired
                 // from the same storage config the evidence pipeline uses; `None`
                 // when storage is unconfigured (download then 503s).

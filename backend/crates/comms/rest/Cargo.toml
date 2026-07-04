@@ -31,5 +31,9 @@ time = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 
+[dev-dependencies]
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+tower = { workspace = true, features = ["util"] }
+
 [lints]
 workspace = true
