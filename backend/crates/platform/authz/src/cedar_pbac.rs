@@ -576,10 +576,10 @@ pub fn evaluate_cedar_pbac_boundary(
         );
     }
 
-    if cedar_required(map_entry.mode) {
-        if let Some(decision) = cedar_precondition_denial(request, mode) {
-            return decision;
-        }
+    if cedar_required(map_entry.mode)
+        && let Some(decision) = cedar_precondition_denial(request, mode)
+    {
+        return decision;
     }
 
     if cedar_required(map_entry.mode) && map_entry.bundle_key.is_none() {
