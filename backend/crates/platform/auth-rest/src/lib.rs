@@ -3155,6 +3155,11 @@ impl RateLimitEndpoint {
             // Polling is expected while a desktop waits for a phone approval; use
             // a wider bucket than credential submission while keeping a bound.
             Self::DeviceLoginPoll => (60, 60, 1_000),
+            // Refresh requires possession of an opaque rotating token; legitimate
+            // browser hard navigations/reloads can perform many boot refreshes in
+            // one minute because the access token is memory-only. Keep refresh
+            // bounded, but do not reuse the much tighter credential-submission cap.
+            Self::Refresh => (60, 60, 1_000),
             _ => (RATE_LIMIT_PER_IP, RATE_LIMIT_PER_DEVICE, RATE_LIMIT_GLOBAL),
         }
     }
