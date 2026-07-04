@@ -425,9 +425,9 @@ const hrReadinessSummary = {
 
 function renderAt(
   path: string,
-  session: AuthSession | undefined = authenticatedSession,
+  session: AuthSession | null = authenticatedSession,
 ) {
-  const ctx = makeAuthContext(session);
+  const ctx = makeAuthContext(session ?? undefined);
   return render(
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={[path]}>
@@ -678,14 +678,36 @@ describe("routing", () => {
     ).toBeVisible();
   });
 
-  it("renders /wallboard outside the shell", async () => {
-    renderAt("/wallboard");
+  it("redirects unauthenticated /wallboard to login before protected data calls", async () => {
+    renderAt("/wallboard", null);
+
+    expect(
+      await screen.findByRole("heading", { name: "로그인", level: 2 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "일일현황 월보드" }),
+    ).not.toBeInTheDocument();
+    expect(listRequests).toHaveLength(0);
+    expect(kpiRequests).toHaveLength(0);
+  });
+
+  it("renders /wallboard for authenticated users outside the app shell", async () => {
+    renderAt("/wallboard", adminSession);
     expect(
       await screen.findByRole("heading", { name: "일일현황 월보드" }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "로그인" }),
     ).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(listRequests).toHaveLength(1);
+      expect(kpiRequests).toHaveLength(1);
+    });
+    expect(listRequests[0].searchParams.get("limit")).toBe("100");
+    expect(kpiRequests[0].searchParams.get("period")).toBe(
+      getDefaultKpiPeriod(),
+    );
   });
 
   it("redirects unknown authenticated paths to /work-hub", async () => {
