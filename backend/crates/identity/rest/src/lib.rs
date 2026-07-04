@@ -39,14 +39,18 @@ use mnt_identity_application::{
 };
 use mnt_identity_domain::Team;
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, RegionId, TraceContext,
-    UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId,
+    TraceContext, UserId,
 };
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
+use mnt_platform_authz::cedar_pbac::{engine, map::canonical_coexistence_map};
 use mnt_platform_authz::{
-    Action, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
+    Action, AuthorizationAuditEvent, AuthorizationRequest, AuthorizationResource,
+    CoexistenceMapEntry, DecisionEffect, DualEngineMode, Feature, PermissionLevel, Principal,
+    RlsScopeProof, Role, SubjectFreshnessRequirement, authorize, evaluate_cedar_pbac_boundary,
+    observe_cedar_pbac_decision, permission_for,
 };
-use mnt_platform_db::{DbError, with_audits, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -577,7 +581,7 @@ async fn list_policy_features(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let catalog = policy_feature_catalog();
     record_policy_studio_operation("list_features", "success");
     tracing::info!(
@@ -597,7 +601,7 @@ async fn list_policy_roles(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let custom_roles = state
         .store
         .list_policy_roles()
@@ -637,7 +641,7 @@ async fn list_policy_role_templates(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let templates = policy_role_templates();
     record_policy_studio_operation("list_templates", "success");
     tracing::info!(
@@ -658,7 +662,7 @@ async fn list_policy_audit_events(
     Query(query): Query<PolicyAuditEventsQuery>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let limit = normalize_policy_audit_limit(query.limit)?;
     let events = state
         .store
@@ -687,7 +691,7 @@ async fn create_policy_role(
     Json(body): Json<CreatePolicyRoleRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let role_key = normalize_policy_role_key(&body.role_key)?;
     let display_name = normalize_policy_display_name(&body.display_name)?;
     let description = normalize_policy_description(body.description.as_deref())?;
@@ -738,7 +742,7 @@ async fn update_policy_role(
     Json(body): Json<UpdatePolicyRoleRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let display_name = normalize_policy_display_name(&body.display_name)?;
     let description = normalize_policy_description(body.description.as_deref())?;
     let permissions = validate_policy_permissions(&body.permissions)?;
@@ -814,7 +818,7 @@ async fn preview_policy_role_status(
     Json(body): Json<PolicyRoleStatusPreviewRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let requested_status = normalize_policy_role_status(&body.status)?;
     let role = state
         .store
@@ -862,7 +866,7 @@ async fn update_policy_role_status(
     Json(body): Json<UpdatePolicyRoleStatusRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let status = normalize_policy_role_status(&body.status)?;
     let role = state
         .store
@@ -914,7 +918,7 @@ async fn list_policy_assignments(
     Query(query): Query<ListPolicyAssignmentsRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let Some(user_id) = query.user_id.map(UserId::from_uuid) else {
         return Err(RestError::validation("user_id query parameter is required"));
     };
@@ -955,7 +959,7 @@ async fn replace_policy_assignments(
     Json(body): Json<ReplacePolicyRoleAssignmentsRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let user_id = UserId::from_uuid(id);
     state
         .store
@@ -1031,7 +1035,7 @@ async fn preview_policy_assignments(
     Json(body): Json<ReplacePolicyRoleAssignmentsRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage(&principal, Feature::RoleManage)?;
+    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let user_id = UserId::from_uuid(id);
     let user = state
         .store
@@ -3143,6 +3147,239 @@ fn authorize_org_manage(principal: &Principal, feature: Feature) -> Result<(), R
     authorize(principal, Action::new(feature), branch).map_err(RestError::from_kernel)
 }
 
+/// Per-tenant DARK switch for the Cedar/PBAC role_manage shadow lane
+/// (`org_runtime_flags`, migration 0095). Ships with ZERO enabled rows: an absent
+/// row resolves FALSE via `org_runtime_flag_enabled()`, so the shadow lane never
+/// runs and production authorization is byte-for-byte unchanged.
+const CEDAR_PBAC_SHADOW_ROLE_MANAGE_FLAG: &str = "cedar_pbac_shadow_role_manage";
+const CEDAR_PBAC_SHADOW_TOTAL: &str = "cedar_pbac_shadow_total";
+const CEDAR_PBAC_SHADOW_DISAGREEMENT_TOTAL: &str = "cedar_pbac_shadow_disagreement_total";
+/// Append-only audit action for a shadow observation (kernel `AuditAction` shape:
+/// ≥2 dot-separated `[a-z0-9_]` segments).
+const CEDAR_PBAC_SHADOW_AUDIT_ACTION: &str = "authz.cedar_pbac_shadow";
+
+/// Authorize an org-management feature and — for [`Feature::RoleManage`] ONLY,
+/// and only when the per-tenant dark flag is enabled — run an AUDIT-ONLY Cedar/PBAC
+/// shadow observation alongside it.
+///
+/// SAFETY (ADR-0021, HIGH finding): the legacy [`authorize_org_manage`] `Result`
+/// is the SOLE enforcer and is what this returns, ALWAYS. The Cedar shadow lane is
+/// a best-effort, side-effect-only observation whose error/deny/bug is swallowed
+/// and can NEVER change the returned decision. In particular the coexistence
+/// boundary's `CedarShadowLegacyEnforce` arm short-circuits to Cedar's deny BEFORE
+/// consulting legacy, so its returned effect is deliberately NOT used to gate the
+/// request — it is recorded for audit/metrics only.
+async fn authorize_org_manage_observed(
+    state: &IdentityRestState,
+    principal: &Principal,
+    feature: Feature,
+) -> Result<(), RestError> {
+    // The sole enforcer. Computed first; its value is returned unchanged below no
+    // matter what the shadow lane observes.
+    let legacy = authorize_org_manage(principal, feature);
+
+    if feature == Feature::RoleManage {
+        let legacy_effect = if legacy.is_ok() {
+            DecisionEffect::Allow
+        } else {
+            DecisionEffect::Deny
+        };
+        // Audit-only. Never propagates an error or mutates `legacy`.
+        run_role_manage_cedar_shadow(state, principal, legacy_effect).await;
+    }
+
+    legacy
+}
+
+/// Best-effort Cedar/PBAC shadow observation for a role_manage request. Swallows
+/// (and logs) EVERY error: building/evaluating/persisting the shadow can never
+/// fail the live request — the legacy decision already stands.
+async fn run_role_manage_cedar_shadow(
+    state: &IdentityRestState,
+    principal: &Principal,
+    legacy_effect: DecisionEffect,
+) {
+    if let Err(err) = try_run_role_manage_cedar_shadow(state, principal, legacy_effect).await {
+        tracing::warn!(
+            event = "cedar_pbac_shadow_error",
+            error = %err.message,
+            actor_user_id = %principal.user_id,
+            "cedar/pbac role_manage shadow lane failed (audit-only; live decision unaffected)"
+        );
+    }
+}
+
+async fn try_run_role_manage_cedar_shadow(
+    state: &IdentityRestState,
+    principal: &Principal,
+    legacy_effect: DecisionEffect,
+) -> Result<(), RestError> {
+    // DARK switch: absent/false flag ⇒ do nothing at all (no reads beyond this
+    // one, no bundle, no metrics, no audit). Production stays byte-identical.
+    if !state
+        .store
+        .org_runtime_flag_enabled(CEDAR_PBAC_SHADOW_ROLE_MANAGE_FLAG)
+        .await
+        .map_err(RestError::from_store)?
+    {
+        return Ok(());
+    }
+
+    // Coexistence-map identity for role_manage. The committed map stays
+    // legacy_only (slice 3); the shadow lane derives a shadow-mode entry from it,
+    // bound to a real per-org compiled bundle, so it exercises the
+    // `CedarShadowLegacyEnforce` boundary arm WITHOUT flipping the committed map.
+    let load = canonical_coexistence_map().map_err(RestError::from_kernel)?;
+    let Some(base) = load
+        .entries
+        .iter()
+        .find(|entry| entry.feature == Feature::RoleManage)
+    else {
+        return Ok(()); // role_manage not enrolled ⇒ nothing to observe.
+    };
+
+    let org = principal.org_id;
+
+    // DB-current freshness (guard-time) the token snapshot must be at least as
+    // fresh as. Read under the armed `mnt_rt` GUC via the store.
+    let policy_version = state
+        .store
+        .get_policy_version()
+        .await
+        .map_err(RestError::from_store)?
+        .version;
+    let (subject_version, session_generation) = state
+        .store
+        .get_subject_authz_versions(principal.user_id)
+        .await
+        .map_err(RestError::from_store)?;
+
+    // Per-org, strict-validated compiled bundle keyed on this policy_version.
+    // ponytail: recompiled per shadow eval; add the in-process bundle cache
+    // (ADR-0021 §4) when the pilot widens past one org.
+    let bundle = engine::compile_bundle(org, u64::try_from(policy_version).unwrap_or(0))
+        .map_err(RestError::from_kernel)?;
+
+    let shadow_entry = CoexistenceMapEntry::new(
+        base.id.clone(),
+        base.domain.clone(),
+        base.feature,
+        base.resource_type.clone(),
+        DualEngineMode::CedarShadowLegacyEnforce,
+        Some(bundle.key.clone()),
+    );
+
+    let request = AuthorizationRequest::new(
+        principal.clone(),
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::org_wide(org, base.resource_type.clone()),
+    )
+    .with_policy_domain(base.domain.clone())
+    .with_subject_freshness(principal.authz_freshness)
+    .requiring_freshness(SubjectFreshnessRequirement {
+        min_policy_version: u64::try_from(policy_version).unwrap_or(0),
+        min_subject_version: u64::try_from(subject_version).unwrap_or(0),
+        min_session_generation: u64::try_from(session_generation).unwrap_or(0),
+        required_step_up_generation: None,
+    })
+    .with_rls_scope_proof(RlsScopeProof::runtime_role_guc(org));
+
+    // Real Cedar evaluation (Result + catch_unwind guarded — cannot throw).
+    let cedar = engine::evaluate(&request, &bundle);
+    // AUDIT-ONLY boundary observation. Its effect is NOT used to gate the request.
+    let observed = evaluate_cedar_pbac_boundary(&request, Some(&shadow_entry), cedar.clone());
+    let audit = observe_cedar_pbac_decision(&request, Some(&shadow_entry), Some(&cedar), observed);
+
+    emit_cedar_shadow_metrics(&audit, legacy_effect);
+    persist_cedar_shadow_audit(state.pool(), org, principal.user_id, &audit).await;
+
+    Ok(())
+}
+
+/// Render a serde-serialized authorization enum (snake_case) as a metric label
+/// value, e.g. `deny`, `cedar_error`. Only invoked when the shadow flag is ON.
+fn metric_label(value: &impl serde::Serialize) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+/// Emit the shadow decision metric plus a disagreement counter (shadow effect vs
+/// the enforced legacy effect). Labels stay low-cardinality (effect/engine/reason/
+/// mode/domain); version + digest material lives on the audit event, not here.
+fn emit_cedar_shadow_metrics(audit: &AuthorizationAuditEvent, legacy_effect: DecisionEffect) {
+    let labels = audit.metric_labels();
+    let mode = labels
+        .mode
+        .map_or_else(|| "none".to_owned(), |mode| metric_label(&mode));
+    let domain = labels.domain.clone().unwrap_or_else(|| "none".to_owned());
+
+    metrics::counter!(
+        CEDAR_PBAC_SHADOW_TOTAL,
+        "effect" => metric_label(&labels.effect),
+        "engine" => metric_label(&labels.engine),
+        "reason" => metric_label(&labels.reason),
+        "mode" => mode,
+        "domain" => domain.clone(),
+    )
+    .increment(1);
+
+    if labels.effect != legacy_effect {
+        metrics::counter!(
+            CEDAR_PBAC_SHADOW_DISAGREEMENT_TOTAL,
+            "domain" => domain,
+            "shadow_effect" => metric_label(&labels.effect),
+            "legacy_effect" => metric_label(&legacy_effect),
+        )
+        .increment(1);
+    }
+}
+
+/// Persist the forensic shadow observation, best-effort, under armed RLS. An audit
+/// write failure is logged and swallowed — it must NOT fail the live request.
+async fn persist_cedar_shadow_audit(
+    pool: &PgPool,
+    org: OrgId,
+    actor: UserId,
+    audit: &AuthorizationAuditEvent,
+) {
+    let payload = match serde_json::to_value(audit) {
+        Ok(payload) => payload,
+        Err(err) => {
+            tracing::warn!(event = "cedar_pbac_shadow_error", error = %err, "cedar/pbac shadow audit serialize failed");
+            return;
+        }
+    };
+    let action = match AuditAction::new(CEDAR_PBAC_SHADOW_AUDIT_ACTION) {
+        Ok(action) => action,
+        Err(err) => {
+            tracing::warn!(event = "cedar_pbac_shadow_error", error = %err.message, "cedar/pbac shadow audit action invalid");
+            return;
+        }
+    };
+    let event = AuditEvent::new(
+        Some(actor),
+        action,
+        "policy_role",
+        actor.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(None, Some(payload));
+
+    if let Err(err) =
+        with_audit::<_, (), DbError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
+    {
+        tracing::warn!(
+            event = "cedar_pbac_shadow_error",
+            error = %err,
+            "cedar/pbac shadow audit persist failed (live decision unaffected)"
+        );
+    }
+}
+
 /// Authorize a user create/update for elevated-role membership changes and
 /// target branches, mirroring the `issue_admin_otp` IDOR hardening:
 ///   * Adding OR removing EXECUTIVE/SUPER_ADMIN requires `ElevatedRoleGrant`
@@ -3401,5 +3638,463 @@ impl IntoResponse for RestError {
             }),
         )
             .into_response()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cedar/PBAC role_manage shadow-wiring tests (activation slice 4).
+//
+// The load-bearing property is the ADR-0021 HIGH finding: the legacy
+// authorization result is the SOLE enforcer, and the Cedar shadow lane can NEVER
+// change a live outcome. These tests prove that both at the pure
+// decision-combination level (forced Cedar Error/Deny) and end-to-end through the
+// real `authorize_org_manage_observed` wrapper (dark default + flag-on + mnt_rt
+// RLS).
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cedar_shadow_wiring_tests {
+    use mnt_platform_authz::{CedarEvaluation, DecisionReason, SubjectFreshness};
+
+    use super::*;
+
+    const RESOURCE_TYPE: &str = "identity.policy_role";
+    const DOMAIN: &str = "identity.policy";
+
+    fn principal_with_role(org: OrgId, role: Role) -> Principal {
+        Principal::new(UserId::new(), org, BTreeSet::from([role]), BranchScope::All)
+    }
+
+    /// A shadow request built with VALID freshness + RLS proof so it reaches the
+    /// `CedarShadowLegacyEnforce` boundary arm (rather than short-circuiting on a
+    /// precondition), letting the test control the Cedar result directly.
+    fn shadow_request(principal: &Principal, org: OrgId) -> AuthorizationRequest {
+        AuthorizationRequest::new(
+            principal.clone(),
+            Action::new(Feature::RoleManage),
+            AuthorizationResource::org_wide(org, RESOURCE_TYPE),
+        )
+        .with_policy_domain(DOMAIN)
+        .with_subject_freshness(SubjectFreshness {
+            policy_version: 1,
+            subject_version: 1,
+            session_generation: 1,
+            step_up_generation: None,
+        })
+        .requiring_freshness(SubjectFreshnessRequirement {
+            min_policy_version: 1,
+            min_subject_version: 1,
+            min_session_generation: 1,
+            required_step_up_generation: None,
+        })
+        .with_rls_scope_proof(RlsScopeProof::runtime_role_guc(org))
+    }
+
+    fn shadow_entry(bundle_key: mnt_platform_authz::CompiledBundleCacheKey) -> CoexistenceMapEntry {
+        CoexistenceMapEntry::new(
+            format!("{DOMAIN}.role_manage"),
+            DOMAIN,
+            Feature::RoleManage,
+            RESOURCE_TYPE,
+            DualEngineMode::CedarShadowLegacyEnforce,
+            Some(bundle_key),
+        )
+    }
+
+    /// THE safety test (ADR-0021 HIGH finding). With Cedar FORCED to `Error` and,
+    /// separately, `Deny`, the coexistence boundary returns Deny (its shadow arm
+    /// short-circuits to Cedar's deny) — yet the ENFORCED decision is the legacy
+    /// `authorize_org_manage` Result, unchanged: SUPER_ADMIN stays ALLOW, everyone
+    /// else stays DENY. Cedar cannot change the outcome.
+    #[test]
+    fn cedar_error_or_deny_never_changes_role_manage_enforcement() {
+        let org = OrgId::knl();
+        let bundle = engine::compile_bundle(org, 1).expect("pilot bundle must compile");
+        let entry = shadow_entry(bundle.key.clone());
+
+        let super_admin = principal_with_role(org, Role::SuperAdmin);
+        let member = principal_with_role(org, Role::Member);
+
+        // Legacy is the sole enforcer, computed independently of any Cedar result.
+        assert!(
+            authorize_org_manage(&super_admin, Feature::RoleManage).is_ok(),
+            "legacy must ALLOW SUPER_ADMIN role_manage"
+        );
+        assert!(
+            authorize_org_manage(&member, Feature::RoleManage).is_err(),
+            "legacy must DENY non-SUPER_ADMIN role_manage"
+        );
+
+        let forced_results = [
+            (
+                CedarEvaluation::Error {
+                    reason: "forced cedar error".to_owned(),
+                },
+                DecisionReason::CedarError,
+            ),
+            (
+                CedarEvaluation::Deny {
+                    bundle_key: bundle.key.clone(),
+                    reason: "forced cedar deny".to_owned(),
+                },
+                DecisionReason::CedarDenied,
+            ),
+        ];
+
+        for (forced, expected_reason) in forced_results {
+            // The boundary observation WOULD deny (short-circuit to Cedar's deny)…
+            let observed = evaluate_cedar_pbac_boundary(
+                &shadow_request(&super_admin, org),
+                Some(&entry),
+                forced.clone(),
+            );
+            assert_eq!(
+                observed.effect,
+                DecisionEffect::Deny,
+                "boundary must surface Cedar {forced:?} as a Deny observation"
+            );
+            assert_eq!(observed.reason, expected_reason);
+
+            // …but the enforced decision is STILL the legacy result. This is the
+            // exact contract `authorize_org_manage_observed` implements: return the
+            // legacy `Result`, never the boundary effect.
+            assert!(
+                authorize_org_manage(&super_admin, Feature::RoleManage).is_ok(),
+                "SUPER_ADMIN allow must stand despite forced Cedar {forced:?}"
+            );
+            assert!(
+                authorize_org_manage(&member, Feature::RoleManage).is_err(),
+                "MEMBER deny must stand despite forced Cedar {forced:?}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DB-backed tests: dark default, flag-on observation, mnt_rt RLS.
+    // -----------------------------------------------------------------------
+    use mnt_platform_request_context::CURRENT_ORG;
+    use sqlx::postgres::PgPoolOptions;
+
+    const ORG_B: Uuid = Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333);
+
+    /// A pool whose every connection runs `SET ROLE mnt_rt`, so statements execute
+    /// as the production runtime role (NOSUPERUSER, NOBYPASSRLS) under FORCE RLS —
+    /// never the BYPASSRLS superuser the default `#[sqlx::test]` pool connects as.
+    async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+        let options = owner_pool.connect_options().as_ref().clone();
+        PgPoolOptions::new()
+            .max_connections(4)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                    Ok(())
+                })
+            })
+            .connect_with(options)
+            .await
+            .unwrap()
+    }
+
+    async fn seed_org(owner_pool: &PgPool, org: Uuid, tag: &str) {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(org)
+        .bind(format!("org-{}", tag.to_lowercase()))
+        .bind(format!("Org {tag}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    async fn seed_user(owner_pool: &PgPool, org: Uuid, role: &str) -> UserId {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let user_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (display_name, roles, org_id, is_active) VALUES ($1, $2, $3, true) RETURNING id",
+        )
+        .bind(format!("User {}", Uuid::new_v4()))
+        .bind(vec![role.to_owned()])
+        .bind(org)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        UserId::from_uuid(user_id)
+    }
+
+    /// Enable the shadow dark switch for one tenant (TEST-ONLY: production ships
+    /// zero enabled rows). Owner insert with row_security off.
+    async fn enable_shadow_flag(owner_pool: &PgPool, org: Uuid) {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO org_runtime_flags (org_id, flag_key, enabled) VALUES ($1, $2, true)",
+        )
+        .bind(org)
+        .bind(CEDAR_PBAC_SHADOW_ROLE_MANAGE_FLAG)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    /// Count persisted shadow audit rows for a tenant (owner read, row_security
+    /// off), so the assertion is not itself subject to RLS.
+    async fn count_shadow_audit_rows(owner_pool: &PgPool, org: Uuid) -> i64 {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action = $1 AND org_id = $2",
+        )
+        .bind(CEDAR_PBAC_SHADOW_AUDIT_ACTION)
+        .bind(org)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        count
+    }
+
+    async fn shadow_audit_effect(owner_pool: &PgPool, org: Uuid) -> Option<String> {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let after: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT after_snap FROM audit_events WHERE action = $1 AND org_id = $2 LIMIT 1",
+        )
+        .bind(CEDAR_PBAC_SHADOW_AUDIT_ACTION)
+        .bind(org)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        after.and_then(|value| value["decision"]["effect"].as_str().map(str::to_owned))
+    }
+
+    /// DARK: with no flag row, the shadow lane never runs — zero audit rows — and
+    /// the decision equals the legacy decision (allow for SUPER_ADMIN).
+    #[sqlx::test(migrations = "../../platform/db/migrations")]
+    async fn shadow_lane_is_dark_when_flag_absent(pool: PgPool) {
+        let org_uuid = *OrgId::knl().as_uuid();
+        seed_org(&pool, org_uuid, "A").await;
+        let user = seed_user(&pool, org_uuid, "SUPER_ADMIN").await;
+
+        let state = IdentityRestState::new(PgOrgStore::new(pool.clone()), None);
+        let principal = Principal::new(
+            user,
+            OrgId::knl(),
+            BTreeSet::from([Role::SuperAdmin]),
+            BranchScope::All,
+        );
+
+        let observed = CURRENT_ORG
+            .scope(
+                OrgId::knl(),
+                authorize_org_manage_observed(&state, &principal, Feature::RoleManage),
+            )
+            .await;
+        assert!(observed.is_ok(), "SUPER_ADMIN role_manage must be allowed");
+        assert_eq!(
+            observed.is_ok(),
+            authorize_org_manage(&principal, Feature::RoleManage).is_ok(),
+            "observed decision must equal the legacy decision under the dark default"
+        );
+        assert_eq!(
+            count_shadow_audit_rows(&pool, org_uuid).await,
+            0,
+            "dark default must write ZERO shadow audit rows"
+        );
+    }
+
+    /// Flag ON, SUPER_ADMIN whom legacy ALLOWS: the shadow boundary denies (a real
+    /// deny — the default token freshness is stale vs the guard-time requirement)
+    /// and records it, yet the enforced decision returned by the wrapper is still
+    /// the legacy ALLOW. Proves a shadow deny cannot flip a live allow.
+    #[sqlx::test(migrations = "../../platform/db/migrations")]
+    async fn shadow_deny_does_not_flip_legacy_allow_with_flag_on(pool: PgPool) {
+        let org_uuid = *OrgId::knl().as_uuid();
+        seed_org(&pool, org_uuid, "A").await;
+        let user = seed_user(&pool, org_uuid, "SUPER_ADMIN").await;
+        enable_shadow_flag(&pool, org_uuid).await;
+
+        let state = IdentityRestState::new(PgOrgStore::new(pool.clone()), None);
+        let principal = Principal::new(
+            user,
+            OrgId::knl(),
+            BTreeSet::from([Role::SuperAdmin]),
+            BranchScope::All,
+        );
+
+        let observed = CURRENT_ORG
+            .scope(
+                OrgId::knl(),
+                authorize_org_manage_observed(&state, &principal, Feature::RoleManage),
+            )
+            .await;
+        assert!(
+            observed.is_ok(),
+            "SUPER_ADMIN allow must stand even though the shadow boundary denied"
+        );
+        assert_eq!(
+            count_shadow_audit_rows(&pool, org_uuid).await,
+            1,
+            "flag ON must record exactly one shadow observation"
+        );
+        assert_eq!(
+            shadow_audit_effect(&pool, org_uuid).await.as_deref(),
+            Some("deny"),
+            "the audit-only boundary observation denied (stale/missing freshness)"
+        );
+    }
+
+    /// Flag ON, non-SUPER_ADMIN whom legacy DENIES: enforced decision stays DENY,
+    /// and the shadow still records an observation.
+    #[sqlx::test(migrations = "../../platform/db/migrations")]
+    async fn shadow_does_not_grant_when_legacy_denies_with_flag_on(pool: PgPool) {
+        let org_uuid = *OrgId::knl().as_uuid();
+        seed_org(&pool, org_uuid, "A").await;
+        let user = seed_user(&pool, org_uuid, "MECHANIC").await;
+        enable_shadow_flag(&pool, org_uuid).await;
+
+        let state = IdentityRestState::new(PgOrgStore::new(pool.clone()), None);
+        let principal = Principal::new(
+            user,
+            OrgId::knl(),
+            BTreeSet::from([Role::Mechanic]),
+            BranchScope::All,
+        );
+
+        let observed = CURRENT_ORG
+            .scope(
+                OrgId::knl(),
+                authorize_org_manage_observed(&state, &principal, Feature::RoleManage),
+            )
+            .await;
+        assert!(
+            observed.is_err(),
+            "MECHANIC role_manage must remain DENIED with the shadow flag on"
+        );
+        assert_eq!(
+            count_shadow_audit_rows(&pool, org_uuid).await,
+            1,
+            "flag ON must record exactly one shadow observation even on a deny"
+        );
+    }
+
+    /// mnt_rt RLS: the shadow lane's reads (flag, versions) and audit write run as
+    /// the real runtime role under an armed `app.current_org`; a tenant sees only
+    /// its own flag row; and a cross-org resource yields the boundary's
+    /// `RlsBoundaryMismatch` deny (audit-only) rather than reaching Cedar.
+    #[sqlx::test(migrations = "../../platform/db/migrations")]
+    async fn shadow_reads_and_audits_as_runtime_role_and_stay_org_scoped(owner_pool: PgPool) {
+        let rt_pool = runtime_role_pool(&owner_pool).await;
+        let org_a = *OrgId::knl().as_uuid();
+        seed_org(&owner_pool, org_a, "A").await;
+        seed_org(&owner_pool, ORG_B, "B").await;
+        let user_a = seed_user(&owner_pool, org_a, "SUPER_ADMIN").await;
+        enable_shadow_flag(&owner_pool, org_a).await;
+        enable_shadow_flag(&owner_pool, ORG_B).await;
+
+        let state = IdentityRestState::new(PgOrgStore::new(rt_pool.clone()), None);
+        let principal = Principal::new(
+            user_a,
+            OrgId::knl(),
+            BTreeSet::from([Role::SuperAdmin]),
+            BranchScope::All,
+        );
+
+        // (1) The whole lane runs as mnt_rt under org A's GUC: legacy allow stands
+        // and exactly one shadow audit row is written for A (none for B).
+        let observed = CURRENT_ORG
+            .scope(
+                OrgId::knl(),
+                authorize_org_manage_observed(&state, &principal, Feature::RoleManage),
+            )
+            .await;
+        assert!(observed.is_ok(), "SUPER_ADMIN allow must stand as mnt_rt");
+        assert_eq!(
+            count_shadow_audit_rows(&owner_pool, org_a).await,
+            1,
+            "audit write must succeed as mnt_rt under the armed GUC"
+        );
+        assert_eq!(
+            count_shadow_audit_rows(&owner_pool, ORG_B).await,
+            0,
+            "no shadow audit row may land under the other tenant"
+        );
+
+        // (2) Under org A's GUC, mnt_rt sees ONLY A's flag row; B's is invisible.
+        {
+            let mut tx = rt_pool.begin().await.unwrap();
+            sqlx::query("SELECT set_config('app.current_org', $1, true)")
+                .bind(org_a.to_string())
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let visible: i64 = sqlx::query_scalar("SELECT count(*) FROM org_runtime_flags")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            let other: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM org_runtime_flags WHERE org_id = $1")
+                    .bind(ORG_B)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+            tx.commit().await.unwrap();
+            assert_eq!(visible, 1, "org A must see exactly its own flag row");
+            assert_eq!(other, 0, "org B's flag row must be invisible under A");
+        }
+
+        // (3) A cross-org resource (org B) under org A's subject/proof denies at the
+        // boundary with RlsBoundaryMismatch — Cedar is never consulted, and this is
+        // an audit-only observation, not an enforcement path.
+        let bundle = engine::compile_bundle(OrgId::knl(), 1).unwrap();
+        let entry = shadow_entry(bundle.key.clone());
+        let cross_org = AuthorizationRequest::new(
+            principal.clone(),
+            Action::new(Feature::RoleManage),
+            AuthorizationResource::org_wide(OrgId::from_uuid(ORG_B), RESOURCE_TYPE),
+        )
+        .with_policy_domain(DOMAIN)
+        .with_subject_freshness(SubjectFreshness {
+            policy_version: 1,
+            subject_version: 1,
+            session_generation: 1,
+            step_up_generation: None,
+        })
+        .requiring_freshness(SubjectFreshnessRequirement {
+            min_policy_version: 1,
+            min_subject_version: 1,
+            min_session_generation: 1,
+            required_step_up_generation: None,
+        })
+        .with_rls_scope_proof(RlsScopeProof::runtime_role_guc(OrgId::knl()));
+        let decision = evaluate_cedar_pbac_boundary(
+            &cross_org,
+            Some(&entry),
+            CedarEvaluation::Allow {
+                bundle_key: bundle.key.clone(),
+            },
+        );
+        assert_eq!(decision.effect, DecisionEffect::Deny);
+        assert_eq!(decision.reason, DecisionReason::RlsBoundaryMismatch);
     }
 }

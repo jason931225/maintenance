@@ -620,6 +620,26 @@ impl PgOrgStore {
         .await
     }
 
+    /// Resolve a per-tenant runtime feature flag via the `org_runtime_flag_enabled`
+    /// SQL resolver (migration 0095) under the armed `mnt_rt` GUC. An absent row
+    /// resolves to `false` (the dark default). Used by the Cedar/PBAC role_manage
+    /// shadow lane's dark switch; a `false` result keeps the tenant fully on the
+    /// legacy path (no shadow observation runs).
+    pub async fn org_runtime_flag_enabled(&self, flag_key: &str) -> Result<bool, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let flag_key = flag_key.to_owned();
+        with_org_conn::<_, bool, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let enabled: bool = sqlx::query_scalar("SELECT org_runtime_flag_enabled($1)")
+                    .bind(flag_key)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                Ok(enabled)
+            })
+        })
+        .await
+    }
+
     /// Return append-only policy audit evidence for the current tenant. This is
     /// read-only console evidence: it does not mutate policy and it never reads
     /// non-policy audit rows.
