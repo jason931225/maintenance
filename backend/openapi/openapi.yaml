@@ -6294,6 +6294,83 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-tasks/{task_id}/finalize:
+    post:
+      operationId: finalizeWorkflowTask
+      summary: Finalize an approval document (author or delegate)
+      description: Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is
+        policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal
+        WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows;
+        otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizeWorkflowTaskRequest'
+      responses:
+        '200':
+          description: Finalization recorded (replays return the recorded result).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalizeWorkflowTaskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-runs/{run_id}/post-finalization-rejection:
+    post:
+      operationId: createWorkflowPostFinalizationRejection
+      summary: Create a compensating post-finalization rejection (사후 반려)
+      description: Records a compensating document linked to an already-finalized run and notifies the whole approval line.
+        The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead.
+        Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostFinalizationRejectionRequest'
+      responses:
+        '200':
+          description: Compensating document created (replays return the recorded result).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostFinalizationRejectionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/collaboration/calendar/events:
     get:
       operationId: listCollaborationCalendarEvents
@@ -8598,6 +8675,104 @@ components:
           type: boolean
         required_payment_line:
           type: boolean
+    FinalizeWorkflowTaskRequest:
+      type: object
+      required:
+      - mode
+      - idempotency_key
+      properties:
+        mode:
+          type: string
+          enum:
+          - author
+          - delegate
+          description: author = the initiating author closes; delegate = a policy-authorized delegate closes and must give a reason.
+        reason:
+          type: string
+          description: Required and non-empty when mode is delegate.
+        idempotency_key:
+          type: string
+          minLength: 16
+    FinalizedWorkflowTask:
+      type: object
+      required:
+      - id
+      - run_id
+      - status
+      - decision_payload
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+        completed_by:
+          $ref: '#/components/schemas/Uuid'
+        decision_payload:
+          type: object
+          additionalProperties: true
+    FinalizedWorkflowRun:
+      type: object
+      required:
+      - id
+      - status
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+    FinalizeWorkflowTaskResponse:
+      type: object
+      required:
+      - task
+      - run
+      properties:
+        task:
+          $ref: '#/components/schemas/FinalizedWorkflowTask'
+        run:
+          $ref: '#/components/schemas/FinalizedWorkflowRun'
+        archive_ref:
+          type: object
+          additionalProperties: true
+    PostFinalizationRejectionRequest:
+      type: object
+      required:
+      - reason
+      - idempotency_key
+      properties:
+        reason:
+          type: string
+          minLength: 1
+        idempotency_key:
+          type: string
+          minLength: 16
+    PostFinalizationRejectionDocument:
+      type: object
+      required:
+      - id
+      - original_run_id
+      - reason
+      - created_by
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        original_run_id:
+          $ref: '#/components/schemas/Uuid'
+        reason:
+          type: string
+        created_by:
+          $ref: '#/components/schemas/Uuid'
+    PostFinalizationRejectionResponse:
+      type: object
+      required:
+      - compensation
+      - run
+      properties:
+        compensation:
+          $ref: '#/components/schemas/PostFinalizationRejectionDocument'
+        run:
+          $ref: '#/components/schemas/FinalizedWorkflowRun'
     UpdateWorkflowDefinitionRequest:
       type: object
       description: Partial update for a DRAFT workflow definition. Workflow key and object type are immutable.

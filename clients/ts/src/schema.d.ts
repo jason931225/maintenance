@@ -3754,6 +3754,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-tasks/{task_id}/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalize an approval document (author or delegate)
+         * @description Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+         */
+        post: operations["finalizeWorkflowTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/{run_id}/post-finalization-rejection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a compensating post-finalization rejection (사후 반려)
+         * @description Records a compensating document linked to an already-finalized run and notifies the whole approval line. The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead. Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+         */
+        post: operations["createWorkflowPostFinalizationRejection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collaboration/calendar/events": {
         parameters: {
             query?: never;
@@ -4545,6 +4585,50 @@ export interface components {
             action_allowlist?: components["schemas"]["WorkflowActionAllowlistEntry"][];
             required_approval_line?: boolean;
             required_payment_line?: boolean;
+        };
+        FinalizeWorkflowTaskRequest: {
+            /**
+             * @description author = the initiating author closes; delegate = a policy-authorized delegate closes and must give a reason.
+             * @enum {string}
+             */
+            mode: "author" | "delegate";
+            /** @description Required and non-empty when mode is delegate. */
+            reason?: string;
+            idempotency_key: string;
+        };
+        FinalizedWorkflowTask: {
+            id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            completed_by?: components["schemas"]["Uuid"];
+            decision_payload: {
+                [key: string]: unknown;
+            };
+        };
+        FinalizedWorkflowRun: {
+            id: components["schemas"]["Uuid"];
+            status: string;
+        };
+        FinalizeWorkflowTaskResponse: {
+            task: components["schemas"]["FinalizedWorkflowTask"];
+            run: components["schemas"]["FinalizedWorkflowRun"];
+            archive_ref?: {
+                [key: string]: unknown;
+            };
+        };
+        PostFinalizationRejectionRequest: {
+            reason: string;
+            idempotency_key: string;
+        };
+        PostFinalizationRejectionDocument: {
+            id: components["schemas"]["Uuid"];
+            original_run_id: components["schemas"]["Uuid"];
+            reason: string;
+            created_by: components["schemas"]["Uuid"];
+        };
+        PostFinalizationRejectionResponse: {
+            compensation: components["schemas"]["PostFinalizationRejectionDocument"];
+            run: components["schemas"]["FinalizedWorkflowRun"];
         };
         /** @description Partial update for a DRAFT workflow definition. Workflow key and object type are immutable. */
         UpdateWorkflowDefinitionRequest: {
@@ -13064,6 +13148,68 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    finalizeWorkflowTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinalizeWorkflowTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Finalization recorded (replays return the recorded result). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinalizeWorkflowTaskResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createWorkflowPostFinalizationRejection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostFinalizationRejectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Compensating document created (replays return the recorded result). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostFinalizationRejectionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listCollaborationCalendarEvents: {

@@ -120,6 +120,8 @@ import com.maintenance.api.client.model.EvidenceStagingPresignRequest
 import com.maintenance.api.client.model.EvidenceStagingPresignResponse
 import com.maintenance.api.client.model.EvidenceStatusResponse
 import com.maintenance.api.client.model.ExecuteObjectActionRequest
+import com.maintenance.api.client.model.FinalizeWorkflowTaskRequest
+import com.maintenance.api.client.model.FinalizeWorkflowTaskResponse
 import com.maintenance.api.client.model.FindingStatus
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
 import com.maintenance.api.client.model.GovernanceFinding
@@ -182,6 +184,8 @@ import com.maintenance.api.client.model.PolicyRoleTemplateResponse
 import com.maintenance.api.client.model.PollListResponse
 import com.maintenance.api.client.model.PollResponse
 import com.maintenance.api.client.model.PollStatus
+import com.maintenance.api.client.model.PostFinalizationRejectionRequest
+import com.maintenance.api.client.model.PostFinalizationRejectionResponse
 import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.PrivacyConsentAcceptRequest
@@ -4851,6 +4855,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/workflow-runs/{run_id}/post-finalization-rejection
+     * Create a compensating post-finalization rejection (사후 반려)
+     * Records a compensating document linked to an already-finalized run and notifies the whole approval line. The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead. Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+     * @param runId
+     * @param postFinalizationRejectionRequest
+     * @return PostFinalizationRejectionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createWorkflowPostFinalizationRejection(runId: java.util.UUID, postFinalizationRejectionRequest: PostFinalizationRejectionRequest) : PostFinalizationRejectionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createWorkflowPostFinalizationRejectionWithHttpInfo(runId = runId, postFinalizationRejectionRequest = postFinalizationRejectionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PostFinalizationRejectionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-runs/{run_id}/post-finalization-rejection
+     * Create a compensating post-finalization rejection (사후 반려)
+     * Records a compensating document linked to an already-finalized run and notifies the whole approval line. The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead. Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+     * @param runId
+     * @param postFinalizationRejectionRequest
+     * @return ApiResponse<PostFinalizationRejectionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createWorkflowPostFinalizationRejectionWithHttpInfo(runId: java.util.UUID, postFinalizationRejectionRequest: PostFinalizationRejectionRequest) : ApiResponse<PostFinalizationRejectionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createWorkflowPostFinalizationRejectionRequestConfig(runId = runId, postFinalizationRejectionRequest = postFinalizationRejectionRequest)
+
+        return@withContext request<PostFinalizationRejectionRequest, PostFinalizationRejectionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createWorkflowPostFinalizationRejection
+     *
+     * @param runId
+     * @param postFinalizationRejectionRequest
+     * @return RequestConfig
+     */
+    fun createWorkflowPostFinalizationRejectionRequestConfig(runId: java.util.UUID, postFinalizationRejectionRequest: PostFinalizationRejectionRequest) : RequestConfig<PostFinalizationRejectionRequest> {
+        val localVariableBody = postFinalizationRejectionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-runs/{run_id}/post-finalization-rejection".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * DELETE /api/v1/branches/{id}
      * Soft-delete (deactivate) a branch
      * Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment, so live operational data is never orphaned. Returns the deactivated branch.
@@ -6031,6 +6112,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/location-consents/ledger.csv",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-tasks/{task_id}/finalize
+     * Finalize an approval document (author or delegate)
+     * Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+     * @param taskId
+     * @param finalizeWorkflowTaskRequest
+     * @return FinalizeWorkflowTaskResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun finalizeWorkflowTask(taskId: java.util.UUID, finalizeWorkflowTaskRequest: FinalizeWorkflowTaskRequest) : FinalizeWorkflowTaskResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = finalizeWorkflowTaskWithHttpInfo(taskId = taskId, finalizeWorkflowTaskRequest = finalizeWorkflowTaskRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as FinalizeWorkflowTaskResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-tasks/{task_id}/finalize
+     * Finalize an approval document (author or delegate)
+     * Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+     * @param taskId
+     * @param finalizeWorkflowTaskRequest
+     * @return ApiResponse<FinalizeWorkflowTaskResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun finalizeWorkflowTaskWithHttpInfo(taskId: java.util.UUID, finalizeWorkflowTaskRequest: FinalizeWorkflowTaskRequest) : ApiResponse<FinalizeWorkflowTaskResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = finalizeWorkflowTaskRequestConfig(taskId = taskId, finalizeWorkflowTaskRequest = finalizeWorkflowTaskRequest)
+
+        return@withContext request<FinalizeWorkflowTaskRequest, FinalizeWorkflowTaskResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation finalizeWorkflowTask
+     *
+     * @param taskId
+     * @param finalizeWorkflowTaskRequest
+     * @return RequestConfig
+     */
+    fun finalizeWorkflowTaskRequestConfig(taskId: java.util.UUID, finalizeWorkflowTaskRequest: FinalizeWorkflowTaskRequest) : RequestConfig<FinalizeWorkflowTaskRequest> {
+        val localVariableBody = finalizeWorkflowTaskRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-tasks/{task_id}/finalize".replace("{"+"task_id"+"}", encodeURIComponent(taskId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

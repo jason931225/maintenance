@@ -169,6 +169,10 @@ src/main/kotlin/com/maintenance/api/client/model/EvidenceStatusResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/ExecuteObjectActionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ExportSourceNote.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizeWorkflowTaskRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizeWorkflowTaskResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizedWorkflowRun.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizedWorkflowTask.kt
 src/main/kotlin/com/maintenance/api/client/model/FinancialConfigSnapshot.kt
 src/main/kotlin/com/maintenance/api/client/model/FindingSeverity.kt
 src/main/kotlin/com/maintenance/api/client/model/FindingStatus.kt
@@ -279,6 +283,9 @@ src/main/kotlin/com/maintenance/api/client/model/PollMyVote.kt
 src/main/kotlin/com/maintenance/api/client/model/PollOptionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PollResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PollStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionDocument.kt
+src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PrepareExpenditureRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PresignedUpload.kt
 src/main/kotlin/com/maintenance/api/client/model/PriorityLevel.kt
