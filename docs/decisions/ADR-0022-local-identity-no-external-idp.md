@@ -23,7 +23,7 @@ Do not ship a speculative external IdP seam.
 - Maintenance-owned passkey accounts remain the production identity source (ADR-0004).
 - `mnt-identity-application` must expose only local org/account administration commands, read models, and audit builders unless a real future integration is approved.
 - Retire the unused identity-provider trait, DTOs, boxed futures, provider error type, and contract-only tests.
-- HR roster, attendance, payroll, or person-data integrations are not authentication authority by default.
+- HR roster, attendance, payroll, or person-data integrations are data integrations by default. They must not authenticate users, assert sessions, grant roles, or decide account status unless a separate identity-federation ADR names the real IdP/protocol/claims and passes security review.
 - Any future external HR/attendance/payroll integration requires a named provider, owner, validated production contract, privacy/security review, production configuration path, adapter implementation, and tests before a code seam is restored.
 
 ## Alternatives Considered
