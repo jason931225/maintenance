@@ -63,6 +63,12 @@ pub struct ProcessNodeRequest {
     pub spec: NodeSpec,
     pub attempt: i32,
     pub input_payload: Value,
+    /// Cedar/PBAC observe-and-record shadow audit rows produced by the caller's
+    /// guard(s) for this transition (design §D). They are folded into the node
+    /// step's own `with_audits` transaction so the shadow decision commits (or
+    /// rolls back) atomically with the node it guards. Empty when the node is a
+    /// worker-driven system node that is audited but not per-request Cedar-guarded.
+    pub guard_audits: Vec<AuditEvent>,
 }
 
 /// The statuses the run/node landed after a processed node.
@@ -191,6 +197,12 @@ pub async fn process_node<P: WorkflowRuntimePort + ?Sized>(
         node_final_status,
     )?;
 
+    // The node's own audit row plus any Cedar/PBAC shadow audit rows the caller's
+    // guard produced for this transition (design §D) — one atomic `with_audits` txn.
+    let mut audit_events = Vec::with_capacity(1 + request.guard_audits.len());
+    audit_events.push(node_audit);
+    audit_events.extend(request.guard_audits);
+
     let commit = NodeStepCommit {
         new_node,
         node_final_status,
@@ -199,7 +211,7 @@ pub async fn process_node<P: WorkflowRuntimePort + ?Sized>(
         emissions,
         waiting_task,
         run_transition,
-        audit_events: vec![node_audit],
+        audit_events,
     };
     port.commit_node_step(request.org_id, commit).await?;
 

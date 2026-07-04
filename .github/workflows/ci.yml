@@ -325,6 +325,15 @@ jobs:
       - name: Workflow runtime spine gate
         run: npm run check:workflow-runtime-spine
 
+      - name: Workflow runtime M2 strangler dark-landing gate
+        run: npm run check:workflow-runtime-m2-strangler
+
+      - name: Workflow runtime M2 Cedar-guard observe-and-record gate
+        run: npm run check:workflow-runtime-m2-cedar-guards
+
+      - name: Workflow runtime M2 flag-ON runtime gate
+        run: npm run check:workflow-runtime-m2-runtime
+
       - name: Workflow runtime M2 outbox-drainer transactional-idempotency gate
         run: npm run check:workflow-runtime-m2-drainer
 

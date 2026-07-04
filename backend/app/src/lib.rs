@@ -1392,10 +1392,14 @@ pub fn build_router(state: AppState) -> Router {
                     kpi_repository,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
-                    work_order_store.clone(),
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_workorder_rest::router(
+                    WorkOrderRestState::new(work_order_store.clone(), state.jwt_verifier.clone())
+                        .with_workflow_runtime(Some(
+                            mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore::new(
+                                pool.clone(),
+                            ),
+                        )),
+                ))
                 .merge(mnt_workorder_rest::mobile_router(
                     MobileRestState::new(
                         pool.clone(),
