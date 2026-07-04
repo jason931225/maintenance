@@ -11,6 +11,7 @@ use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
+use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
@@ -40,7 +41,8 @@ struct JsonResponse {
 async fn delegated_finalize_endpoint_requires_reason_and_authorization(pool: PgPool) {
     let keys = keys();
     let fixture = seed_finalize_waiting_task(&pool).await;
-    let service = build_router(app_state(pool.clone(), keys.public_pem.clone()).unwrap());
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
 
     let super_admin = UserId::new();
     seed_user(&pool, super_admin, "SUPER_ADMIN", fixture.branch_id).await;
@@ -72,13 +74,15 @@ async fn delegated_finalize_endpoint_requires_reason_and_authorization(pool: PgP
             .contains("reason")
     );
 
+    // MECHANIC is a valid DB role and is denied approval_finalize by the legacy
+    // matrix ([D,D,D,A,A,A] over [Member,Receptionist,Mechanic,Admin,Executive,SuperAdmin]).
     let member = UserId::new();
-    seed_user(&pool, member, "MEMBER", fixture.branch_id).await;
+    seed_user(&pool, member, "MECHANIC", fixture.branch_id).await;
     let denied_token = issue_token(
         keys.private_pem.as_bytes(),
         keys.public_pem.as_bytes(),
         member,
-        vec!["MEMBER".to_owned()],
+        vec!["MECHANIC".to_owned()],
         vec![fixture.branch_id],
     )
     .unwrap();
@@ -185,7 +189,8 @@ async fn delegated_finalize_endpoint_requires_reason_and_authorization(pool: PgP
 async fn finalization_with_receipt_step_keeps_run_waiting_and_opens_receipt_task(pool: PgPool) {
     let keys = keys();
     let fixture = seed_finalize_waiting_task_with_receipt(&pool).await;
-    let service = build_router(app_state(pool.clone(), keys.public_pem.clone()).unwrap());
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
 
     let author = UserId::new();
     seed_user(&pool, author, "ADMIN", fixture.branch_id).await;
@@ -260,7 +265,8 @@ async fn finalization_with_receipt_step_keeps_run_waiting_and_opens_receipt_task
 async fn post_finalization_rejection_creates_compensation_without_reopening_run(pool: PgPool) {
     let keys = keys();
     let fixture = seed_finalize_waiting_task(&pool).await;
-    let service = build_router(app_state(pool.clone(), keys.public_pem.clone()).unwrap());
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
 
     let reviewer = UserId::new();
     let approver = UserId::new();
@@ -411,6 +417,101 @@ async fn post_finalization_rejection_creates_compensation_without_reopening_run(
             actor.to_string()
         ])
     );
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn author_finalize_replays_same_idempotency_key_as_200(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_finalize_waiting_task(&pool).await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    // The fixture run's initiator is the seeded author; author-mode finalize is owner-checked.
+    let token = issue_token(
+        keys.private_pem.as_bytes(),
+        keys.public_pem.as_bytes(),
+        fixture.author_id,
+        vec!["ADMIN".to_owned()],
+        vec![fixture.branch_id],
+    )
+    .unwrap();
+
+    let body = json!({ "mode": "author", "idempotency_key": "author-finalize-replay-0001" });
+    let first = post_finalize(service.clone(), fixture.task_id, &token, body.clone()).await;
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(first.json["task"]["status"], "APPROVED");
+    assert_eq!(first.json["run"]["status"], "SUCCEEDED");
+
+    let replay = post_finalize(service, fixture.task_id, &token, body).await;
+    assert_eq!(replay.status, StatusCode::OK);
+    assert_eq!(replay.json["task"]["status"], "APPROVED");
+    assert_eq!(replay.json["run"]["status"], "SUCCEEDED");
+    assert_eq!(replay.json["task"]["id"], first.json["task"]["id"]);
+
+    // The replay is a pure read-back: exactly one finalize audit, no double-write.
+    let finalize_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events \
+         WHERE action = 'workflow_task.finalize' AND target_id = $1",
+    )
+    .bind(fixture.task_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(finalize_audits, 1);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn finalize_conflicts_when_task_claimed_by_another_user(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_finalize_waiting_task(&pool).await;
+
+    // A different user holds the claim on the finalization task.
+    let other = UserId::new();
+    seed_user(&pool, other, "ADMIN", fixture.branch_id).await;
+    sqlx::query(
+        "UPDATE workflow_waiting_tasks \
+         SET status = 'CLAIMED', claimed_by = $1, claimed_at = now() WHERE id = $2",
+    )
+    .bind(*other.as_uuid())
+    .bind(fixture.task_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = issue_token(
+        keys.private_pem.as_bytes(),
+        keys.public_pem.as_bytes(),
+        fixture.author_id,
+        vec!["ADMIN".to_owned()],
+        vec![fixture.branch_id],
+    )
+    .unwrap();
+
+    let response = post_finalize(
+        service,
+        fixture.task_id,
+        &token,
+        json!({ "mode": "author", "idempotency_key": "finalize-claimed-by-other-0001" }),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::CONFLICT);
+    assert_eq!(response.json["error"]["code"], "conflict");
+
+    // The stale conflict left the run and task untouched (no partial advance).
+    let run_status: String = sqlx::query_scalar("SELECT status FROM workflow_runs WHERE id = $1")
+        .bind(fixture.run_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(run_status, "WAITING");
+    let task_status: String =
+        sqlx::query_scalar("SELECT status FROM workflow_waiting_tasks WHERE id = $1")
+            .bind(fixture.task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(task_status, "CLAIMED");
 }
 
 async fn post_finalize(
@@ -628,12 +729,14 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
     BranchId::from_uuid(branch_id)
 }
 
-async fn seed_user(pool: &PgPool, user_id: UserId, role: &str, branch_id: BranchId) {
-    sqlx::query("INSERT INTO users (id, display_name, roles, branch_id, org_id) VALUES ($1, $2, $3, $4, $5)")
+async fn seed_user(pool: &PgPool, user_id: UserId, role: &str, _branch_id: BranchId) {
+    // `users` has no branch_id column — the principal's branch scope is carried by
+    // the JWT, not the user row. The DB role only needs to satisfy the roles CHECK
+    // and back the audit actor FK.
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user_id.as_uuid())
         .bind(format!("workflow-runtime-{role}"))
         .bind(vec![role])
-        .bind(*branch_id.as_uuid())
         .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
@@ -683,6 +786,25 @@ fn issue_token(
         feature_grants: Vec::new(),
         issued_at: OffsetDateTime::now_utc(),
     })?)
+}
+
+/// Runtime-role pool: every connection assumes the genuine non-owner `mnt_rt`, so
+/// RLS is ACTUALLY enforced (a superuser pool would BYPASSRLS and mask breakage).
+/// The router under test runs on this pool exactly as production does; fixture
+/// seeding uses the owner `pool` (which may write across tenants for setup).
+async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
 }
 
 fn app_state(pool: PgPool, public_key_pem: String) -> Result<AppState, mnt_app::AppError> {
