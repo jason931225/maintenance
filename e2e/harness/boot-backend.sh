@@ -14,10 +14,21 @@ set -euo pipefail
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${E2E_DIR}/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
+MIGRATIONS_DIR="${BACKEND_DIR}/crates/platform/db/migrations"
 AUTH_DIR="${E2E_DIR}/.auth"
 PID_FILE="${AUTH_DIR}/backend.pid"
 LOG_FILE="${AUTH_DIR}/backend.log"
 MNT_APP_BIN="${MNT_APP_BIN:-}"
+
+run_source_app() {
+  # Build/run from source: force sqlx offline so the apalis-postgres dep (and
+  # our own queries) compile against the committed `.sqlx` cache, not the empty
+  # mnt_e2e DB (which lacks `apalis.jobs` until migrations run).
+  ( cd "${BACKEND_DIR}" && \
+    CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}" \
+    CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/.tmp/cargo-target-e2e}" \
+    SQLX_OFFLINE=true cargo run -q -p mnt-app >"${LOG_FILE}" 2>&1 ) &
+}
 
 mkdir -p "${AUTH_DIR}"
 
@@ -64,15 +75,15 @@ export RUST_LOG="${RUST_LOG:-info}"
 
 echo "boot-backend: starting mnt-app api on ${MNT_HTTP_ADDR}" >&2
 if [[ -n "${MNT_APP_BIN}" && -x "${MNT_APP_BIN}" ]]; then
-  "${MNT_APP_BIN}" >"${LOG_FILE}" 2>&1 &
+  newer_migration="$(find "${MIGRATIONS_DIR}" -type f -name '*.sql' -newer "${MNT_APP_BIN}" -print -quit)"
+  if [[ -n "${newer_migration}" ]]; then
+    echo "boot-backend: ${MNT_APP_BIN} is older than ${newer_migration#"${REPO_ROOT}/"}; using source app" >&2
+    run_source_app
+  else
+    "${MNT_APP_BIN}" >"${LOG_FILE}" 2>&1 &
+  fi
 else
-  # Build/run from source: force sqlx offline so the apalis-postgres dep (and
-  # our own queries) compile against the committed `.sqlx` cache, not the empty
-  # mnt_e2e DB (which lacks `apalis.jobs` until migrations run).
-  ( cd "${BACKEND_DIR}" && \
-    CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}" \
-    CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/.tmp/cargo-target-e2e}" \
-    SQLX_OFFLINE=true cargo run -q -p mnt-app >"${LOG_FILE}" 2>&1 ) &
+  run_source_app
 fi
 BACKEND_PID=$!
 echo "${BACKEND_PID}" >"${PID_FILE}"
