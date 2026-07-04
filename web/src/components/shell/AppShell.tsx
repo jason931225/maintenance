@@ -68,7 +68,7 @@ function AppShellContent() {
       {/* Skip-to-main */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-md focus:outline-2 focus:outline-ink"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-console-surface focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-console-ink focus:shadow-md focus:outline-2 focus:outline-console-ink"
       >
         {ko.shell.skipToContent}
       </a>
