@@ -1,5 +1,5 @@
 import { ChevronsLeft, ChevronsRight, PanelsTopLeft } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import type { components } from "@maintenance/api-client-ts";
@@ -62,6 +62,7 @@ export function Sidebar({
   session,
 }: SidebarProps) {
   const { api } = useAuth();
+  const panelRef = useRef<HTMLElement>(null);
   const roles = session?.roles;
   const groupRoles = session?.group_roles;
   const featureGrants = session?.feature_grants;
@@ -83,6 +84,70 @@ export function Sidebar({
   );
   const canLoadMailBadge = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
 
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+
+    const panel = panelRef.current;
+    const previouslyFocused = document.activeElement;
+    if (!panel) return undefined;
+    const panelEl = panel;
+
+    const focusableSelector = [
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+
+    function focusableElements() {
+      return Array.from(
+        panelEl.querySelectorAll<HTMLElement>(focusableSelector),
+      ).filter((element) => {
+        const style = window.getComputedStyle(element);
+        return style.display !== "none" && style.visibility !== "hidden";
+      });
+    }
+
+    window.requestAnimationFrame(() => {
+      (focusableElements()[0] ?? panelEl).focus();
+    });
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Tab") return;
+      const elements = focusableElements();
+      if (elements.length === 0) {
+        event.preventDefault();
+        panelEl.focus();
+        return;
+      }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (!panelEl.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (
+        previouslyFocused instanceof HTMLElement &&
+        previouslyFocused.isConnected
+      ) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [mobileOpen]);
 
   useEffect(() => {
     let ignore = false;
@@ -204,7 +269,11 @@ export function Sidebar({
         />
       )}
       <aside
+        ref={panelRef}
         aria-label={ko.shell.title}
+        aria-modal={mobileOpen ? "true" : undefined}
+        role={mobileOpen ? "dialog" : undefined}
+        tabIndex={-1}
         className={cn(
           "fixed inset-y-0 left-0 z-30 flex flex-col bg-white border-r border-line transition-all duration-200",
           collapsed ? "w-16" : "w-60",

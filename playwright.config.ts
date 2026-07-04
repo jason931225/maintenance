@@ -29,8 +29,9 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 const DEV_AUTH_SPEC =
-  /(?:auth-09-dev-role-switcher|hr-30-absence-exit-settlement)\.spec\.ts$/;
+  /(?:auth-09-dev-role-switcher|chrome-0[12]-(?:mobile-drawer|axe)|hr-30-absence-exit-settlement)\.spec\.ts$/;
 const DEV_AUTH_E2E = process.env.MNT_DEV_AUTH_E2E === "1";
+const STATIC_PREVIEW_FALLBACK = process.env.E2E_STATIC_PREVIEW_FALLBACK === "1";
 
 export default defineConfig({
   testDir: "./e2e/specs",
@@ -69,9 +70,11 @@ export default defineConfig({
       : []),
   ],
   // DEV_AUTH_E2E: both tiers are already running for real (see the module doc
-  // above) — nothing for Playwright to manage. Every other run builds and
-  // serves the production bundle itself, unchanged from before.
-  webServer: DEV_AUTH_E2E
+  // above) — nothing for Playwright to manage. STATIC_PREVIEW_FALLBACK is for
+  // public storefront visual specs in restricted local sandboxes where binding a
+  // preview port is not allowed; the spec fulfills built assets through route
+  // handlers instead. Every other run builds and serves the production bundle.
+  webServer: DEV_AUTH_E2E || STATIC_PREVIEW_FALLBACK
     ? undefined
     : {
         // Build first, then serve the static build through Vite preview (which we

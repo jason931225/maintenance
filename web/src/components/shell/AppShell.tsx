@@ -9,8 +9,10 @@ import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { PageSpinner } from "../states/PageSpinner";
 import { BackStackBreadcrumbs } from "./BackStackBreadcrumbs";
 import { CommandPalette } from "./CommandPalette";
+import { ConsoleToast } from "../console/primitives";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { useConsoleToast } from "./useConsoleToast";
 
 export function AppShell() {
   return (
@@ -27,6 +29,7 @@ function AppShellContent() {
   const { session } = useAuth();
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
+  const { toast, closeToast, undoToast } = useConsoleToast();
 
   // Move focus to the main content region after each navigation so keyboard
   // and screen-reader users land on the new page content.
@@ -107,6 +110,13 @@ function AppShellContent() {
       </div>
       {commandPaletteOpen ? (
         <CommandPalette onClose={() => { setCommandPaletteOpen(false); }} />
+      ) : null}
+      {toast ? (
+        <ConsoleToast
+          message={toast.message}
+          onUndo={toast.onUndo ? undoToast : undefined}
+          onClose={closeToast}
+        />
       ) : null}
     </div>
   );
