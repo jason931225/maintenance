@@ -121,6 +121,9 @@ jobs:
             ${{ runner.os }}-cargo-backend-
             ${{ runner.os }}-cargo-
 
+      - name: Cargo.lock freshness gate
+        run: cargo tree --locked --workspace --target all >/dev/null
+
       - name: rustfmt check
         run: cargo fmt --all -- --check
 
