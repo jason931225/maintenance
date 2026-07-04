@@ -17,6 +17,7 @@ members = [
   "crates/sales/*",
   "crates/support/*",
   "crates/workorder/*",
+  "crates/workflow/*",
   "crates/messenger/*",
   "crates/comms/*",
   "crates/payroll/*",
@@ -184,6 +185,9 @@ mnt-workorder-domain = { path = "crates/workorder/domain" }
 mnt-workorder-application = { path = "crates/workorder/application" }
 mnt-workorder-adapter-postgres = { path = "crates/workorder/adapter-postgres" }
 mnt-workorder-rest = { path = "crates/workorder/rest" }
+mnt-workflow-domain = { path = "crates/workflow/domain" }
+mnt-workflow-runtime = { path = "crates/workflow/runtime" }
+mnt-workflow-runtime-adapter-postgres = { path = "crates/workflow/adapter-postgres" }
 mnt-messenger-domain = { path = "crates/messenger/domain" }
 mnt-messenger-application = { path = "crates/messenger/application" }
 mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }

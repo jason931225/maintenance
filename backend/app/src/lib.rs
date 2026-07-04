@@ -98,6 +98,7 @@ use url::Url;
 mod collaboration;
 mod hr;
 mod mail_sync;
+mod workflow_drain;
 mod workflow_studio;
 
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
@@ -1391,10 +1392,14 @@ pub fn build_router(state: AppState) -> Router {
                     kpi_repository,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
-                    work_order_store.clone(),
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_workorder_rest::router(
+                    WorkOrderRestState::new(work_order_store.clone(), state.jwt_verifier.clone())
+                        .with_workflow_runtime(Some(
+                            mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore::new(
+                                pool.clone(),
+                            ),
+                        )),
+                ))
                 .merge(mnt_workorder_rest::mobile_router(
                     MobileRestState::new(
                         pool.clone(),
@@ -2209,6 +2214,11 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         queue = "mnt.dispatch",
         "starting mnt-app worker"
     );
+    // M2 workflow-runtime payroll outbox drainer (design §B/§F). Runs alongside
+    // the apalis dispatch worker on the same `mnt_rt` pool, re-arming
+    // `app.current_org` per tenant each tick. Lands dark: no tenant is enrolled in
+    // a shipped migration/seed, so it finds no work in production.
+    let workflow_drain_handle = workflow_drain::spawn(pool.clone());
     let alimtalk_policy = if config.solapi.is_some() {
         AlimtalkEscalationPolicy::enabled()
     } else {
@@ -2272,6 +2282,7 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     .await
     .map_err(|err| AppError::Worker(err.to_string()));
 
+    workflow_drain_handle.shutdown();
     health_server.abort();
     result
 }
