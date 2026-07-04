@@ -110,7 +110,23 @@ pub fn generate_policies(feature: Feature) -> String {
 ///
 /// Fail-closed: returns `Err` on any parse error or on ANY strict-validation
 /// error OR warning (see [`compile_bundle_from_sources`]).
+///
+/// Panic-safe like [`evaluate`]: a Cedar-SDK panic during schema/policy compile or
+/// strict validation is caught and recorded as an `Err`, never unwound out of the
+/// shadow lane. This upholds the ADR-0021 invariant that the shadow lane can never
+/// alter (or abort) a live authorization outcome.
 pub fn compile_bundle(org_id: OrgId, policy_version: u64) -> Result<CompiledBundle, KernelError> {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| {
+        compile_bundle_inner(org_id, policy_version)
+    })) {
+        Ok(result) => result,
+        Err(_) => Err(KernelError::validation(
+            "cedar bundle compilation panicked".to_owned(),
+        )),
+    }
+}
+
+fn compile_bundle_inner(org_id: OrgId, policy_version: u64) -> Result<CompiledBundle, KernelError> {
     compile_bundle_from_sources(
         org_id,
         policy_version,
