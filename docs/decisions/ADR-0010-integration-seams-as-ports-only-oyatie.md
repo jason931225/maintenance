@@ -21,7 +21,7 @@ The production-grade-only mandate forbids stubs and demo modes. The oyatie cloud
 The earlier version of this ADR also described a future identity-provider seam. That was wrong for the current product: maintenance owns identity locally through passkey-backed accounts, and no external identity provider is part of the launch architecture.
 
 ## Decision
-The oyatie AI assistant seam remains a port definition only: `IntelligencePort` covers diagnosis suggestions and report drafting, with no mock adapter and no UI affordance until a real adapter is scheduled and owned.
+The oyatie AI assistant seam remains a port definition only: `AiAssistantPort` covers diagnosis suggestions and report drafting, with no mock adapter and no UI affordance until a real adapter is scheduled and owned.
 
 Identity remains local and is not represented as a speculative external provider port. ADR-0022 records that correction and prohibits restoring an identity-provider contract without a named provider, owner, validated production contract, and implementation slice.
 

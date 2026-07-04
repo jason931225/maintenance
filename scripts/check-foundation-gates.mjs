@@ -97,7 +97,9 @@ requireIncludes("backend/openapi/openapi.yaml", "Append-only Policy Studio audit
 
 // CI/CD/security/release baseline.
 requireScript("check:foundation-gates");
+requireScript("test:text-gate");
 requireIncludes(".github/workflows/ci.yml", "npm run check:foundation-gates", "CI runs foundation gate contract");
+requireIncludes(".github/workflows/ci.yml", "npm run test:text-gate", "CI runs shared text-gate tests");
 requireIncludes(".github/workflows/ci.yml", "docs/specs/**", "CI watches docs/specs gate inputs");
 for (const ciNeedle of [
   "cargo fmt --all -- --check",

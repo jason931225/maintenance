@@ -310,6 +310,9 @@ jobs:
       - name: Foundation gate contract
         run: npm run check:foundation-gates
 
+      - name: Shared text gate unit tests
+        run: npm run test:text-gate
+
       - name: Enterprise UX parity / no-text-wall gate
         run: npm run check:enterprise-ux-parity
 

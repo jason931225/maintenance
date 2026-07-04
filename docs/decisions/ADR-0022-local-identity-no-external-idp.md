@@ -1,3 +1,13 @@
+---
+id: ADR-0022
+status: accepted
+doc_status: published
+date: 2026-07-04
+owner: jasonlee
+consensus: product correction on 2026-07-04
+related: [ADR-0004, ADR-0010, ADR-0017]
+---
+
 # ADR-0022: Local identity only; no speculative external IdP seam
 
 ## Status

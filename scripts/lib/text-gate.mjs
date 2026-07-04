@@ -12,9 +12,14 @@ export function createTextGate(options = {}) {
     passLabel = (label) => label,
   } = options;
   const checks = [];
+  const cache = new Map();
 
   function read(path) {
-    return readFileSync(resolve(root, path), "utf8");
+    const resolved = resolve(root, path);
+    if (!cache.has(resolved)) {
+      cache.set(resolved, readFileSync(resolved, "utf8"));
+    }
+    return cache.get(resolved);
   }
 
   function record(label, kind) {
