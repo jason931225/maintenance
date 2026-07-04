@@ -29,7 +29,7 @@ use http::{HeaderMap, StatusCode};
 use mnt_kernel_core::{AccessScope, BranchScope, ErrorKind, KernelError, OrgId, UserId};
 use mnt_platform_auth::{JwtVerifier, TenantAccessContext};
 use mnt_platform_authz::{
-    PlatformPrincipal, Principal, Role, effective_branch_scope_for_tenant,
+    PlatformPrincipal, Principal, Role, SubjectFreshness, effective_branch_scope_for_tenant,
     resolve_branch_scope_in_org, resolve_effective_feature_grants_in_org,
 };
 use mnt_platform_group::group_admin_member_orgs;
@@ -180,6 +180,18 @@ pub async fn resolve_principal_from_bearer_token(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
 
+    // Subject authorization freshness snapshot carried by the verified token
+    // (Cedar/PBAC activation, ADR-0021). Absent claims default to 0 (the
+    // no-material baseline). SLICE-2 only sources this onto the principal; no
+    // live authorization decision consults it and the Cedar path stays
+    // unreachable. step_up_generation is not sourced for the RoleManage pilot.
+    let authz_freshness = SubjectFreshness {
+        policy_version: claims.authz_policy_version,
+        subject_version: claims.authz_subject_version,
+        session_generation: claims.session_generation,
+        step_up_generation: None,
+    };
+
     if claims.tenant_context == Some(TenantAccessContext::GroupAdmin) {
         return resolve_group_admin_tenant_context_principal(
             pool,
@@ -188,6 +200,7 @@ pub async fn resolve_principal_from_bearer_token(
             access_scope,
             roles,
             claims.group_context_id.as_deref(),
+            authz_freshness,
         )
         .await;
     }
@@ -205,7 +218,8 @@ pub async fn resolve_principal_from_bearer_token(
 
     Ok(Principal::new(user_id, org_id, roles, branch_scope)
         .with_access_scope(access_scope)
-        .with_effective_feature_grants(effective_feature_grants))
+        .with_effective_feature_grants(effective_feature_grants)
+        .with_authz_freshness(authz_freshness))
 }
 
 async fn resolve_group_admin_tenant_context_principal(
@@ -215,6 +229,7 @@ async fn resolve_group_admin_tenant_context_principal(
     access_scope: AccessScope,
     roles: BTreeSet<Role>,
     group_context_id: Option<&str>,
+    authz_freshness: SubjectFreshness,
 ) -> Result<Principal, RequestContextError> {
     let expected_roles = BTreeSet::from([Role::Admin]);
     if roles != expected_roles {
@@ -255,7 +270,8 @@ async fn resolve_group_admin_tenant_context_principal(
     Ok(
         Principal::new(user_id, org_id, expected_roles, branch_scope)
             .with_access_scope(access_scope)
-            .with_effective_feature_grants(effective_feature_grants),
+            .with_effective_feature_grants(effective_feature_grants)
+            .with_authz_freshness(authz_freshness),
     )
 }
 
