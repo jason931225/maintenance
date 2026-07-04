@@ -165,7 +165,7 @@ async fn single_draft(rt_pool: &PgPool, org: OrgId) -> (String, bool) {
     out
 }
 
-#[sqlx::test(migrations = "../../platform/db/migrations")]
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn real_engine_completion_tail_drives_one_succeeded_run_and_one_blocked_draft(
     owner_pool: PgPool,
 ) {
