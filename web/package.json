@@ -21,7 +21,6 @@
     "dompurify": "3.4.11",
     "leaflet": "^1.9.4",
     "lucide-react": "0.555.0",
-    "openapi-fetch": "0.17.0",
     "qrcode.react": "4.2.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",

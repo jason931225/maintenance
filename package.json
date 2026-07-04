@@ -60,7 +60,6 @@
     "kic:local-cert-login-fixture": "node scripts/korean-connectivity/local-certificate-agent.mjs"
   },
   "dependencies": {
-    "openapi-fetch": "0.17.0",
     "pg": "8.21.0"
   },
   "devDependencies": {
