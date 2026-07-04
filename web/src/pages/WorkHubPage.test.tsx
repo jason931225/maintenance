@@ -5,9 +5,8 @@ import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { createConsoleApiClient } from "../api/client";
-import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
+import type { AuthSession } from "../context/auth";
+import { AuthTestProvider } from "../test/AuthTestProvider";
 import { branchId, primaryMechanicId, workOrderListItems } from "../test/fixtures";
 import { WorkHubPage } from "./WorkHubPage";
 
@@ -28,29 +27,13 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(session: AuthSession): AuthContextValue {
-  return {
-    session,
-    restoring: false,
-    login: async () => {},
-    logout: async () => {},
-    refresh: async () => {},
-    acceptTokens: () => {},
-    clearPasskeySetup: () => {},
-    viewAs: undefined,
-    enterViewAs: () => {},
-    exitViewAs: () => undefined,
-    api: createConsoleApiClient(session.access_token),
-  };
-}
-
 function renderPage(session: AuthSession) {
   return render(
-    <AuthContext.Provider value={makeAuthContext(session)}>
+    <AuthTestProvider session={session}>
       <MemoryRouter>
         <WorkHubPage />
       </MemoryRouter>
-    </AuthContext.Provider>,
+    </AuthTestProvider>,
   );
 }
 
