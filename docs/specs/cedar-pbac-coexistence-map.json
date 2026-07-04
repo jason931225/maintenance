@@ -35,7 +35,8 @@
   },
   "sourcePin": {
     "crate": "cedar-policy",
-    "candidateExactVersionAsOf2026-07-03": "4.11.2",
+    "candidateExactVersion": "4.11.2",
+    "sourceCheckedAt": "2026-07-03",
     "pinSyntaxWhenIntroduced": "=4.11.2",
     "mustReverifyBeforeCargoChange": true,
     "sourceEvidence": [

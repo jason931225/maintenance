@@ -51,7 +51,9 @@ Every Cedar/PBAC boundary decision must have an audit payload with:
 - expected compiled bundle cache key when a map entry has one: org id, policy version, schema version, bundle
   digest, Cedar SDK version, and Cedar language version;
 - evaluated compiled bundle cache key when Cedar returns bundle-bearing evaluation material, so stale-policy
-  investigations can compare expected vs evaluated policy versions and digests.
+  investigations can compare expected vs evaluated policy versions and digests;
+- raw Cedar adapter deny/error reason detail when Cedar returns a human-readable diagnostic, kept in audit
+  payloads only and never promoted to a metric label.
 
 Audit write failure is itself a cutover blocker and must deny for live Cedar-enforced paths, as already recorded
 in `docs/specs/cedar-pbac-coexistence-map.json`.
@@ -63,6 +65,6 @@ A pilot action may not leave `legacy_only` until all of the following evidence i
 1. Fixture JSON validates and names all required fail-closed scenarios.
 2. Rust boundary tests prove each expected denial reason.
 3. Observation tests prove metric labels and audit payload include mode, reason, freshness, expected bundle
-   versions, and evaluated bundle identity for stale-policy cases.
+   versions, evaluated bundle identity for stale-policy cases, and raw Cedar deny/error details for diagnostics.
 4. UI tests prove non-authoritative Cedar/JWT projections cannot expose RoleManage-tier pages.
 5. RLS proof shows Cedar allow cannot bypass `mnt_rt` / tenant row boundaries.

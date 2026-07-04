@@ -43,6 +43,14 @@ describe("policyProjection", () => {
   it("normalizes only explicit object/string claims", () => {
     expect(normalizeCedarPolicyProjectionClaim(undefined)).toBeUndefined();
     expect(normalizeCedarPolicyProjectionClaim(["role_manage"])).toBeUndefined();
+    expect(normalizeCedarPolicyProjectionClaim({})).toBeUndefined();
+    expect(
+      normalizeCedarPolicyProjectionClaim({
+        stale: false,
+        feature_grants: [],
+        ignored: "value",
+      }),
+    ).toBeUndefined();
 
     expect(
       normalizeCedarPolicyProjectionClaim({
@@ -61,6 +69,23 @@ describe("policyProjection", () => {
       stale: false,
       feature_grants: ["mail_use", "role_manage"],
       elevated_decisions: ["role_manage"],
+    });
+  });
+
+  it("does not treat an empty Cedar projection shell as a source", () => {
+    expect(
+      buildNonAuthoritativePolicyProjection({ policy_projection: {} }),
+    ).toBeUndefined();
+
+    expect(
+      buildNonAuthoritativePolicyProjection({
+        feature_grants: ["mail_use"],
+        policy_projection: {},
+      }),
+    ).toMatchObject({
+      sources: ["jwt_feature_grants"],
+      feature_grants: ["mail_use"],
+      stale: false,
     });
   });
 });

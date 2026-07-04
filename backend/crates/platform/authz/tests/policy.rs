@@ -164,6 +164,29 @@ fn coexistence_entry(mode: DualEngineMode) -> CoexistenceMapEntry {
     )
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CedarPbacReadinessFixture {
+    version: u64,
+    status: String,
+    decision_source: String,
+    cutover_contract: String,
+    observability_contract: String,
+    cases: Vec<CedarPbacReadinessCase>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CedarPbacReadinessCase {
+    id: String,
+    mode: Option<DualEngineMode>,
+    input_fault: String,
+    expected_effect: DecisionEffect,
+    expected_engine: DecisionEngine,
+    expected_reason: DecisionReason,
+    must_audit: Vec<String>,
+}
+
 #[test]
 fn role_enum_uses_canonical_database_codes() {
     assert_eq!(Role::SuperAdmin.as_str(), "SUPER_ADMIN");
@@ -246,9 +269,23 @@ fn cedar_pbac_boundary_denies_missing_coexistence_map() {
 }
 
 #[test]
-fn cedar_pbac_readiness_fixture_names_match_regressions() {
-    let fixture = include_str!("fixtures/cedar_pbac_readiness_cases.json");
-    for expected_case in [
+fn cedar_pbac_readiness_fixture_cases_are_structurally_typed() {
+    let fixture: CedarPbacReadinessFixture =
+        serde_json::from_str(include_str!("fixtures/cedar_pbac_readiness_cases.json"))
+            .expect("Cedar/PBAC readiness fixture must be valid JSON");
+
+    assert_eq!(fixture.version, 1);
+    assert_eq!(fixture.status, "design_no_live_switch");
+    assert!(fixture.decision_source.ends_with(".md"));
+    assert!(fixture.cutover_contract.ends_with(".md"));
+    assert!(fixture.observability_contract.ends_with(".md"));
+
+    let actual_cases = fixture
+        .cases
+        .iter()
+        .map(|case| case.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let expected_cases = BTreeSet::from([
         "stale_policy_denies",
         "stale_subject_denies",
         "rls_separation_denies",
@@ -258,11 +295,40 @@ fn cedar_pbac_readiness_fixture_names_match_regressions() {
         "missing_freshness_denies",
         "missing_rls_scope_proof_denies",
         "malformed_coexistence_map_denies",
-    ] {
+    ]);
+    assert_eq!(actual_cases, expected_cases);
+
+    for case in fixture.cases {
+        assert!(!case.input_fault.trim().is_empty(), "{}", case.id);
         assert!(
-            fixture.contains(expected_case),
-            "missing Cedar/PBAC readiness fixture case {expected_case}"
+            !case.must_audit.is_empty(),
+            "case {} must name required audit evidence",
+            case.id
         );
+
+        match case.id.as_str() {
+            "dual_engine_map_missing_denies" => assert!(case.mode.is_none()),
+            _ => assert!(case.mode.is_some(), "case {} must name a mode", case.id),
+        }
+
+        match case.id.as_str() {
+            "stale_policy_denies" => {
+                assert_eq!(case.expected_effect, DecisionEffect::Deny);
+                assert_eq!(case.expected_engine, DecisionEngine::BoundaryPreflight);
+                assert_eq!(case.expected_reason, DecisionReason::StalePolicyBundle);
+            }
+            "cedar_error_denies" => {
+                assert_eq!(case.expected_effect, DecisionEffect::Deny);
+                assert_eq!(case.expected_engine, DecisionEngine::Cedar);
+                assert_eq!(case.expected_reason, DecisionReason::CedarError);
+            }
+            "dual_engine_disagreement_denies" => {
+                assert_eq!(case.expected_effect, DecisionEffect::Deny);
+                assert_eq!(case.expected_engine, DecisionEngine::DualEngine);
+                assert_eq!(case.expected_reason, DecisionReason::EngineDisagreement);
+            }
+            _ => assert_eq!(case.expected_effect, DecisionEffect::Deny),
+        }
     }
 }
 
@@ -630,12 +696,50 @@ fn cedar_pbac_observation_records_metric_labels_and_full_audit_context() {
             .map(|key| key.bundle_digest.as_str()),
         Some("sha256:stale-bundle")
     );
+    assert_eq!(audit.evaluated_reason_detail, None);
     assert_eq!(
         audit
             .bundle_key
             .as_ref()
             .map(|key| key.cedar_sdk_version.as_str()),
         Some("4.11.2")
+    );
+}
+
+#[test]
+fn cedar_pbac_observation_preserves_raw_cedar_reason_detail() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+    let entry = coexistence_entry(DualEngineMode::CedarOnly);
+
+    let cedar_deny = CedarEvaluation::Deny {
+        bundle_key: cedar_bundle_key(),
+        reason: "shadow policy denied principal role_manage".to_owned(),
+    };
+    let deny_decision = evaluate_cedar_pbac_boundary(&request, Some(&entry), cedar_deny.clone());
+    let deny_audit =
+        observe_cedar_pbac_decision(&request, Some(&entry), Some(&cedar_deny), deny_decision);
+    assert_eq!(deny_audit.decision.reason, DecisionReason::CedarDenied);
+    assert_eq!(
+        deny_audit.evaluated_reason_detail.as_deref(),
+        Some("shadow policy denied principal role_manage")
+    );
+
+    let cedar_error = CedarEvaluation::Error {
+        reason: "schema validation failed".to_owned(),
+    };
+    let error_decision = evaluate_cedar_pbac_boundary(&request, Some(&entry), cedar_error.clone());
+    let error_audit =
+        observe_cedar_pbac_decision(&request, Some(&entry), Some(&cedar_error), error_decision);
+    assert_eq!(error_audit.decision.reason, DecisionReason::CedarError);
+    assert_eq!(
+        error_audit.evaluated_reason_detail.as_deref(),
+        Some("schema validation failed")
     );
 }
 

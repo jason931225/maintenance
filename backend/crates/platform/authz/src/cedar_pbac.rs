@@ -468,6 +468,10 @@ pub struct AuthorizationAuditEvent {
     /// a bundle-bearing result. This makes stale-policy investigations compare
     /// expected vs evaluated digests instead of losing the stale identity.
     pub evaluated_bundle_key: Option<CompiledBundleCacheKey>,
+    /// Raw human-readable Cedar adapter denial/error text. The machine-readable
+    /// `decision.reason` remains the stable audit/metric dimension; this detail
+    /// preserves forensic context for triage without becoming a metric label.
+    pub evaluated_reason_detail: Option<String>,
 }
 
 impl AuthorizationAuditEvent {
@@ -515,6 +519,7 @@ pub fn observe_cedar_pbac_decision(
         rls_scope_proof: request.rls_scope_proof,
         bundle_key: map_entry.and_then(|entry| entry.bundle_key.clone()),
         evaluated_bundle_key: cedar.and_then(cedar_evaluation_bundle_key),
+        evaluated_reason_detail: cedar.and_then(cedar_evaluation_reason_detail),
     }
 }
 
@@ -642,6 +647,15 @@ fn cedar_evaluation_bundle_key(cedar: &CedarEvaluation) -> Option<CompiledBundle
             Some(bundle_key.clone())
         }
         CedarEvaluation::Error { .. } | CedarEvaluation::NotConfigured => None,
+    }
+}
+
+fn cedar_evaluation_reason_detail(cedar: &CedarEvaluation) -> Option<String> {
+    match cedar {
+        CedarEvaluation::Deny { reason, .. } | CedarEvaluation::Error { reason } => {
+            Some(reason.clone())
+        }
+        CedarEvaluation::Allow { .. } | CedarEvaluation::NotConfigured => None,
     }
 }
 

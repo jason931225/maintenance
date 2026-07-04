@@ -93,6 +93,7 @@
         "bundle_digest",
         "cedar_sdk_version",
         "cedar_language_version",
+        "evaluated_reason_detail",
         "decision.reason"
       ]
     },

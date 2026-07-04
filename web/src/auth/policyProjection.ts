@@ -43,7 +43,7 @@ export function normalizeCedarPolicyProjectionClaim(
 ): CedarPolicyProjectionClaim | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const record = raw as Record<string, unknown>;
-  return {
+  const claim = {
     policy_version: stringClaim(record.policy_version),
     subject_version: stringClaim(record.subject_version),
     engine_mode: stringClaim(record.engine_mode),
@@ -52,13 +52,16 @@ export function normalizeCedarPolicyProjectionClaim(
     feature_grants: stringArrayClaim(record.feature_grants),
     elevated_decisions: stringArrayClaim(record.elevated_decisions),
   };
+  return hasCedarProjectionSignal(claim) ? claim : undefined;
 }
 
 export function buildNonAuthoritativePolicyProjection(
   carrier: PolicyProjectionCarrier,
 ): NonAuthoritativePolicyProjection | undefined {
   const jwtGrants = stringArrayClaim(carrier.feature_grants);
-  const cedarProjection = carrier.policy_projection;
+  const cedarProjection = hasCedarProjectionSignal(carrier.policy_projection)
+    ? carrier.policy_projection
+    : undefined;
   const cedarGrants = stringArrayClaim(cedarProjection?.feature_grants);
   const allGrants = uniqueStrings([...jwtGrants, ...cedarGrants]);
   const elevatedHints = elevatedFeatureHints([
@@ -99,6 +102,20 @@ export function policyProjectionCanAuthorize(
   void projection;
   void feature;
   return false;
+}
+
+function hasCedarProjectionSignal(
+  projection: CedarPolicyProjectionClaim | undefined,
+): projection is CedarPolicyProjectionClaim {
+  return (
+    Boolean(projection?.policy_version) ||
+    Boolean(projection?.subject_version) ||
+    Boolean(projection?.engine_mode) ||
+    Boolean(projection?.bundle_digest) ||
+    projection?.stale === true ||
+    stringArrayClaim(projection?.feature_grants).length > 0 ||
+    stringArrayClaim(projection?.elevated_decisions).length > 0
+  );
 }
 
 function stringClaim(value: unknown): string | undefined {
