@@ -1,0 +1,10 @@
+{
+  "fixture_id": "adapter-sdk-echo-v1",
+  "description": "Deterministic fixture proving the Korean connectivity adapter SDK does not need live network access.",
+  "output": {
+    "status": "fixture_ok",
+    "records": [
+      { "id": "fixture-record-001", "label": "public-doc-source-only" }
+    ]
+  }
+}

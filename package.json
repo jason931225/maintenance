@@ -53,7 +53,11 @@
     "check:g008-payroll-readiness": "node scripts/check-g008-payroll-readiness.mjs",
     "check:workflow-runtime-spine": "node scripts/check-workflow-runtime-spine.mjs",
     "check:mailbox-core": "node scripts/check-mailbox-core.mjs",
-    "check:api-atomicity": "npm run check:openapi-app && npm run check:api-drift:portable && npm run check:kotlin && npm run check:api-drift:swift && npm run check:swift"
+    "check:api-atomicity": "npm run check:openapi-app && npm run check:api-drift:portable && npm run check:kotlin && npm run check:api-drift:swift && npm run check:swift",
+    "check:korean-institutional-connectivity": "node scripts/check-korean-institutional-connectivity.mjs",
+    "kic:scrape-public-docs": "node scripts/korean-connectivity/public-doc-scraper.mjs",
+    "kic:generate-nhis-loss-report-fixture": "node scripts/korean-connectivity/nhis-edi-loss-report.mjs",
+    "kic:local-cert-login-fixture": "node scripts/korean-connectivity/local-certificate-agent.mjs"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",

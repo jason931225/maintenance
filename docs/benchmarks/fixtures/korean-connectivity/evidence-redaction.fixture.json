@@ -1,0 +1,9 @@
+{
+  "fixture_id": "evidence-redaction-v1",
+  "transcript": "신고자 주민번호 991231-1234567, 계좌 123-456-789012, Cookie: SESSION=fixture; certPassword=fixture-secret; otp=123456; 파일 signPri.key 업로드 시도",
+  "output": {
+    "status": "fixture_only",
+    "message": "Set-Cookie: auth=fixture; bank_password=do-not-store; sessionStorage: token=fixture"
+  },
+  "expected_redactions": ["rrn", "account_number", "cookie_header", "password_field", "otp_field", "certificate_private_file", "session_storage"]
+}
