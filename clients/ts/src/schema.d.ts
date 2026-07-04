@@ -3794,6 +3794,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a workflow run (idempotent)
+         * @description Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
+         */
+        post: operations["startWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the runs the caller initiated (submission box)
+         * @description Returns runs where initiated_by is the caller, optionally filtered by status/object_type. Final-approved but not-yet-finalized runs are still WAITING (non-terminal) and remain visible.
+         */
+        get: operations["listMyWorkflowRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List approval-inbox waiting tasks (group or personal)
+         * @description Group inbox via role_key, personal inbox via assignee=me. Policy-bearing rows are gated legacy-enforce with an inert Cedar shadow and denied rows are OMITTED (deny-by-omission), never returned as a 403. Requires role_key or assignee=me.
+         */
+        get: operations["listWorkflowTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-tasks/{task_id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim an OPEN waiting task
+         * @description Transitions an OPEN task to CLAIMED for the caller. A same-user replay is a 200 no-op; a task claimed by another user, or in a terminal/cancelled/expired state, is a 409. Audits workflow_task.claim.
+         */
+        post: operations["claimWorkflowTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-tasks/{task_id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide a waiting task (approve/reject/return)
+         * @description Completes a non-finalize approval task. approve advances the run to the next node (a human task parks WAITING; no successor closes the run SUCCEEDED). reject and return require a non-empty comment (422 otherwise) and cancel the run — a resubmission is a new run, never a terminal reopen. Idempotent on idempotency_key. Audits workflow_task.decide.
+         */
+        post: operations["decideWorkflowTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collaboration/calendar/events": {
         parameters: {
             query?: never;
@@ -4629,6 +4729,109 @@ export interface components {
         PostFinalizationRejectionResponse: {
             compensation: components["schemas"]["PostFinalizationRejectionDocument"];
             run: components["schemas"]["FinalizedWorkflowRun"];
+        };
+        StartWorkflowRunRequest: {
+            definition_id: components["schemas"]["Uuid"];
+            /**
+             * Format: int32
+             * @description Pin a specific version; omitted uses the definition's active version.
+             */
+            definition_version?: number;
+            /** @description Must be provided together with object_id. */
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            trigger_type: "MANUAL" | "SCHEDULE" | "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT" | "API";
+            idempotency_key: string;
+            correlation_id?: string;
+            input_payload?: {
+                [key: string]: unknown;
+            };
+            context_payload?: {
+                [key: string]: unknown;
+            };
+        };
+        WorkflowRunSummary: {
+            id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            initiated_by?: components["schemas"]["Uuid"];
+            started_at: components["schemas"]["Timestamp"];
+        };
+        WorkflowTaskSummary: {
+            task_id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            waiting_key: string;
+            title: string;
+            assignee_role_key?: string;
+            required_policy?: string;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            status: string;
+            claimed_by?: components["schemas"]["Uuid"];
+            due_at?: components["schemas"]["Timestamp"];
+            form_payload: {
+                [key: string]: unknown;
+            };
+        };
+        StartWorkflowRunResponse: {
+            run: components["schemas"]["WorkflowRunSummary"];
+            next_task?: components["schemas"]["WorkflowTaskSummary"];
+        };
+        WorkflowTaskListResponse: {
+            items: components["schemas"]["WorkflowTaskSummary"][];
+        };
+        WorkflowRunListItem: {
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            initiated_by?: components["schemas"]["Uuid"];
+            started_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        WorkflowRunListResponse: {
+            items: components["schemas"]["WorkflowRunListItem"][];
+        };
+        ClaimWorkflowTaskRequest: {
+            idempotency_key: string;
+        };
+        ClaimedWorkflowTask: {
+            task_id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            claimed_by?: components["schemas"]["Uuid"];
+            claimed_at?: components["schemas"]["Timestamp"];
+        };
+        ClaimWorkflowTaskResponse: {
+            task: components["schemas"]["ClaimedWorkflowTask"];
+        };
+        DecideWorkflowTaskRequest: {
+            /** @enum {string} */
+            decision: "approve" | "reject" | "return";
+            /** @description Required and non-empty when decision is reject or return. */
+            comment?: string;
+            idempotency_key: string;
+        };
+        DecidedWorkflowTask: {
+            task_id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            decision_payload: {
+                [key: string]: unknown;
+            };
+        };
+        DecideWorkflowTaskResponse: {
+            task: components["schemas"]["DecidedWorkflowTask"];
+            run: components["schemas"]["FinalizedWorkflowRun"];
+            next_task?: components["schemas"]["WorkflowTaskSummary"];
         };
         /** @description Partial update for a DRAFT workflow definition. Workflow key and object type are immutable. */
         UpdateWorkflowDefinitionRequest: {
@@ -13203,6 +13406,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PostFinalizationRejectionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    startWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartWorkflowRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Run started (or replayed) with its current first WAITING task, if any. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartWorkflowRunResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listMyWorkflowRuns: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated run statuses (e.g. WAITING,SUCCEEDED). Omitted returns all statuses. */
+                status?: string;
+                object_type?: string;
+                /** @description Reserved free-text filter (not yet applied). */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's submission box. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listWorkflowTasks: {
+        parameters: {
+            query?: {
+                /** @description Group-inbox filter matched against assignee_role_key. */
+                role_key?: string;
+                /** @description Set to "me" for the personal inbox (the caller's CLAIMED tasks plus claimable OPEN ones). */
+                assignee?: string;
+                /** @description Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN. */
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The visible waiting tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTaskListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    claimWorkflowTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaimWorkflowTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Task claimed (replays return the current claim). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimWorkflowTaskResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    decideWorkflowTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideWorkflowTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Decision recorded (replays return the recorded result). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideWorkflowTaskResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
