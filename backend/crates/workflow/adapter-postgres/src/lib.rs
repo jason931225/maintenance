@@ -60,6 +60,11 @@ pub struct WaitingTaskListFilter {
     pub role_key: Option<String>,
     /// Personal-inbox mode (`?assignee=me`): the user's CLAIMED tasks plus claimable OPEN ones.
     pub assignee_me: bool,
+    /// The authority role keys the caller holds (security M3). In personal-inbox
+    /// mode, an OPEN task the caller has NOT claimed is only surfaced when its
+    /// `assignee_role_key` is one of these (or it is an ownership task bound to the
+    /// caller as run initiator). Empty ⇒ no role-queued OPEN tasks are surfaced.
+    pub authority_role_keys: Vec<String>,
     /// Statuses to include (defaults to `[OPEN]` at the REST layer).
     pub statuses: Vec<WaitingTaskStatus>,
 }
@@ -593,6 +598,15 @@ impl PgWorkflowRuntimeStore {
             org,
             move |tx| {
                 Box::pin(async move {
+                    // Personal-inbox OPEN gate (security M3): an OPEN task the
+                    // caller has not claimed is surfaced only when it is routed to a
+                    // role the caller holds ($5) or is an ownership task bound to the
+                    // caller as run initiator (r.initiated_by). The old blanket
+                    // `OR t.status = 'OPEN'` leaked every org-wide OPEN task — and
+                    // the LIMIT runs BEFORE the REST policy filter, so that leak
+                    // could evict the caller's own rows. `assignee_user_id` is
+                    // intentionally not consulted: it is never written on insert;
+                    // ownership binds through `workflow_runs.initiated_by`.
                     let rows = sqlx::query(
                         "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
                                 t.assignee_role_key, t.required_policy, t.status, \
@@ -602,8 +616,11 @@ impl PgWorkflowRuntimeStore {
                          JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
                          WHERE t.status = ANY($1) \
                            AND ($2::text IS NULL OR t.assignee_role_key = $2) \
-                           AND (NOT $3 OR t.claimed_by = $4 OR t.assignee_user_id = $4 \
-                                OR t.status = 'OPEN') \
+                           AND (NOT $3 OR t.claimed_by = $4 \
+                                OR (t.status = 'OPEN' \
+                                    AND (t.assignee_role_key = ANY($5) \
+                                         OR (t.assignee_role_key = 'initiator' \
+                                             AND r.initiated_by = $4)))) \
                          ORDER BY t.created_at DESC \
                          LIMIT 200",
                     )
@@ -611,6 +628,7 @@ impl PgWorkflowRuntimeStore {
                     .bind(filter.role_key.as_deref())
                     .bind(filter.assignee_me)
                     .bind(*me.as_uuid())
+                    .bind(&filter.authority_role_keys)
                     .fetch_all(tx.as_mut())
                     .await
                     .map_err(PgWorkflowRuntimeError::from)?;
@@ -1803,11 +1821,23 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                         .await
                         .map_err(PgWorkflowRuntimeError::from)?;
                         if let Some(row) = existing {
+                            // Idempotency-key cross-run reuse (security L6): the key is
+                            // UNIQUE per (org, idempotency_key), so a stored row whose
+                            // original_run_id differs from the request is the SAME key
+                            // aimed at a DIFFERENT run — a 409, never a silent replay of
+                            // the wrong compensation (mirrors start_workflow_run's
+                            // mismatch handling).
+                            let stored_run_id: Uuid = row.try_get("original_run_id")?;
+                            if stored_run_id != command.original_run_id {
+                                return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                    "idempotency_key already used for a different run",
+                                )));
+                            }
                             let run_status: String = row.try_get("run_status")?;
                             return Ok((
                                 PostFinalizationRejection {
                                     id: row.try_get("id")?,
-                                    original_run_id: row.try_get("original_run_id")?,
+                                    original_run_id: stored_run_id,
                                     reason: row.try_get("reason")?,
                                     created_by: mnt_kernel_core::UserId::from_uuid(
                                         row.try_get("created_by")?,

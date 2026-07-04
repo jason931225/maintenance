@@ -703,6 +703,15 @@ async fn finalize_task(
     }))
 }
 
+/// Post-finalization rejection: reverse an already-finalized run with a
+/// compensating document.
+///
+/// AUTHORITY IS ORG-WIDE BY DESIGN (security M4, DESIGN §2): the guard is
+/// [`Feature::ApprovalFinalize`] with no branch/object narrowing, so an
+/// 감사·컴플라이언스·CEO principal holding that feature may compensate ANY finalized
+/// run across the tenant. This is the charter's reversal authority — a documented
+/// decision, not a missing scope check. Narrowing it would break the
+/// audit/compliance reversal path.
 async fn create_post_finalization_rejection(
     State(state): State<WorkflowStudioState>,
     Extension(principal): Extension<Principal>,
@@ -1001,6 +1010,43 @@ fn guard_policy(required_policy: &str) -> Option<String> {
     }
 }
 
+/// Serialized-size ceiling for a caller-supplied run payload (security M2). 64 KiB
+/// is far above any legitimate approval input; over it is a 422.
+const MAX_RUN_PAYLOAD_BYTES: usize = 64 * 1024;
+
+/// Reject an oversize `input_payload`/`context_payload` (security M2) with a 422.
+fn check_payload_size(field: &str, payload: &Value) -> Result<(), WorkflowStudioError> {
+    // Cheap upper bound: serialize once and measure. Bounded by the axum body
+    // limit already, but an explicit per-field cap keeps a single 64 KiB blob from
+    // riding in as run state.
+    let len = serde_json::to_vec(payload)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX);
+    if len > MAX_RUN_PAYLOAD_BYTES {
+        return Err(WorkflowStudioError::validation(format!(
+            "{field} must be at most {MAX_RUN_PAYLOAD_BYTES} bytes serialized"
+        )));
+    }
+    Ok(())
+}
+
+/// Fail-closed guard for the claim/decide action path (security H1, defense in
+/// depth): a waiting task with no `required_policy` carries no authorization
+/// boundary. Authoring now REQUIRES one (`validate_execution_graph`), so a
+/// policy-less row can only be a legacy record — refuse to act on it with a 403
+/// rather than fall through `guard_task_policy`'s ungated `Ok(None)` path (that
+/// path is for self-service *run starts*, never for acting on an existing task).
+fn require_task_authorization_boundary(
+    required_policy: Option<&str>,
+) -> Result<(), WorkflowStudioError> {
+    if required_policy.is_none() {
+        return Err(WorkflowStudioError::from(KernelError::forbidden(
+            "task has no authorization boundary",
+        )));
+    }
+    Ok(())
+}
+
 /// Legacy-enforce + Cedar-shadow guard for a task/run policy. Returns the shadow
 /// audit event to fold into the mutation (`None` when the task carries no policy —
 /// an ungated self-service step), or a 403 when the legacy contract denies.
@@ -1056,6 +1102,114 @@ fn guard_task_policy(
     )?))
 }
 
+/// The workflow authority role keys resolved through the legacy matrix (security
+/// M3). All map to `completion_review` — the review/decide/approve tiers of the
+/// approval and completion lines — so "holds this role key" reuses the SAME guard
+/// `task_visible` runs, never a parallel role system.
+const WORKFLOW_AUTHORITY_ROLE_KEYS: [&str; 4] =
+    ["hr_reviewer", "manager_approver", "executive", "admin"];
+
+/// How a principal can "hold" a human-task `assignee_role_key` (security M3).
+enum RoleKeyKind {
+    /// Held when the principal passes the guard for this legacy feature key —
+    /// the same matrix guard `guard_policy`/`task_visible` already use.
+    Authority(&'static str),
+    /// Held only by the run's initiator (`workflow_runs.initiated_by == me`), a
+    /// fact the feature matrix cannot express. The task still carries a broad
+    /// policy (e.g. `approval_finalize`), so ownership — not policy — is the
+    /// addressee boundary.
+    Ownership,
+}
+
+/// Classify a human-task `assignee_role_key` (security M3). Authority keys reuse
+/// the matrix guard; ownership keys bind to the run initiator. An unknown key is
+/// held by no one (fail closed) — it surfaces only when claimed.
+///
+/// ponytail: `receipt_subject` has no per-user binding column yet
+/// (`workflow_waiting_tasks.assignee_user_id` is never written on insert), so it
+/// cannot be scoped to its subject — it is left unclassified (deny) until a
+/// subject column exists. In-scope templates use only
+/// hr_reviewer/manager_approver/initiator.
+fn classify_role_key(role_key: &str) -> Option<RoleKeyKind> {
+    if WORKFLOW_AUTHORITY_ROLE_KEYS.contains(&role_key) {
+        return Some(RoleKeyKind::Authority("completion_review"));
+    }
+    match role_key {
+        "initiator" => Some(RoleKeyKind::Ownership),
+        _ => None,
+    }
+}
+
+/// Whether the principal passes the legacy guard for a bare feature capability
+/// (security M3), reusing the exact `build_guard_request`/`guard` path
+/// `task_visible` uses — no concrete resource, since role membership is a
+/// capability question, not a per-object one.
+fn principal_holds_feature(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    feature_key: &str,
+) -> bool {
+    let Ok(feature) = Feature::from_str(feature_key) else {
+        return false;
+    };
+    let Ok(request) = build_guard_request(
+        principal,
+        feature_key,
+        org,
+        branch,
+        "workflow_run",
+        "role_membership",
+        WAITING_COMPLETION_DOMAIN,
+    ) else {
+        return false;
+    };
+    let entry = workflow_coexistence_entry(
+        "workflow.waiting_task.role_membership",
+        WAITING_COMPLETION_DOMAIN,
+        feature,
+        "workflow_run".to_owned(),
+    );
+    guard(&request, &entry).is_allowed()
+}
+
+/// The authority role keys this principal holds (security M3), for the personal
+/// inbox's OPEN-task filter (`assignee_role_key = ANY(...)`).
+fn held_authority_role_keys(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+) -> Vec<String> {
+    WORKFLOW_AUTHORITY_ROLE_KEYS
+        .iter()
+        .filter(|role_key| match classify_role_key(role_key) {
+            Some(RoleKeyKind::Authority(feature)) => {
+                principal_holds_feature(principal, org, branch, feature)
+            }
+            _ => false,
+        })
+        .map(|role_key| (*role_key).to_owned())
+        .collect()
+}
+
+/// Whether the principal may see the group (`role_key=`) inbox for `role_key`
+/// (security M3): an authority key requires the matrix guard; an ownership key has
+/// no org-wide queue (the owner sees it via `assignee=me`); an unknown key is
+/// denied. A false result is a deny-by-omission (200 empty), never a 403.
+fn holds_group_inbox_role(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    role_key: &str,
+) -> bool {
+    match classify_role_key(role_key) {
+        Some(RoleKeyKind::Authority(feature)) => {
+            principal_holds_feature(principal, org, branch, feature)
+        }
+        Some(RoleKeyKind::Ownership) | None => false,
+    }
+}
+
 /// Read-only visibility check for the inbox listings: a policy-bearing row is
 /// visible only when the legacy contract allows the principal (deny-by-omission —
 /// forbidden rows are absent, never returned as 403). Rows with no policy are
@@ -1066,6 +1220,19 @@ fn task_visible(
     branch: BranchId,
     item: &WaitingTaskListItem,
 ) -> bool {
+    // Ownership-held rows (e.g. the initiator's own finalize task) reach this
+    // filter ONLY when the adapter SQL already bound them to the caller
+    // (initiated_by/claimed_by). Author finalization is owner-checked, not
+    // policy-gated (authz: ApprovalFinalize), so a low-privilege owner must not
+    // be stripped here by the policy layer (security M3).
+    if item
+        .assignee_role_key
+        .as_deref()
+        .and_then(classify_role_key)
+        .is_some_and(|kind| matches!(kind, RoleKeyKind::Ownership))
+    {
+        return true;
+    }
     let Some(policy) = item.required_policy.as_deref() else {
         return true;
     };
@@ -1262,6 +1429,11 @@ async fn start_workflow_run(
             "object_type and object_id must be provided together",
         ));
     }
+    // Bound the caller-supplied payloads (security M2): an unbounded input/context
+    // blob is a memory/storage abuse vector. 64 KiB serialized is far above any
+    // legitimate approval payload; over that is a 422.
+    check_payload_size("input_payload", &request.input_payload)?;
+    check_payload_size("context_payload", &request.context_payload)?;
 
     let org = principal.org_id;
     let store = PgWorkflowRuntimeStore::new(state.pool.clone());
@@ -1278,9 +1450,14 @@ async fn start_workflow_run(
         .map_err(WorkflowStudioError::from)?
         .to_owned();
 
-    // Start authz: legacy-enforce + Cedar-shadow, gated on the entry node's policy
-    // when it declares one. Approval-line entry gates are self-service (no policy),
-    // so a start is normally ungated; a policy-bearing entry produces a 403 + shadow.
+    // Start authz: legacy-enforce + Cedar-shadow, gated on the definition's
+    // per-start authority (security M2). A top-level `start_policy` (additive,
+    // wf.exec.v1-compatible) constrains WHO may initiate this definition; when
+    // absent it falls back to the entry node's policy. Approval templates
+    // deliberately carry NEITHER (their entry gate is self-service) so 전자결재
+    // 기안/상신 stays all-employee per DESIGN §4.8; operational pipelines (e.g. the
+    // completion→approval→payroll template) set `start_policy` so a start is a
+    // policy-gated 403 + shadow for non-privileged personas.
     let branch = guard_branch(&principal);
     let entry_policy = match graph.node_spec(&entry).map(|spec| &spec.kind) {
         Some(NodeKind::HumanTask {
@@ -1288,6 +1465,11 @@ async fn start_workflow_run(
         }) => required_policy.clone(),
         _ => None,
     };
+    let start_policy = definition
+        .get("start_policy")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or(entry_policy);
     let resource_type = request
         .object_type
         .clone()
@@ -1300,7 +1482,7 @@ async fn start_workflow_run(
         &principal,
         org,
         branch,
-        entry_policy.as_deref(),
+        start_policy.as_deref(),
         &resource_type,
         &resource_id,
         "workflow.run.start",
@@ -1404,6 +1586,17 @@ async fn list_workflow_tasks(
     let statuses = parse_task_statuses(query.status.as_deref())?;
     let org = principal.org_id;
     let branch = guard_branch(&principal);
+
+    // Group inbox (security M3): a `role_key=` query returns rows only when the
+    // caller holds that role. Deny-by-omission — a caller who does not is handed
+    // an empty list (200), never a 403 (never leaks the queue's existence).
+    if let Some(role_key) = query.role_key.as_deref() {
+        if !holds_group_inbox_role(&principal, org, branch, role_key) {
+            record_workflow_studio_request("task_list", "success");
+            return Ok(Json(WorkflowTaskListResponse { items: vec![] }));
+        }
+    }
+
     let store = PgWorkflowRuntimeStore::new(state.pool.clone());
     let items = store
         .list_waiting_tasks(
@@ -1412,6 +1605,10 @@ async fn list_workflow_tasks(
             WaitingTaskListFilter {
                 role_key: query.role_key.clone(),
                 assignee_me,
+                // Personal inbox OPEN-task gate (security M3): the authority role
+                // keys this caller holds. Ownership-keyed OPEN tasks bind to the
+                // run initiator in SQL instead.
+                authority_role_keys: held_authority_role_keys(&principal, org, branch),
                 statuses,
             },
         )
@@ -1467,6 +1664,11 @@ async fn claim_workflow_task(
         .await?
         .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
 
+    // Defense in depth (security H1): a legacy task row that predates the
+    // authoring-time `required_policy` requirement carries no authorization
+    // boundary. Refuse the mutation rather than let any org member claim it.
+    require_task_authorization_boundary(context.required_policy.as_deref())?;
+
     let branch = guard_branch(&principal);
     let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
     let resource_id = context
@@ -1518,6 +1720,18 @@ async fn decide_workflow_task(
             "idempotency_key must be at least 16 characters",
         ));
     }
+    // Bound the free-text comment (security L5), mirroring the DB-bounded reason
+    // pattern of migration 0096: an over-long comment is a 422, not a silent DB
+    // truncation or an unbounded write.
+    if request
+        .comment
+        .as_deref()
+        .is_some_and(|comment| comment.chars().count() > 4000)
+    {
+        return Err(WorkflowStudioError::validation(
+            "comment must be at most 4000 characters",
+        ));
+    }
     let decision = TaskDecision::from(request.decision);
     let comment = request
         .comment
@@ -1536,6 +1750,11 @@ async fn decide_workflow_task(
         .load_finalize_waiting_task(org, task_id)
         .await?
         .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
+
+    // Defense in depth (security H1): a policy-less legacy task row has no
+    // authorization boundary — refuse to decide it (403) rather than let any
+    // org member push the run forward.
+    require_task_authorization_boundary(context.required_policy.as_deref())?;
 
     let branch = guard_branch(&principal);
     let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
@@ -2882,6 +3101,10 @@ fn build_approval_execution_definition(template_key: &str) -> Result<Value, Work
         }));
     }
 
+    // No `start_policy`: 전자결재 기안/상신 is deliberately all-employee self-service
+    // (DESIGN §4.8) — any employee may draft/submit an approval document. Only
+    // operational pipelines (e.g. the completion→approval→payroll template) carry
+    // a `start_policy` to constrain who may initiate them (security M2).
     Ok(json!({
         "schema_version": WORKFLOW_EXEC_SCHEMA_VERSION,
         "workflow_key": template.workflow_key,
@@ -2948,6 +3171,11 @@ fn validate_execution_graph(
             "object_gate" | "object_mutation" => {}
             "human_task" => {
                 required_string(node, "assignee_role_key")?;
+                // Fail-closed authorization boundary (security H1): a human task
+                // MUST declare the policy that gates who may claim/decide it. An
+                // omitted `required_policy` is an authoring-time 422, never a task
+                // any org member could act on.
+                required_string(node, "required_policy")?;
             }
             "job" => {
                 let connector_key = required_string(node, "connector_key")?;
@@ -3444,6 +3672,10 @@ mod tests {
             "schema_version": WORKFLOW_EXEC_SCHEMA_VERSION,
             "workflow_key": "work_order.maintenance_completion",
             "object_type": "work_order",
+            // Operational pipeline, NOT self-service 기안: only completion_review
+            // authority may initiate the completion→approval→payroll run (security
+            // M2). Contrast the approval templates, which carry no `start_policy`.
+            "start_policy": "completion_review",
             "nodes": [
                 { "node_key": "mechanic_report", "node_type": "object_gate" },
                 {
@@ -3566,6 +3798,55 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn human_task_without_required_policy_fails_authoring() -> Result<(), String> {
+        // Security H1(a): a human_task node MUST declare required_policy at authoring
+        // time. Drop it from the executable graph → publish-validation is a 422.
+        let mut definition = maintenance_completion_execution_definition();
+        // node 1 is the admin_approval human_task.
+        definition["nodes"][1]
+            .as_object_mut()
+            .ok_or_else(|| "node must be an object".to_owned())?
+            .remove("required_policy");
+        let err = match validate_definition_object(definition) {
+            Ok(_) => {
+                return Err("a human_task without required_policy must fail closed".to_owned());
+            }
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            err.message.contains("required_policy"),
+            "message should name the missing field: {}",
+            err.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn oversize_run_payload_is_rejected() {
+        // Security M2: a payload over the 64 KiB serialized ceiling is a 422.
+        let big = json!({ "blob": "x".repeat(MAX_RUN_PAYLOAD_BYTES + 1) });
+        let err = check_payload_size("input_payload", &big)
+            .expect_err("oversize payload must be rejected");
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        // A modest payload passes.
+        check_payload_size("input_payload", &json!({ "reason": "annual" }))
+            .expect("a small payload must pass");
+    }
+
+    #[test]
+    fn policy_less_task_has_no_authorization_boundary() {
+        // Security H1(b): the claim/decide path fails closed (403) on a legacy
+        // policy-less row; a policy-bearing row passes the boundary check.
+        let err = require_task_authorization_boundary(None)
+            .expect_err("a policy-less task must be refused");
+        assert_eq!(err.status, StatusCode::FORBIDDEN);
+        assert!(err.message.contains("authorization boundary"));
+        require_task_authorization_boundary(Some("approval_finalize"))
+            .expect("a policy-bearing task must pass");
     }
 
     #[test]
