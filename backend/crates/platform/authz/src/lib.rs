@@ -17,6 +17,16 @@ use mnt_kernel_core::{
 };
 use sqlx::{PgPool, Row};
 
+pub mod cedar_pbac;
+pub use cedar_pbac::{
+    AuthorizationAuditEvent, AuthorizationContext, AuthorizationDecision,
+    AuthorizationMetricLabels, AuthorizationRequest, AuthorizationResource, AuthorizationSubject,
+    CedarEvaluation, CoexistenceMapEntry, CompiledBundleCacheKey, DecisionEffect, DecisionEngine,
+    DecisionReason, DualEngineMode, RlsScopeProof, RlsScopeProofSource, SubjectFreshness,
+    SubjectFreshnessRequirement, evaluate_cedar_pbac_boundary, evaluate_legacy_contract,
+    observe_cedar_pbac_decision,
+};
+
 /// Canonical role codes stored in `users.roles`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
