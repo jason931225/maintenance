@@ -9,10 +9,14 @@
 //! offline query cache cannot be regenerated in this environment.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::BTreeSet;
+
 use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, OrgId, TraceContext};
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_workflow_domain::{
-    NewRun, NodeStepCommit, PortFuture, RunRecord, RunStatus, RunTerminalTimestamp, RunTransition,
+    FinalizeWaitingTaskCommand, FinalizeWaitingTaskContext, FinalizedWaitingTask, NewRun,
+    NodeStepCommit, PortFuture, PostFinalizationRejection, PostFinalizationRejectionCommand,
+    RunRecord, RunStatus, RunTerminalTimestamp, RunTransition, WaitingTaskStatus,
     WorkflowRuntimePort,
 };
 use sqlx::{PgPool, Row};
@@ -26,6 +30,9 @@ pub const M2_STRANGLER_FLAG: &str = "workflow_runtime_m2_strangler";
 /// Audit action stamped when the drainer consumes a JOB payroll outbox event.
 /// Matches the `audit_events.action` regex (≥2 dot-separated `[a-z0-9_]` segments).
 const DRAIN_AUDIT_ACTION: &str = "workflow_runtime.outbox_drain";
+const POST_FINALIZATION_REJECTION: &str = "POST_FINALIZATION_REJECTION";
+const FINALIZE_WAITING_KEY: &str = "finalize.author";
+const RECEIPT_WAITING_KEY: &str = "receipt.target";
 
 /// Adapter error. `Db` wraps the platform DB error (so `with_audit`'s
 /// `E: From<DbError>` bound is satisfied); `Domain` carries a kernel error raised
@@ -37,6 +44,13 @@ enum PgWorkflowRuntimeError {
 
     #[error(transparent)]
     Domain(#[from] KernelError),
+}
+
+#[derive(Debug, Clone)]
+struct ReceiptNodeSpec {
+    title: String,
+    required_policy: Option<String>,
+    assignee_role_key: Option<String>,
 }
 
 impl From<sqlx::Error> for PgWorkflowRuntimeError {
@@ -67,6 +81,46 @@ fn db_error_to_kernel(db: DbError) -> KernelError {
         _ => {}
     }
     KernelError::internal(format!("workflow runtime db error: {db}"))
+}
+
+fn receipt_node_after_finalize(definition: &serde_json::Value) -> Option<ReceiptNodeSpec> {
+    let has_finalize_to_receipt_edge = definition
+        .get("edges")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|edges| {
+            edges.iter().any(|edge| {
+                edge.get("from").and_then(serde_json::Value::as_str) == Some(FINALIZE_WAITING_KEY)
+                    && edge.get("to").and_then(serde_json::Value::as_str)
+                        == Some(RECEIPT_WAITING_KEY)
+            })
+        });
+    if !has_finalize_to_receipt_edge {
+        return None;
+    }
+
+    let receipt_node = definition
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)?
+        .iter()
+        .find(|node| {
+            node.get("node_key").and_then(serde_json::Value::as_str) == Some(RECEIPT_WAITING_KEY)
+        })?;
+
+    Some(ReceiptNodeSpec {
+        title: receipt_node
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Receipt confirmation")
+            .to_owned(),
+        required_policy: receipt_node
+            .get("required_policy")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        assignee_role_key: receipt_node
+            .get("assignee_role_key")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+    })
 }
 
 /// Postgres-backed workflow runtime store.
@@ -568,6 +622,542 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                     Ok(((), audit_events))
                 })
             })
+            .await
+            .map_err(KernelError::from)
+        })
+    }
+
+    fn load_finalize_waiting_task<'a>(
+        &'a self,
+        org: OrgId,
+        task_id: Uuid,
+    ) -> PortFuture<'a, Option<FinalizeWaitingTaskContext>> {
+        Box::pin(async move {
+            with_org_conn::<_, Option<FinalizeWaitingTaskContext>, PgWorkflowRuntimeError>(
+                &self.pool,
+                org,
+                move |tx| {
+                    Box::pin(async move {
+                        let row = sqlx::query(
+                            "SELECT \
+                                t.id AS task_id, t.run_id, t.node_run_id, t.waiting_key, \
+                                t.status AS task_status, t.required_policy, \
+                                r.status AS run_status, r.object_type, r.object_id, r.initiated_by \
+                             FROM workflow_waiting_tasks t \
+                             JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                             WHERE t.id = $1",
+                        )
+                        .bind(task_id)
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        let Some(row) = row else {
+                            return Ok(None);
+                        };
+                        let task_status: String = row.try_get("task_status")?;
+                        let run_status: String = row.try_get("run_status")?;
+                        let initiated_by: Option<Uuid> = row.try_get("initiated_by")?;
+                        let initiated_by = initiated_by.ok_or_else(|| {
+                            KernelError::validation("finalize task run has no initiator")
+                        })?;
+
+                        Ok(Some(FinalizeWaitingTaskContext {
+                            task_id: row.try_get("task_id")?,
+                            run_id: row.try_get("run_id")?,
+                            node_run_id: row.try_get("node_run_id")?,
+                            waiting_key: row.try_get("waiting_key")?,
+                            task_status: WaitingTaskStatus::from_db_str(&task_status)?,
+                            run_status: RunStatus::from_db_str(&run_status)?,
+                            required_policy: row.try_get("required_policy")?,
+                            object_type: row.try_get("object_type")?,
+                            object_id: row.try_get("object_id")?,
+                            initiated_by: mnt_kernel_core::UserId::from_uuid(initiated_by),
+                        }))
+                    })
+                },
+            )
+            .await
+            .map_err(KernelError::from)
+        })
+    }
+
+    // mnt-gate: state-changing-handler
+    fn finalize_waiting_task<'a>(
+        &'a self,
+        org: OrgId,
+        command: FinalizeWaitingTaskCommand,
+    ) -> PortFuture<'a, FinalizedWaitingTask> {
+        Box::pin(async move {
+            with_audits::<_, FinalizedWaitingTask, PgWorkflowRuntimeError>(
+                &self.pool,
+                org,
+                move |tx| {
+                    Box::pin(async move {
+                        let row = sqlx::query(
+                            "SELECT \
+                                t.id AS task_id, t.run_id, t.node_run_id, t.waiting_key, \
+                                t.status AS task_status, t.claimed_by, t.completed_by, t.decision_payload, \
+                                r.status AS run_status \
+                             FROM workflow_waiting_tasks t \
+                             JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                             WHERE t.id = $1 \
+                             FOR UPDATE OF t, r",
+                        )
+                        .bind(command.task_id)
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        let Some(row) = row else {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::not_found(
+                                "workflow task not found",
+                            )));
+                        };
+                        let task_status_str: String = row.try_get("task_status")?;
+                        let run_status_str: String = row.try_get("run_status")?;
+                        let task_status = WaitingTaskStatus::from_db_str(&task_status_str)?;
+                        let run_status = RunStatus::from_db_str(&run_status_str)?;
+                        let waiting_key: String = row.try_get("waiting_key")?;
+                        let node_run_id: Option<Uuid> = row.try_get("node_run_id")?;
+                        let claimed_by: Option<Uuid> = row.try_get("claimed_by")?;
+                        let completed_by: Option<Uuid> = row.try_get("completed_by")?;
+                        let existing_decision: Option<serde_json::Value> =
+                            row.try_get("decision_payload")?;
+
+                        if waiting_key != FINALIZE_WAITING_KEY {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::validation(
+                                "workflow task is not a finalization task",
+                            )));
+                        }
+
+                        if task_status == WaitingTaskStatus::Approved
+                            && existing_decision
+                                .as_ref()
+                                .and_then(|value| value.get("idempotency_key"))
+                                .and_then(serde_json::Value::as_str)
+                                == Some(command.idempotency_key.as_str())
+                        {
+                            return Ok((
+                                FinalizedWaitingTask {
+                                    task_id: command.task_id,
+                                    run_id: row.try_get("run_id")?,
+                                    status: WaitingTaskStatus::Approved,
+                                    completed_by: completed_by.map(mnt_kernel_core::UserId::from_uuid),
+                                    decision_payload: existing_decision
+                                        .unwrap_or_else(|| serde_json::json!({})),
+                                    run_status,
+                                },
+                                Vec::new(),
+                            ));
+                        }
+
+                        if !matches!(
+                            task_status,
+                            WaitingTaskStatus::Open | WaitingTaskStatus::Claimed
+                        ) {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow task is not open for finalization",
+                            )));
+                        }
+                        if let Some(claimed_by) = claimed_by
+                            && claimed_by != *command.actor.as_uuid()
+                        {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow task is claimed by another user",
+                            )));
+                        }
+                        if run_status != RunStatus::Waiting {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow run is not waiting for finalization",
+                            )));
+                        }
+
+                        let run_id: Uuid = row.try_get("run_id")?;
+                        let receipt_spec = {
+                            let definition: serde_json::Value = sqlx::query_scalar(
+                                "SELECT v.definition \
+                                 FROM workflow_runs r \
+                                 JOIN workflow_definition_versions v \
+                                   ON v.definition_id = r.definition_id \
+                                  AND v.version = r.definition_version \
+                                  AND v.org_id = r.org_id \
+                                 WHERE r.id = $1",
+                            )
+                            .bind(run_id)
+                            .fetch_one(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?;
+                            receipt_node_after_finalize(&definition)
+                        };
+                        let decision_payload = serde_json::json!({
+                            "mode": command.mode,
+                            "delegated_reason": command.delegated_reason,
+                            "idempotency_key": command.idempotency_key,
+                            "awaiting_receipt": receipt_spec.is_some(),
+                        });
+
+                        sqlx::query(
+                            "UPDATE workflow_waiting_tasks \
+                             SET status = 'APPROVED', completed_by = $2, completed_at = now(), \
+                                 decision_payload = $3, updated_at = now() \
+                             WHERE id = $1 AND status IN ('OPEN', 'CLAIMED')",
+                        )
+                        .bind(command.task_id)
+                        .bind(*command.actor.as_uuid())
+                        .bind(decision_payload.clone())
+                        .execute(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        if let Some(node_run_id) = node_run_id {
+                            sqlx::query(
+                                "UPDATE workflow_node_runs \
+                                 SET status = 'SUCCEEDED', finished_at = now(), updated_at = now(), \
+                                     output_payload = $2 \
+                                 WHERE id = $1 AND status = 'WAITING'",
+                            )
+                            .bind(node_run_id)
+                            .bind(serde_json::json!({
+                                "finalized": true,
+                                "awaiting_receipt": receipt_spec.is_some()
+                            }))
+                            .execute(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?;
+                        }
+
+                        let final_run_status = if let Some(receipt) = &receipt_spec {
+                            let receipt_node_run_id = Uuid::new_v4();
+                            sqlx::query(
+                                "INSERT INTO workflow_node_runs \
+                                     (id, org_id, run_id, node_key, node_type, status, attempt, \
+                                      idempotency_key, input_payload, started_at) \
+                                 VALUES ($1, $2, $3, $4, 'human_task', 'WAITING', 1, $5, \
+                                         '{}'::jsonb, now()) \
+                                 ON CONFLICT (org_id, run_id, node_key, attempt) DO NOTHING",
+                            )
+                            .bind(receipt_node_run_id)
+                            .bind(*org.as_uuid())
+                            .bind(run_id)
+                            .bind(RECEIPT_WAITING_KEY)
+                            .bind(format!(
+                                "workflow_runtime:node:{run_id}:{RECEIPT_WAITING_KEY}:1"
+                            ))
+                            .execute(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?;
+
+                            let persisted_receipt_node_run_id: Uuid = sqlx::query_scalar(
+                                "SELECT id FROM workflow_node_runs \
+                                 WHERE run_id = $1 AND node_key = $2 AND attempt = 1",
+                            )
+                            .bind(run_id)
+                            .bind(RECEIPT_WAITING_KEY)
+                            .fetch_one(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?;
+
+                            sqlx::query(
+                                "INSERT INTO workflow_waiting_tasks \
+                                     (id, org_id, run_id, node_run_id, waiting_key, title, status, \
+                                      assignee_role_key, required_policy, form_payload) \
+                                 VALUES ($1, $2, $3, $4, $5, $6, 'OPEN', $7, $8, '{}'::jsonb) \
+                                 ON CONFLICT (org_id, run_id, waiting_key) DO NOTHING",
+                            )
+                            .bind(Uuid::new_v4())
+                            .bind(*org.as_uuid())
+                            .bind(run_id)
+                            .bind(persisted_receipt_node_run_id)
+                            .bind(RECEIPT_WAITING_KEY)
+                            .bind(receipt.title.as_str())
+                            .bind(receipt.assignee_role_key.as_deref())
+                            .bind(receipt.required_policy.as_deref())
+                            .execute(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?;
+
+                            RunStatus::Waiting
+                        } else {
+                            sqlx::query(run_transition_sql(RunStatus::Succeeded))
+                                .bind(run_id)
+                                .bind(RunStatus::Succeeded.as_db_str())
+                                .bind(RunStatus::Waiting.as_db_str())
+                                .bind(serde_json::json!({ "finalized": true }))
+                                .bind(Option::<serde_json::Value>::None)
+                                .execute(tx.as_mut())
+                                .await
+                                .map_err(PgWorkflowRuntimeError::from)?;
+                            RunStatus::Succeeded
+                        };
+
+                        let mut audit_events = command.transition_audits;
+                        audit_events.push(
+                            AuditEvent::new(
+                                Some(command.actor),
+                                AuditAction::new("workflow_task.finalize")
+                                    .map_err(PgWorkflowRuntimeError::from)?,
+                                "workflow_waiting_task",
+                                command.task_id.to_string(),
+                                TraceContext::generate(),
+                                time::OffsetDateTime::now_utc(),
+                            )
+                            .with_org(org)
+                            .with_snapshots(
+                                Some(serde_json::json!({ "status": task_status.as_db_str() })),
+                                Some(serde_json::json!({
+                                    "status": WaitingTaskStatus::Approved.as_db_str(),
+                                    "mode": decision_payload["mode"],
+                                    "delegated_reason": decision_payload["delegated_reason"],
+                                })),
+                            ),
+                        );
+                        if let Some(node_run_id) = node_run_id {
+                            audit_events.push(
+                                AuditEvent::new(
+                                    Some(command.actor),
+                                    AuditAction::new("workflow_node.commit")
+                                        .map_err(PgWorkflowRuntimeError::from)?,
+                                    "workflow_node_run",
+                                    node_run_id.to_string(),
+                                    TraceContext::generate(),
+                                    time::OffsetDateTime::now_utc(),
+                                )
+                                .with_org(org)
+                                .with_snapshots(
+                                    Some(serde_json::json!({ "status": "WAITING" })),
+                                    Some(serde_json::json!({ "status": "SUCCEEDED" })),
+                                ),
+                            );
+                        }
+                        if receipt_spec.is_some() {
+                            audit_events.push(
+                                AuditEvent::new(
+                                    Some(command.actor),
+                                    AuditAction::new("workflow_node.commit")
+                                        .map_err(PgWorkflowRuntimeError::from)?,
+                                    "workflow_node_run",
+                                    RECEIPT_WAITING_KEY.to_owned(),
+                                    TraceContext::generate(),
+                                    time::OffsetDateTime::now_utc(),
+                                )
+                                .with_org(org)
+                                .with_snapshots(
+                                    Some(serde_json::json!({ "status": "PENDING" })),
+                                    Some(serde_json::json!({ "status": "WAITING" })),
+                                ),
+                            );
+                        } else {
+                            audit_events.push(
+                                AuditEvent::new(
+                                    Some(command.actor),
+                                    AuditAction::new("workflow_run.transition")
+                                        .map_err(PgWorkflowRuntimeError::from)?,
+                                    "workflow_run",
+                                    run_id.to_string(),
+                                    TraceContext::generate(),
+                                    time::OffsetDateTime::now_utc(),
+                                )
+                                .with_org(org)
+                                .with_snapshots(
+                                    Some(serde_json::json!({ "status": "WAITING" })),
+                                    Some(serde_json::json!({ "status": "SUCCEEDED" })),
+                                ),
+                            );
+                        }
+
+                        Ok((
+                            FinalizedWaitingTask {
+                                task_id: command.task_id,
+                                run_id,
+                                status: WaitingTaskStatus::Approved,
+                                completed_by: Some(command.actor),
+                                decision_payload,
+                                run_status: final_run_status,
+                            },
+                            audit_events,
+                        ))
+                    })
+                },
+            )
+            .await
+            .map_err(KernelError::from)
+        })
+    }
+
+    // mnt-gate: state-changing-handler
+    fn create_post_finalization_rejection<'a>(
+        &'a self,
+        org: OrgId,
+        command: PostFinalizationRejectionCommand,
+    ) -> PortFuture<'a, PostFinalizationRejection> {
+        Box::pin(async move {
+            with_audits::<_, PostFinalizationRejection, PgWorkflowRuntimeError>(
+                &self.pool,
+                org,
+                move |tx| {
+                    Box::pin(async move {
+                        let existing = sqlx::query(
+                            "SELECT c.id, c.original_run_id, c.reason, c.created_by, r.status AS run_status \
+                             FROM workflow_compensating_documents c \
+                             JOIN workflow_runs r ON r.id = c.original_run_id AND r.org_id = c.org_id \
+                             WHERE c.idempotency_key = $1",
+                        )
+                        .bind(command.idempotency_key.as_str())
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+                        if let Some(row) = existing {
+                            let run_status: String = row.try_get("run_status")?;
+                            return Ok((
+                                PostFinalizationRejection {
+                                    id: row.try_get("id")?,
+                                    original_run_id: row.try_get("original_run_id")?,
+                                    reason: row.try_get("reason")?,
+                                    created_by: mnt_kernel_core::UserId::from_uuid(
+                                        row.try_get("created_by")?,
+                                    ),
+                                    run_status: RunStatus::from_db_str(&run_status)?,
+                                },
+                                Vec::new(),
+                            ));
+                        }
+
+                        let run = sqlx::query(
+                            "SELECT status, definition_id, definition_version, object_type, object_id, initiated_by \
+                             FROM workflow_runs \
+                             WHERE id = $1 \
+                             FOR UPDATE",
+                        )
+                        .bind(command.original_run_id)
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+                        let Some(run) = run else {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::not_found(
+                                "workflow run not found",
+                            )));
+                        };
+                        let run_status: String = run.try_get("status")?;
+                        let run_status = RunStatus::from_db_str(&run_status)?;
+                        if run_status != RunStatus::Succeeded {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow run is not finalized",
+                            )));
+                        }
+
+                        let mut recipient_ids = BTreeSet::<Uuid>::new();
+                        if let Some(initiated_by) = run.try_get::<Option<Uuid>, _>("initiated_by")?
+                        {
+                            recipient_ids.insert(initiated_by);
+                        }
+                        let recipient_rows = sqlx::query(
+                            "SELECT DISTINCT COALESCE(completed_by, claimed_by, assignee_user_id) AS user_id \
+                             FROM workflow_waiting_tasks \
+                             WHERE run_id = $1 \
+                               AND COALESCE(completed_by, claimed_by, assignee_user_id) IS NOT NULL",
+                        )
+                        .bind(command.original_run_id)
+                        .fetch_all(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+                        for row in recipient_rows {
+                            recipient_ids.insert(row.try_get("user_id")?);
+                        }
+                        let recipients = recipient_ids
+                            .into_iter()
+                            .map(|id| id.to_string())
+                            .collect::<Vec<_>>();
+                        let recipient_count = recipients.len();
+
+                        let compensation_id = Uuid::new_v4();
+                        let payload = serde_json::json!({
+                            "original_run_id": command.original_run_id,
+                            "definition_id": run.try_get::<Uuid, _>("definition_id")?,
+                            "definition_version": run.try_get::<i32, _>("definition_version")?,
+                            "object_type": run.try_get::<Option<String>, _>("object_type")?,
+                            "object_id": run.try_get::<Option<Uuid>, _>("object_id")?,
+                        });
+                        sqlx::query(
+                            "INSERT INTO workflow_compensating_documents \
+                                 (id, org_id, original_run_id, compensation_type, reason, \
+                                  idempotency_key, payload, created_by) \
+                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                        )
+                        .bind(compensation_id)
+                        .bind(*org.as_uuid())
+                        .bind(command.original_run_id)
+                        .bind(POST_FINALIZATION_REJECTION)
+                        .bind(command.reason.as_str())
+                        .bind(command.idempotency_key.as_str())
+                        .bind(payload)
+                        .bind(*command.actor.as_uuid())
+                        .execute(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        sqlx::query(
+                            "INSERT INTO workflow_outbox_events \
+                                 (org_id, run_id, channel, destination_ref, idempotency_key, \
+                                  status, payload) \
+                             VALUES ($1, $2, 'NOTIFICATION', 'approval_line', $3, 'PENDING', $4) \
+                             ON CONFLICT (org_id, idempotency_key) DO NOTHING",
+                        )
+                        .bind(*org.as_uuid())
+                        .bind(command.original_run_id)
+                        .bind(format!(
+                            "workflow_compensation:post_finalization_rejection:{compensation_id}:notify_line"
+                        ))
+                        .bind(serde_json::json!({
+                            "event": "post_finalization_rejection",
+                            "compensation_id": compensation_id,
+                            "original_run_id": command.original_run_id,
+                            "reason": command.reason,
+                            "recipients": recipients,
+                            "recipient_count": recipient_count,
+                        }))
+                        .execute(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        let mut audit_events = command.transition_audits;
+                        audit_events.push(
+                            AuditEvent::new(
+                                Some(command.actor),
+                                AuditAction::new(
+                                    "workflow_compensation.create_post_finalization_rejection",
+                                )
+                                .map_err(PgWorkflowRuntimeError::from)?,
+                                "workflow_compensating_document",
+                                compensation_id.to_string(),
+                                TraceContext::generate(),
+                                time::OffsetDateTime::now_utc(),
+                            )
+                            .with_org(org)
+                            .with_snapshots(
+                                None,
+                                Some(serde_json::json!({
+                                    "status": "CREATED",
+                                    "compensation_id": compensation_id,
+                                    "compensation_type": POST_FINALIZATION_REJECTION,
+                                    "original_run_id": command.original_run_id,
+                                })),
+                            ),
+                        );
+
+                        Ok((
+                            PostFinalizationRejection {
+                                id: compensation_id,
+                                original_run_id: command.original_run_id,
+                                reason: command.reason,
+                                created_by: command.actor,
+                                run_status,
+                            },
+                            audit_events,
+                        ))
+                    })
+                },
+            )
             .await
             .map_err(KernelError::from)
         })

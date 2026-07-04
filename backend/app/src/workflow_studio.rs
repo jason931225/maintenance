@@ -3,10 +3,20 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
-use mnt_kernel_core::{AuditAction, AuditEvent, ErrorKind, KernelError, TraceContext, UserId};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
+};
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
-use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
+use mnt_platform_authz::{Action, AuthorizationAuditEvent, Feature, Principal, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_workflow_domain::{
+    FinalizeWaitingTaskCommand, PostFinalizationRejectionCommand, WorkflowRuntimePort,
+};
+use mnt_workflow_runtime::{
+    FinalizeMode, FinalizePolicyRequest, WAITING_COMPLETION_DOMAIN, build_guard_request,
+    enforce_finalize_policy, guard, workflow_coexistence_entry,
+};
+use mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -29,6 +39,9 @@ pub const WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/rollback";
 pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/clone";
+pub const WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/finalize";
+pub const WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-runs/{run_id}/post-finalization-rejection";
 
 const WORKFLOW_STUDIO_REQUESTS_TOTAL: &str = "workflow_studio_requests_total";
 const WORKFLOW_DEFINITION_SCHEMA_VERSION: &str = "workflow.definition.v1";
@@ -104,6 +117,95 @@ const WORKFLOW_TEMPLATES: &[WorkflowTemplate] = &[
     },
 ];
 
+#[allow(dead_code)]
+const APPROVAL_TEMPLATES: &[ApprovalTemplate] = &[
+    ApprovalTemplate {
+        key: "ot",
+        workflow_key: "approval.ot",
+        reason_enum: &["업무 마감", "긴급 대응", "정기 점검", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "work_order",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "hr_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "leave",
+        workflow_key: "approval.leave",
+        reason_enum: &["개인 사유", "병가", "경조", "가족 돌봄", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "attendance_schedule",
+            required: true,
+        }],
+        default_line: &["manager_approver"],
+        receipt_required: true,
+    },
+    ApprovalTemplate {
+        key: "expense",
+        workflow_key: "approval.expense",
+        reason_enum: &["교통", "식대", "숙박", "소모품", "접대", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "contract",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "finance_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "sub",
+        workflow_key: "approval.sub",
+        reason_enum: &["결원 대체", "휴가 대체", "긴급 투입", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "site",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "hr_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "purchase",
+        workflow_key: "approval.purchase",
+        reason_enum: &["자재", "비품", "장비", "수리", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "asset_or_inventory",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "finance_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "benefit",
+        workflow_key: "approval.benefit",
+        reason_enum: &["경조", "자기계발", "건강검진", "포상", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "payee",
+            required: true,
+        }],
+        default_line: &["team_lead_reviewer", "hr_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "reimburse",
+        workflow_key: "approval.reimburse",
+        reason_enum: &["교통", "식대", "숙박", "소모품", "접대", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "project_or_work",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "finance_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "general",
+        workflow_key: "approval.general",
+        reason_enum: &["보고", "요청", "건의", "기타"],
+        linked_objects: &[],
+        default_line: &["team_lead_reviewer", "division_approver"],
+        receipt_required: false,
+    },
+];
+
 #[derive(Clone)]
 pub struct WorkflowStudioState {
     pool: PgPool,
@@ -165,6 +267,11 @@ pub fn router(state: WorkflowStudioState) -> Router {
             WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE,
             post(clone_definition),
         )
+        .route(WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE, post(finalize_task))
+        .route(
+            WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE,
+            post(create_post_finalization_rejection),
+        )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -196,6 +303,24 @@ struct WorkflowTemplate {
     object_type: &'static str,
     required_approval_line: bool,
     required_payment_line: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+struct ApprovalTemplate {
+    key: &'static str,
+    workflow_key: &'static str,
+    reason_enum: &'static [&'static str],
+    linked_objects: &'static [ApprovalLinkedObject],
+    default_line: &'static [&'static str],
+    receipt_required: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+struct ApprovalLinkedObject {
+    kind: &'static str,
+    required: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -336,6 +461,80 @@ struct WorkflowStepUpAssertionRequest {
     credential: PasskeyAuthenticationCredential,
 }
 
+#[derive(Debug, Deserialize)]
+struct FinalizeWorkflowTaskRequest {
+    mode: FinalizeWorkflowTaskMode,
+    #[serde(default)]
+    reason: Option<String>,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FinalizeWorkflowTaskMode {
+    Author,
+    Delegate,
+}
+
+impl FinalizeWorkflowTaskMode {
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Author => "author",
+            Self::Delegate => "delegate",
+        }
+    }
+
+    const fn policy_mode(&self) -> FinalizeMode {
+        match self {
+            Self::Author => FinalizeMode::Author,
+            Self::Delegate => FinalizeMode::Delegate,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct FinalizeWorkflowTaskResponse {
+    task: FinalizedTaskResponse,
+    run: FinalizedRunResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archive_ref: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct FinalizedTaskResponse {
+    id: Uuid,
+    run_id: Uuid,
+    status: String,
+    completed_by: Option<UserId>,
+    decision_payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct FinalizedRunResponse {
+    id: Uuid,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PostFinalizationRejectionRequest {
+    reason: String,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PostFinalizationRejectionResponse {
+    compensation: PostFinalizationRejectionDocumentResponse,
+    run: FinalizedRunResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct PostFinalizationRejectionDocumentResponse {
+    id: Uuid,
+    original_run_id: Uuid,
+    reason: String,
+    created_by: UserId,
+}
+
 #[derive(Debug, Serialize)]
 struct WorkflowSimulationResponse {
     decision: String,
@@ -397,6 +596,173 @@ async fn get_catalog(
                 required_payment_line: template.required_payment_line,
             })
             .collect(),
+    }))
+}
+
+async fn finalize_task(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(task_id): Path<Uuid>,
+    Json(request): Json<FinalizeWorkflowTaskRequest>,
+) -> Result<Json<FinalizeWorkflowTaskResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let context = store
+        .load_finalize_waiting_task(principal.org_id, task_id)
+        .await?
+        .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
+    if context.waiting_key != "finalize.author"
+        && context.required_policy.as_deref() != Some("approval_finalize")
+    {
+        return Err(WorkflowStudioError::validation(
+            "workflow task is not a finalization task",
+        ));
+    }
+
+    let branch = guard_branch(&principal);
+    let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = context
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| context.run_id.to_string());
+    let policy = enforce_finalize_policy(FinalizePolicyRequest {
+        mode: request.mode.policy_mode(),
+        reason: request.reason.as_deref(),
+        required_policy: context.required_policy.as_deref(),
+        principal: &principal,
+        org: principal.org_id,
+        branch,
+        resource_type,
+        resource_id,
+        initiated_by: context.initiated_by,
+    })?;
+
+    let mut audits = Vec::new();
+    if let Some(guard_audit) = policy.guard_audit {
+        audits.push(shadow_audit_event(
+            &guard_audit,
+            principal.user_id,
+            principal.org_id,
+            task_id,
+        )?);
+    }
+
+    let finalized = store
+        .finalize_waiting_task(
+            principal.org_id,
+            FinalizeWaitingTaskCommand {
+                task_id,
+                actor: principal.user_id,
+                idempotency_key: idempotency_key.to_owned(),
+                mode: request.mode.as_str().to_owned(),
+                delegated_reason: policy.delegated_reason,
+                transition_audits: audits,
+            },
+        )
+        .await?;
+
+    record_workflow_studio_request("task_finalize", "success");
+    Ok(Json(FinalizeWorkflowTaskResponse {
+        task: FinalizedTaskResponse {
+            id: finalized.task_id,
+            run_id: finalized.run_id,
+            status: finalized.status.as_db_str().to_owned(),
+            completed_by: finalized.completed_by,
+            decision_payload: finalized.decision_payload,
+        },
+        run: FinalizedRunResponse {
+            id: finalized.run_id,
+            status: finalized.run_status.as_db_str().to_owned(),
+        },
+        archive_ref: None,
+    }))
+}
+
+async fn create_post_finalization_rejection(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(run_id): Path<Uuid>,
+    Json(request): Json<PostFinalizationRejectionRequest>,
+) -> Result<Json<PostFinalizationRejectionResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    let reason = request.reason.trim();
+    if reason.is_empty() {
+        return Err(WorkflowStudioError::validation(
+            "post-finalization rejection requires a non-empty reason",
+        ));
+    }
+
+    let branch = guard_branch(&principal);
+    let authz_request = build_guard_request(
+        &principal,
+        Feature::ApprovalFinalize.as_str(),
+        principal.org_id,
+        branch,
+        "workflow_run",
+        &run_id.to_string(),
+        WAITING_COMPLETION_DOMAIN,
+    )
+    .map_err(|_| {
+        WorkflowStudioError::from(KernelError::forbidden(
+            "post-finalization rejection policy denied",
+        ))
+    })?;
+    let entry = workflow_coexistence_entry(
+        "workflow.waiting_task.post_finalization_rejection",
+        WAITING_COMPLETION_DOMAIN,
+        Feature::ApprovalFinalize,
+        "workflow_run",
+    );
+    let guard_outcome = guard(&authz_request, &entry);
+    if !guard_outcome.is_allowed() {
+        return Err(WorkflowStudioError::from(KernelError::forbidden(
+            "post-finalization rejection policy denied",
+        )));
+    }
+
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let compensation = store
+        .create_post_finalization_rejection(
+            principal.org_id,
+            PostFinalizationRejectionCommand {
+                original_run_id: run_id,
+                actor: principal.user_id,
+                reason: reason.to_owned(),
+                idempotency_key: idempotency_key.to_owned(),
+                transition_audits: vec![shadow_audit_event_for(
+                    &guard_outcome.audit,
+                    principal.user_id,
+                    principal.org_id,
+                    "workflow_run",
+                    run_id,
+                )?],
+            },
+        )
+        .await?;
+
+    record_workflow_studio_request("post_finalization_rejection", "success");
+    Ok(Json(PostFinalizationRejectionResponse {
+        compensation: PostFinalizationRejectionDocumentResponse {
+            id: compensation.id,
+            original_run_id: compensation.original_run_id,
+            reason: compensation.reason,
+            created_by: compensation.created_by,
+        },
+        run: FinalizedRunResponse {
+            id: compensation.original_run_id,
+            status: compensation.run_status.as_db_str().to_owned(),
+        },
     }))
 }
 
@@ -1656,6 +2022,63 @@ fn normalize_display_name(raw: &str) -> Result<String, WorkflowStudioError> {
     }
 }
 
+#[allow(dead_code)]
+fn build_approval_execution_definition(template_key: &str) -> Result<Value, WorkflowStudioError> {
+    let template = APPROVAL_TEMPLATES
+        .iter()
+        .find(|template| template.key == template_key)
+        .ok_or_else(|| WorkflowStudioError::validation("unknown approval template"))?;
+
+    let mut nodes = Vec::with_capacity(template.default_line.len() + 3);
+    nodes.push(json!({ "node_key": "submit", "node_type": "object_gate" }));
+    for (index, role_key) in template.default_line.iter().enumerate() {
+        nodes.push(json!({
+            "node_key": format!("approve.{role_key}"),
+            "node_type": "human_task",
+            "title": format!("Approval step {}", index + 1),
+            "required_policy": "approval_decide",
+            "assignee_role_key": role_key
+        }));
+    }
+    nodes.push(json!({
+        "node_key": "finalize.author",
+        "node_type": "human_task",
+        "title": "Author finalize",
+        "required_policy": "approval_finalize",
+        "assignee_role_key": "initiator"
+    }));
+    if template.receipt_required {
+        nodes.push(json!({
+            "node_key": "receipt.target",
+            "node_type": "human_task",
+            "title": "Receipt confirmation",
+            "required_policy": "approval_receipt",
+            "assignee_role_key": "receipt_subject"
+        }));
+    }
+
+    let mut edges = Vec::with_capacity(nodes.len().saturating_sub(1));
+    for pair in nodes.windows(2) {
+        edges.push(json!({
+            "from": pair[0]["node_key"],
+            "to": pair[1]["node_key"]
+        }));
+    }
+
+    Ok(json!({
+        "schema_version": WORKFLOW_EXEC_SCHEMA_VERSION,
+        "workflow_key": template.workflow_key,
+        "object_type": "approval_document",
+        "approval_template": template.key,
+        "reason_enum": template.reason_enum,
+        "linked_objects": template.linked_objects.iter().map(|link| {
+            json!({ "kind": link.kind, "required": link.required })
+        }).collect::<Vec<_>>(),
+        "nodes": nodes,
+        "edges": edges
+    }))
+}
+
 fn validate_definition_object(value: Value) -> Result<Value, WorkflowStudioError> {
     let Some(object) = value.as_object() else {
         return Err(WorkflowStudioError::validation(
@@ -2048,6 +2471,48 @@ fn record_workflow_studio_request(surface: &'static str, outcome: &'static str) 
     .increment(1);
 }
 
+fn guard_branch(principal: &Principal) -> BranchId {
+    match &principal.branch_scope {
+        BranchScope::All => BranchId::new(),
+        BranchScope::Branches(branches) => branches
+            .iter()
+            .next()
+            .copied()
+            .unwrap_or_else(BranchId::new),
+    }
+}
+
+fn shadow_audit_event(
+    shadow: &AuthorizationAuditEvent,
+    actor: UserId,
+    org: mnt_kernel_core::OrgId,
+    task_id: Uuid,
+) -> Result<AuditEvent, KernelError> {
+    shadow_audit_event_for(shadow, actor, org, "workflow_waiting_task", task_id)
+}
+
+fn shadow_audit_event_for(
+    shadow: &AuthorizationAuditEvent,
+    actor: UserId,
+    org: mnt_kernel_core::OrgId,
+    target_type: &'static str,
+    target_id: Uuid,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_runtime.cedar_shadow")?,
+        target_type,
+        target_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(serde_json::to_value(shadow).map_err(|err| KernelError::internal(err.to_string()))?),
+    ))
+}
+
 #[derive(Debug)]
 struct WorkflowStudioError {
     status: StatusCode,
@@ -2223,6 +2688,66 @@ mod tests {
                 err.message
             )
         })?;
+        Ok(())
+    }
+
+    #[test]
+    fn receipt_required_approval_definition_includes_receipt_waiting_node() -> Result<(), String> {
+        let definition = build_approval_execution_definition("leave")
+            .map_err(|err| format!("leave template should build: {}", err.message))?;
+
+        validate_definition_object(definition.clone())
+            .map_err(|err| format!("leave approval graph must validate: {}", err.message))?;
+
+        let nodes = definition["nodes"]
+            .as_array()
+            .ok_or_else(|| "nodes must be an array".to_owned())?;
+        assert!(
+            nodes.iter().any(|node| {
+                node["node_key"] == json!("receipt.target")
+                    && node["node_type"] == json!("human_task")
+                    && node["assignee_role_key"] == json!("receipt_subject")
+                    && node["required_policy"] == json!("approval_receipt")
+            }),
+            "receipt-required template must emit receipt.target human task"
+        );
+
+        let edges = definition["edges"]
+            .as_array()
+            .ok_or_else(|| "edges must be an array".to_owned())?;
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge["from"] == json!("finalize.author")
+                    && edge["to"] == json!("receipt.target")),
+            "receipt-required template must route finalization to receipt confirmation"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn all_approval_template_builder_outputs_validate() -> Result<(), String> {
+        for template in APPROVAL_TEMPLATES {
+            let definition = build_approval_execution_definition(template.key)
+                .map_err(|err| format!("{} should build: {}", template.key, err.message))?;
+            validate_definition_object(definition.clone()).map_err(|err| {
+                format!(
+                    "{} approval graph must validate: {}",
+                    template.key, err.message
+                )
+            })?;
+
+            let has_receipt = definition["nodes"]
+                .as_array()
+                .ok_or_else(|| format!("{} nodes must be an array", template.key))?
+                .iter()
+                .any(|node| node["node_key"] == json!("receipt.target"));
+            assert_eq!(
+                has_receipt, template.receipt_required,
+                "{} receipt node must match catalog flag",
+                template.key
+            );
+        }
         Ok(())
     }
 

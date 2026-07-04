@@ -2359,6 +2359,8 @@ dependencies = [
  "mnt-sales-rest",
  "mnt-support-adapter-postgres",
  "mnt-support-rest",
+ "mnt-workflow-domain",
+ "mnt-workflow-runtime",
  "mnt-workflow-runtime-adapter-postgres",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-rest",
