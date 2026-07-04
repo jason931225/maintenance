@@ -20,7 +20,7 @@ function isConsoleToastDetail(value: unknown): value is ConsoleToastDetail {
   );
 }
 
-export function useConsoleToast(timeoutMs = 5_000) {
+export function useConsoleToast(timeoutMs = 5_200) {
   const [toast, setToast] = useState<ConsoleToastState | undefined>();
 
   useEffect(() => {
