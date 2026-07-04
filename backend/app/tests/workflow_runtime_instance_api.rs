@@ -410,8 +410,374 @@ async fn submission_box_lists_initiated_runs(pool: PgPool) {
     assert_eq!(empty.json["items"].as_array().unwrap().len(), 0);
 }
 
+// ===========================================================================
+// 7. Security H1(b): deciding a policy-less legacy task fails closed (403).
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn decide_on_policy_less_task_is_forbidden(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let initiator = UserId::new();
+    seed_user(&pool, initiator, "SUPER_ADMIN", branch).await;
+    let definition_id = seed_approval_definition(&pool, "approval.h1b").await;
+    // A legacy row with an assignee_role_key but NO required_policy — no
+    // authorization boundary.
+    let (_run_id, task_id) =
+        seed_run_with_open_task(&pool, definition_id, initiator, "admin", None).await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+
+    // Even a SUPER_ADMIN cannot decide a task that carries no policy.
+    let actor = UserId::new();
+    seed_user(&pool, actor, "SUPER_ADMIN", branch).await;
+    let denied = post(
+        service,
+        &format!("/api/v1/workflow-tasks/{task_id}/decide"),
+        &bearer(&keys, actor, "SUPER_ADMIN", branch),
+        json!({ "decision": "approve", "idempotency_key": "decide-policyless-0001" }),
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+    assert!(
+        denied.json["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("authorization boundary"),
+        "{:?}",
+        denied.json
+    );
+}
+
+// ===========================================================================
+// 8. Security M2: per-definition start authority + payload size cap.
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn start_policy_gates_run_initiation_and_caps_payload(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    // Operational pipeline: start_policy = completion_review (NOT self-service).
+    let payroll_definition = seed_start_policy_definition(&pool, "ops.completion.start").await;
+    // Approval template: no start_policy — self-service 기안/상신 (DESIGN §4.8).
+    let approval_definition = seed_approval_definition(&pool, "approval.selfservice").await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+
+    // A non-privileged persona (MECHANIC lacks completion_review) is DENIED the
+    // operational pipeline start.
+    let mechanic = UserId::new();
+    seed_user(&pool, mechanic, "MECHANIC", branch).await;
+    let denied = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &bearer(&keys, mechanic, "MECHANIC", branch),
+        json!({
+            "definition_id": payroll_definition,
+            "trigger_type": "MANUAL",
+            "idempotency_key": "start-policy-denied-0001",
+            "input_payload": {}
+        }),
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+
+    // A privileged persona (SUPER_ADMIN holds completion_review) MAY start it.
+    let admin = UserId::new();
+    seed_user(&pool, admin, "SUPER_ADMIN", branch).await;
+    let allowed = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &bearer(&keys, admin, "SUPER_ADMIN", branch),
+        json!({
+            "definition_id": payroll_definition,
+            "trigger_type": "MANUAL",
+            "idempotency_key": "start-policy-allowed-0001",
+            "input_payload": {}
+        }),
+    )
+    .await;
+    assert_eq!(allowed.status, StatusCode::OK, "{:?}", allowed.json);
+
+    // The self-service approval template is startable by the SAME non-privileged
+    // persona (no start_policy).
+    let self_service = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &bearer(&keys, mechanic, "MECHANIC", branch),
+        json!({
+            "definition_id": approval_definition,
+            "trigger_type": "MANUAL",
+            "idempotency_key": "start-selfservice-0001",
+            "input_payload": {}
+        }),
+    )
+    .await;
+    assert_eq!(
+        self_service.status,
+        StatusCode::OK,
+        "{:?}",
+        self_service.json
+    );
+    assert_eq!(self_service.json["run"]["status"], "WAITING");
+
+    // An oversize payload is rejected (422) regardless of start authority.
+    let oversize = post(
+        service,
+        "/api/v1/workflow-runs",
+        &bearer(&keys, admin, "SUPER_ADMIN", branch),
+        json!({
+            "definition_id": approval_definition,
+            "trigger_type": "MANUAL",
+            "idempotency_key": "start-oversize-000001",
+            "input_payload": { "blob": "x".repeat(70_000) }
+        }),
+    )
+    .await;
+    assert_eq!(
+        oversize.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        oversize.json
+    );
+}
+
+// ===========================================================================
+// 9. Security M3: personal inbox OPEN tasks are scoped by role + ownership.
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn assignee_me_open_tasks_scoped_by_role_and_ownership(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let definition_id = seed_approval_definition(&pool, "approval.m3").await;
+
+    // An OPEN `initiator` finalize task carries the broad `approval_finalize`
+    // policy but is addressed to the run's initiator by OWNERSHIP, not policy.
+    let owner = UserId::new();
+    seed_user(&pool, owner, "SUPER_ADMIN", branch).await;
+    let (_run_id, owner_task) = seed_run_with_open_task(
+        &pool,
+        definition_id,
+        owner,
+        "initiator",
+        Some("approval_finalize"),
+    )
+    .await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+
+    // The owner sees their own initiator task.
+    let owner_inbox = get(
+        service.clone(),
+        "/api/v1/workflow-tasks?assignee=me&status=OPEN",
+        &bearer(&keys, owner, "SUPER_ADMIN", branch),
+    )
+    .await;
+    assert_eq!(owner_inbox.status, StatusCode::OK, "{:?}", owner_inbox.json);
+    assert!(
+        inbox_contains(&owner_inbox.json, owner_task),
+        "owner must see their own initiator task: {:?}",
+        owner_inbox.json
+    );
+
+    // A DIFFERENT user who ALSO holds approval_finalize (org-wide) must NOT see the
+    // owner's initiator task in their personal inbox — ownership, not policy, is the
+    // fence. This is the exact over-share the policy layer alone cannot close.
+    let other_admin = UserId::new();
+    seed_user(&pool, other_admin, "SUPER_ADMIN", branch).await;
+    let other_inbox = get(
+        service.clone(),
+        "/api/v1/workflow-tasks?assignee=me&status=OPEN",
+        &bearer(&keys, other_admin, "SUPER_ADMIN", branch),
+    )
+    .await;
+    assert_eq!(other_inbox.status, StatusCode::OK, "{:?}", other_inbox.json);
+    assert!(
+        !inbox_contains(&other_inbox.json, owner_task),
+        "a non-initiator admin must not see the owner's initiator task: {:?}",
+        other_inbox.json
+    );
+
+    // A MECHANIC holds no authority role and owns nothing → empty personal inbox
+    // even though an OPEN authority task exists.
+    let (_hr_run, hr_task) = seed_run_with_open_task(
+        &pool,
+        definition_id,
+        owner,
+        "hr_reviewer",
+        Some("approval_review"),
+    )
+    .await;
+    let mechanic = UserId::new();
+    seed_user(&pool, mechanic, "MECHANIC", branch).await;
+    let mechanic_inbox = get(
+        service.clone(),
+        "/api/v1/workflow-tasks?assignee=me&status=OPEN",
+        &bearer(&keys, mechanic, "MECHANIC", branch),
+    )
+    .await;
+    assert_eq!(mechanic_inbox.status, StatusCode::OK);
+    assert!(
+        !inbox_contains(&mechanic_inbox.json, hr_task),
+        "a mechanic must not see an hr_reviewer OPEN task: {:?}",
+        mechanic_inbox.json
+    );
+
+    // A completion_review holder DOES hold the hr_reviewer authority role → the
+    // hr_reviewer OPEN task surfaces in their personal inbox.
+    let admin_inbox = get(
+        service,
+        "/api/v1/workflow-tasks?assignee=me&status=OPEN",
+        &bearer(&keys, other_admin, "SUPER_ADMIN", branch),
+    )
+    .await;
+    assert_eq!(admin_inbox.status, StatusCode::OK);
+    assert!(
+        inbox_contains(&admin_inbox.json, hr_task),
+        "a completion_review holder must see the hr_reviewer OPEN task via authority: {:?}",
+        admin_inbox.json
+    );
+}
+
+// ===========================================================================
+// 10. Security L5: an over-long decision comment is a 422.
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn decide_comment_over_limit_is_rejected(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let actor = UserId::new();
+    seed_user(&pool, actor, "SUPER_ADMIN", branch).await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+
+    // The comment bound is enforced before any task lookup, so any task id serves.
+    let rejected = post(
+        service,
+        &format!("/api/v1/workflow-tasks/{}/decide", Uuid::new_v4()),
+        &bearer(&keys, actor, "SUPER_ADMIN", branch),
+        json!({
+            "decision": "approve",
+            "comment": "x".repeat(4001),
+            "idempotency_key": "decide-comment-cap-0001"
+        }),
+    )
+    .await;
+    assert_eq!(
+        rejected.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        rejected.json
+    );
+    assert!(
+        rejected.json["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("4000 characters"),
+        "{:?}",
+        rejected.json
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures + helpers.
+// ---------------------------------------------------------------------------
+
+fn inbox_contains(body: &Value, task_id: Uuid) -> bool {
+    body["items"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .any(|item| item["task_id"] == json!(task_id.to_string()))
+        })
+        .unwrap_or(false)
+}
+
+/// A `wf.exec.v1` definition with a top-level `start_policy` (security M2): an
+/// object_gate entry feeding a completion_review human task. Only a
+/// completion_review-holder may START it. Seeded ACTIVE / PUBLISHED.
+async fn seed_start_policy_definition(pool: &PgPool, workflow_key: &str) -> Uuid {
+    let org = OrgId::knl();
+    let definition = json!({
+        "schema_version": "wf.exec.v1",
+        "workflow_key": workflow_key,
+        "start_policy": "completion_review",
+        "nodes": [
+            { "node_key": "capture", "node_type": "object_gate", "title": "Capture" },
+            { "node_key": "review.admin", "node_type": "human_task", "title": "Admin review",
+              "assignee_role_key": "admin", "required_policy": "completion_review" }
+        ],
+        "edges": [ { "from": "capture", "to": "review.admin" } ]
+    });
+    let definition_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO workflow_definitions \
+             (org_id, workflow_key, display_name, object_type, status, latest_version, active_version) \
+         VALUES ($1, $2, 'Start-Policy Pipeline', 'work_order', 'ACTIVE', 1, 1) \
+         RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(workflow_key)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO workflow_definition_versions \
+             (org_id, definition_id, version, status, definition, required_approval_line, required_payment_line) \
+         VALUES ($1, $2, 1, 'PUBLISHED', $3, FALSE, FALSE)",
+    )
+    .bind(*org.as_uuid())
+    .bind(definition_id)
+    .bind(definition)
+    .execute(pool)
+    .await
+    .unwrap();
+    definition_id
+}
+
+/// Seed a WAITING run with a single OPEN waiting task (no node_run), for the
+/// security inbox/decide tests. `required_policy = None` seeds a policy-less
+/// legacy row.
+async fn seed_run_with_open_task(
+    pool: &PgPool,
+    definition_id: Uuid,
+    initiated_by: UserId,
+    assignee_role_key: &str,
+    required_policy: Option<&str>,
+) -> (Uuid, Uuid) {
+    let org = OrgId::knl();
+    let run_id = Uuid::new_v4();
+    let task_id = Uuid::new_v4();
+    let suffix = run_id.simple().to_string();
+    sqlx::query(
+        "INSERT INTO workflow_runs \
+             (id, org_id, definition_id, definition_version, status, trigger_type, \
+              idempotency_key, correlation_id, initiated_by) \
+         VALUES ($1, $2, $3, 1, 'WAITING', 'MANUAL', $4, $5, $6)",
+    )
+    .bind(run_id)
+    .bind(*org.as_uuid())
+    .bind(definition_id)
+    .bind(format!("seed-run-idem-{suffix}"))
+    .bind(format!("seed-run-corr-{suffix}"))
+    .bind(*initiated_by.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO workflow_waiting_tasks \
+             (id, org_id, run_id, waiting_key, title, status, assignee_role_key, required_policy) \
+         VALUES ($1, $2, $3, 'wait.node', 'Seed task', 'OPEN', $4, $5)",
+    )
+    .bind(task_id)
+    .bind(*org.as_uuid())
+    .bind(run_id)
+    .bind(assignee_role_key)
+    .bind(required_policy)
+    .execute(pool)
+    .await
+    .unwrap();
+    (run_id, task_id)
+}
+
 // ---------------------------------------------------------------------------
 
 /// A linear approval definition: submit (gate) → review.hr → approve.manager →

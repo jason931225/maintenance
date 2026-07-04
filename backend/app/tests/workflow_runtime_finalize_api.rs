@@ -419,6 +419,72 @@ async fn post_finalization_rejection_creates_compensation_without_reopening_run(
     );
 }
 
+// Security L6: an idempotency_key already used to compensate one run must 409
+// when re-presented against a DIFFERENT run (cross-run reuse), never silently
+// replay the stored compensation.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn post_finalization_idempotency_key_cannot_cross_runs(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let actor = UserId::new();
+    seed_user(&pool, actor, "SUPER_ADMIN", branch).await;
+    let definition_id = seed_definition_with_receipt(&pool, false).await;
+    let run_a = seed_succeeded_run(&pool, definition_id, actor).await;
+    let run_b = seed_succeeded_run(&pool, definition_id, actor).await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = issue_token(
+        keys.private_pem.as_bytes(),
+        keys.public_pem.as_bytes(),
+        actor,
+        vec!["SUPER_ADMIN".to_owned()],
+        vec![branch],
+    )
+    .unwrap();
+
+    let key = "cross-run-reuse-key-0001";
+    let first = post_post_finalization_rejection(
+        service.clone(),
+        run_a,
+        &token,
+        json!({ "reason": "invalid evidence", "idempotency_key": key }),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK, "{:?}", first.json);
+
+    // Same key, DIFFERENT run → 409, not a replay of run_a's compensation.
+    let reused = post_post_finalization_rejection(
+        service,
+        run_b,
+        &token,
+        json!({ "reason": "invalid evidence", "idempotency_key": key }),
+    )
+    .await;
+    assert_eq!(reused.status, StatusCode::CONFLICT, "{:?}", reused.json);
+}
+
+async fn seed_succeeded_run(pool: &PgPool, definition_id: Uuid, initiated_by: UserId) -> Uuid {
+    let org = OrgId::knl();
+    let run_id = Uuid::new_v4();
+    let suffix = run_id.simple().to_string();
+    sqlx::query(
+        "INSERT INTO workflow_runs \
+             (id, org_id, definition_id, definition_version, status, trigger_type, \
+              idempotency_key, correlation_id, initiated_by, completed_at) \
+         VALUES ($1, $2, $3, 1, 'SUCCEEDED', 'MANUAL', $4, $5, $6, now())",
+    )
+    .bind(run_id)
+    .bind(*org.as_uuid())
+    .bind(definition_id)
+    .bind(format!("succeeded-run-idem-{suffix}"))
+    .bind(format!("succeeded-run-corr-{suffix}"))
+    .bind(*initiated_by.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    run_id
+}
+
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn author_finalize_replays_same_idempotency_key_as_200(pool: PgPool) {
     let keys = keys();
