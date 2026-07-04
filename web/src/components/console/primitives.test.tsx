@@ -48,6 +48,34 @@ describe("console primitives", () => {
     expect(screen.getByText("AP-3121")).toHaveClass("font-mono");
   });
 
+  it("falls back to the first two characters for object codes without a hyphen", () => {
+    render(<ObjectChip kind="org" code="ACME" label="본사" />);
+
+    expect(screen.getByText("AC")).toHaveClass("font-mono");
+    expect(screen.getByText("ACME")).toHaveClass("font-mono");
+  });
+
+  it("keys duplicate label+value stat items by index to avoid React key collisions", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(
+      <StatBar
+        items={[
+          { label: "처리 대기", value: "18" },
+          { label: "처리 대기", value: "18" },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("처리 대기")).toHaveLength(2);
+    const duplicateKeyWarning = errorSpy.mock.calls.some((call) =>
+      String(call[0]).includes("same key"),
+    );
+    expect(duplicateKeyWarning).toBe(false);
+
+    errorSpy.mockRestore();
+  });
+
   it("keeps KPI strips compact and tokenized", () => {
     render(
       <StatBar

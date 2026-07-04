@@ -83,7 +83,7 @@ describe("console list grammar hooks", () => {
     const onCommit = vi.fn();
     render(<ResizeHarness onCommit={onCommit} />);
 
-    const handle = screen.getByRole("button", { name: "열 너비 조정" });
+    const handle = screen.getByRole("separator", { name: "열 너비 조정" });
     fireEvent.pointerDown(handle, { pointerId: 1, clientX: 160 });
     fireEvent.pointerMove(window, { clientX: 80 });
     fireEvent.pointerUp(window, { clientX: 80 });
@@ -91,6 +91,77 @@ describe("console list grammar hooks", () => {
     expect(screen.getByTestId("width")).toHaveTextContent("120");
     expect(onCommit).toHaveBeenLastCalledWith(120);
     expect(handle).toHaveAttribute("aria-orientation", "horizontal");
+  });
+
+  it("quantizes dragged width to the 8px tick before clamping", () => {
+    const onCommit = vi.fn();
+    render(<ResizeHarness onCommit={onCommit} />);
+
+    const handle = screen.getByRole("separator", { name: "열 너비 조정" });
+    // startWidth 160, delta 13 -> raw 173, nearest 8px tick is 176.
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 160 });
+    fireEvent.pointerMove(window, { clientX: 173 });
+    expect(screen.getByTestId("width")).toHaveTextContent("176");
+
+    fireEvent.pointerUp(window, { clientX: 173 });
+    expect(onCommit).toHaveBeenLastCalledWith(176);
+  });
+
+  it("ends the drag on pointercancel so a stray pointermove no longer resizes", () => {
+    const onCommit = vi.fn();
+    render(<ResizeHarness onCommit={onCommit} />);
+
+    const handle = screen.getByRole("separator", { name: "열 너비 조정" });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 160 });
+    fireEvent.pointerMove(window, { clientX: 200 });
+    expect(screen.getByTestId("width")).toHaveTextContent("200");
+
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+    expect(screen.getByTestId("width")).toHaveTextContent("160");
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.pointerMove(window, { clientX: 240 });
+    expect(screen.getByTestId("width")).toHaveTextContent("160");
+  });
+
+  it("steps the handle width by the 8px tick with arrow keys, respecting the floor", () => {
+    const onCommit = vi.fn();
+    render(<ResizeHarness onCommit={onCommit} />);
+
+    const handle = screen.getByRole("separator", { name: "열 너비 조정" });
+    handle.focus();
+
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(screen.getByTestId("width")).toHaveTextContent("168");
+    expect(onCommit).toHaveBeenLastCalledWith(168);
+    expect(handle).toHaveAttribute("aria-valuenow", "168");
+
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(screen.getByTestId("width")).toHaveTextContent("120");
+    expect(handle).toHaveAttribute("aria-valuemin", "120");
+    expect(handle).toHaveAttribute("aria-valuemax", "260");
+  });
+
+  it("ignores J/K/Enter typed into an input or textarea inside the list wrapper", () => {
+    const onOpen = vi.fn();
+    render(<NavHarness onOpen={onOpen} />);
+
+    const list = screen.getByRole("listbox");
+    const input = document.createElement("input");
+    list.appendChild(input);
+
+    const preventDefault = vi.spyOn(KeyboardEvent.prototype, "preventDefault");
+    fireEvent.keyDown(input, { key: "j" });
+
+    expect(screen.getByText("AP-3108")).toHaveAttribute("data-selected", "false");
+    expect(preventDefault).not.toHaveBeenCalled();
+    preventDefault.mockRestore();
   });
 
   it("exports shared list body and row alignment classes", () => {

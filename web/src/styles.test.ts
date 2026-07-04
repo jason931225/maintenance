@@ -125,6 +125,15 @@ describe("Oyatie console CSS tokens", () => {
   });
 });
 
+describe("Oyatie console dark-copy parity", () => {
+  it("keeps the .console.dark class tokens identical to the prefers-color-scheme media copy", () => {
+    const darkClassTokens = tokensIn(blockFor(".console.dark"));
+    const darkMediaTokens = tokensIn(blockFor(".console:not(.t-light):not(.dark)"));
+
+    expect(darkMediaTokens).toEqual(darkClassTokens);
+  });
+});
+
 describe("Oyatie console motion rules", () => {
   it("exposes reusable pop, toast, and pulse motion classes", () => {
     expect(css).toMatch(/@keyframes\s+pop-in\b/);

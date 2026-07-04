@@ -34,10 +34,10 @@ export function Chip({ tone = "neutral", icon, className, children, ...props }: 
       )}
       {...props}
     >
-      {Icon && icon ? (
+      {Icon ? (
         <Icon
           aria-hidden="true"
-          data-testid={`console-icon-${icon}`}
+          data-testid={`console-icon-${icon as ConsoleIconName}`}
           className="h-3.5 w-3.5 shrink-0"
           strokeWidth={2}
         />
@@ -91,7 +91,7 @@ export function ObjectChip({
   label: string;
   onOpen?: (code: string) => void;
 }) {
-  const prefix = code.split("-")[0] ?? code.slice(0, 2);
+  const prefix = code.includes("-") ? code.split("-")[0] : code.slice(0, 2);
   return (
     <button
       type="button"
@@ -121,9 +121,9 @@ export interface StatBarItem {
 export function StatBar({ items }: { items: StatBarItem[] }) {
   return (
     <ul className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2" role="list">
-      {items.map((item) => (
+      {items.map((item, index) => (
         <li
-          key={`${item.label}:${item.value}`}
+          key={`${String(index)}:${item.label}:${item.value}`}
           className={cn(
             "min-h-14 rounded-[8px] border bg-console-surface px-3 py-2 shadow-console",
             toneClasses[item.tone ?? "neutral"],
