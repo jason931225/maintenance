@@ -174,6 +174,7 @@ impl PgOrgStore {
             .as_ref()
             .map(|ids| ids.iter().map(|b| *b.as_uuid()).collect());
         let user_id = command.user_id;
+        let occurred_at = command.occurred_at;
 
         let event = user_audit_event(
             "user.update",
@@ -230,6 +231,12 @@ impl PgOrgStore {
                         .bind(roles)
                         .execute(tx.as_mut())
                         .await?;
+                    // A system-role change is authorization-relevant: bump the
+                    // subject freshness version so a later Cedar slice can deny a
+                    // token minted before the change. Only bumps when roles were
+                    // actually part of this update (branch/profile-only edits do
+                    // not touch authorization material).
+                    bump_subject_version_tx(tx, org_uuid, *user_id.as_uuid(), occurred_at).await?;
                 }
                 if let Some(branch_ids) = &branch_ids {
                     replace_user_branches(tx, user_id, branch_ids, org_uuid).await?;
@@ -422,6 +429,17 @@ impl PgOrgStore {
                 );
                 insert_audit_event(tx, &session_event).await?;
 
+                // Offboarding revokes every credential + session; bump the
+                // subject session_generation so any access token minted before
+                // this point is recognizably stale to a later Cedar slice.
+                bump_subject_session_generation_tx(
+                    tx,
+                    *org.as_uuid(),
+                    *user_id.as_uuid(),
+                    occurred_at,
+                )
+                .await?;
+
                 fetch_user_tx(tx, user_id).await
             })
         })
@@ -581,6 +599,23 @@ impl PgOrgStore {
                     updated_at: Some(row.try_get("updated_at")?),
                 })
             })
+        })
+        .await
+    }
+
+    /// Read the current subject authorization freshness `(version,
+    /// session_generation)` for a user under RLS. An absent row (no bump yet)
+    /// reads as `(0, 0)`, matching the token mint-time baseline. This is the
+    /// DB-current side a later Cedar slice compares a token's carried snapshot
+    /// against; SLICE-2 only sources it and no decision consults it yet.
+    pub async fn get_subject_authz_versions(
+        &self,
+        user_id: UserId,
+    ) -> Result<(i64, i64), PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let user_uuid = *user_id.as_uuid();
+        with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move { fetch_subject_authz_versions_tx(tx, user_uuid).await })
         })
         .await
     }
@@ -1176,6 +1211,10 @@ impl PgOrgStore {
                 }
 
                 bump_policy_version_tx(tx, org_uuid, occurred_at).await?;
+                // Custom-role assignments are authorization-relevant subject
+                // material, so bump this subject's freshness version alongside the
+                // per-org policy version.
+                bump_subject_version_tx(tx, org_uuid, *user_id.as_uuid(), occurred_at).await?;
                 let next = fetch_policy_role_assignments_tx(tx, user_id).await?;
 
                 let snapshot_event = policy_role_assignment_audit_event(
@@ -1817,6 +1856,89 @@ async fn bump_policy_version_tx(
     .execute(tx.as_mut())
     .await?;
     Ok(())
+}
+
+/// Bump a subject's authorization `version` (+1) inside the caller's audited,
+/// org-armed transaction. Called from authorization-relevant subject mutations
+/// (system-role and custom-role assignment writes) so a later Cedar slice can
+/// detect a token minted before the change and deny the stale subject. The first
+/// bump upserts the (org,user) row at version 1; every later bump increments it.
+///
+/// SLICE-2: this only SOURCES freshness. No authorization decision consults it
+/// yet, so bumping here changes no live outcome.
+async fn bump_subject_version_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    user_uuid: uuid::Uuid,
+    occurred_at: time::OffsetDateTime,
+) -> Result<(), PgOrgError> {
+    sqlx::query(
+        r#"
+        INSERT INTO subject_authz_versions (org_id, user_id, version, session_generation, updated_at)
+        VALUES ($1, $2, 1, 1, $3)
+        ON CONFLICT (org_id, user_id) DO UPDATE
+        SET version = subject_authz_versions.version + 1,
+            updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(user_uuid)
+    .bind(occurred_at)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+/// Bump a subject's `session_generation` (+1) inside the caller's audited,
+/// org-armed transaction. Called from credential/session events that must
+/// invalidate previously minted sessions (e.g. offboarding credential + session
+/// revocation). Mirrors [`bump_subject_version_tx`]; the first bump upserts the
+/// row at session_generation 1.
+async fn bump_subject_session_generation_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    user_uuid: uuid::Uuid,
+    occurred_at: time::OffsetDateTime,
+) -> Result<(), PgOrgError> {
+    sqlx::query(
+        r#"
+        INSERT INTO subject_authz_versions (org_id, user_id, version, session_generation, updated_at)
+        VALUES ($1, $2, 1, 1, $3)
+        ON CONFLICT (org_id, user_id) DO UPDATE
+        SET session_generation = subject_authz_versions.session_generation + 1,
+            updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(user_uuid)
+    .bind(occurred_at)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+/// Read a subject's current `(version, session_generation)` under RLS. An absent
+/// row means "no bump yet" and reads as `(0, 0)`, matching the mint-time default
+/// (`get_policy_version`'s version-0 convention) so a token predating any bump
+/// carries the safe baseline.
+async fn fetch_subject_authz_versions_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_uuid: uuid::Uuid,
+) -> Result<(i64, i64), PgOrgError> {
+    let row = sqlx::query(
+        r#"
+        SELECT version, session_generation
+        FROM subject_authz_versions
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_uuid)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    match row {
+        Some(row) => Ok((row.try_get("version")?, row.try_get("session_generation")?)),
+        None => Ok((0, 0)),
+    }
 }
 
 async fn lock_policy_version_tx(

@@ -2189,6 +2189,12 @@ async fn start_group_admin_tenant_context(
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                // Deferred (SLICE-2): the short-lived group-admin tenant-context
+                // token does not source freshness yet. Safe 0 baseline; not
+                // consulted by any decision on the still-unreachable Cedar path.
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: now,
             },
             group_id,
@@ -2378,6 +2384,12 @@ async fn dev_auth_session(
         branches: branch_ids,
         group_roles: Vec::new(),
         feature_grants: body.feature_grants.clone(),
+        // dev-auth builds the context without a DB read, so leave the safe 0
+        // baseline. This is a dev-only build path and freshness is not consulted
+        // by any decision in SLICE-2 anyway.
+        authz_subject_version: 0,
+        authz_policy_version: 0,
+        session_generation: 0,
     };
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
 
@@ -2431,6 +2443,14 @@ struct UserAuthContext {
     /// for UI gating hints. Backend request authorization ignores the JWT hint
     /// and re-resolves custom policy from the database on every request.
     feature_grants: Vec<String>,
+    /// Subject authorization freshness snapshot resolved from the DB at
+    /// login/refresh time (Cedar/PBAC activation, ADR-0021), stamped into the
+    /// access token so a later Cedar slice can deny a stale subject. SLICE-2 only
+    /// sources these; no authorization decision consults them yet. Mint paths
+    /// that do not resolve them (dev-auth) leave the safe `0` baseline.
+    authz_subject_version: u64,
+    authz_policy_version: u64,
+    session_generation: u64,
 }
 
 #[derive(Debug)]
@@ -2472,6 +2492,12 @@ async fn issue_token_pair(
         // DISPLAY-ONLY identity for the topbar; never used for authz.
         display_name: Some(user.display_name.clone()),
         feature_grants: user.feature_grants.clone(),
+        // Subject authorization freshness snapshot (Cedar/PBAC, ADR-0021),
+        // resolved from the DB when the context was loaded. SLICE-2: sourced onto
+        // the token, not yet consulted by any decision.
+        authz_subject_version: user.authz_subject_version,
+        authz_policy_version: user.authz_policy_version,
+        session_generation: user.session_generation,
         issued_at: now,
     };
     let access_token = if user.group_roles.is_empty() {
@@ -2524,6 +2550,12 @@ fn issue_access_token(
         // every refresh so a renamed user's token reflects it. Never authz.
         display_name: Some(user.display_name.clone()),
         feature_grants: user.feature_grants.clone(),
+        // Subject authorization freshness snapshot (Cedar/PBAC, ADR-0021),
+        // re-resolved from the DB on every refresh so a rotated token carries the
+        // current values. SLICE-2: sourced, not yet consulted.
+        authz_subject_version: user.authz_subject_version,
+        authz_policy_version: user.authz_policy_version,
+        session_generation: user.session_generation,
         issued_at: OffsetDateTime::now_utc(),
     };
     if user.group_roles.is_empty() {
@@ -2674,6 +2706,53 @@ async fn load_user_auth_context_tx(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Snapshot the subject authorization freshness for the access token
+    // (Cedar/PBAC activation, ADR-0021). The `app.current_org` GUC is already
+    // armed by the caller, so these RLS-scoped reads only ever see this tenant's
+    // rows. An absent row is the "no bump yet" baseline and reads as 0, matching
+    // the token default. SLICE-2 sources these onto the token; no authorization
+    // decision consults them yet.
+    let subject_versions_row = sqlx::query(
+        r#"
+        SELECT version, session_generation
+        FROM subject_authz_versions
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(tx.as_mut())
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    let (authz_subject_version, session_generation) = match subject_versions_row {
+        Some(row) => {
+            let version: i64 = row
+                .try_get("version")
+                .map_err(|err| RestError::internal(err.to_string()))?;
+            let session_generation: i64 = row
+                .try_get("session_generation")
+                .map_err(|err| RestError::internal(err.to_string()))?;
+            (
+                u64::try_from(version).unwrap_or(0),
+                u64::try_from(session_generation).unwrap_or(0),
+            )
+        }
+        None => (0, 0),
+    };
+    let policy_version: Option<i64> = sqlx::query_scalar(
+        r#"
+        SELECT version
+        FROM policy_versions
+        WHERE org_id = $1
+        "#,
+    )
+    .bind(*org_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    let authz_policy_version = policy_version
+        .map(|version| u64::try_from(version).unwrap_or(0))
+        .unwrap_or(0);
+
     Ok(UserAuthContext {
         user_id: UserId::from_uuid(user_id),
         org_id,
@@ -2683,6 +2762,9 @@ async fn load_user_auth_context_tx(
         branches,
         group_roles,
         feature_grants: Vec::new(),
+        authz_subject_version,
+        authz_policy_version,
+        session_generation,
     })
 }
 

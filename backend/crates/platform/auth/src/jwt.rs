@@ -57,6 +57,15 @@ pub struct AccessTokenInput {
     /// request, so a stale token can hide or reveal UI chrome but cannot grant
     /// access.
     pub feature_grants: Vec<String>,
+    /// Subject authorization freshness snapshot, sourced from the DB at mint time
+    /// (Cedar/PBAC activation, ADR-0021). These are carried into the matching
+    /// access-token claims so a later Cedar slice can compare a token's snapshot
+    /// against the DB-current values and deny a stale subject. SLICE-2 only
+    /// sources them; no authorization decision consults them yet, and mint sites
+    /// that do not resolve them leave the safe `0` baseline.
+    pub authz_subject_version: u64,
+    pub authz_policy_version: u64,
+    pub session_generation: u64,
     pub issued_at: time::OffsetDateTime,
 }
 
@@ -131,6 +140,20 @@ pub struct AccessClaims {
     /// principals resolve the live custom policy from the DB on every request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub feature_grants: Vec<String>,
+    /// Subject authorization freshness snapshot at mint time (Cedar/PBAC
+    /// activation, ADR-0021): the subject's `version`, the per-org policy
+    /// `version`, and the subject's `session_generation`. A later Cedar slice
+    /// compares these carried values against the DB-current row and DENIES a
+    /// stale subject. Absent in tokens minted before this claim existed →
+    /// default `0`, which is the "no material" baseline; a `0`-carrying token is
+    /// only ever denied on the still-unreachable Cedar path, so old tokens keep
+    /// their exact meaning on every live path.
+    #[serde(default)]
+    pub authz_subject_version: u64,
+    #[serde(default)]
+    pub authz_policy_version: u64,
+    #[serde(default)]
+    pub session_generation: u64,
     pub alg: String,
 }
 
@@ -384,6 +407,9 @@ impl JwtIssuer {
             tenant_context,
             group_context_id,
             feature_grants: input.feature_grants,
+            authz_subject_version: input.authz_subject_version,
+            authz_policy_version: input.authz_policy_version,
+            session_generation: input.session_generation,
             alg: "ES256".to_owned(),
         };
 
