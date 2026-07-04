@@ -1,27 +1,34 @@
 ---
 id: ADR-0010
 status: accepted
+amended_by: ADR-0022
+
 doc_status: published
 date: 2026-06-12
 owner: jasonlee
 consensus: ralplan iteration 3 (Planner/Architect/Critic APPROVE, 2026-06-12)
-related: [ADR-0001]
+related: [ADR-0001, ADR-0022]
 ---
 
-# ADR-0010 — Integration seams as ports only (oyatie AI, Bitween identity) — no mock adapters
+# ADR-0010 — Integration seams as ports only for oyatie AI — no mock adapters
 
 ## Status
-Accepted (consensus-approved plan §2.11).
+Accepted for the oyatie AI seam. The speculative identity-provider seam that was previously bundled into this ADR is superseded by ADR-0022.
 
 ## Context
-Two future integrations are certain in shape but not in timing: oyatie cloud intelligence (AI assistant — deferred until oyatie is ready) and Bitween (employee identity/attendance/payroll system that will own HR data). The production-grade-only mandate forbids stubs and demo modes.
+The production-grade-only mandate forbids stubs and demo modes. The oyatie cloud-intelligence assistant is a future integration with a known product boundary but no production adapter yet.
+
+The earlier version of this ADR also described a future identity-provider seam. That was wrong for the current product: maintenance owns identity locally through passkey-backed accounts, and no external identity provider is part of the launch architecture.
 
 ## Decision
-Each seam is a port (trait) in the application layer with NO adapter until the real one lands: `IntelligencePort` (diagnosis suggestions, report drafting) and `IdentityProviderPort` (user/role sync, attendance read). Features behind an unfilled port are absent from the UI — not mocked, not faked. Local accounts (ADR-0004) are the identity source until the Bitween adapter exists; ownership boundaries follow the prior project's roadmap (Bitween owns identity/attendance/payroll; this system owns work orders/KPI/approvals).
+The oyatie AI assistant seam remains a port definition only: `AiAssistantPort` covers diagnosis suggestions and report drafting, with no mock adapter and no UI affordance until a real adapter is scheduled and owned.
+
+Identity remains local and is not represented as a speculative external provider port. ADR-0022 records that correction and prohibits restoring an identity-provider contract without a named provider, owner, validated production contract, and implementation slice.
 
 ## Consequences
-+ No dead code or false affordances ship; the seam is compiler-checked the day the adapter arrives.
-− Port design must be done carefully now against known Bitween contract fields (prior BITWEEN_INTEGRATION_ROADMAP) without an implementation to validate against.
++ No dead AI adapter or false UI affordance ships.
++ Local identity authority stays clear: passkey-backed maintenance accounts are the product identity source.
+− Future AI adapter work still needs a real implementation issue, production credentials/configuration, and adapter tests before UI exposure.
 
 ## Alternatives considered
-Mock adapters for demo (violates mandate); deferring port definition entirely (rejected: retrofitting a seam into nine domains later is the expensive path).
+Mock AI adapters for demos (rejected: violates the production-grade-only mandate); deferring the AI port definition entirely (rejected: the assistant boundary is already a named product seam and remains useful as an inward-facing application contract); keeping a speculative identity-provider port (rejected and superseded by ADR-0022).

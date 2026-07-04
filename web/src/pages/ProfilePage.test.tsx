@@ -6,9 +6,8 @@ import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppRouter } from "../AppRouter";
-import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
-import { createConsoleApiClient } from "../api/client";
+import { AuthTestProvider } from "../test/AuthTestProvider";
+import { makeAuthContext } from "../test/auth";
 
 const server = setupServer();
 
@@ -33,30 +32,13 @@ const me = {
   created_at: "2026-01-01T00:00:00Z",
 };
 
-function makeAuthContext(session: AuthSession): AuthContextValue {
-  const api = createConsoleApiClient(session.access_token);
-  return {
-    session,
-    restoring: false,
-    login: async () => {},
-    logout: async () => {},
-    refresh: async () => {},
-    acceptTokens: () => {},
-    clearPasskeySetup: () => {},
-    viewAs: undefined,
-    enterViewAs: () => {},
-    exitViewAs: () => undefined,
-    api,
-  };
-}
-
-function renderApp(path: string, ctx: AuthContextValue) {
+function renderApp(path: string, ctx: ReturnType<typeof makeAuthContext>) {
   return render(
-    <AuthContext.Provider value={ctx}>
+    <AuthTestProvider value={ctx}>
       <MemoryRouter initialEntries={[path]}>
         <AppRouter />
       </MemoryRouter>
-    </AuthContext.Provider>,
+    </AuthTestProvider>,
   );
 }
 
