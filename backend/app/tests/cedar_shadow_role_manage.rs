@@ -169,7 +169,12 @@ async fn shadow_lane_is_dark_when_flag_absent(pool: PgPool) {
     seed_org(&pool, org_uuid, "A").await;
     let user = seed_user(&pool, org_uuid, "SUPER_ADMIN").await;
 
-    let state = IdentityRestState::new(PgOrgStore::new(pool.clone()), None);
+    // Code-under-test runs as the real mnt_rt runtime role (NOSUPERUSER,
+    // NOBYPASSRLS) under FORCE RLS — never the BYPASSRLS superuser the default
+    // `#[sqlx::test]` pool connects as, which would mask a broken read path.
+    // Seeding + audit assertions stay on the owner `pool` (row_security off).
+    let rt_pool = runtime_role_pool(&pool).await;
+    let state = IdentityRestState::new(PgOrgStore::new(rt_pool.clone()), None);
     let principal = Principal::new(
         user,
         OrgId::knl(),
@@ -205,7 +210,10 @@ async fn shadow_deny_does_not_flip_legacy_allow_with_flag_on(pool: PgPool) {
     let user = seed_user(&pool, org_uuid, "SUPER_ADMIN").await;
     enable_shadow_flag(&pool, org_uuid).await;
 
-    let state = IdentityRestState::new(PgOrgStore::new(pool.clone()), None);
+    // Real mnt_rt: exercises the flag/version READS and the audit WRITE
+    // (persist_cedar_shadow_audit via with_audit) under FORCE RLS, not superuser.
+    let rt_pool = runtime_role_pool(&pool).await;
+    let state = IdentityRestState::new(PgOrgStore::new(rt_pool.clone()), None);
     let principal = Principal::new(
         user,
         OrgId::knl(),
@@ -244,7 +252,10 @@ async fn shadow_does_not_grant_when_legacy_denies_with_flag_on(pool: PgPool) {
     let user = seed_user(&pool, org_uuid, "MECHANIC").await;
     enable_shadow_flag(&pool, org_uuid).await;
 
-    let state = IdentityRestState::new(PgOrgStore::new(pool.clone()), None);
+    // Real mnt_rt: exercises the flag/version READS and the audit WRITE
+    // (persist_cedar_shadow_audit via with_audit) under FORCE RLS, not superuser.
+    let rt_pool = runtime_role_pool(&pool).await;
+    let state = IdentityRestState::new(PgOrgStore::new(rt_pool.clone()), None);
     let principal = Principal::new(
         user,
         OrgId::knl(),
