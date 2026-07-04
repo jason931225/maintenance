@@ -2359,6 +2359,7 @@ dependencies = [
  "mnt-sales-rest",
  "mnt-support-adapter-postgres",
  "mnt-support-rest",
+ "mnt-workflow-runtime-adapter-postgres",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-rest",
  "opentelemetry",
@@ -2779,7 +2780,6 @@ dependencies = [
  "mnt-kernel-core",
  "serde",
  "serde_json",
- "time",
  "uuid",
 ]
 
@@ -3469,6 +3469,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-workflow-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-workflow-runtime"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-authz",
+ "mnt-workflow-domain",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-workflow-runtime-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-workflow-domain",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-workorder-adapter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -3525,6 +3563,9 @@ dependencies = [
  "mnt-platform-jobs",
  "mnt-platform-request-context",
  "mnt-platform-storage",
+ "mnt-workflow-domain",
+ "mnt-workflow-runtime",
+ "mnt-workflow-runtime-adapter-postgres",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-application",
  "mnt-workorder-domain",
