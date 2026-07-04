@@ -2,6 +2,20 @@ import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 
+/**
+ * Baseline snapshots live in `public-storefront-visual.spec.ts-snapshots/` and
+ * are named per-platform by Playwright (`*-chromium-linux.png`). CI
+ * (`.github/workflows/ci.yml` browser-e2e job) runs on `ubuntu-latest`, so the
+ * committed baselines must be generated on Linux, not a local macOS/Windows
+ * checkout — regenerate them via the pinned Playwright Docker image so the
+ * render matches CI's Chromium build exactly:
+ *
+ *   docker run --rm -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v1.61.0-noble \
+ *     bash -lc "npm ci && npx playwright test e2e/specs/public-storefront-visual.spec.ts --update-snapshots"
+ *
+ * A bare local `--update-snapshots` on macOS writes `*-chromium-darwin.png`
+ * files that CI never reads — don't commit those.
+ */
 const PUBLIC_ROUTES = [
   { path: "/", snapshot: "storefront-home.png" },
   { path: "/rental", snapshot: "storefront-rental.png" },
