@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knllogistic.com/schemas/korean-institutional-connectivity-catalog.schema.json",
+  "title": "Korean institutional connectivity catalog",
+  "type": "object",
+  "required": ["version", "state_machine", "connectors"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "state_machine": {
+      "type": "object",
+      "required": ["states", "transition_gates", "default_terminal_state"],
+      "additionalProperties": false,
+      "properties": {
+        "states": {
+          "type": "array",
+          "items": { "enum": ["research_only", "fixture_only", "sandbox", "partner_approved", "live_read", "live_write", "prohibited", "deprecated"] },
+          "uniqueItems": true
+        },
+        "default_terminal_state": { "const": "prohibited" },
+        "transition_gates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "required_evidence"],
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "required_evidence": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "connectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["institution_id", "domain", "workflow_ids", "auth_modes", "side_effect_class", "legal_status", "capability_state", "fixture_path", "evidence_policy", "source_evidence", "forbidden_data"],
+        "additionalProperties": false,
+        "properties": {
+          "institution_id": { "type": "string", "pattern": "^[a-z0-9_:-]+$" },
+          "domain": { "enum": ["banking", "tax", "public_labor", "insurance", "securities", "cards", "local_agent"] },
+          "workflow_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+          "auth_modes": { "type": "array", "items": { "enum": ["official_oauth", "mydata_token", "nts_asp_certified", "local_agent_cert_session", "manual_file_upload", "fixture_only"] }, "minItems": 1, "uniqueItems": true },
+          "side_effect_class": { "enum": ["read_only", "generated_file", "human_approved_filing", "automated_filing", "payment_transfer", "certified_issuance"] },
+          "legal_status": { "enum": ["approved", "counsel_review", "partner_required", "prohibited", "research_only"] },
+          "capability_state": { "enum": ["research_only", "fixture_only", "sandbox", "partner_approved", "live_read", "live_write", "prohibited", "deprecated"] },
+          "fixture_path": { "type": "string" },
+          "evidence_policy": {
+            "type": "object",
+            "required": ["intent_hash", "redacted_transcript", "receipt_or_status", "parser_version", "source_urls", "retention_class"],
+            "additionalProperties": false,
+            "properties": {
+              "intent_hash": { "type": "boolean" },
+              "redacted_transcript": { "type": "boolean" },
+              "receipt_or_status": { "type": "boolean" },
+              "parser_version": { "type": "boolean" },
+              "source_urls": { "type": "boolean" },
+              "retention_class": { "enum": ["fixture", "regulated_metadata", "receipt_evidence"] }
+            }
+          },
+          "source_evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["url", "source_type", "fetched_at_policy", "license_or_terms_status", "scraping_allowed_scope"],
+              "additionalProperties": false,
+              "properties": {
+                "url": { "type": "string", "format": "uri" },
+                "source_type": { "enum": ["official_docs", "openapi_spec", "static_html_doc", "file_format_spec", "sandbox_reference", "legal_source", "internal_policy"] },
+                "fetched_at_policy": { "enum": ["manual_review_required", "public_read_only_cache", "fixture_pinned"] },
+                "license_or_terms_status": { "enum": ["official_public_reference", "counsel_review_required", "partner_required", "internal_policy"] },
+                "scraping_allowed_scope": { "enum": ["public_metadata_only", "no_fetch_manual_reference", "official_sandbox_metadata_only"] }
+              }
+            }
+          },
+          "forbidden_data": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true }
+        }
+      }
+    }
+  }
+}
