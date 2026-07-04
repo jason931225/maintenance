@@ -10,6 +10,8 @@ import React, {
 import { createConsoleApiClient } from "../api/client";
 import type { ConsoleApiClient } from "../api/client";
 import { setRefreshCallbacks } from "../api/refresh";
+import type { CedarPolicyProjectionClaim } from "../auth/policyProjection";
+import { normalizeCedarPolicyProjectionClaim } from "../auth/policyProjection";
 import {
   finishPasskeyLogin,
   logout as logoutWebAuthn,
@@ -52,6 +54,12 @@ export interface AuthSession {
    * request, so this never grants access by itself.
    */
   feature_grants?: string[];
+  /**
+   * JWT `policy_projection` claim: non-authoritative Cedar/PBAC projection for
+   * display/debug UX only. It must never authorize RoleManage-tier access or
+   * replace backend reauthorization.
+   */
+  policy_projection?: CedarPolicyProjectionClaim;
   /** JWT `branches` claim; the first entry scopes admin actions like issuing OTPs. */
   branches?: string[];
   /**
@@ -176,6 +184,7 @@ function decodeAccessClaims(accessToken: string): {
   roles?: string[];
   group_roles?: string[];
   feature_grants?: string[];
+  policy_projection?: CedarPolicyProjectionClaim;
   branches?: string[];
   isPlatform?: boolean;
 } {
@@ -201,6 +210,7 @@ function decodeAccessClaims(accessToken: string): {
       roles?: unknown;
       group_roles?: unknown;
       feature_grants?: unknown;
+      policy_projection?: unknown;
       branches?: unknown;
       platform?: unknown;
     };
@@ -229,6 +239,9 @@ function decodeAccessClaims(accessToken: string): {
             typeof feature === "string",
           )
         : undefined,
+      policy_projection: normalizeCedarPolicyProjectionClaim(
+        claims.policy_projection,
+      ),
       branches: Array.isArray(claims.branches)
         ? claims.branches.filter((b): b is string => typeof b === "string")
         : undefined,

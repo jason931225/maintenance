@@ -4,8 +4,12 @@ use std::collections::BTreeSet;
 
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, UserId};
 use mnt_platform_authz::{
-    Action, BranchColumn, EffectiveFeatureGrant, Feature, PermissionLevel, Principal, Role,
-    authorize, authorize_org_wide, permission_for, repository_filter, resolve_branch_scope_in_org,
+    Action, AuthorizationContext, AuthorizationRequest, AuthorizationResource, BranchColumn,
+    CedarEvaluation, CoexistenceMapEntry, CompiledBundleCacheKey, DecisionEffect, DecisionEngine,
+    DecisionReason, DualEngineMode, EffectiveFeatureGrant, Feature, PermissionLevel, Principal,
+    RlsScopeProof, Role, SubjectFreshness, SubjectFreshnessRequirement, authorize,
+    authorize_org_wide, evaluate_cedar_pbac_boundary, evaluate_legacy_contract,
+    observe_cedar_pbac_decision, permission_for, repository_filter, resolve_branch_scope_in_org,
     resolve_effective_feature_grants_in_org,
 };
 use sqlx::PgPool;
@@ -99,6 +103,90 @@ fn principal(role: Role, scope: BranchScope) -> Principal {
     Principal::new(UserId::new(), OrgId::knl(), BTreeSet::from([role]), scope)
 }
 
+fn cedar_bundle_key() -> CompiledBundleCacheKey {
+    CompiledBundleCacheKey::new(
+        OrgId::knl(),
+        7,
+        "schema-v1",
+        "sha256:bundle",
+        "4.11.2",
+        "4.5",
+    )
+    .unwrap()
+}
+
+fn stale_cedar_bundle_key() -> CompiledBundleCacheKey {
+    CompiledBundleCacheKey::new(
+        OrgId::knl(),
+        6,
+        "schema-v1",
+        "sha256:stale-bundle",
+        "4.11.2",
+        "4.5",
+    )
+    .unwrap()
+}
+
+fn cedar_freshness() -> SubjectFreshness {
+    SubjectFreshness {
+        policy_version: 7,
+        subject_version: 11,
+        session_generation: 3,
+        step_up_generation: Some(2),
+    }
+}
+
+fn cedar_freshness_requirement() -> SubjectFreshnessRequirement {
+    SubjectFreshnessRequirement {
+        min_policy_version: 7,
+        min_subject_version: 11,
+        min_session_generation: 3,
+        required_step_up_generation: Some(2),
+    }
+}
+
+fn cedar_ready(request: AuthorizationRequest) -> AuthorizationRequest {
+    request
+        .with_policy_domain("identity.policy")
+        .with_subject_freshness(cedar_freshness())
+        .requiring_freshness(cedar_freshness_requirement())
+        .with_rls_scope_proof(RlsScopeProof::runtime_role_guc(OrgId::knl()))
+}
+
+fn coexistence_entry(mode: DualEngineMode) -> CoexistenceMapEntry {
+    CoexistenceMapEntry::new(
+        "identity.policy.role_manage",
+        "identity.policy",
+        Feature::RoleManage,
+        "policy_role",
+        mode,
+        Some(cedar_bundle_key()),
+    )
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CedarPbacReadinessFixture {
+    version: u64,
+    status: String,
+    decision_source: String,
+    cutover_contract: String,
+    observability_contract: String,
+    cases: Vec<CedarPbacReadinessCase>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CedarPbacReadinessCase {
+    id: String,
+    mode: Option<DualEngineMode>,
+    input_fault: String,
+    expected_effect: DecisionEffect,
+    expected_engine: DecisionEngine,
+    expected_reason: DecisionReason,
+    must_audit: Vec<String>,
+}
+
 #[test]
 fn role_enum_uses_canonical_database_codes() {
     assert_eq!(Role::SuperAdmin.as_str(), "SUPER_ADMIN");
@@ -139,6 +227,531 @@ fn member_role_is_default_deny_except_login() {
     let member = principal(Role::Member, BranchScope::single(branch));
     let err = authorize(&member, Action::new(Feature::WorkOrderReadAll), branch).unwrap_err();
     assert_eq!(err.kind, ErrorKind::Forbidden);
+}
+
+#[test]
+fn cedar_pbac_legacy_contract_preserves_current_authorize_behavior() {
+    let branch = BranchId::new();
+    let actor = principal(Role::Admin, BranchScope::single(branch));
+    let request = AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::PriorityManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "work_order"),
+    );
+
+    let decision = evaluate_legacy_contract(&request);
+
+    assert_eq!(decision.effect, DecisionEffect::Allow);
+    assert_eq!(decision.reason, DecisionReason::LegacyAllowed);
+    assert_eq!(decision.mode, Some(DualEngineMode::LegacyOnly));
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_missing_coexistence_map() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    );
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        None,
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::MissingCoexistenceMap);
+}
+
+#[test]
+fn cedar_pbac_readiness_fixture_cases_are_structurally_typed() {
+    let fixture: CedarPbacReadinessFixture =
+        serde_json::from_str(include_str!("fixtures/cedar_pbac_readiness_cases.json"))
+            .expect("Cedar/PBAC readiness fixture must be valid JSON");
+
+    assert_eq!(fixture.version, 1);
+    assert_eq!(fixture.status, "design_no_live_switch");
+    assert!(fixture.decision_source.ends_with(".md"));
+    assert!(fixture.cutover_contract.ends_with(".md"));
+    assert!(fixture.observability_contract.ends_with(".md"));
+
+    let actual_cases = fixture
+        .cases
+        .iter()
+        .map(|case| case.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let expected_cases = BTreeSet::from([
+        "stale_policy_denies",
+        "stale_subject_denies",
+        "rls_separation_denies",
+        "dual_engine_map_missing_denies",
+        "dual_engine_disagreement_denies",
+        "cedar_error_denies",
+        "missing_freshness_denies",
+        "missing_rls_scope_proof_denies",
+        "malformed_coexistence_map_denies",
+    ]);
+    assert_eq!(actual_cases, expected_cases);
+
+    for case in fixture.cases {
+        assert!(!case.input_fault.trim().is_empty(), "{}", case.id);
+        assert!(
+            !case.must_audit.is_empty(),
+            "case {} must name required audit evidence",
+            case.id
+        );
+
+        match case.id.as_str() {
+            "dual_engine_map_missing_denies" => assert!(case.mode.is_none()),
+            _ => assert!(case.mode.is_some(), "case {} must name a mode", case.id),
+        }
+
+        match case.id.as_str() {
+            "stale_policy_denies" => {
+                assert_eq!(case.expected_effect, DecisionEffect::Deny);
+                assert_eq!(case.expected_engine, DecisionEngine::BoundaryPreflight);
+                assert_eq!(case.expected_reason, DecisionReason::StalePolicyBundle);
+            }
+            "cedar_error_denies" => {
+                assert_eq!(case.expected_effect, DecisionEffect::Deny);
+                assert_eq!(case.expected_engine, DecisionEngine::Cedar);
+                assert_eq!(case.expected_reason, DecisionReason::CedarError);
+            }
+            "dual_engine_disagreement_denies" => {
+                assert_eq!(case.expected_effect, DecisionEffect::Deny);
+                assert_eq!(case.expected_engine, DecisionEngine::DualEngine);
+                assert_eq!(case.expected_reason, DecisionReason::EngineDisagreement);
+            }
+            _ => assert_eq!(case.expected_effect, DecisionEffect::Deny),
+        }
+    }
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_stale_policy_bundle() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+    let entry = coexistence_entry(DualEngineMode::CedarOnly);
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&entry),
+        CedarEvaluation::Allow {
+            bundle_key: stale_cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::StalePolicyBundle);
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_stale_subject_before_legacy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    )
+    .with_subject_freshness(SubjectFreshness {
+        policy_version: 1,
+        subject_version: 1,
+        session_generation: 1,
+        step_up_generation: Some(1),
+    })
+    .requiring_freshness(SubjectFreshnessRequirement {
+        min_policy_version: 2,
+        min_subject_version: 1,
+        min_session_generation: 1,
+        required_step_up_generation: Some(1),
+    });
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::LegacyOnly)),
+        CedarEvaluation::NotConfigured,
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::StaleSubject);
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_missing_freshness_before_policy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    )
+    .with_policy_domain("identity.policy")
+    .with_rls_scope_proof(RlsScopeProof::runtime_role_guc(OrgId::knl()));
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::CedarOnly)),
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::MissingSubjectFreshness);
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_missing_rls_scope_proof_before_policy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    )
+    .with_policy_domain("identity.policy")
+    .with_subject_freshness(cedar_freshness())
+    .requiring_freshness(cedar_freshness_requirement());
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::CedarOnly)),
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::MissingRlsScopeProof);
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_malformed_map_action_before_policy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+    let wrong_action_entry = CoexistenceMapEntry::new(
+        "identity.policy.user_manage",
+        "identity.policy",
+        Feature::UserManage,
+        "policy_role",
+        DualEngineMode::CedarOnly,
+        Some(cedar_bundle_key()),
+    );
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&wrong_action_entry),
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::MalformedCoexistenceMap);
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_malformed_map_domain_before_policy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+    let wrong_domain_entry = CoexistenceMapEntry::new(
+        "identity.policy.role_manage",
+        "workflow.guards",
+        Feature::RoleManage,
+        "policy_role",
+        DualEngineMode::CedarOnly,
+        Some(cedar_bundle_key()),
+    );
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&wrong_domain_entry),
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::MalformedCoexistenceMap);
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_cross_org_resource_before_policy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::platform(), branch, "policy_role"),
+    );
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::CedarOnly)),
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::RlsBoundaryMismatch);
+}
+
+#[test]
+fn cedar_pbac_shadow_mode_cannot_use_cedar_allow_to_grant() {
+    let branch = BranchId::new();
+    let actor = principal(Role::Member, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::CedarShadowLegacyEnforce)),
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::LegacyDenied);
+}
+
+#[test]
+fn cedar_pbac_shadow_mode_denies_cedar_error_before_legacy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::CedarShadowLegacyEnforce)),
+        CedarEvaluation::Error {
+            reason: "schema validation failed".to_owned(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::CedarError);
+}
+
+#[test]
+fn cedar_pbac_shadow_mode_denies_cedar_deny_before_legacy_allow() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::CedarShadowLegacyEnforce)),
+        CedarEvaluation::Deny {
+            bundle_key: cedar_bundle_key(),
+            reason: "shadow policy denied".to_owned(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::CedarDenied);
+}
+
+#[test]
+fn cedar_pbac_compare_mode_denies_engine_disagreement() {
+    let branch = BranchId::new();
+    let actor = principal(Role::Member, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(
+            DualEngineMode::CedarEnforceLegacyCompare,
+        )),
+        CedarEvaluation::Allow {
+            bundle_key: cedar_bundle_key(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::EngineDisagreement);
+}
+
+#[test]
+fn cedar_pbac_boundary_denies_cedar_errors() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+
+    let decision = evaluate_cedar_pbac_boundary(
+        &request,
+        Some(&coexistence_entry(DualEngineMode::CedarOnly)),
+        CedarEvaluation::Error {
+            reason: "schema validation failed".to_owned(),
+        },
+    );
+
+    assert_eq!(decision.effect, DecisionEffect::Deny);
+    assert_eq!(decision.reason, DecisionReason::CedarError);
+}
+
+#[test]
+fn cedar_pbac_observation_records_metric_labels_and_full_audit_context() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let mut request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role")
+            .with_resource_id("role:custom-admin"),
+    ));
+    request.context = AuthorizationContext {
+        purpose: Some("policy_admin".to_owned()),
+        channel: Some("web".to_owned()),
+        request_id: Some("req-cedar-pbac-1".to_owned()),
+    };
+    let entry = coexistence_entry(DualEngineMode::CedarOnly);
+
+    let cedar = CedarEvaluation::Allow {
+        bundle_key: stale_cedar_bundle_key(),
+    };
+    let decision = evaluate_cedar_pbac_boundary(&request, Some(&entry), cedar.clone());
+    let audit = observe_cedar_pbac_decision(&request, Some(&entry), Some(&cedar), decision);
+    let metric = audit.metric_labels();
+
+    assert_eq!(metric.effect, DecisionEffect::Deny);
+    assert_eq!(metric.engine, DecisionEngine::BoundaryPreflight);
+    assert_eq!(metric.reason, DecisionReason::StalePolicyBundle);
+    assert_eq!(metric.mode, Some(DualEngineMode::CedarOnly));
+    assert_eq!(metric.domain.as_deref(), Some("identity.policy"));
+    assert_eq!(audit.request_domain, "identity.policy");
+
+    assert_eq!(
+        audit.coexistence_entry_id.as_deref(),
+        Some("identity.policy.role_manage")
+    );
+    assert_eq!(audit.action, "role_manage");
+    assert_eq!(audit.required_permission, "allow");
+    assert_eq!(audit.resource_type, "policy_role");
+    assert_eq!(audit.resource_id.as_deref(), Some("role:custom-admin"));
+    assert_eq!(audit.request_id.as_deref(), Some("req-cedar-pbac-1"));
+    assert_eq!(audit.purpose.as_deref(), Some("policy_admin"));
+    assert_eq!(audit.channel.as_deref(), Some("web"));
+    assert_eq!(audit.subject_freshness.policy_version, 7);
+    assert_eq!(
+        audit.required_freshness.required_step_up_generation,
+        Some(2)
+    );
+    assert_eq!(
+        audit.rls_scope_proof.map(|proof| proof.org_id),
+        Some(OrgId::knl())
+    );
+    assert_eq!(
+        audit
+            .bundle_key
+            .as_ref()
+            .map(|key| key.bundle_digest.as_str()),
+        Some("sha256:bundle")
+    );
+    assert_eq!(
+        audit
+            .evaluated_bundle_key
+            .as_ref()
+            .map(|key| key.bundle_digest.as_str()),
+        Some("sha256:stale-bundle")
+    );
+    assert_eq!(audit.evaluated_reason_detail, None);
+    assert_eq!(
+        audit
+            .bundle_key
+            .as_ref()
+            .map(|key| key.cedar_sdk_version.as_str()),
+        Some("4.11.2")
+    );
+}
+
+#[test]
+fn cedar_pbac_observation_preserves_raw_cedar_reason_detail() {
+    let branch = BranchId::new();
+    let actor = principal(Role::SuperAdmin, BranchScope::single(branch));
+    let request = cedar_ready(AuthorizationRequest::new(
+        actor,
+        Action::new(Feature::RoleManage),
+        AuthorizationResource::branch(OrgId::knl(), branch, "policy_role"),
+    ));
+    let entry = coexistence_entry(DualEngineMode::CedarOnly);
+
+    let cedar_deny = CedarEvaluation::Deny {
+        bundle_key: cedar_bundle_key(),
+        reason: "shadow policy denied principal role_manage".to_owned(),
+    };
+    let deny_decision = evaluate_cedar_pbac_boundary(&request, Some(&entry), cedar_deny.clone());
+    let deny_audit =
+        observe_cedar_pbac_decision(&request, Some(&entry), Some(&cedar_deny), deny_decision);
+    assert_eq!(deny_audit.decision.reason, DecisionReason::CedarDenied);
+    assert_eq!(
+        deny_audit.evaluated_reason_detail.as_deref(),
+        Some("shadow policy denied principal role_manage")
+    );
+
+    let cedar_error = CedarEvaluation::Error {
+        reason: "schema validation failed".to_owned(),
+    };
+    let error_decision = evaluate_cedar_pbac_boundary(&request, Some(&entry), cedar_error.clone());
+    let error_audit =
+        observe_cedar_pbac_decision(&request, Some(&entry), Some(&cedar_error), error_decision);
+    assert_eq!(error_audit.decision.reason, DecisionReason::CedarError);
+    assert_eq!(
+        error_audit.evaluated_reason_detail.as_deref(),
+        Some("schema validation failed")
+    );
+}
+
+#[test]
+fn cedar_compiled_bundle_cache_key_requires_versioned_identity() {
+    let missing_digest =
+        CompiledBundleCacheKey::new(OrgId::knl(), 7, "schema-v1", " ", "4.11.2", "4.5")
+            .unwrap_err();
+
+    assert_eq!(missing_digest.kind, ErrorKind::Validation);
+    assert!(missing_digest.message.contains("bundle_digest"));
+    assert_eq!(cedar_bundle_key().cedar_sdk_version, "4.11.2");
 }
 
 #[test]

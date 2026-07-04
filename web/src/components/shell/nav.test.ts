@@ -365,7 +365,7 @@ describe("nav role gating", () => {
     }
   });
 
-  it("shows policy and workflow studios to SUPER_ADMIN or an effective RoleManage custom grant", () => {
+  it("keeps policy and workflow studios system-only even if a stale RoleManage feature grant is present", () => {
     for (const key of ["policy", "workflows"]) {
       expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
       expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(false);
@@ -377,7 +377,7 @@ describe("nav role gating", () => {
         isNavItemVisible(key, [ROLES.MEMBER], undefined, [
           FEATURES.ROLE_MANAGE,
         ]),
-      ).toBe(true);
+      ).toBe(false);
     }
   });
 
@@ -543,7 +543,7 @@ describe("nav role gating", () => {
 
   it("treats mapped custom feature grants as console access for MEMBER sessions", () => {
     expect(hasGrantedConsoleAccess(["MEMBER"], undefined, [])).toBe(false);
-    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["role_manage"])).toBe(true);
+    expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["role_manage"])).toBe(false);
     expect(hasGrantedConsoleAccess(["MEMBER"], undefined, ["user_manage"])).toBe(false);
     expect(hasGrantedConsoleAccess(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], [])).toBe(true);
   });

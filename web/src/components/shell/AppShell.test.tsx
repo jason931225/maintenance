@@ -148,6 +148,16 @@ describe("AppShell navigation fabric", () => {
     ).toBeVisible();
   });
 
+  it("does not surface RoleManage-tier commands from stale feature_grants alone", () => {
+    renderShell(["MEMBER"], "/dispatch", [FEATURES.ROLE_MANAGE]);
+
+    const dialog = openCommandPalette();
+
+    expect(
+      within(dialog).queryByRole("button", { name: /권한 정책/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows unread messenger, mail, support, and e-approval counts in the left nav", async () => {
     server.use(
       http.get("*/api/approval-items", () =>
