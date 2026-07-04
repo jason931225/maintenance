@@ -53,6 +53,236 @@ struct ReceiptNodeSpec {
     assignee_role_key: Option<String>,
 }
 
+/// Filter for the waiting-task inbox listings (`GET /api/v1/workflow-tasks`).
+#[derive(Debug, Clone)]
+pub struct WaitingTaskListFilter {
+    /// Group-inbox role filter (`?role_key=`), matched against `assignee_role_key`.
+    pub role_key: Option<String>,
+    /// Personal-inbox mode (`?assignee=me`): the user's CLAIMED tasks plus claimable OPEN ones.
+    pub assignee_me: bool,
+    /// Statuses to include (defaults to `[OPEN]` at the REST layer).
+    pub statuses: Vec<WaitingTaskStatus>,
+}
+
+/// One waiting-task inbox row (approval inbox / group inbox).
+#[derive(Debug, Clone)]
+pub struct WaitingTaskListItem {
+    pub task_id: Uuid,
+    pub run_id: Uuid,
+    pub waiting_key: String,
+    pub title: String,
+    pub assignee_role_key: Option<String>,
+    pub required_policy: Option<String>,
+    pub object_type: Option<String>,
+    pub object_id: Option<Uuid>,
+    pub status: WaitingTaskStatus,
+    pub claimed_by: Option<Uuid>,
+    pub due_at: Option<time::OffsetDateTime>,
+    pub form_payload: serde_json::Value,
+}
+
+/// Filter for the submission box (`GET /api/v1/workflow-runs/mine`).
+#[derive(Debug, Clone)]
+pub struct RunListFilter {
+    pub statuses: Vec<RunStatus>,
+    pub object_type: Option<String>,
+}
+
+/// One submission-box row (a run the principal initiated).
+#[derive(Debug, Clone)]
+pub struct RunListItem {
+    pub run_id: Uuid,
+    pub status: RunStatus,
+    pub definition_id: Uuid,
+    pub definition_version: i32,
+    pub object_type: Option<String>,
+    pub object_id: Option<Uuid>,
+    pub initiated_by: Option<Uuid>,
+    pub started_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
+}
+
+/// Audited command to claim an OPEN waiting task (`POST .../claim`).
+#[derive(Debug, Clone)]
+pub struct ClaimWaitingTaskCommand {
+    pub task_id: Uuid,
+    pub actor: mnt_kernel_core::UserId,
+    pub transition_audits: Vec<AuditEvent>,
+}
+
+/// Result of a claim: the task now CLAIMED by the actor (or a same-user replay).
+#[derive(Debug, Clone)]
+pub struct ClaimedWaitingTask {
+    pub task_id: Uuid,
+    pub run_id: Uuid,
+    pub status: WaitingTaskStatus,
+    pub claimed_by: Option<Uuid>,
+    pub claimed_at: Option<time::OffsetDateTime>,
+}
+
+/// The decision a `decide` request carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskDecision {
+    Approve,
+    Reject,
+    Return,
+}
+
+impl TaskDecision {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Reject => "reject",
+            Self::Return => "return",
+        }
+    }
+}
+
+/// Audited command to decide a non-finalize waiting task (`POST .../decide`).
+#[derive(Debug, Clone)]
+pub struct DecideWaitingTaskCommand {
+    pub task_id: Uuid,
+    pub actor: mnt_kernel_core::UserId,
+    pub decision: TaskDecision,
+    pub comment: Option<String>,
+    pub idempotency_key: String,
+    pub transition_audits: Vec<AuditEvent>,
+}
+
+/// Result of a decision: the task's terminal decision status, the run's resulting
+/// status, and the next parked task (when an approval advanced the line).
+#[derive(Debug, Clone)]
+pub struct DecidedWaitingTask {
+    pub task_id: Uuid,
+    pub run_id: Uuid,
+    pub status: WaitingTaskStatus,
+    pub decision_payload: serde_json::Value,
+    pub run_status: RunStatus,
+    pub next_task: Option<WaitingTaskListItem>,
+}
+
+/// The node following `from_key` along its single outgoing edge, parsed from the
+/// `wf.exec.v1` definition JSON. Generalizes [`receipt_node_after_finalize`] for
+/// the decision-advance path.
+#[derive(Debug, Clone)]
+struct NextNode {
+    node_key: String,
+    node_type: String,
+    title: String,
+    required_policy: Option<String>,
+    assignee_role_key: Option<String>,
+}
+
+fn next_node_after(definition: &serde_json::Value, from_key: &str) -> Option<NextNode> {
+    let to = definition
+        .get("edges")
+        .and_then(serde_json::Value::as_array)?
+        .iter()
+        .find(|edge| edge.get("from").and_then(serde_json::Value::as_str) == Some(from_key))
+        .and_then(|edge| edge.get("to").and_then(serde_json::Value::as_str))?;
+
+    let node = definition
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)?
+        .iter()
+        .find(|node| node.get("node_key").and_then(serde_json::Value::as_str) == Some(to))?;
+
+    Some(NextNode {
+        node_key: to.to_owned(),
+        node_type: node
+            .get("node_type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("human_task")
+            .to_owned(),
+        title: node
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(to)
+            .to_owned(),
+        required_policy: node
+            .get("required_policy")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        assignee_role_key: node
+            .get("assignee_role_key")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+    })
+}
+
+/// Park a human-task node as an OPEN waiting task inside an existing txn: insert the
+/// WAITING node run + the OPEN waiting task (both `ON CONFLICT DO NOTHING` so a
+/// replay is a no-op), returning `(node_run_id, task_id)`. Mirrors the receipt
+/// insert in `finalize_waiting_task`.
+async fn park_waiting_node(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org: OrgId,
+    run_id: Uuid,
+    node: &NextNode,
+) -> Result<(Uuid, Uuid), PgWorkflowRuntimeError> {
+    sqlx::query(
+        "INSERT INTO workflow_node_runs \
+             (id, org_id, run_id, node_key, node_type, status, attempt, \
+              idempotency_key, input_payload, started_at) \
+         VALUES ($1, $2, $3, $4, 'human_task', 'WAITING', 1, $5, '{}'::jsonb, now()) \
+         ON CONFLICT (org_id, run_id, node_key, attempt) DO NOTHING",
+    )
+    .bind(Uuid::new_v4())
+    .bind(*org.as_uuid())
+    .bind(run_id)
+    .bind(node.node_key.as_str())
+    .bind(format!(
+        "workflow_runtime:node:{run_id}:{}:1",
+        node.node_key
+    ))
+    .execute(tx.as_mut())
+    .await
+    .map_err(PgWorkflowRuntimeError::from)?;
+
+    let node_run_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM workflow_node_runs \
+         WHERE run_id = $1 AND node_key = $2 AND attempt = 1",
+    )
+    .bind(run_id)
+    .bind(node.node_key.as_str())
+    .fetch_one(tx.as_mut())
+    .await
+    .map_err(PgWorkflowRuntimeError::from)?;
+
+    let task_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO workflow_waiting_tasks \
+             (id, org_id, run_id, node_run_id, waiting_key, title, status, \
+              assignee_role_key, required_policy, form_payload) \
+         VALUES ($1, $2, $3, $4, $5, $6, 'OPEN', $7, $8, '{}'::jsonb) \
+         ON CONFLICT (org_id, run_id, waiting_key) DO NOTHING",
+    )
+    .bind(task_id)
+    .bind(*org.as_uuid())
+    .bind(run_id)
+    .bind(node_run_id)
+    .bind(node.node_key.as_str())
+    .bind(node.title.as_str())
+    .bind(node.assignee_role_key.as_deref())
+    .bind(node.required_policy.as_deref())
+    .execute(tx.as_mut())
+    .await
+    .map_err(PgWorkflowRuntimeError::from)?;
+
+    let persisted_task_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM workflow_waiting_tasks \
+         WHERE run_id = $1 AND waiting_key = $2",
+    )
+    .bind(run_id)
+    .bind(node.node_key.as_str())
+    .fetch_one(tx.as_mut())
+    .await
+    .map_err(PgWorkflowRuntimeError::from)?;
+
+    Ok((node_run_id, persisted_task_id))
+}
+
 impl From<sqlx::Error> for PgWorkflowRuntimeError {
     fn from(value: sqlx::Error) -> Self {
         Self::Db(DbError::Sqlx(value))
@@ -342,6 +572,571 @@ impl PgWorkflowRuntimeStore {
         .await
         .map_err(KernelError::from)
     }
+
+    /// List waiting-task inbox rows for the group (`role_key`) or personal
+    /// (`assignee=me`) inbox. A plain tenant-scoped read: the REST layer applies the
+    /// per-row policy guard and OMITS forbidden rows (deny-by-omission), so this
+    /// returns every candidate matching the query filter.
+    pub async fn list_waiting_tasks(
+        &self,
+        org: OrgId,
+        me: mnt_kernel_core::UserId,
+        filter: WaitingTaskListFilter,
+    ) -> Result<Vec<WaitingTaskListItem>, KernelError> {
+        let statuses: Vec<String> = filter
+            .statuses
+            .iter()
+            .map(|status| status.as_db_str().to_owned())
+            .collect();
+        with_org_conn::<_, Vec<WaitingTaskListItem>, PgWorkflowRuntimeError>(
+            &self.pool,
+            org,
+            move |tx| {
+                Box::pin(async move {
+                    let rows = sqlx::query(
+                        "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
+                                t.assignee_role_key, t.required_policy, t.status, \
+                                t.claimed_by, t.due_at, t.form_payload, \
+                                r.object_type, r.object_id \
+                         FROM workflow_waiting_tasks t \
+                         JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                         WHERE t.status = ANY($1) \
+                           AND ($2::text IS NULL OR t.assignee_role_key = $2) \
+                           AND (NOT $3 OR t.claimed_by = $4 OR t.assignee_user_id = $4 \
+                                OR t.status = 'OPEN') \
+                         ORDER BY t.created_at DESC \
+                         LIMIT 200",
+                    )
+                    .bind(&statuses)
+                    .bind(filter.role_key.as_deref())
+                    .bind(filter.assignee_me)
+                    .bind(*me.as_uuid())
+                    .fetch_all(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+
+                    let mut items = Vec::with_capacity(rows.len());
+                    for row in &rows {
+                        let status: String = row.try_get("status")?;
+                        items.push(WaitingTaskListItem {
+                            task_id: row.try_get("task_id")?,
+                            run_id: row.try_get("run_id")?,
+                            waiting_key: row.try_get("waiting_key")?,
+                            title: row.try_get("title")?,
+                            assignee_role_key: row.try_get("assignee_role_key")?,
+                            required_policy: row.try_get("required_policy")?,
+                            object_type: row.try_get("object_type")?,
+                            object_id: row.try_get("object_id")?,
+                            status: WaitingTaskStatus::from_db_str(&status)?,
+                            claimed_by: row.try_get("claimed_by")?,
+                            due_at: row.try_get("due_at")?,
+                            form_payload: row.try_get("form_payload")?,
+                        });
+                    }
+                    Ok(items)
+                })
+            },
+        )
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// List the submission-box runs a principal initiated (`initiated_by = me`).
+    /// Final-approved-but-not-finalized runs are still WAITING (non-terminal) and so
+    /// are naturally included — no terminal filter is applied.
+    pub async fn list_runs_for_initiator(
+        &self,
+        org: OrgId,
+        me: mnt_kernel_core::UserId,
+        filter: RunListFilter,
+    ) -> Result<Vec<RunListItem>, KernelError> {
+        let statuses: Vec<String> = filter
+            .statuses
+            .iter()
+            .map(|status| status.as_db_str().to_owned())
+            .collect();
+        with_org_conn::<_, Vec<RunListItem>, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    "SELECT r.id AS run_id, r.status, r.definition_id, r.definition_version, \
+                            r.object_type, r.object_id, r.initiated_by, r.started_at, r.updated_at \
+                     FROM workflow_runs r \
+                     WHERE r.initiated_by = $1 \
+                       AND (cardinality($2::text[]) = 0 OR r.status = ANY($2)) \
+                       AND ($3::text IS NULL OR r.object_type = $3) \
+                     ORDER BY r.updated_at DESC \
+                     LIMIT 200",
+                )
+                .bind(*me.as_uuid())
+                .bind(&statuses)
+                .bind(filter.object_type.as_deref())
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let mut items = Vec::with_capacity(rows.len());
+                for row in &rows {
+                    let status: String = row.try_get("status")?;
+                    items.push(RunListItem {
+                        run_id: row.try_get("run_id")?,
+                        status: RunStatus::from_db_str(&status)?,
+                        definition_id: row.try_get("definition_id")?,
+                        definition_version: row.try_get("definition_version")?,
+                        object_type: row.try_get("object_type")?,
+                        object_id: row.try_get("object_id")?,
+                        initiated_by: row.try_get("initiated_by")?,
+                        started_at: row.try_get("started_at")?,
+                        updated_at: row.try_get("updated_at")?,
+                    });
+                }
+                Ok(items)
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// Claim an OPEN waiting task (OPEN → CLAIMED). A same-user replay on an
+    /// already-CLAIMED task is a 200 no-op; a task claimed by another user, or in any
+    /// terminal/cancelled/expired state, is a 409. Audits `workflow_task.claim`.
+    // mnt-gate: state-changing-handler
+    pub async fn claim_waiting_task(
+        &self,
+        org: OrgId,
+        command: ClaimWaitingTaskCommand,
+    ) -> Result<ClaimedWaitingTask, KernelError> {
+        with_audits::<_, ClaimedWaitingTask, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT id AS task_id, run_id, status, claimed_by, claimed_at \
+                     FROM workflow_waiting_tasks WHERE id = $1 FOR UPDATE",
+                )
+                .bind(command.task_id)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let Some(row) = row else {
+                    return Err(PgWorkflowRuntimeError::from(KernelError::not_found(
+                        "workflow task not found",
+                    )));
+                };
+                let run_id: Uuid = row.try_get("run_id")?;
+                let status_str: String = row.try_get("status")?;
+                let status = WaitingTaskStatus::from_db_str(&status_str)?;
+                let claimed_by: Option<Uuid> = row.try_get("claimed_by")?;
+                let claimed_at: Option<time::OffsetDateTime> = row.try_get("claimed_at")?;
+
+                // Same-user replay: already CLAIMED by this actor is an idempotent 200.
+                if status == WaitingTaskStatus::Claimed
+                    && claimed_by == Some(*command.actor.as_uuid())
+                {
+                    return Ok((
+                        ClaimedWaitingTask {
+                            task_id: command.task_id,
+                            run_id,
+                            status,
+                            claimed_by,
+                            claimed_at,
+                        },
+                        Vec::new(),
+                    ));
+                }
+                if status != WaitingTaskStatus::Open {
+                    return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                        "workflow task is not open to claim",
+                    )));
+                }
+
+                sqlx::query(
+                    "UPDATE workflow_waiting_tasks \
+                     SET status = 'CLAIMED', claimed_by = $2, claimed_at = now(), updated_at = now() \
+                     WHERE id = $1 AND status = 'OPEN'",
+                )
+                .bind(command.task_id)
+                .bind(*command.actor.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let new_claimed_at: Option<time::OffsetDateTime> = sqlx::query_scalar(
+                    "SELECT claimed_at FROM workflow_waiting_tasks WHERE id = $1",
+                )
+                .bind(command.task_id)
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let mut audits = command.transition_audits;
+                audits.push(
+                    AuditEvent::new(
+                        Some(command.actor),
+                        AuditAction::new("workflow_task.claim")
+                            .map_err(PgWorkflowRuntimeError::from)?,
+                        "workflow_waiting_task",
+                        command.task_id.to_string(),
+                        TraceContext::generate(),
+                        time::OffsetDateTime::now_utc(),
+                    )
+                    .with_org(org)
+                    .with_snapshots(
+                        Some(serde_json::json!({ "status": "OPEN" })),
+                        Some(serde_json::json!({ "status": "CLAIMED" })),
+                    ),
+                );
+
+                Ok((
+                    ClaimedWaitingTask {
+                        task_id: command.task_id,
+                        run_id,
+                        status: WaitingTaskStatus::Claimed,
+                        claimed_by: Some(*command.actor.as_uuid()),
+                        claimed_at: new_claimed_at,
+                    },
+                    audits,
+                ))
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// Decide a non-finalize waiting task: `approve` advances the run to the next
+    /// node (a human task parks WAITING; no successor closes the run SUCCEEDED);
+    /// `reject`/`return` land the task REJECTED and cancel the run (no terminal
+    /// reopen — a resubmission is a new run). Idempotent by `idempotency_key`. Audits
+    /// `workflow_task.decide` plus the node/run transitions. Finalize/receipt tasks
+    /// are 422 here (they go through the finalize endpoint).
+    // mnt-gate: state-changing-handler
+    pub async fn decide_waiting_task(
+        &self,
+        org: OrgId,
+        command: DecideWaitingTaskCommand,
+    ) -> Result<DecidedWaitingTask, KernelError> {
+        with_audits::<_, DecidedWaitingTask, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT t.id AS task_id, t.run_id, t.node_run_id, t.waiting_key, \
+                            t.status AS task_status, t.claimed_by, t.completed_by, \
+                            t.decision_payload, r.status AS run_status \
+                     FROM workflow_waiting_tasks t \
+                     JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                     WHERE t.id = $1 FOR UPDATE OF t, r",
+                )
+                .bind(command.task_id)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let Some(row) = row else {
+                    return Err(PgWorkflowRuntimeError::from(KernelError::not_found(
+                        "workflow task not found",
+                    )));
+                };
+                let run_id: Uuid = row.try_get("run_id")?;
+                let node_run_id: Option<Uuid> = row.try_get("node_run_id")?;
+                let waiting_key: String = row.try_get("waiting_key")?;
+                let task_status_str: String = row.try_get("task_status")?;
+                let run_status_str: String = row.try_get("run_status")?;
+                let task_status = WaitingTaskStatus::from_db_str(&task_status_str)?;
+                let run_status = RunStatus::from_db_str(&run_status_str)?;
+                let claimed_by: Option<Uuid> = row.try_get("claimed_by")?;
+                let completed_by: Option<Uuid> = row.try_get("completed_by")?;
+                let existing_decision: Option<serde_json::Value> =
+                    row.try_get("decision_payload")?;
+
+                if waiting_key == FINALIZE_WAITING_KEY || waiting_key == RECEIPT_WAITING_KEY {
+                    return Err(PgWorkflowRuntimeError::from(KernelError::validation(
+                        "workflow task is a finalization/receipt task, not a decision task",
+                    )));
+                }
+
+                // Idempotent replay: a completed decision with the same key returns
+                // its recorded result (no next_task re-derivation needed).
+                if matches!(
+                    task_status,
+                    WaitingTaskStatus::Approved | WaitingTaskStatus::Rejected
+                ) && existing_decision
+                    .as_ref()
+                    .and_then(|value| value.get("idempotency_key"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some(command.idempotency_key.as_str())
+                {
+                    let _ = completed_by;
+                    return Ok((
+                        DecidedWaitingTask {
+                            task_id: command.task_id,
+                            run_id,
+                            status: task_status,
+                            decision_payload: existing_decision
+                                .unwrap_or_else(|| serde_json::json!({})),
+                            run_status,
+                            next_task: None,
+                        },
+                        Vec::new(),
+                    ));
+                }
+
+                if !matches!(
+                    task_status,
+                    WaitingTaskStatus::Open | WaitingTaskStatus::Claimed
+                ) {
+                    return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                        "workflow task is not open for a decision",
+                    )));
+                }
+                if let Some(claimed_by) = claimed_by
+                    && claimed_by != *command.actor.as_uuid()
+                {
+                    return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                        "workflow task is claimed by another user",
+                    )));
+                }
+                if run_status != RunStatus::Waiting {
+                    return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                        "workflow run is not waiting for a decision",
+                    )));
+                }
+
+                let approved = command.decision == TaskDecision::Approve;
+                let new_task_status = if approved {
+                    WaitingTaskStatus::Approved
+                } else {
+                    WaitingTaskStatus::Rejected
+                };
+                let decision_payload = serde_json::json!({
+                    "decision": command.decision.as_str(),
+                    "comment": command.comment,
+                    "idempotency_key": command.idempotency_key,
+                });
+
+                sqlx::query(
+                    "UPDATE workflow_waiting_tasks \
+                     SET status = $2, completed_by = $3, completed_at = now(), \
+                         decision_payload = $4, updated_at = now() \
+                     WHERE id = $1 AND status IN ('OPEN', 'CLAIMED')",
+                )
+                .bind(command.task_id)
+                .bind(new_task_status.as_db_str())
+                .bind(*command.actor.as_uuid())
+                .bind(decision_payload.clone())
+                .execute(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                if let Some(node_run_id) = node_run_id {
+                    sqlx::query(
+                        "UPDATE workflow_node_runs \
+                         SET status = 'SUCCEEDED', finished_at = now(), updated_at = now(), \
+                             output_payload = $2 \
+                         WHERE id = $1 AND status = 'WAITING'",
+                    )
+                    .bind(node_run_id)
+                    .bind(serde_json::json!({ "decision": command.decision.as_str() }))
+                    .execute(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+                }
+
+                let mut audit_events = command.transition_audits;
+                audit_events.push(
+                    AuditEvent::new(
+                        Some(command.actor),
+                        AuditAction::new("workflow_task.decide")
+                            .map_err(PgWorkflowRuntimeError::from)?,
+                        "workflow_waiting_task",
+                        command.task_id.to_string(),
+                        TraceContext::generate(),
+                        time::OffsetDateTime::now_utc(),
+                    )
+                    .with_org(org)
+                    .with_snapshots(
+                        Some(serde_json::json!({ "status": task_status.as_db_str() })),
+                        Some(serde_json::json!({
+                            "status": new_task_status.as_db_str(),
+                            "decision": command.decision.as_str(),
+                        })),
+                    ),
+                );
+                if let Some(node_run_id) = node_run_id {
+                    audit_events.push(
+                        AuditEvent::new(
+                            Some(command.actor),
+                            AuditAction::new("workflow_node.commit")
+                                .map_err(PgWorkflowRuntimeError::from)?,
+                            "workflow_node_run",
+                            node_run_id.to_string(),
+                            TraceContext::generate(),
+                            time::OffsetDateTime::now_utc(),
+                        )
+                        .with_org(org)
+                        .with_snapshots(
+                            Some(serde_json::json!({ "status": "WAITING" })),
+                            Some(serde_json::json!({ "status": "SUCCEEDED" })),
+                        ),
+                    );
+                }
+
+                // reject/return: cancel the run (terminal; no reopen). approve:
+                // advance to the next node.
+                if !approved {
+                    sqlx::query(run_transition_sql(RunStatus::Cancelled))
+                        .bind(run_id)
+                        .bind(RunStatus::Cancelled.as_db_str())
+                        .bind(RunStatus::Waiting.as_db_str())
+                        .bind(serde_json::json!({ "decision": command.decision.as_str() }))
+                        .bind(Option::<serde_json::Value>::None)
+                        .execute(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+                    audit_events.push(run_transition_audit(
+                        command.actor,
+                        org,
+                        run_id,
+                        "WAITING",
+                        RunStatus::Cancelled.as_db_str(),
+                    )?);
+                    return Ok((
+                        DecidedWaitingTask {
+                            task_id: command.task_id,
+                            run_id,
+                            status: new_task_status,
+                            decision_payload,
+                            run_status: RunStatus::Cancelled,
+                            next_task: None,
+                        },
+                        audit_events,
+                    ));
+                }
+
+                // approve: resolve the next node from the published graph.
+                let definition: serde_json::Value = sqlx::query_scalar(
+                    "SELECT v.definition \
+                     FROM workflow_runs r \
+                     JOIN workflow_definition_versions v \
+                       ON v.definition_id = r.definition_id \
+                      AND v.version = r.definition_version \
+                      AND v.org_id = r.org_id \
+                     WHERE r.id = $1",
+                )
+                .bind(run_id)
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let (run_final, next_task) = match next_node_after(&definition, &waiting_key) {
+                    None => {
+                        // Terminal: no successor closes the run SUCCEEDED.
+                        sqlx::query(run_transition_sql(RunStatus::Succeeded))
+                            .bind(run_id)
+                            .bind(RunStatus::Succeeded.as_db_str())
+                            .bind(RunStatus::Waiting.as_db_str())
+                            .bind(serde_json::json!({ "decision": "approve" }))
+                            .bind(Option::<serde_json::Value>::None)
+                            .execute(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?;
+                        audit_events.push(run_transition_audit(
+                            command.actor,
+                            org,
+                            run_id,
+                            "WAITING",
+                            RunStatus::Succeeded.as_db_str(),
+                        )?);
+                        (RunStatus::Succeeded, None)
+                    }
+                    Some(next) if is_human_node(&next.node_type) => {
+                        // Park the next approval step; the run stays WAITING.
+                        let (_next_node_run, next_task_id) =
+                            park_waiting_node(tx, org, run_id, &next).await?;
+                        audit_events.push(
+                            AuditEvent::new(
+                                Some(command.actor),
+                                AuditAction::new("workflow_node.commit")
+                                    .map_err(PgWorkflowRuntimeError::from)?,
+                                "workflow_node_run",
+                                next.node_key.clone(),
+                                TraceContext::generate(),
+                                time::OffsetDateTime::now_utc(),
+                            )
+                            .with_org(org)
+                            .with_snapshots(
+                                Some(serde_json::json!({ "status": "PENDING" })),
+                                Some(serde_json::json!({ "status": "WAITING" })),
+                            ),
+                        );
+                        (
+                            RunStatus::Waiting,
+                            Some(WaitingTaskListItem {
+                                task_id: next_task_id,
+                                run_id,
+                                waiting_key: next.node_key.clone(),
+                                title: next.title.clone(),
+                                assignee_role_key: next.assignee_role_key.clone(),
+                                required_policy: next.required_policy.clone(),
+                                object_type: None,
+                                object_id: None,
+                                status: WaitingTaskStatus::Open,
+                                claimed_by: None,
+                                due_at: None,
+                                form_payload: serde_json::json!({}),
+                            }),
+                        )
+                    }
+                    Some(_) => {
+                        // ponytail: approval lines are human chains end-to-end in the
+                        // builder's templates; a non-human successor after a decision
+                        // node is not emitted today. Fail closed rather than silently
+                        // stranding the run — add gate/job advance here if a template
+                        // ever needs it.
+                        return Err(PgWorkflowRuntimeError::from(KernelError::validation(
+                            "decision advance to a non-human node is unsupported",
+                        )));
+                    }
+                };
+
+                Ok((
+                    DecidedWaitingTask {
+                        task_id: command.task_id,
+                        run_id,
+                        status: new_task_status,
+                        decision_payload,
+                        run_status: run_final,
+                        next_task,
+                    },
+                    audit_events,
+                ))
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+}
+
+fn is_human_node(node_type: &str) -> bool {
+    matches!(node_type, "human_task" | "waiting_task")
+}
+
+fn run_transition_audit(
+    actor: mnt_kernel_core::UserId,
+    org: OrgId,
+    run_id: Uuid,
+    from: &str,
+    to: &str,
+) -> Result<AuditEvent, PgWorkflowRuntimeError> {
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_run.transition").map_err(PgWorkflowRuntimeError::from)?,
+        "workflow_run",
+        run_id.to_string(),
+        TraceContext::generate(),
+        time::OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        Some(serde_json::json!({ "status": from })),
+        Some(serde_json::json!({ "status": to })),
+    ))
 }
 
 /// The UPDATE for a run transition, selected by which terminal timestamp column

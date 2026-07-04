@@ -10,16 +10,22 @@ use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeySer
 use mnt_platform_authz::{Action, AuthorizationAuditEvent, Feature, Principal, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_workflow_domain::{
-    FinalizeWaitingTaskCommand, PostFinalizationRejectionCommand, WorkflowRuntimePort,
+    FinalizeWaitingTaskCommand, PostFinalizationRejectionCommand, RunStatus, TriggerType,
+    WaitingTaskStatus, WorkflowRuntimePort,
 };
 use mnt_workflow_runtime::{
-    FinalizeMode, FinalizePolicyRequest, WAITING_COMPLETION_DOMAIN, build_guard_request,
-    enforce_finalize_policy, guard, workflow_coexistence_entry,
+    AuditContext, ExecGraph, FinalizeMode, FinalizePolicyRequest, NodeKind, StartRunRequest,
+    WAITING_COMPLETION_DOMAIN, build_guard_request, drive_from, enforce_finalize_policy, guard,
+    start_run, workflow_coexistence_entry,
 };
-use mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore;
+use mnt_workflow_runtime_adapter_postgres::{
+    ClaimWaitingTaskCommand, DecideWaitingTaskCommand, PgWorkflowRuntimeStore, RunListFilter,
+    RunListItem, TaskDecision, WaitingTaskListFilter, WaitingTaskListItem,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::str::FromStr;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -42,6 +48,11 @@ pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
 pub const WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/finalize";
 pub const WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE: &str =
     "/api/v1/workflow-runs/{run_id}/post-finalization-rejection";
+pub const WORKFLOW_RUNS_PATH: &str = "/api/v1/workflow-runs";
+pub const WORKFLOW_RUNS_MINE_PATH: &str = "/api/v1/workflow-runs/mine";
+pub const WORKFLOW_TASKS_PATH: &str = "/api/v1/workflow-tasks";
+pub const WORKFLOW_TASK_CLAIM_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/claim";
+pub const WORKFLOW_TASK_DECIDE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/decide";
 
 const WORKFLOW_STUDIO_REQUESTS_TOTAL: &str = "workflow_studio_requests_total";
 const WORKFLOW_DEFINITION_SCHEMA_VERSION: &str = "workflow.definition.v1";
@@ -271,6 +282,14 @@ pub fn router(state: WorkflowStudioState) -> Router {
         .route(
             WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE,
             post(create_post_finalization_rejection),
+        )
+        .route(WORKFLOW_RUNS_PATH, post(start_workflow_run))
+        .route(WORKFLOW_RUNS_MINE_PATH, get(list_my_workflow_runs))
+        .route(WORKFLOW_TASKS_PATH, get(list_workflow_tasks))
+        .route(WORKFLOW_TASK_CLAIM_PATH_TEMPLATE, post(claim_workflow_task))
+        .route(
+            WORKFLOW_TASK_DECIDE_PATH_TEMPLATE,
+            post(decide_workflow_task),
         )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
@@ -763,6 +782,804 @@ async fn create_post_finalization_rejection(
             id: compensation.original_run_id,
             status: compensation.run_status.as_db_str().to_owned(),
         },
+    }))
+}
+
+// ===========================================================================
+// Instance / task REST surface (engine-gen spike §"Instance/Task REST Surface").
+// ===========================================================================
+
+#[derive(Debug, Deserialize)]
+struct StartWorkflowRunRequest {
+    definition_id: Uuid,
+    #[serde(default)]
+    definition_version: Option<i32>,
+    #[serde(default)]
+    object_type: Option<String>,
+    #[serde(default)]
+    object_id: Option<Uuid>,
+    trigger_type: TriggerType,
+    idempotency_key: String,
+    #[serde(default)]
+    correlation_id: Option<String>,
+    #[serde(default = "empty_object")]
+    input_payload: Value,
+    #[serde(default = "empty_object")]
+    context_payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct StartWorkflowRunResponse {
+    run: RunSummaryResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_task: Option<TaskSummaryResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct RunSummaryResponse {
+    id: Uuid,
+    status: String,
+    definition_id: Uuid,
+    definition_version: i32,
+    object_type: Option<String>,
+    object_id: Option<Uuid>,
+    initiated_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct TaskSummaryResponse {
+    task_id: Uuid,
+    run_id: Uuid,
+    waiting_key: String,
+    title: String,
+    assignee_role_key: Option<String>,
+    required_policy: Option<String>,
+    object_type: Option<String>,
+    object_id: Option<Uuid>,
+    status: String,
+    claimed_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    due_at: Option<OffsetDateTime>,
+    form_payload: Value,
+}
+
+impl From<WaitingTaskListItem> for TaskSummaryResponse {
+    fn from(item: WaitingTaskListItem) -> Self {
+        Self {
+            task_id: item.task_id,
+            run_id: item.run_id,
+            waiting_key: item.waiting_key,
+            title: item.title,
+            assignee_role_key: item.assignee_role_key,
+            required_policy: item.required_policy,
+            object_type: item.object_type,
+            object_id: item.object_id,
+            status: item.status.as_db_str().to_owned(),
+            claimed_by: item.claimed_by,
+            due_at: item.due_at,
+            form_payload: item.form_payload,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowTaskListResponse {
+    items: Vec<TaskSummaryResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskListQuery {
+    #[serde(default)]
+    role_key: Option<String>,
+    #[serde(default)]
+    assignee: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RunListResponse {
+    items: Vec<RunListItemResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct RunListItemResponse {
+    run_id: Uuid,
+    status: String,
+    definition_id: Uuid,
+    definition_version: i32,
+    object_type: Option<String>,
+    object_id: Option<Uuid>,
+    initiated_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+}
+
+impl From<RunListItem> for RunListItemResponse {
+    fn from(item: RunListItem) -> Self {
+        Self {
+            run_id: item.run_id,
+            status: item.status.as_db_str().to_owned(),
+            definition_id: item.definition_id,
+            definition_version: item.definition_version,
+            object_type: item.object_type,
+            object_id: item.object_id,
+            initiated_by: item.initiated_by,
+            started_at: item.started_at,
+            updated_at: item.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RunListQuery {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    object_type: Option<String>,
+    // `q` (free-text search) is accepted but not yet used — no text index exists.
+    #[serde(default, rename = "q")]
+    _q: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaimWorkflowTaskRequest {
+    idempotency_key: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ClaimTaskResponse {
+    task: ClaimedTaskResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct ClaimedTaskResponse {
+    task_id: Uuid,
+    run_id: Uuid,
+    status: String,
+    claimed_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    claimed_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DecideWorkflowTaskRequest {
+    decision: DecisionRequest,
+    #[serde(default)]
+    comment: Option<String>,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DecisionRequest {
+    Approve,
+    Reject,
+    Return,
+}
+
+impl From<DecisionRequest> for TaskDecision {
+    fn from(value: DecisionRequest) -> Self {
+        match value {
+            DecisionRequest::Approve => Self::Approve,
+            DecisionRequest::Reject => Self::Reject,
+            DecisionRequest::Return => Self::Return,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DecideTaskResponse {
+    task: DecidedTaskResponse,
+    run: FinalizedRunResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_task: Option<TaskSummaryResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct DecidedTaskResponse {
+    task_id: Uuid,
+    run_id: Uuid,
+    status: String,
+    decision_payload: Value,
+}
+
+/// Map an approval `required_policy` string to a canonical legacy `Feature` key so
+/// the guard is well-defined without extending the frozen legacy permission matrix.
+/// `approval_review`/`approval_decide` reuse `completion_review`; the closeout
+/// policies reuse `approval_finalize`. Any other value must already be a real
+/// `Feature` key, else the caller treats it as a deny (fail closed).
+fn guard_policy(required_policy: &str) -> Option<String> {
+    match required_policy {
+        "approval_review" | "approval_decide" => Some("completion_review".to_owned()),
+        "approval_finalize" | "approval_receipt" => Some("approval_finalize".to_owned()),
+        other => Feature::from_str(other).ok().map(|_| other.to_owned()),
+    }
+}
+
+/// Legacy-enforce + Cedar-shadow guard for a task/run policy. Returns the shadow
+/// audit event to fold into the mutation (`None` when the task carries no policy —
+/// an ungated self-service step), or a 403 when the legacy contract denies.
+#[allow(clippy::too_many_arguments)]
+fn guard_task_policy(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    required_policy: Option<&str>,
+    resource_type: &str,
+    resource_id: &str,
+    action_id: &'static str,
+    shadow_target_id: Uuid,
+) -> Result<Option<AuditEvent>, WorkflowStudioError> {
+    let Some(policy) = required_policy else {
+        return Ok(None);
+    };
+    let feature_key = guard_policy(policy).ok_or_else(|| {
+        WorkflowStudioError::from(KernelError::forbidden("workflow task policy is unknown"))
+    })?;
+    let feature = Feature::from_str(&feature_key).map_err(|_| {
+        WorkflowStudioError::from(KernelError::forbidden("workflow task policy is unknown"))
+    })?;
+    let request = build_guard_request(
+        principal,
+        &feature_key,
+        org,
+        branch,
+        resource_type,
+        resource_id,
+        WAITING_COMPLETION_DOMAIN,
+    )
+    .map_err(|_| {
+        WorkflowStudioError::from(KernelError::forbidden("workflow task policy denied"))
+    })?;
+    let entry = workflow_coexistence_entry(
+        action_id,
+        WAITING_COMPLETION_DOMAIN,
+        feature,
+        resource_type.to_owned(),
+    );
+    let outcome = guard(&request, &entry);
+    if !outcome.is_allowed() {
+        return Err(WorkflowStudioError::from(KernelError::forbidden(
+            "workflow task policy denied",
+        )));
+    }
+    Ok(Some(shadow_audit_event(
+        &outcome.audit,
+        principal.user_id,
+        org,
+        shadow_target_id,
+    )?))
+}
+
+/// Read-only visibility check for the inbox listings: a policy-bearing row is
+/// visible only when the legacy contract allows the principal (deny-by-omission —
+/// forbidden rows are absent, never returned as 403). Rows with no policy are
+/// visible (their `role_key`/`assignee` filter is the access boundary).
+fn task_visible(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    item: &WaitingTaskListItem,
+) -> bool {
+    let Some(policy) = item.required_policy.as_deref() else {
+        return true;
+    };
+    let Some(feature_key) = guard_policy(policy) else {
+        return false;
+    };
+    let Ok(feature) = Feature::from_str(&feature_key) else {
+        return false;
+    };
+    let resource_type = item.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = item
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| item.run_id.to_string());
+    let Ok(request) = build_guard_request(
+        principal,
+        &feature_key,
+        org,
+        branch,
+        resource_type,
+        &resource_id,
+        WAITING_COMPLETION_DOMAIN,
+    ) else {
+        return false;
+    };
+    let entry = workflow_coexistence_entry(
+        "workflow.waiting_task.list",
+        WAITING_COMPLETION_DOMAIN,
+        feature,
+        resource_type.to_owned(),
+    );
+    guard(&request, &entry).is_allowed()
+}
+
+fn parse_task_statuses(raw: Option<&str>) -> Result<Vec<WaitingTaskStatus>, WorkflowStudioError> {
+    let Some(raw) = raw else {
+        return Ok(vec![WaitingTaskStatus::Open]);
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| WaitingTaskStatus::from_db_str(value).map_err(WorkflowStudioError::from))
+        .collect()
+}
+
+fn parse_run_statuses(raw: Option<&str>) -> Result<Vec<RunStatus>, WorkflowStudioError> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| RunStatus::from_db_str(value).map_err(WorkflowStudioError::from))
+        .collect()
+}
+
+/// Load a definition's chosen version JSON, gating on ACTIVE status. Returns the
+/// resolved `(version, definition)` for the run to bind to.
+async fn resolve_start_definition(
+    pool: &PgPool,
+    org: mnt_kernel_core::OrgId,
+    definition_id: Uuid,
+    requested_version: Option<i32>,
+) -> Result<(i32, Value), WorkflowStudioError> {
+    let row = with_org_conn::<_, Option<(String, Option<Value>, Option<i32>)>, DbError>(
+        pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT d.status, v.definition, v.version \
+                     FROM workflow_definitions d \
+                     LEFT JOIN workflow_definition_versions v \
+                       ON v.definition_id = d.id AND v.org_id = d.org_id \
+                      AND v.version = COALESCE($2, d.active_version) \
+                     WHERE d.id = $1",
+                )
+                .bind(definition_id)
+                .bind(requested_version)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let Some(row) = row else {
+                    return Ok(None);
+                };
+                Ok(Some((
+                    row.try_get("status")?,
+                    row.try_get("definition")?,
+                    row.try_get("version")?,
+                )))
+            })
+        },
+    )
+    .await
+    .map_err(WorkflowStudioError::from)?;
+
+    let Some((status, definition, version)) = row else {
+        return Err(WorkflowStudioError::from(KernelError::not_found(
+            "workflow definition not found",
+        )));
+    };
+    if status != "ACTIVE" {
+        return Err(WorkflowStudioError::from(KernelError::conflict(
+            "workflow definition is not active",
+        )));
+    }
+    let (Some(definition), Some(version)) = (definition, version) else {
+        return Err(WorkflowStudioError::from(KernelError::conflict(
+            "workflow definition has no published version to start",
+        )));
+    };
+    Ok((version, definition))
+}
+
+/// Load a run summary + its current OPEN/CLAIMED waiting task (the run's `next_task`).
+async fn load_run_view(
+    pool: &PgPool,
+    org: mnt_kernel_core::OrgId,
+    run_id: Uuid,
+) -> Result<(RunSummaryResponse, Option<TaskSummaryResponse>), WorkflowStudioError> {
+    with_org_conn::<_, (RunSummaryResponse, Option<TaskSummaryResponse>), DbError>(
+        pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let run = sqlx::query(
+                    "SELECT id, status, definition_id, definition_version, object_type, \
+                            object_id, initiated_by, started_at \
+                     FROM workflow_runs WHERE id = $1",
+                )
+                .bind(run_id)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let summary = RunSummaryResponse {
+                    id: run.try_get("id")?,
+                    status: run.try_get("status")?,
+                    definition_id: run.try_get("definition_id")?,
+                    definition_version: run.try_get("definition_version")?,
+                    object_type: run.try_get("object_type")?,
+                    object_id: run.try_get("object_id")?,
+                    initiated_by: run.try_get("initiated_by")?,
+                    started_at: run.try_get("started_at")?,
+                };
+
+                let task = sqlx::query(
+                    "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
+                            t.assignee_role_key, t.required_policy, t.status, t.claimed_by, \
+                            t.due_at, t.form_payload, r.object_type, r.object_id \
+                     FROM workflow_waiting_tasks t \
+                     JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                     WHERE t.run_id = $1 AND t.status IN ('OPEN', 'CLAIMED') \
+                     ORDER BY t.created_at DESC LIMIT 1",
+                )
+                .bind(run_id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let next_task = match task {
+                    None => None,
+                    Some(task) => Some(TaskSummaryResponse {
+                        task_id: task.try_get("task_id")?,
+                        run_id: task.try_get("run_id")?,
+                        waiting_key: task.try_get("waiting_key")?,
+                        title: task.try_get("title")?,
+                        assignee_role_key: task.try_get("assignee_role_key")?,
+                        required_policy: task.try_get("required_policy")?,
+                        object_type: task.try_get("object_type")?,
+                        object_id: task.try_get("object_id")?,
+                        status: task.try_get("status")?,
+                        claimed_by: task.try_get("claimed_by")?,
+                        due_at: task.try_get("due_at")?,
+                        form_payload: task.try_get("form_payload")?,
+                    }),
+                };
+                Ok((summary, next_task))
+            })
+        },
+    )
+    .await
+    .map_err(WorkflowStudioError::from)
+}
+
+async fn start_workflow_run(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<StartWorkflowRunRequest>,
+) -> Result<Json<StartWorkflowRunResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    if request.object_type.is_some() != request.object_id.is_some() {
+        return Err(WorkflowStudioError::validation(
+            "object_type and object_id must be provided together",
+        ));
+    }
+
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let (version, definition) = resolve_start_definition(
+        &state.pool,
+        org,
+        request.definition_id,
+        request.definition_version,
+    )
+    .await?;
+    let graph = ExecGraph::parse(&definition).map_err(WorkflowStudioError::from)?;
+    let entry = graph
+        .entry_node_key()
+        .map_err(WorkflowStudioError::from)?
+        .to_owned();
+
+    // Start authz: legacy-enforce + Cedar-shadow, gated on the entry node's policy
+    // when it declares one. Approval-line entry gates are self-service (no policy),
+    // so a start is normally ungated; a policy-bearing entry produces a 403 + shadow.
+    let branch = guard_branch(&principal);
+    let entry_policy = match graph.node_spec(&entry).map(|spec| &spec.kind) {
+        Some(NodeKind::HumanTask {
+            required_policy, ..
+        }) => required_policy.clone(),
+        _ => None,
+    };
+    let resource_type = request
+        .object_type
+        .clone()
+        .unwrap_or_else(|| "workflow_run".to_owned());
+    let resource_id = request
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| request.definition_id.to_string());
+    let start_shadow = guard_task_policy(
+        &principal,
+        org,
+        branch,
+        entry_policy.as_deref(),
+        &resource_type,
+        &resource_id,
+        "workflow.run.start",
+        request.definition_id,
+    )?;
+
+    let run_id = Uuid::new_v4();
+    let correlation_id = request
+        .correlation_id
+        .clone()
+        .unwrap_or_else(|| format!("workflow-run:{run_id}"));
+    if correlation_id.trim().len() < 8 {
+        return Err(WorkflowStudioError::validation(
+            "correlation_id must be at least 8 characters",
+        ));
+    }
+    let audit = AuditContext {
+        actor: Some(principal.user_id),
+        trace: TraceContext::generate(),
+        occurred_at: OffsetDateTime::now_utc(),
+    };
+
+    let started = start_run(
+        &store,
+        StartRunRequest {
+            run_id,
+            org_id: org,
+            definition_id: request.definition_id,
+            definition_version: version,
+            trigger_type: request.trigger_type,
+            object_type: request.object_type.clone(),
+            object_id: request.object_id,
+            idempotency_key: idempotency_key.to_owned(),
+            correlation_id,
+            trace_id: None,
+            input_payload: request.input_payload.clone(),
+            context_payload: request.context_payload.clone(),
+            initiated_by: Some(principal.user_id),
+        },
+        &audit,
+    )
+    .await;
+
+    let resolved_run_id = match started {
+        Ok(id) => {
+            // Fresh run: drive synchronously until the first WAITING task or terminal.
+            let guard_audits: Vec<AuditEvent> = start_shadow.into_iter().collect();
+            drive_from(
+                &store,
+                org,
+                id,
+                RunStatus::Running,
+                &graph,
+                &entry,
+                guard_audits,
+                &audit,
+            )
+            .await?;
+            id
+        }
+        Err(err) if err.kind == ErrorKind::Conflict => {
+            // Replay: same idempotency_key. Return the existing run if it matches;
+            // a mismatch on the same key is a 409.
+            match store
+                .load_run_by_idempotency_key(org, idempotency_key.to_owned())
+                .await?
+            {
+                Some(existing) => {
+                    if existing.definition_id != request.definition_id
+                        || existing.object_type != request.object_type
+                        || existing.object_id != request.object_id
+                    {
+                        return Err(WorkflowStudioError::from(KernelError::conflict(
+                            "idempotency_key already used for a different run",
+                        )));
+                    }
+                    existing.id
+                }
+                None => return Err(WorkflowStudioError::from(err)),
+            }
+        }
+        Err(err) => return Err(WorkflowStudioError::from(err)),
+    };
+
+    let (run, next_task) = load_run_view(&state.pool, org, resolved_run_id).await?;
+    record_workflow_studio_request("run_start", "success");
+    Ok(Json(StartWorkflowRunResponse { run, next_task }))
+}
+
+async fn list_workflow_tasks(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<TaskListQuery>,
+) -> Result<Json<WorkflowTaskListResponse>, WorkflowStudioError> {
+    let assignee_me = query.assignee.as_deref() == Some("me");
+    if query.role_key.is_none() && !assignee_me {
+        return Err(WorkflowStudioError::validation(
+            "workflow-tasks requires role_key or assignee=me",
+        ));
+    }
+    let statuses = parse_task_statuses(query.status.as_deref())?;
+    let org = principal.org_id;
+    let branch = guard_branch(&principal);
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let items = store
+        .list_waiting_tasks(
+            org,
+            principal.user_id,
+            WaitingTaskListFilter {
+                role_key: query.role_key.clone(),
+                assignee_me,
+                statuses,
+            },
+        )
+        .await?;
+    let items = items
+        .into_iter()
+        .filter(|item| task_visible(&principal, org, branch, item))
+        .map(TaskSummaryResponse::from)
+        .collect();
+    record_workflow_studio_request("task_list", "success");
+    Ok(Json(WorkflowTaskListResponse { items }))
+}
+
+async fn list_my_workflow_runs(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<RunListQuery>,
+) -> Result<Json<RunListResponse>, WorkflowStudioError> {
+    let statuses = parse_run_statuses(query.status.as_deref())?;
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let items = store
+        .list_runs_for_initiator(
+            org,
+            principal.user_id,
+            RunListFilter {
+                statuses,
+                object_type: query.object_type.clone(),
+            },
+        )
+        .await?;
+    record_workflow_studio_request("run_mine", "success");
+    Ok(Json(RunListResponse {
+        items: items.into_iter().map(RunListItemResponse::from).collect(),
+    }))
+}
+
+async fn claim_workflow_task(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(task_id): Path<Uuid>,
+    Json(request): Json<ClaimWorkflowTaskRequest>,
+) -> Result<Json<ClaimTaskResponse>, WorkflowStudioError> {
+    if request.idempotency_key.trim().len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let context = store
+        .load_finalize_waiting_task(org, task_id)
+        .await?
+        .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
+
+    let branch = guard_branch(&principal);
+    let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = context
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| context.run_id.to_string());
+    let shadow = guard_task_policy(
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+        "workflow.waiting_task.claim",
+        task_id,
+    )?;
+
+    let claimed = store
+        .claim_waiting_task(
+            org,
+            ClaimWaitingTaskCommand {
+                task_id,
+                actor: principal.user_id,
+                transition_audits: shadow.into_iter().collect(),
+            },
+        )
+        .await?;
+    record_workflow_studio_request("task_claim", "success");
+    Ok(Json(ClaimTaskResponse {
+        task: ClaimedTaskResponse {
+            task_id: claimed.task_id,
+            run_id: claimed.run_id,
+            status: claimed.status.as_db_str().to_owned(),
+            claimed_by: claimed.claimed_by,
+            claimed_at: claimed.claimed_at,
+        },
+    }))
+}
+
+async fn decide_workflow_task(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(task_id): Path<Uuid>,
+    Json(request): Json<DecideWorkflowTaskRequest>,
+) -> Result<Json<DecideTaskResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    let decision = TaskDecision::from(request.decision);
+    let comment = request
+        .comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if matches!(decision, TaskDecision::Reject | TaskDecision::Return) && comment.is_none() {
+        return Err(WorkflowStudioError::validation(
+            "reject and return require a non-empty comment",
+        ));
+    }
+
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let context = store
+        .load_finalize_waiting_task(org, task_id)
+        .await?
+        .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
+
+    let branch = guard_branch(&principal);
+    let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = context
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| context.run_id.to_string());
+    let shadow = guard_task_policy(
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+        "workflow.waiting_task.decide",
+        task_id,
+    )?;
+
+    let decided = store
+        .decide_waiting_task(
+            org,
+            DecideWaitingTaskCommand {
+                task_id,
+                actor: principal.user_id,
+                decision,
+                comment: comment.map(ToOwned::to_owned),
+                idempotency_key: idempotency_key.to_owned(),
+                transition_audits: shadow.into_iter().collect(),
+            },
+        )
+        .await?;
+    record_workflow_studio_request("task_decide", "success");
+    Ok(Json(DecideTaskResponse {
+        task: DecidedTaskResponse {
+            task_id: decided.task_id,
+            run_id: decided.run_id,
+            status: decided.status.as_db_str().to_owned(),
+            decision_payload: decided.decision_payload,
+        },
+        run: FinalizedRunResponse {
+            id: decided.run_id,
+            status: decided.run_status.as_db_str().to_owned(),
+        },
+        next_task: decided.next_task.map(TaskSummaryResponse::from),
     }))
 }
 
