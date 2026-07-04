@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.41](https://github.com/jason931225/maintenance/compare/v0.1.40...v0.1.41) (2026-07-04)
+
+
+### Features
+
+* **authz:** add Cedar PBAC baseline ([#171](https://github.com/jason931225/maintenance/issues/171)) ([299a983](https://github.com/jason931225/maintenance/commit/299a98302fcbca16608085f6fdab3ae71172d945))
+* **hr:** complete G009 absence→exit→severance-settlement (completes [#166](https://github.com/jason931225/maintenance/issues/166)) ([#170](https://github.com/jason931225/maintenance/issues/170)) ([5989aba](https://github.com/jason931225/maintenance/commit/5989abaa98ca7f65cce9781dbd83800b058350f5))
+* **kic:** Korean institutional connectivity coverage factory (fixture-only) ([#173](https://github.com/jason931225/maintenance/issues/173)) ([c68b2b7](https://github.com/jason931225/maintenance/commit/c68b2b7a9ea9f21a573b6ecdcfab2712e7b0c798))
+
+
+### Bug Fixes
+
+* **auth:** give token refresh its own wider rate bucket for hard navigation ([#178](https://github.com/jason931225/maintenance/issues/178)) ([ea9380b](https://github.com/jason931225/maintenance/commit/ea9380b67d918692a622c2c24c624c607e98ef55))
+* **wallboard:** move /wallboard behind the auth guard (security) ([#177](https://github.com/jason931225/maintenance/issues/177)) ([67d831e](https://github.com/jason931225/maintenance/commit/67d831ef6617af7ea0fbd8f737060425b05d79cb))
+* **webmail:** degrade read-only mail endpoints to empty state when key absent ([#176](https://github.com/jason931225/maintenance/issues/176)) ([7b62768](https://github.com/jason931225/maintenance/commit/7b627685ace44acdc7c45875746ed728ba025b46))
+
 ## [0.1.40](https://github.com/jason931225/maintenance/compare/v0.1.39...v0.1.40) (2026-07-03)
 
 
