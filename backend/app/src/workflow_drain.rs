@@ -3,7 +3,8 @@
 //! A single background task (mirroring `mail_sync::spawn`) ticks on a fixed
 //! cadence and, PER tenant, (1) runs the crash-recovery reconciler
 //! (`m2_strangler::reconcile_completion_tails`) to restage any FINAL_COMPLETED work
-//! order whose runtime tail died before recording a run, then (2) drains the JOB
+//! order whose runtime tail never reached SUCCEEDED — never started (no run) OR
+//! started then died mid-tail (a partial run), then (2) drains the JOB
 //! payroll outbox into idempotent `payroll_draft_runs` staging rows via the workflow
 //! runtime adapter. Reconciling before draining means a tail restaged this tick is
 //! drained into a payroll draft in the same tick. Both steps are dark-safe no-ops
@@ -106,12 +107,13 @@ async fn run_tick(pool: &sqlx::PgPool, store: &PgWorkflowRuntimeStore) {
         let org = OrgId::from_uuid(org_uuid);
 
         // Recovery reconciler (crash-safety): the legacy path commits FINAL_COMPLETED
-        // and only then runs the runtime tail in a separate txn — a crash in between
-        // leaves a completed work order with no run, so no outbox event for the
-        // drainer to claim. Re-drive those orphaned tails idempotently BEFORE
-        // draining, so a tail restaged this tick is drained into a payroll draft in
-        // the same tick. Dark-safe: a no-op unless the tenant is flag-on with a
-        // published completion definition.
+        // and only then runs the runtime tail across separate txns — a crash in
+        // between leaves a completed work order whose tail never reached SUCCEEDED
+        // (no run at all, OR a partial run whose outbox event was never written), so
+        // no outbox event for the drainer to claim. Re-drive those tails idempotently
+        // BEFORE draining, so a tail restaged this tick is drained into a payroll
+        // draft in the same tick. Dark-safe: a no-op unless the tenant is flag-on with
+        // a published completion definition.
         match scope_org(
             org,
             mnt_workorder_rest::m2_strangler::reconcile_completion_tails(store, org),

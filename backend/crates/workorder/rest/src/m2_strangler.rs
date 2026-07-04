@@ -366,13 +366,20 @@ pub async fn drive_completion_tail(
 /// the outbox drain worker under `scope_org` as `mnt_rt`.
 ///
 /// The legacy path commits `FINAL_COMPLETED` and only THEN does the REST handler run
-/// the runtime tail in a separate transaction. A crash in between leaves a
-/// `FINAL_COMPLETED` work order with NO completion run — so no outbox event, and the
-/// drainer (which only claims existing rows) can never stage the payroll draft. This
-/// pass closes that window: it finds `FINAL_COMPLETED` work orders with no completion
-/// run (keyed on the deterministic `run_completion_key`) and re-drives the tail via
-/// the shared [`drive_completion_tail`], which is idempotent and resumes rather than
-/// aborts. Returns the number of tails restaged.
+/// the runtime tail across several separate transactions. A crash in between leaves a
+/// `FINAL_COMPLETED` work order whose completion tail never reached `SUCCEEDED` — in
+/// either of two windows:
+/// * the tail never started, so there is NO completion run at all; or
+/// * `start_run` committed the run row but the process died before `emit_payroll`
+///   wrote the JOB outbox event — a partial run stuck non-terminal, with nothing for
+///   the drainer to consume, so the payroll draft is never staged.
+/// Both leave the drainer (which only claims existing outbox rows) unable to stage the
+/// payroll draft. This pass closes both windows: [`find_completions_needing_tail`]
+/// selects every `FINAL_COMPLETED` work order without a `SUCCEEDED` completion run
+/// (keyed on the deterministic `run_completion_key`) and re-drives the tail via the
+/// shared [`drive_completion_tail`], which is idempotent and RESUMES a partial run —
+/// emitting the missing outbox event and driving it to `SUCCEEDED` — rather than
+/// aborting or duplicating. Returns the number of tails restaged.
 ///
 /// Dark-safe: does nothing when the tenant's strangler flag is OFF, and nothing when
 /// no unambiguous `wf.exec.v1` completion definition is published — so it is inert in
@@ -396,9 +403,9 @@ pub async fn reconcile_completion_tails(
         return Ok(0);
     };
 
-    let orphans = find_completions_missing_run(runtime.pool(), org).await?;
+    let needing_tail = find_completions_needing_tail(runtime.pool(), org).await?;
     let mut restaged: u64 = 0;
-    for work_order_id in orphans {
+    for work_order_id in needing_tail {
         // System re-drive: no Principal (the legacy approval already enforced authz),
         // so no per-request Cedar shadow — an empty guard-audit set.
         match drive_completion_tail(
@@ -431,15 +438,26 @@ pub async fn reconcile_completion_tails(
     Ok(restaged)
 }
 
-/// Find `FINAL_COMPLETED` work orders that have NO completion run recorded yet,
-/// keyed on the deterministic `run_completion_key` (`run:work_order:{id}:completion:v1`).
+/// Find `FINAL_COMPLETED` work orders whose completion tail has NOT yet reached the
+/// terminal `SUCCEEDED` state — keyed on the deterministic `run_completion_key`
+/// (`run:work_order:{id}:completion:v1`). This deliberately selects BOTH crash
+/// windows, not just the wider one:
+/// * NO completion run row at all (crash before `start_run` committed), and
+/// * a completion run that EXISTS but is NON-`SUCCEEDED` (a partial run: `start_run`
+///   committed the row, then the process died before `emit_payroll` wrote the JOB
+///   outbox event, so the run is stuck STARTING/RUNNING/WAITING with no outbox for
+///   the drainer to consume).
+/// Both are re-driven by the same idempotent [`drive_completion_tail`], whose resume
+/// path completes the missing steps. A run already `SUCCEEDED` is excluded, so it is
+/// never re-selected (idempotent — re-driving one would be a clean no-op anyway).
+///
 /// Read as `mnt_rt` under the armed `app.current_org` (via `with_org_conn`), so RLS
 /// scopes both `work_orders` and the `workflow_runs` existence check to this tenant.
 //
-// ponytail: bounded per-tick scan (LIMIT). A dark/enrolled tenant has ~zero orphans
-// (a crash between the two txns is rare); the next tick picks up any remainder.
-// Swap for a keyset cursor only if a real backlog ever makes one pass hurt.
-async fn find_completions_missing_run(
+// ponytail: bounded per-tick scan (LIMIT). A dark/enrolled tenant has ~zero of these
+// (a crash mid-tail is rare); the next tick picks up any remainder. Swap for a keyset
+// cursor only if a real backlog ever makes one pass hurt.
+async fn find_completions_needing_tail(
     pool: &sqlx::PgPool,
     org: OrgId,
 ) -> Result<Vec<WorkOrderId>, KernelError> {
@@ -453,6 +471,7 @@ async fn find_completions_missing_run(
                        SELECT 1 FROM workflow_runs wr \
                        WHERE wr.idempotency_key = \
                              'run:work_order:' || wo.id::text || ':completion:v1' \
+                         AND wr.status = 'SUCCEEDED' \
                    ) \
                  LIMIT 500",
             )
