@@ -373,6 +373,7 @@ pub async fn drive_completion_tail(
 /// * `start_run` committed the run row but the process died before `emit_payroll`
 ///   wrote the JOB outbox event — a partial run stuck non-terminal, with nothing for
 ///   the drainer to consume, so the payroll draft is never staged.
+///
 /// Both leave the drainer (which only claims existing outbox rows) unable to stage the
 /// payroll draft. This pass closes both windows: [`find_completions_needing_tail`]
 /// selects every `FINAL_COMPLETED` work order without a `SUCCEEDED` completion run
@@ -447,6 +448,7 @@ pub async fn reconcile_completion_tails(
 ///   committed the row, then the process died before `emit_payroll` wrote the JOB
 ///   outbox event, so the run is stuck STARTING/RUNNING/WAITING with no outbox for
 ///   the drainer to consume).
+///
 /// Both are re-driven by the same idempotent [`drive_completion_tail`], whose resume
 /// path completes the missing steps. A run already `SUCCEEDED` is excluded, so it is
 /// never re-selected (idempotent — re-driving one would be a clean no-op anyway).
