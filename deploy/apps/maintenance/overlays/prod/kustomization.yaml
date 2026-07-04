@@ -12,10 +12,10 @@ images:
   # bump these. mnt-worker shares the mnt-app image.
   - name: mnt-app
     newName: ghcr.io/jason931225/mnt-app
-    digest: sha256:48c62b350725db5ad44b43555dbe120e05da54984335b94a156f7ea49f83d373
+    digest: sha256:6bbba8daade5f620e2923532558e59b3c505ae2808c4715a1a48a77ccb991474
   - name: mnt-web
     newName: ghcr.io/jason931225/mnt-web
-    digest: sha256:6e057b2b5524fec665e79a7228691fe5d9613ea632d3be3bd0270500610b4e4d
+    digest: sha256:397d7e5e8ea161349ee4aabd16464a5c44c072efb08d12ef2b8bb2a6a0834540
 
 patches:
   # Public host (WebAuthn rp id/origin must equal the served origin) + the OCI
