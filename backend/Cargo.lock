@@ -3134,6 +3134,7 @@ name = "mnt-identity-rest"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures",
  "http",
  "metrics",
  "mnt-identity-adapter-postgres",

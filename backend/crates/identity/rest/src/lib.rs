@@ -51,7 +51,7 @@ use mnt_platform_authz::{
     observe_cedar_pbac_decision, permission_for,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
-use mnt_platform_request_context::{CURRENT_ORG, RequestContextError, current_org};
+use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
@@ -3193,12 +3193,10 @@ pub async fn authorize_org_manage_observed(
             DecisionEffect::Deny
         };
         // Audit-only. Never propagates an error or mutates `legacy`.
-        // ponytail: the shadow observation runs on a spawned+awaited task, so any
-        // panic ANYWHERE in the lane is captured by the runtime as a JoinError and can
-        // NEVER unwind into this live request. Still inline-awaited so the
-        // deterministic DB tests observe it synchronously. Upgrade path if broadly
-        // enrolled and latency matters: detach it (drop the `.await` on the handle) so
-        // the shadow never adds latency to the request path.
+        // ponytail: the shadow observation is wrapped in `catch_unwind`, so any panic
+        // ANYWHERE in the lane becomes an `Err` and can NEVER unwind into this live
+        // request. It runs on the same task (task-local `CURRENT_ORG` preserved) and is
+        // awaited inline so the deterministic DB tests observe it synchronously.
         run_role_manage_cedar_shadow(state, principal, legacy_effect).await;
     }
 
@@ -3213,27 +3211,23 @@ async fn run_role_manage_cedar_shadow(
     principal: &Principal,
     legacy_effect: DecisionEffect,
 ) {
-    // Capture the armed tenant + actor BEFORE moving `principal`: tokio::spawn does
-    // NOT propagate task-locals, and the lane resolves the tenant from current_org().
-    let Ok(org) = current_org() else {
-        return; // no armed scope ⇒ nothing to observe (dark-safe)
-    };
-    let actor = principal.user_id; // for logging after the move (UserId is Copy)
-    let state = state.clone();
-    let principal = principal.clone();
-    // Panic-isolate the ENTIRE shadow future: any panic (Cedar SDK, metrics recorder,
-    // serialize — anywhere) is captured by the runtime as a JoinError and can NEVER
-    // unwind into the live request. The enforced decision (legacy) is already computed
-    // and returned by the caller regardless of this lane. The spawned task re-arms
-    // CURRENT_ORG because tokio::spawn does not inherit the parent's task-locals.
-    let outcome = tokio::spawn(async move {
-        CURRENT_ORG
-            .scope(
-                org,
-                try_run_role_manage_cedar_shadow(&state, &principal, legacy_effect),
-            )
-            .await
-    })
+    use futures::FutureExt;
+
+    let actor = principal.user_id; // UserId is Copy; used for logging in both arms
+    // Panic-isolate the ENTIRE shadow future: `catch_unwind` turns any panic (Cedar
+    // SDK, metrics recorder, serialize — anywhere in the lane) into an `Err` instead
+    // of letting it unwind into the live request. It runs on the SAME task, so the
+    // request's armed `CURRENT_ORG` task-local is preserved and the lane resolves the
+    // right tenant. `AssertUnwindSafe` is sound here: the lane holds no locks and its
+    // only mutation is an audit-txn write that rolls back on a panic, so a caught
+    // panic leaves no observable broken state. The enforced decision (legacy) is
+    // already computed and returned by the caller regardless of anything here.
+    let outcome = std::panic::AssertUnwindSafe(try_run_role_manage_cedar_shadow(
+        state,
+        principal,
+        legacy_effect,
+    ))
+    .catch_unwind()
     .await;
     match outcome {
         Ok(Ok(())) => {}
@@ -3243,9 +3237,8 @@ async fn run_role_manage_cedar_shadow(
             actor_user_id = %actor,
             "cedar/pbac role_manage shadow lane failed (audit-only; live decision unaffected)"
         ),
-        Err(join_err) => tracing::warn!(
+        Err(_panic) => tracing::warn!(
             event = "cedar_pbac_shadow_error",
-            panic = %join_err,
             actor_user_id = %actor,
             "cedar/pbac role_manage shadow lane panicked (audit-only; live decision unaffected)"
         ),
