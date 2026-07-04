@@ -6100,7 +6100,6 @@ fn ordinary_daily_wage_won_from_monthly(monthly_ordinary_wage_won: i64) -> Resul
 /// its object map is a `BTreeMap` that serializes with sorted keys, and embedded
 /// JSONB values round-trip through the same `BTreeMap`. Identical inputs
 /// therefore always hash identically regardless of column or JSON key order.
-#[allow(clippy::too_many_arguments)]
 /// Recursively re-key every JSON object in sorted key order so a digest over the
 /// result is canonical regardless of serde_json's `preserve_order` feature. A
 /// transitive dependency (e.g. cedar-policy -> schemars) can enable
@@ -6125,6 +6124,7 @@ fn canonical_json(value: &Value) -> Value {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_certified_package_digest(
     severance_pay_won: Option<i64>,
     statutory_basis: &Value,
