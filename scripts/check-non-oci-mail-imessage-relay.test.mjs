@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -92,16 +92,22 @@ test("rejects unreadable Talos or bridge credential files", {
 
 test("rejects credential paths that are directories", () => {
   const inputs = makeReadableInputs();
-  const result = runDryRun({
-    ...inputs,
-    NON_OCI_TALOS_KUBECONFIG: mkdtempSync(join(tmpdir(), "non-oci-relay-dir-")),
-    MESSAGES_BRIDGE_URL: "https://bridge.internal.example",
-    MESSAGES_BRIDGE_TOKEN: "test-token-value-0000",
-  });
+  const directoryCredentialPath = mkdtempSync(join(tmpdir(), "non-oci-relay-dir-"));
 
-  assert.equal(result.status, 2);
-  assert.deepEqual(result.stdout.trim().split(/\r?\n/), [BLOCKER_SUMMARY, BLOCKER]);
-  assert.equal(result.stderr, "");
+  try {
+    const result = runDryRun({
+      ...inputs,
+      NON_OCI_TALOS_KUBECONFIG: directoryCredentialPath,
+      MESSAGES_BRIDGE_URL: "https://bridge.internal.example",
+      MESSAGES_BRIDGE_TOKEN: "test-token-value-0000",
+    });
+
+    assert.equal(result.status, 2);
+    assert.deepEqual(result.stdout.trim().split(/\r?\n/), [BLOCKER_SUMMARY, BLOCKER]);
+    assert.equal(result.stderr, "");
+  } finally {
+    rmSync(directoryCredentialPath, { recursive: true, force: true });
+  }
 });
 
 test("passes dry-run with an HTTPS bridge URL and readable Talos plus mTLS files", () => {

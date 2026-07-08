@@ -80,11 +80,10 @@ pretending the path is deployable:
 ```text
 BLOCKED_PENDING_NON_OCI_TALOS_CREDENTIALS
 blocked_missing_non_oci_talos_or_bridge_credentials
-exit code 2
 ```
 
-That blocker means the repo-local docs, tests, and manifests can still land, but
-live deployment cannot proceed.
+The process exits with status `2`. That blocker means the repo-local docs, tests,
+and manifests can still land, but live deployment cannot proceed.
 
 ## Operator checks
 
