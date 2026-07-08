@@ -1590,11 +1590,11 @@ async fn list_workflow_tasks(
     // Group inbox (security M3): a `role_key=` query returns rows only when the
     // caller holds that role. Deny-by-omission — a caller who does not is handed
     // an empty list (200), never a 403 (never leaks the queue's existence).
-    if let Some(role_key) = query.role_key.as_deref() {
-        if !holds_group_inbox_role(&principal, org, branch, role_key) {
-            record_workflow_studio_request("task_list", "success");
-            return Ok(Json(WorkflowTaskListResponse { items: vec![] }));
-        }
+    if let Some(role_key) = query.role_key.as_deref()
+        && !holds_group_inbox_role(&principal, org, branch, role_key)
+    {
+        record_workflow_studio_request("task_list", "success");
+        return Ok(Json(WorkflowTaskListResponse { items: vec![] }));
     }
 
     let store = PgWorkflowRuntimeStore::new(state.pool.clone());
@@ -3826,27 +3826,33 @@ mod tests {
     }
 
     #[test]
-    fn oversize_run_payload_is_rejected() {
+    fn oversize_run_payload_is_rejected() -> Result<(), String> {
         // Security M2: a payload over the 64 KiB serialized ceiling is a 422.
         let big = json!({ "blob": "x".repeat(MAX_RUN_PAYLOAD_BYTES + 1) });
-        let err = check_payload_size("input_payload", &big)
-            .expect_err("oversize payload must be rejected");
+        let err = match check_payload_size("input_payload", &big) {
+            Ok(()) => return Err("oversize payload must be rejected".to_owned()),
+            Err(err) => err,
+        };
         assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
         // A modest payload passes.
         check_payload_size("input_payload", &json!({ "reason": "annual" }))
-            .expect("a small payload must pass");
+            .map_err(|e| format!("a small payload must pass: {}", e.message))?;
+        Ok(())
     }
 
     #[test]
-    fn policy_less_task_has_no_authorization_boundary() {
+    fn policy_less_task_has_no_authorization_boundary() -> Result<(), String> {
         // Security H1(b): the claim/decide path fails closed (403) on a legacy
         // policy-less row; a policy-bearing row passes the boundary check.
-        let err = require_task_authorization_boundary(None)
-            .expect_err("a policy-less task must be refused");
+        let err = match require_task_authorization_boundary(None) {
+            Ok(()) => return Err("a policy-less task must be refused".to_owned()),
+            Err(err) => err,
+        };
         assert_eq!(err.status, StatusCode::FORBIDDEN);
         assert!(err.message.contains("authorization boundary"));
         require_task_authorization_boundary(Some("approval_finalize"))
-            .expect("a policy-bearing task must pass");
+            .map_err(|e| format!("a policy-bearing task must pass: {}", e.message))?;
+        Ok(())
     }
 
     #[test]
