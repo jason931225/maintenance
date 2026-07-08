@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConsoleApiClient } from "../../api/client";
 import { useWorkspacePersistence } from "./persistence";
 import { useWorkspaceStore } from "./store";
-import type { PinnedObject } from "./types";
+import type { Panel, PinnedObject } from "./types";
 
 const wo: PinnedObject = {
   kind: "workOrder",
@@ -12,6 +12,32 @@ const wo: PinnedObject = {
   title: "T",
   fields: [],
 };
+
+const support: PinnedObject = {
+  kind: "support",
+  code: "SUP-1",
+  title: "S",
+  fields: [],
+};
+
+function serverPanel(object: PinnedObject): Panel {
+  return {
+    id: `work-hub:${object.kind}:${object.code}`,
+    screen: "work-hub",
+    area: "left",
+    mode: "pinned",
+    object,
+  };
+}
+
+function deferred<T>() {
+  let resolve: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  if (!resolve) throw new Error("deferred resolve was not initialized");
+  return { promise, resolve };
+}
 
 function makeApi(
   get: () => Promise<unknown>,
@@ -92,6 +118,47 @@ describe("useWorkspacePersistence", () => {
     });
     await tick(2000);
     expect(api.PUT).not.toHaveBeenCalled();
+  });
+
+  it("preserves and saves edits made before initial hydrate resolves", async () => {
+    const load = deferred<{
+      data: { layout: { v: 1; panels: Panel[] } };
+      response: { ok: true };
+    }>();
+    const api = makeApi(() => load.promise);
+
+    renderHook(() => {
+      useWorkspacePersistence(api, true);
+    });
+    act(() => {
+      useWorkspaceStore.getState().pin("work-hub", wo, "right");
+    });
+    await act(async () => {
+      load.resolve({
+        data: { layout: { v: 1, panels: [serverPanel(support)] } },
+        response: { ok: true },
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      useWorkspaceStore.getState().panels.map((panel) => panel.id),
+    ).toEqual(["work-hub:support:SUP-1", "work-hub:workOrder:WO-1"]);
+    await tick(600);
+    expect(api.PUT).toHaveBeenCalledTimes(1);
+    expect(api.PUT).toHaveBeenLastCalledWith(
+      "/api/v1/me/workspace",
+      expect.objectContaining({
+        body: expect.objectContaining({
+          layout: expect.objectContaining({
+            panels: expect.arrayContaining([
+              expect.objectContaining({ object: wo }),
+              expect.objectContaining({ object: support }),
+            ]),
+          }),
+        }),
+      }),
+    );
   });
 
   it("retains and retries dirty edits after a failed PUT", async () => {

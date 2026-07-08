@@ -3,6 +3,7 @@
 // The store (store.ts) is a thin zustand wrapper over these functions so the
 // snap / evict / dedupe / restore logic is unit-testable without React.
 
+import { panelId } from "./format";
 import { areasOverlap } from "./layout";
 import {
   DEFAULT_FLOAT_RECT,
@@ -25,10 +26,6 @@ export function snapToGrid(rect: FloatRect): FloatRect {
     w: round(rect.w),
     h: round(rect.h),
   };
-}
-
-function panelId(screen: ScreenKey, object: PinnedObject): string {
-  return `${screen}:${object.kind}:${object.code}`;
 }
 
 /**

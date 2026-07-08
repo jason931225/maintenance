@@ -5,6 +5,7 @@
 // rects are clamped to finite numbers, and duplicate object pins collapse. This
 // mirrors the prototype's mergeCardLayout pass (logic-inventory sec 7).
 
+import { panelId } from "./format";
 import {
   DEFAULT_FLOAT_RECT,
   PANEL_AREAS,
@@ -24,6 +25,7 @@ import {
 const PANEL_MODES: PanelMode[] = ["pinned", "float", "minimized"];
 const MAX_PANELS_PER_SCREEN = 8;
 const MIN_FLOAT_SIZE = 120;
+const FALLBACK_VIEWPORT = { w: 1280, h: 800 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -72,18 +74,37 @@ function clampNum(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function sanitizeFloat(value: unknown): FloatRect | undefined {
-  if (!isRecord(value)) return undefined;
+function viewportSize() {
+  if (typeof window === "undefined") return FALLBACK_VIEWPORT;
   return {
-    x: Math.max(0, clampNum(value.x, 0)),
-    y: Math.max(0, clampNum(value.y, 0)),
-    w: Math.max(MIN_FLOAT_SIZE, clampNum(value.w, DEFAULT_FLOAT_RECT.w)),
-    h: Math.max(MIN_FLOAT_SIZE, clampNum(value.h, DEFAULT_FLOAT_RECT.h)),
+    w: Number.isFinite(window.innerWidth) && window.innerWidth > 0
+      ? window.innerWidth
+      : FALLBACK_VIEWPORT.w,
+    h: Number.isFinite(window.innerHeight) && window.innerHeight > 0
+      ? window.innerHeight
+      : FALLBACK_VIEWPORT.h,
   };
 }
 
-function panelId(screen: ScreenKey, object: PinnedObject): string {
-  return `${screen}:${object.kind}:${object.code}`;
+function sanitizeFloat(value: unknown): FloatRect | undefined {
+  if (!isRecord(value)) return undefined;
+  const viewport = viewportSize();
+  const w = Math.min(
+    Math.max(MIN_FLOAT_SIZE, clampNum(value.w, DEFAULT_FLOAT_RECT.w)),
+    Math.max(MIN_FLOAT_SIZE, viewport.w),
+  );
+  const h = Math.min(
+    Math.max(MIN_FLOAT_SIZE, clampNum(value.h, DEFAULT_FLOAT_RECT.h)),
+    Math.max(MIN_FLOAT_SIZE, viewport.h),
+  );
+  const maxX = Math.max(0, viewport.w - w);
+  const maxY = Math.max(0, viewport.h - h);
+  return {
+    x: Math.min(Math.max(0, clampNum(value.x, 0)), maxX),
+    y: Math.min(Math.max(0, clampNum(value.y, 0)), maxY),
+    w,
+    h,
+  };
 }
 
 function sanitizePanel(value: unknown): Panel | undefined {

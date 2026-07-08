@@ -118,6 +118,27 @@ describe("sanitizeEnvelope", () => {
     expect(env.panels[0].float).toEqual({ x: 0, y: 0, w: 120, h: 120 });
   });
 
+  it("clamps off-screen float rect positions to the viewport", () => {
+    const env = sanitizeEnvelope(
+      wrap([
+        validPanel({
+          mode: "float",
+          float: { x: 99_999, y: 99_999, w: 300, h: 200 },
+        }),
+      ]),
+    );
+    const viewportWidth =
+      typeof window === "undefined" ? 1280 : window.innerWidth;
+    const viewportHeight =
+      typeof window === "undefined" ? 800 : window.innerHeight;
+    expect(env.panels[0].float).toEqual({
+      x: Math.max(0, viewportWidth - 300),
+      y: Math.max(0, viewportHeight - 200),
+      w: 300,
+      h: 200,
+    });
+  });
+
   it("drops malformed fields but keeps well-formed ones", () => {
     const env = sanitizeEnvelope(
       wrap([
