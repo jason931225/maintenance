@@ -60,7 +60,11 @@ function StubPage({ title, marker }: { title: string; marker: string }) {
   );
 }
 
-function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: string[] = []) {
+function renderShell(
+  roles: string[],
+  initialPath: string | { pathname: string; state?: unknown } = "/dispatch",
+  featureGrants: string[] = [],
+) {
   return render(
     <AuthContext.Provider value={makeAuthContext(roles, featureGrants)}>
       <MemoryRouter initialEntries={[initialPath]}>
@@ -107,6 +111,52 @@ describe("AppShell navigation fabric", () => {
       "href",
       "/dispatch",
     );
+    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("seeds breadcrumbs from command-palette navigation across shell remounts", async () => {
+    renderShell(["ADMIN"], {
+      pathname: "/equipment",
+      state: {
+        backStackSeed: {
+          href: "/work-hub",
+          pathname: "/work-hub",
+          label: "forged label",
+        },
+      },
+    });
+
+    expect(await screen.findByText("equipment page")).toBeVisible();
+    const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
+    expect(within(breadcrumbs).queryByText("forged label")).not.toBeInTheDocument();
+    expect(within(breadcrumbs).getByRole("link", { name: "업무 허브" })).toHaveAttribute(
+      "href",
+      "/work-hub",
+    );
+    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("ignores unsafe breadcrumb seed links from location state", async () => {
+    renderShell(["ADMIN"], {
+      pathname: "/equipment",
+      state: {
+        backStackSeed: {
+          href: "https://example.invalid/work-hub",
+          pathname: "/work-hub",
+          label: "업무 허브",
+        },
+      },
+    });
+
+    expect(await screen.findByText("equipment page")).toBeVisible();
+    const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
+    expect(within(breadcrumbs).queryByRole("link", { name: "업무 허브" })).not.toBeInTheDocument();
     expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
       "aria-current",
       "page",

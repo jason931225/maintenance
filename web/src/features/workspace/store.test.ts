@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { selectScreenPanels, useWorkspaceStore } from "./store";
+import {
+  isWorkspaceOwnerCurrent,
+  runForWorkspaceOwner,
+  selectScreenPanels,
+  useWorkspaceStore,
+} from "./store";
 import type { PinnedObject } from "./types";
 
 const wo: PinnedObject = {
@@ -43,6 +48,39 @@ describe("useWorkspaceStore", () => {
     const state = useWorkspaceStore.getState();
     expect(state.hydrated).toBe(true);
     expect(state.panels).toHaveLength(1);
+  });
+
+  it("resets transient and persisted workspace state when the owner changes", () => {
+    const store = useWorkspaceStore.getState();
+    store.resetForOwner("org-a:user-a");
+    store.pin("work-hub", wo);
+    store.setDragging("work-hub:workOrder:WO-1");
+    store.setSnapPreview("right");
+
+    expect(isWorkspaceOwnerCurrent("org-a:user-a")).toBe(true);
+    expect(
+      runForWorkspaceOwner("org-b:user-b", () => {
+        store.pin("attendance", at);
+      }),
+    ).toBe(false);
+    expect(useWorkspaceStore.getState().panels).toHaveLength(1);
+
+    store.resetForOwner("org-b:user-b");
+
+    const state = useWorkspaceStore.getState();
+    expect(state.ownerKey).toBe("org-b:user-b");
+    expect(state.panels).toEqual([]);
+    expect(state.hydrated).toBe(false);
+    expect(state.saveEnabled).toBe(false);
+    expect(state.draggingId).toBeNull();
+    expect(state.snapPreview).toBeNull();
+    expect(isWorkspaceOwnerCurrent("org-a:user-a")).toBe(false);
+    expect(
+      runForWorkspaceOwner("org-b:user-b", () => {
+        state.pin("attendance", at);
+      }),
+    ).toBe(true);
+    expect(useWorkspaceStore.getState().panels).toHaveLength(1);
   });
 
   it("pin / minimize / restore / close flow through the store", () => {

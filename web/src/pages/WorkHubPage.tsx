@@ -396,9 +396,10 @@ function skippedSource(key: SourceKey): Promise<CapturedSource<{ items: [] }>> {
 
 interface WorkHubPageProps {
   active?: boolean;
+  onLoadCommit?: (readState: ReadState) => void;
 }
 
-export function WorkHubPage({ active = true }: WorkHubPageProps = {}) {
+export function WorkHubPage({ active = true, onLoadCommit }: WorkHubPageProps = {}) {
   const { api, session } = useAuth();
   const mountedRef = useRef(false);
   const [data, setData] = useState<WorkHubData>(emptyData);
@@ -424,11 +425,12 @@ export function WorkHubPage({ active = true }: WorkHubPageProps = {}) {
   const commitLoadResult = useCallback(
     (nextData: WorkHubData, nextFailures: SourceFailure[], nextReadState: ReadState) => {
       if (!mountedRef.current) return;
+      onLoadCommit?.(nextReadState);
       setData(nextData);
       setFailures(nextFailures);
       setReadState(nextReadState);
     },
-    [],
+    [onLoadCommit],
   );
 
   const loadData = useCallback(async () => {

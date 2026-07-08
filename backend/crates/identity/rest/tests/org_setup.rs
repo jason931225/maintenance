@@ -79,9 +79,19 @@ impl Harness {
     }
 
     fn token(&self, user_id: UserId, roles: &[&str], branches: Vec<BranchId>) -> String {
+        self.token_for_org(OrgId::knl(), user_id, roles, branches)
+    }
+
+    fn token_for_org(
+        &self,
+        org_id: OrgId,
+        user_id: UserId,
+        roles: &[&str],
+        branches: Vec<BranchId>,
+    ) -> String {
         let issuer = self.issuer();
         issuer
-            .issue_access_token(self.access_token_input(user_id, roles, branches))
+            .issue_access_token(self.access_token_input_for_org(org_id, user_id, roles, branches))
             .unwrap()
     }
 
@@ -121,9 +131,19 @@ impl Harness {
         roles: &[&str],
         branches: Vec<BranchId>,
     ) -> AccessTokenInput {
+        self.access_token_input_for_org(OrgId::knl(), user_id, roles, branches)
+    }
+
+    fn access_token_input_for_org(
+        &self,
+        org_id: OrgId,
+        user_id: UserId,
+        roles: &[&str],
+        branches: Vec<BranchId>,
+    ) -> AccessTokenInput {
         AccessTokenInput {
             subject: user_id,
-            org_id: OrgId::knl(),
+            org_id,
             roles: roles.iter().map(|r| (*r).to_owned()).collect(),
             branches,
             platform: false,
@@ -2255,6 +2275,35 @@ async fn send_put(harness: &Harness, uri: &str, token: &str, body: Value) -> (St
 
 // Seed helpers route inserts through `with_audit` because this file lives on a
 // `rest/` handler surface scanned by the audit-coverage gate.
+async fn seed_org(pool: &PgPool, org_id: OrgId, slug: &str) {
+    let slug = slug.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_org").unwrap(),
+        "organization",
+        org_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org_id);
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+            )
+            .bind(*org_id.as_uuid())
+            .bind(slug.clone())
+            .bind(format!("Test Org {slug}"))
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 async fn seed_branch(pool: &PgPool) -> BranchId {
     let region_id = uuid::Uuid::new_v4();
     let branch_id = BranchId::new();
@@ -2311,6 +2360,21 @@ async fn seed_user_with_team(
     branch_id: Option<BranchId>,
     team: Option<&str>,
 ) -> UserId {
+    seed_user_in_org_with_team(pool, OrgId::knl(), name, roles, branch_id, team).await
+}
+
+async fn seed_user_in_org(pool: &PgPool, org_id: OrgId, name: &str, roles: &[&str]) -> UserId {
+    seed_user_in_org_with_team(pool, org_id, name, roles, None, None).await
+}
+
+async fn seed_user_in_org_with_team(
+    pool: &PgPool,
+    org_id: OrgId,
+    name: &str,
+    roles: &[&str],
+    branch_id: Option<BranchId>,
+    team: Option<&str>,
+) -> UserId {
     let user_id = UserId::new();
     let name = name.to_owned();
     let roles: Vec<String> = roles.iter().map(|r| (*r).to_owned()).collect();
@@ -2322,7 +2386,8 @@ async fn seed_user_with_team(
         user_id.to_string(),
         TraceContext::generate(),
         OffsetDateTime::now_utc(),
-    );
+    )
+    .with_org(org_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
             sqlx::query(
@@ -2332,7 +2397,7 @@ async fn seed_user_with_team(
             .bind(name)
             .bind(roles)
             .bind(team)
-            .bind(*OrgId::knl().as_uuid())
+            .bind(*org_id.as_uuid())
             .execute(tx.as_mut())
             .await
             .map_err(DbError::Sqlx)?;
@@ -2342,7 +2407,7 @@ async fn seed_user_with_team(
                 )
                 .bind(*user_id.as_uuid())
                 .bind(*branch_id.as_uuid())
-                .bind(*OrgId::knl().as_uuid())
+                .bind(*org_id.as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
@@ -2791,4 +2856,17 @@ async fn workspace_me_endpoint_scopes_layout_to_current_principal(pool: PgPool) 
     let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_b, None).await;
     assert_eq!(status, StatusCode::OK, "{body:?}");
     assert_eq!(body["layout"], json!({ "owner": "B" }));
+
+    let org_c = OrgId::from_uuid(uuid::Uuid::from_u128(0xc0ffee));
+    seed_org(&pool, org_c, "workspace-c").await;
+    let user_c = seed_user_in_org(&pool, org_c, "Workspace User C", &["MECHANIC"]).await;
+    let token_c = harness.token_for_org(org_c, user_c, &["MECHANIC"], vec![]);
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_c, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["layout"],
+        json!({}),
+        "a different org's principal must not receive another tenant's /me workspace row"
+    );
 }

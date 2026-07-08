@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { AuthSession } from "../context/auth";
 import { AuthTestProvider } from "../test/AuthTestProvider";
@@ -27,11 +27,14 @@ afterAll(() => {
   server.close();
 });
 
-function renderPage(session: AuthSession) {
+function renderPage(
+  session: AuthSession,
+  props?: Parameters<typeof WorkHubPage>[0],
+) {
   return render(
     <AuthTestProvider session={session}>
       <MemoryRouter>
-        <WorkHubPage />
+        <WorkHubPage {...props} />
       </MemoryRouter>
     </AuthTestProvider>,
   );
@@ -593,11 +596,15 @@ describe("WorkHubPage", () => {
         HttpResponse.json({ items: [] }),
       ),
     );
-    const { unmount } = renderPage({
-      access_token: "receptionist-token",
-      roles: ["RECEPTIONIST"],
-      branches: [branchId],
-    });
+    const onLoadCommit = vi.fn();
+    const { unmount } = renderPage(
+      {
+        access_token: "receptionist-token",
+        roles: ["RECEPTIONIST"],
+        branches: [branchId],
+      },
+      { onLoadCommit },
+    );
 
     await waitFor(() => {
       expect(workOrderListRequests).toHaveLength(1);
@@ -616,6 +623,7 @@ describe("WorkHubPage", () => {
       await new Promise((resolve) => {
         setTimeout(resolve, 0);
       });
+      expect(onLoadCommit).not.toHaveBeenCalled();
     } finally {
       if (windowDescriptor) {
         Object.defineProperty(globalThis, "window", windowDescriptor);

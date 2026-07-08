@@ -224,6 +224,13 @@ async function waitForNetworkIdle() {
   });
 }
 
+async function waitForLateMountEffects() {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 25);
+  });
+  await waitForNetworkIdle();
+}
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
@@ -328,6 +335,16 @@ describe("every page renders cleanly against an empty backend", () => {
     ).toBeVisible();
     await waitForNetworkIdle();
     expect(attendanceRecordReads).toBe(0);
+    await waitForLateMountEffects();
+    expect(attendanceRecordReads).toBe(0);
+  });
+
+  it("fetches attendance records once the attendance screen is active", async () => {
+    renderAt("/attendance");
+    expect(await screen.findByRole("heading", { name: "내 근태 기록", level: 1 })).toBeVisible();
+    await waitFor(() => {
+      expect(attendanceRecordReads).toBe(1);
+    });
   });
 
   it("renders /payroll with zero readiness counts and no crash", async () => {
