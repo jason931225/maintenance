@@ -1,11 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ConsoleScreenContext } from "../../../features/workspace/pin-context";
+import {
+  ConsoleScreenContext,
+  ConsoleWorkspaceOwnerContext,
+} from "../../../features/workspace/pin-context";
 import { selectScreenPanels, useWorkspaceStore } from "../../../features/workspace/store";
-import type { PinnedObject } from "../../../features/workspace/types";
+import type { Panel, PinnedObject } from "../../../features/workspace/types";
+import { FloatWindow } from "./FloatWindow";
 import { PinButton } from "./PinButton";
 import { QuadrantContainer } from "./QuadrantContainer";
 import { Tray } from "./Tray";
@@ -67,7 +71,7 @@ function Harness() {
 }
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ panels: [], hydrated: false, saveEnabled: false, snapPreview: null, draggingId: null });
+  useWorkspaceStore.setState({ ownerKey: null, panels: [], hydrated: false, saveEnabled: false, snapPreview: null, draggingId: null });
 });
 
 describe("workspace window UI", () => {
@@ -118,5 +122,106 @@ describe("workspace window UI", () => {
     await user.click(screen.getByRole("button", { name: "작업 1 상세 고정" }));
     await user.click(screen.getByRole("button", { name: "기본 배치" }));
     expect(useWorkspaceStore.getState().panels).toHaveLength(0);
+  });
+
+  it("does not pin when the workspace owner context is stale", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      ownerKey: "org-old:user-old",
+      panels: [],
+      hydrated: true,
+      saveEnabled: true,
+      snapPreview: null,
+      draggingId: null,
+    });
+
+    render(
+      <ConsoleWorkspaceOwnerContext.Provider value="org-new:user-new">
+        <ConsoleScreenContext.Provider value="work-hub">
+          <PinButton object={wo} />
+        </ConsoleScreenContext.Provider>
+      </ConsoleWorkspaceOwnerContext.Provider>,
+    );
+
+    const button = screen.getByRole("button", { name: "작업 1 상세 고정" });
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(useWorkspaceStore.getState().panels).toHaveLength(0);
+  });
+
+  it("does not let a stale floating drag mutate a new owner's workspace", () => {
+    const panel: Panel = {
+      id: "work-hub:workOrder:WO-1",
+      screen: "work-hub",
+      area: "left",
+      mode: "float",
+      object: wo,
+      float: { x: 64, y: 64, w: 320, h: 240 },
+    };
+    const workspace = document.createElement("section");
+    Object.defineProperty(workspace, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 400,
+        bottom: 400,
+        width: 400,
+        height: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => undefined,
+      }),
+    });
+    useWorkspaceStore.setState({
+      ownerKey: "org-old:user-old",
+      panels: [panel],
+      hydrated: true,
+      saveEnabled: true,
+      snapPreview: null,
+      draggingId: null,
+    });
+    const onSnap = () => {
+      useWorkspaceStore.getState().pin("work-hub", panel.object, "left");
+    };
+    const onMove = () => {
+      useWorkspaceStore
+        .getState()
+        .moveFloat(panel.id, { x: 16, y: 16, w: 320, h: 240 });
+    };
+
+    render(
+      <FloatWindow
+        panel={panel}
+        ownerKey="org-old:user-old"
+        workspaceRef={{ current: workspace }}
+        onSnap={onSnap}
+        onMove={onMove}
+        onMinimize={() => {
+          useWorkspaceStore.getState().minimize(panel.id);
+        }}
+        onClose={() => {
+          useWorkspaceStore.getState().close(panel.id);
+        }}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByTestId("workspace-pin-panel-header"), {
+      button: 0,
+      clientX: 80,
+      clientY: 80,
+    });
+    useWorkspaceStore.getState().resetForOwner("org-new:user-new");
+    fireEvent.pointerUp(window, {
+      clientX: 8,
+      clientY: 8,
+    });
+
+    expect(useWorkspaceStore.getState()).toMatchObject({
+      ownerKey: "org-new:user-new",
+      panels: [],
+      snapPreview: null,
+      draggingId: null,
+    });
   });
 });

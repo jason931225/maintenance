@@ -394,7 +394,11 @@ function skippedSource(key: SourceKey): Promise<CapturedSource<{ items: [] }>> {
   return Promise.resolve({ key, data: { items: [] }, failed: false, skipped: true });
 }
 
-export function WorkHubPage() {
+interface WorkHubPageProps {
+  active?: boolean;
+}
+
+export function WorkHubPage({ active = true }: WorkHubPageProps = {}) {
   const { api, session } = useAuth();
   const mountedRef = useRef(false);
   const [data, setData] = useState<WorkHubData>(emptyData);
@@ -476,8 +480,9 @@ export function WorkHubPage() {
   }, [api, canApprove, canSeeTeamQueue, canUseDailyPlan, canUseMessenger, commitLoadResult]);
 
   useEffect(() => {
+    if (!active) return;
     void Promise.resolve().then(loadData);
-  }, [loadData]);
+  }, [active, loadData]);
 
   const inboxItems = useMemo(() => buildInboxItems(data), [data]);
   const visibleItems = filter === "all"

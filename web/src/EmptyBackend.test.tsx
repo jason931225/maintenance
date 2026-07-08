@@ -161,12 +161,13 @@ const server = setupServer(
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
   ),
-  // AttendancePage now mounts alongside WorkHubPage inside ConsoleShell
-  // (mounted persistence, UI-M1b), so its on-mount fetch fires on every console
-  // screen — mock it for the empty backend.
-  http.get("*/api/v1/hr/attendance-records/me", () =>
-    HttpResponse.json({ items: [] }),
-  ),
+  // AttendancePage is mounted by ConsoleShell for persistence, but inactive
+  // screens must not fetch. The counter below locks the /work-hub no-hidden-fetch
+  // regression while still serving /attendance when it becomes active.
+  http.get("*/api/v1/hr/attendance-records/me", () => {
+    attendanceRecordReads += 1;
+    return HttpResponse.json({ items: [] });
+  }),
   http.get("*/api/v1/hr/readiness-summary", () =>
     HttpResponse.json(emptyHrReadinessSummary),
   ),
@@ -201,6 +202,8 @@ const server = setupServer(
   ),
 );
 
+let attendanceRecordReads = 0;
+
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
 // resolve before it ends. WebSocket connections intentionally remain open and
@@ -225,6 +228,7 @@ beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
 afterEach(() => {
+  attendanceRecordReads = 0;
   server.resetHandlers();
 });
 afterAll(() => {
@@ -316,6 +320,15 @@ describe("every page renders cleanly against an empty backend", () => {
       );
     });
   }
+
+  it("does not fetch hidden attendance data while Work Hub is active", async () => {
+    renderAt("/work-hub");
+    expect(
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+    ).toBeVisible();
+    await waitForNetworkIdle();
+    expect(attendanceRecordReads).toBe(0);
+  });
 
   it("renders /payroll with zero readiness counts and no crash", async () => {
     renderAt("/payroll");

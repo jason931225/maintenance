@@ -10,7 +10,8 @@ const wo: PinnedObject = {
   kind: "workOrder",
   code: "WO-1",
   title: "T",
-  fields: [],
+  fields: [{ label: "customer", value: "Acme" }],
+  href: "/work-orders/WO-1",
 };
 
 const support: PinnedObject = {
@@ -59,6 +60,7 @@ const okEmpty = () =>
 beforeEach(() => {
   vi.useFakeTimers();
   useWorkspaceStore.setState({
+    ownerKey: null,
     panels: [],
     hydrated: false,
     saveEnabled: false,
@@ -71,13 +73,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function mount(api: ConsoleApiClient) {
+async function mount(api: ConsoleApiClient, ownerKey = "org-a:user-a") {
+  let hook!: ReturnType<typeof renderHook<{ api: ConsoleApiClient; ownerKey: string }, void>>;
   await act(async () => {
-    renderHook(() => {
-      useWorkspacePersistence(api, true);
-    });
+    hook = renderHook(
+      ({ api: activeApi, ownerKey: activeOwner }) => {
+        useWorkspacePersistence(activeApi, true, activeOwner);
+      },
+      { initialProps: { api, ownerKey } },
+    );
     await Promise.resolve(); // let the awaited GET resolve and hydrate
   });
+  return hook;
 }
 
 async function tick(ms: number) {
@@ -128,7 +135,10 @@ describe("useWorkspacePersistence", () => {
     const api = makeApi(() => load.promise);
 
     renderHook(() => {
-      useWorkspacePersistence(api, true);
+      useWorkspacePersistence(api, true, "org-a:user-a");
+    });
+    await act(async () => {
+      await Promise.resolve(); // let owner reset + GET kickoff run
     });
     act(() => {
       useWorkspaceStore.getState().pin("work-hub", wo, "right");
@@ -152,8 +162,12 @@ describe("useWorkspacePersistence", () => {
         body: expect.objectContaining({
           layout: expect.objectContaining({
             panels: expect.arrayContaining([
-              expect.objectContaining({ object: wo }),
-              expect.objectContaining({ object: support }),
+              expect.objectContaining({
+                object: { kind: wo.kind, code: wo.code },
+              }),
+              expect.objectContaining({
+                object: { kind: support.kind, code: support.code },
+              }),
             ]),
           }),
         }),
@@ -183,12 +197,134 @@ describe("useWorkspacePersistence", () => {
         body: expect.objectContaining({
           layout: expect.objectContaining({
             panels: expect.arrayContaining([
-              expect.objectContaining({ object: wo }),
+              expect.objectContaining({
+                object: { kind: wo.kind, code: wo.code },
+              }),
             ]),
           }),
         }),
       }),
     );
+  });
+
+  it("persists only stable object refs, not domain snapshots or hrefs", async () => {
+    const api = makeApi(okEmpty);
+    await mount(api);
+    act(() => {
+      useWorkspaceStore.getState().pin("work-hub", wo);
+    });
+
+    await tick(600);
+
+    expect(api.PUT).toHaveBeenCalledWith(
+      "/api/v1/me/workspace",
+      expect.objectContaining({
+        body: expect.objectContaining({
+          layout: expect.objectContaining({
+            panels: [
+              expect.objectContaining({
+                object: { kind: "workOrder", code: "WO-1" },
+              }),
+            ],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("clears and reloads when the workspace owner changes", async () => {
+    const apiA = makeApi(() =>
+      Promise.resolve({
+        data: { layout: { v: 1, panels: [serverPanel(wo)] } },
+        response: { ok: true },
+      }),
+    );
+    const putB = vi.fn().mockResolvedValue({
+      data: { layout: {} },
+      response: { ok: true },
+    });
+    const apiB = makeApi(okEmpty, putB);
+    const hook = await mount(apiA, "org-a:user-a");
+    expect(useWorkspaceStore.getState().panels.map((panel) => panel.id)).toEqual([
+      "work-hub:workOrder:WO-1",
+    ]);
+
+    act(() => {
+      hook.rerender({ api: apiB, ownerKey: "org-b:user-b" });
+    });
+
+    expect(useWorkspaceStore.getState()).toMatchObject({
+      ownerKey: "org-b:user-b",
+      panels: [],
+      hydrated: false,
+      saveEnabled: false,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(useWorkspaceStore.getState()).toMatchObject({
+      ownerKey: "org-b:user-b",
+      panels: [],
+      hydrated: true,
+      saveEnabled: true,
+    });
+    act(() => {
+      useWorkspaceStore.getState().pin("work-hub", support);
+    });
+    await tick(600);
+
+    expect(putB).toHaveBeenCalledTimes(1);
+    expect(putB).toHaveBeenCalledWith(
+      "/api/v1/me/workspace",
+      expect.objectContaining({
+        body: expect.objectContaining({
+          layout: expect.objectContaining({
+            panels: [
+              expect.objectContaining({
+                object: { kind: "support", code: "SUP-1" },
+              }),
+            ],
+          }),
+        }),
+      }),
+    );
+    expect(JSON.stringify(putB.mock.calls)).not.toContain("WO-1");
+  });
+
+  it("does not retry a failed save after unmount", async () => {
+    const write = deferred<unknown>();
+    const put = vi.fn(() => write.promise);
+    const api = makeApi(okEmpty, put);
+    const hook = await mount(api);
+    act(() => {
+      useWorkspaceStore.getState().pin("work-hub", wo);
+    });
+
+    await tick(600);
+    expect(put).toHaveBeenCalledTimes(1);
+    hook.unmount();
+
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      await act(async () => {
+        write.resolve({ response: { ok: false } });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    } finally {
+      if (windowDescriptor) {
+        Object.defineProperty(globalThis, "window", windowDescriptor);
+      }
+    }
+
+    await tick(1_200);
+    expect(put).toHaveBeenCalledTimes(1);
   });
 
   it("treats a non-ok HTTP response as a failed load", async () => {

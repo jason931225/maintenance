@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 
 import { zoneFromPoint, zoneToArea } from "../../../features/workspace/layout";
 import { FLOAT_GRID_PX } from "../../../features/workspace/reducer";
-import { useWorkspaceStore } from "../../../features/workspace/store";
+import {
+  isWorkspaceOwnerCurrent,
+  useWorkspaceStore,
+} from "../../../features/workspace/store";
 import { DEFAULT_FLOAT_RECT, type FloatRect, type Panel, type PanelArea } from "../../../features/workspace/types";
 import { PinPanel } from "./PinPanel";
 
@@ -16,6 +19,7 @@ function snap(value: number): number {
 
 export function FloatWindow({
   panel,
+  ownerKey,
   workspaceRef,
   onSnap,
   onMove,
@@ -23,6 +27,7 @@ export function FloatWindow({
   onClose,
 }: {
   panel: Panel;
+  ownerKey?: string;
   workspaceRef: RefObject<HTMLElement | null>;
   onSnap: (area: PanelArea) => void;
   onMove: (rect: FloatRect) => void;
@@ -43,9 +48,12 @@ export function FloatWindow({
   const setDragging = useWorkspaceStore((s) => s.setDragging);
 
   const current = live ?? rect;
+  const ownerStillCurrent = () =>
+    ownerKey === undefined || isWorkspaceOwnerCurrent(ownerKey);
 
   const onHeaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
+    if (!ownerStillCurrent()) return;
     event.preventDefault();
     dragRef.current = {
       startX: event.clientX,
@@ -66,6 +74,7 @@ export function FloatWindow({
     };
 
     const handleMove = (moveEvent: PointerEvent) => {
+      if (!ownerStillCurrent()) return;
       if (!dragRef.current) return;
       const { startX, startY, origX, origY } = dragRef.current;
       setLive({
@@ -79,12 +88,15 @@ export function FloatWindow({
 
     const handleUp = (upEvent: PointerEvent) => {
       const drag = dragRef.current;
+      const canMutate = ownerStillCurrent();
       dragRef.current = null;
       cleanup();
       setLive(null);
-      setSnapPreview(null);
-      setDragging(null);
-      if (!drag) return;
+      if (canMutate) {
+        setSnapPreview(null);
+        setDragging(null);
+      }
+      if (!drag || !canMutate) return;
 
       if (upEvent.clientY >= window.innerHeight - TRAY_DROP_BAND_PX) {
         onMinimize();
@@ -113,10 +125,13 @@ export function FloatWindow({
     };
 
     const handleCancel = () => {
+      const canMutate = ownerStillCurrent();
       dragRef.current = null;
       setLive(null);
-      setSnapPreview(null);
-      setDragging(null);
+      if (canMutate) {
+        setSnapPreview(null);
+        setDragging(null);
+      }
       cleanup();
     };
 

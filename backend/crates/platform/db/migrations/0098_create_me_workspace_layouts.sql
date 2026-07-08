@@ -1,12 +1,14 @@
 -- Provenance: originated in a parallel session's worktree (commit e6764cdb);
--- adopted here and AC-verified (person-scoped RLS as mnt_rt, 64KiB + object
--- CHECK, audited PUT, boundary tests) as part of the UI-M1b slice.
+-- adopted here and AC-verified (org-scoped RLS as mnt_rt, 64KiB + object
+-- CHECK, audited PUT, handler-bound user rows, boundary tests) as part of the
+-- UI-M1b slice.
 --
 -- Per-(org,user) workspace layout profile for the Oyatie Console window engine
 -- (UI-M1b). The console persists each person's window/panel arrangement (pinned
 -- object panels, popped-out float geometry, minimized tray chips) so the layout
 -- survives navigation and reload. AD-4 of the oyatie-console plan: a server-owned
--- per-user profile, RLS-scoped to the person.
+-- per-user profile. The DB policy enforces tenant/org isolation; the `/me`
+-- handler and adapter bind the current principal's user_id for per-person rows.
 --
 -- CONTRACT: the `layout` jsonb is OPAQUE to the backend — the frontend owns its
 -- shape (schema-versioned + sanitized on load). The server stores and returns it
@@ -17,7 +19,8 @@
 --
 -- Mirrors the RLS + FORCE + REVOKE-DELETE governance pattern of 0096
 -- (subject_authz_versions) and 0095 (org_runtime_flags): a runtime role may read
--- and upsert only its own tenant row and may never DELETE it.
+-- and upsert only rows in the armed org and may never DELETE them. The route
+-- layer scopes `/api/v1/me/workspace` to the authenticated principal's user_id.
 
 CREATE TABLE me_workspace_layouts (
     org_id     UUID        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

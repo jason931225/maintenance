@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
-import { ConsoleScreenContext } from "../../features/workspace/pin-context";
+import {
+  ConsoleScreenContext,
+  ConsoleWorkspaceOwnerContext,
+} from "../../features/workspace/pin-context";
 import { useWorkspacePersistence } from "../../features/workspace/persistence";
-import { selectScreenPanels, useWorkspaceStore } from "../../features/workspace/store";
-import type { ScreenKey } from "../../features/workspace/types";
+import {
+  runForWorkspaceOwner,
+  selectScreenPanels,
+  useWorkspaceStore,
+} from "../../features/workspace/store";
+import type { Panel, ScreenKey } from "../../features/workspace/types";
 import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
@@ -39,6 +46,8 @@ const NAV_ITEM_FOR_SCREEN: Record<ScreenKey, NavItemKey> = {
   attendance: "my-attendance",
 };
 
+const EMPTY_PANELS: Panel[] = [];
+
 export function ConsoleShell() {
   return (
     <TitleProvider>
@@ -55,8 +64,13 @@ function ConsoleShellContent() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const { toast, closeToast, undoToast } = useConsoleToast();
   const workspaceRef = useRef<HTMLElement>(null);
+  const workspaceOwnerKey = session?.user_id
+    ? `${session.org_id ?? "no-org"}:${session.user_id}`
+    : undefined;
 
-  const panels = useWorkspaceStore((s) => s.panels);
+  const panels = useWorkspaceStore((s) =>
+    s.ownerKey === workspaceOwnerKey ? s.panels : EMPTY_PANELS,
+  );
   const minimize = useWorkspaceStore((s) => s.minimize);
   const restore = useWorkspaceStore((s) => s.restore);
   const popout = useWorkspaceStore((s) => s.popout);
@@ -64,6 +78,10 @@ function ConsoleShellContent() {
   const moveFloat = useWorkspaceStore((s) => s.moveFloat);
   const pin = useWorkspaceStore((s) => s.pin);
   const restoreDefault = useWorkspaceStore((s) => s.restoreDefault);
+  const mutateWorkspace = useCallback(
+    (mutate: () => void) => runForWorkspaceOwner(workspaceOwnerKey, mutate),
+    [workspaceOwnerKey],
+  );
 
   const activeScreen = SCREEN_FOR_PATH[location.pathname] ?? "work-hub";
 
@@ -82,7 +100,7 @@ function ConsoleShellContent() {
     ),
   };
 
-  useWorkspacePersistence(api, true);
+  useWorkspacePersistence(api, true, workspaceOwnerKey);
 
   // Focus the workspace region after each navigation for keyboard/SR users.
   useEffect(() => {
@@ -112,12 +130,22 @@ function ConsoleShellContent() {
     workspaceRef.current?.focus();
   };
   const minimizeAndFocus = (id: string) => {
-    minimize(id);
-    focusWorkspace();
+    if (
+      mutateWorkspace(() => {
+        minimize(id);
+      })
+    ) {
+      focusWorkspace();
+    }
   };
   const closeAndFocus = (id: string) => {
-    closePanel(id);
-    focusWorkspace();
+    if (
+      mutateWorkspace(() => {
+        closePanel(id);
+      })
+    ) {
+      focusWorkspace();
+    }
   };
 
   // Global keys: Cmd/Ctrl+K palette, Esc cascade (minimize the most-recent
@@ -131,7 +159,9 @@ function ConsoleShellContent() {
       }
       if (event.key === "Escape") {
         if (commandPaletteOpen || sidebarOpen || event.defaultPrevented) return;
-        const open = selectScreenPanels(useWorkspaceStore.getState().panels, activeScreen).filter(
+        const state = useWorkspaceStore.getState();
+        if (!workspaceOwnerKey || state.ownerKey !== workspaceOwnerKey) return;
+        const open = selectScreenPanels(state.panels, activeScreen).filter(
           (p) => p.mode === "pinned" || p.mode === "float",
         );
         const last = open.at(-1);
@@ -146,7 +176,7 @@ function ConsoleShellContent() {
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [activeScreen, minimize, commandPaletteOpen, sidebarOpen]);
+  }, [activeScreen, minimize, commandPaletteOpen, sidebarOpen, workspaceOwnerKey]);
 
   if (!visible[activeScreen]) {
     const fallback =
@@ -197,25 +227,48 @@ function ConsoleShellContent() {
             workspaceRef={workspaceRef}
             panels={activePanels}
             onMinimize={minimizeAndFocus}
-            onPopout={popout}
+            onPopout={(id) => {
+              mutateWorkspace(() => {
+                popout(id);
+              });
+            }}
             onClose={closeAndFocus}
           >
             <RouteErrorBoundary resetKey={location.pathname}>
-              <ScreenSlot screen="work-hub" active={activeScreen === "work-hub"} mounted={visible["work-hub"]}>
-                <WorkHubPage />
+              <ScreenSlot
+                screen="work-hub"
+                active={activeScreen === "work-hub"}
+                mounted={visible["work-hub"]}
+                ownerKey={workspaceOwnerKey}
+              >
+                <WorkHubPage active={activeScreen === "work-hub"} />
               </ScreenSlot>
-              <ScreenSlot screen="attendance" active={activeScreen === "attendance"} mounted={visible.attendance}>
-                <AttendancePage />
+              <ScreenSlot
+                screen="attendance"
+                active={activeScreen === "attendance"}
+                mounted={visible.attendance}
+                ownerKey={workspaceOwnerKey}
+              >
+                <AttendancePage active={activeScreen === "attendance"} />
               </ScreenSlot>
             </RouteErrorBoundary>
           </QuadrantContainer>
           <Tray
             minimized={minimized}
             hasAnyPanels={activePanels.length > 0}
-            onRestore={restore}
+            onRestore={(id) => {
+              mutateWorkspace(() => {
+                restore(id);
+              });
+            }}
             onRestoreDefault={() => {
-              restoreDefault(activeScreen);
-              focusWorkspace();
+              if (
+                mutateWorkspace(() => {
+                  restoreDefault(activeScreen);
+                })
+              ) {
+                focusWorkspace();
+              }
             }}
           />
         </main>
@@ -225,12 +278,17 @@ function ConsoleShellContent() {
         <FloatWindow
           key={panel.id}
           panel={panel}
+          ownerKey={workspaceOwnerKey}
           workspaceRef={workspaceRef}
           onSnap={(area) => {
-            pin(activeScreen, panel.object, area);
+            mutateWorkspace(() => {
+              pin(activeScreen, panel.object, area);
+            });
           }}
           onMove={(rect) => {
-            moveFloat(panel.id, rect);
+            mutateWorkspace(() => {
+              moveFloat(panel.id, rect);
+            });
           }}
           onMinimize={() => {
             minimizeAndFocus(panel.id);
@@ -265,11 +323,13 @@ function ScreenSlot({
   screen,
   active,
   mounted,
+  ownerKey,
   children,
 }: {
   screen: ScreenKey;
   active: boolean;
   mounted: boolean;
+  ownerKey: string | undefined;
   children: ReactNode;
 }) {
   if (!mounted) return null;
@@ -280,7 +340,11 @@ function ScreenSlot({
       inert={!active}
       className="h-full px-4 py-6 sm:px-6 lg:px-8"
     >
-      <ConsoleScreenContext.Provider value={screen}>{children}</ConsoleScreenContext.Provider>
+      <ConsoleWorkspaceOwnerContext.Provider value={ownerKey}>
+        <ConsoleScreenContext.Provider value={screen}>
+          {children}
+        </ConsoleScreenContext.Provider>
+      </ConsoleWorkspaceOwnerContext.Provider>
     </div>
   );
 }

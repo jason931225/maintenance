@@ -310,9 +310,10 @@ impl PgOrgStore {
     ///
     /// The `layout` jsonb is OPAQUE to the backend — the frontend owns its shape
     /// and it is stored/returned verbatim. An absent row is the empty-default
-    /// `{}` (a fresh user with no saved layout). Read under RLS so the caller can
-    /// only ever see their own tenant's row (`app.current_org` armed by
-    /// `with_org_conn`; the PK's `user_id` scopes to the person).
+    /// `{}` (a fresh user with no saved layout). Read under FORCE RLS for the
+    /// armed org (`app.current_org` via `with_org_conn`) and with an explicit
+    /// `user_id` predicate supplied by the `/me` handler's authenticated
+    /// principal.
     pub async fn get_workspace_layout(
         &self,
         user_id: UserId,

@@ -2807,7 +2807,7 @@ async fn update_me(
 }
 
 // ---------------------------------------------------------------------------
-// Console workspace layout handlers (any authenticated user; own row only)
+// Console workspace layout handlers (any authenticated user; principal's row only)
 // ---------------------------------------------------------------------------
 
 /// Response for `GET /api/v1/me/workspace`. `layout` is an opaque, frontend-owned

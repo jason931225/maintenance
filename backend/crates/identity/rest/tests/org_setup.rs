@@ -2743,3 +2743,52 @@ async fn workspace_put_enforces_object_shape_and_size_bound(pool: PgPool) {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
 }
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn workspace_me_endpoint_scopes_layout_to_current_principal(pool: PgPool) {
+    let harness = Harness::new(pool.clone());
+    let user_a = seed_user(&pool, "Workspace User A", &["MECHANIC"], None).await;
+    let user_b = seed_user(&pool, "Workspace User B", &["MECHANIC"], None).await;
+    let token_a = harness.token(user_a, &["MECHANIC"], vec![]);
+    let token_b = harness.token(user_b, &["MECHANIC"], vec![]);
+
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token_a,
+        Some(json!({ "layout": { "owner": "A" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_a, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "A" }));
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_b, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["layout"],
+        json!({}),
+        "same-org users must not receive each other's /me workspace row"
+    );
+
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token_b,
+        Some(json!({ "layout": { "owner": "B" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_a, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "A" }));
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_b, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "B" }));
+}

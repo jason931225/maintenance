@@ -54,7 +54,11 @@ interface RecordFailure {
   status?: number;
 }
 
-export function AttendancePage() {
+interface AttendancePageProps {
+  active?: boolean;
+}
+
+export function AttendancePage({ active = true }: AttendancePageProps = {}) {
   const { api, session } = useAuth();
   const t = ko.attendance;
   const [state, setState] = useState<ReadState>("loading");
@@ -88,8 +92,9 @@ export function AttendancePage() {
   }, [api]);
 
   useEffect(() => {
+    if (!active) return;
     void Promise.resolve().then(loadRecords);
-  }, [loadRecords]);
+  }, [active, loadRecords]);
 
   const latest = items.length > 0 ? items[0] : undefined;
   const currentState = latest?.state_after ?? "OFF_DUTY";

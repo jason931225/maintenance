@@ -45,29 +45,12 @@ function oneOf<T extends string>(
     : undefined;
 }
 
-function sanitizeFields(value: unknown): PinnedObject["fields"] {
-  if (!Array.isArray(value)) return [];
-  const fields: PinnedObject["fields"] = [];
-  for (const entry of value) {
-    if (!isRecord(entry)) continue;
-    const label = asString(entry.label);
-    const fieldValue =
-      typeof entry.value === "string" ? entry.value : undefined;
-    if (label === undefined || fieldValue === undefined) continue;
-    fields.push({ label, value: fieldValue });
-    if (fields.length >= 12) break;
-  }
-  return fields;
-}
-
 function sanitizeObject(value: unknown): PinnedObject | undefined {
   if (!isRecord(value)) return undefined;
   const kind = oneOf<PinKind>(value.kind, PIN_KINDS);
   const code = asString(value.code);
-  const title = asString(value.title);
-  if (!kind || !code || !title) return undefined;
-  const href = asString(value.href);
-  return { kind, code, title, fields: sanitizeFields(value.fields), href };
+  if (!kind || !code) return undefined;
+  return { kind, code, title: code, fields: [] };
 }
 
 function clampNum(value: unknown, fallback: number): number {

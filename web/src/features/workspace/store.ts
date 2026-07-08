@@ -23,6 +23,7 @@ import type {
 } from "./types";
 
 interface WorkspaceState {
+  ownerKey: string | null;
   panels: Panel[];
   hydrated: boolean;
   // Saves are enabled only after a SUCCESSFUL load. A failed load hydrates an
@@ -35,7 +36,8 @@ interface WorkspaceState {
   snapPreview: SnapZone | null;
   draggingId: string | null;
 
-  hydrate: (panels: Panel[], saveEnabled?: boolean) => void;
+  resetForOwner: (ownerKey: string) => void;
+  hydrate: (panels: Panel[], saveEnabled?: boolean, ownerKey?: string) => void;
   pin: (screen: ScreenKey, object: PinnedObject, area?: PanelArea) => void;
   minimize: (id: string) => void;
   restore: (id: string) => void;
@@ -48,14 +50,32 @@ interface WorkspaceState {
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
+  ownerKey: null,
   panels: [],
   hydrated: false,
   saveEnabled: false,
   snapPreview: null,
   draggingId: null,
 
-  hydrate: (panels, saveEnabled = true) => {
-    set({ panels, hydrated: true, saveEnabled });
+  resetForOwner: (ownerKey) => {
+    set({
+      ownerKey,
+      panels: [],
+      hydrated: false,
+      saveEnabled: false,
+      snapPreview: null,
+      draggingId: null,
+    });
+  },
+  hydrate: (panels, saveEnabled = true, ownerKey) => {
+    set((state) => ({
+      ownerKey: ownerKey ?? state.ownerKey,
+      panels,
+      hydrated: true,
+      saveEnabled,
+      snapPreview: null,
+      draggingId: null,
+    }));
   },
   pin: (screen, object, area) => {
     set((s) => ({ panels: pinObject(s.panels, screen, object, area) }));
@@ -88,4 +108,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
 export function selectScreenPanels(panels: Panel[], screen: ScreenKey): Panel[] {
   return panels.filter((p) => p.screen === screen);
+}
+
+export function isWorkspaceOwnerCurrent(
+  ownerKey: string | undefined,
+): boolean {
+  return ownerKey !== undefined && useWorkspaceStore.getState().ownerKey === ownerKey;
+}
+
+export function runForWorkspaceOwner(
+  ownerKey: string | undefined,
+  mutate: () => void,
+): boolean {
+  if (!isWorkspaceOwnerCurrent(ownerKey)) return false;
+  mutate();
+  return true;
 }

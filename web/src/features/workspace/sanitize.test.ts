@@ -43,6 +43,12 @@ describe("sanitizeEnvelope", () => {
     const env = sanitizeEnvelope(wrap([validPanel()]));
     expect(env.panels).toHaveLength(1);
     expect(env.panels[0].id).toBe("work-hub:workOrder:WO-1");
+    expect(env.panels[0].object).toEqual({
+      kind: "workOrder",
+      code: "WO-1",
+      title: "WO-1",
+      fields: [],
+    });
   });
 
   it("drops panels with an unknown screen, area, mode, or object kind", () => {
@@ -139,7 +145,7 @@ describe("sanitizeEnvelope", () => {
     });
   });
 
-  it("drops malformed fields but keeps well-formed ones", () => {
+  it("strips persisted domain fields and unsafe hrefs", () => {
     const env = sanitizeEnvelope(
       wrap([
         {
@@ -147,18 +153,21 @@ describe("sanitizeEnvelope", () => {
           object: {
             kind: "workOrder",
             code: "WO-9",
-            title: "T",
+            title: "Sensitive customer title",
+            href: "javascript:alert(1)",
             fields: [
-              { label: "ok", value: "v" },
-              { label: 5 },
-              "junk",
-              { value: "no-label" },
+              { label: "customer", value: "Acme" },
             ],
           },
         },
       ]),
     );
-    expect(env.panels[0].object.fields).toEqual([{ label: "ok", value: "v" }]);
+    expect(env.panels[0].object).toEqual({
+      kind: "workOrder",
+      code: "WO-9",
+      title: "WO-9",
+      fields: [],
+    });
   });
 
   it("caps panels per screen at 8", () => {

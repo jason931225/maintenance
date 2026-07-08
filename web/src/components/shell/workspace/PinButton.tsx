@@ -1,4 +1,7 @@
-import { useConsoleScreen } from "../../../features/workspace/pin-context";
+import {
+  useConsoleScreen,
+  useConsoleWorkspaceOwner,
+} from "../../../features/workspace/pin-context";
 import { useWorkspaceStore } from "../../../features/workspace/store";
 import type { PinnedObject } from "../../../features/workspace/types";
 import { ko } from "../../../i18n/ko";
@@ -13,14 +16,19 @@ const PinIcon = consoleIcons.pin;
  */
 export function PinButton({ object }: { object: PinnedObject }) {
   const screen = useConsoleScreen();
+  const ownerKey = useConsoleWorkspaceOwner();
+  const storeOwnerKey = useWorkspaceStore((s) => s.ownerKey);
   const pin = useWorkspaceStore((s) => s.pin);
   if (!screen) return null;
+  const canPin = ownerKey === undefined || storeOwnerKey === ownerKey;
   return (
     <button
       type="button"
       aria-label={ko.console.workspace.pin.label.replace("{title}", object.title)}
       className="inline-flex h-7 w-7 items-center justify-center rounded-[7px] border border-console-border bg-console-surface text-console-steel shadow-console hover:border-console-steel hover:text-console-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-signal focus-visible:ring-offset-1 focus-visible:ring-offset-console-surface"
+      disabled={!canPin}
       onClick={() => {
+        if (!canPin) return;
         pin(screen, object);
       }}
     >

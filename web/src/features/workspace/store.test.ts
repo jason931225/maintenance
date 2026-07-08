@@ -18,6 +18,7 @@ const at: PinnedObject = {
 
 beforeEach(() => {
   useWorkspaceStore.setState({
+    ownerKey: null,
     panels: [],
     hydrated: false,
     saveEnabled: false,
