@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { kindFromCode, workOrderCode, type ObjectKind } from "./objectRegistry";
 import { parseTokenGrammar, serializeTokenSpans, type TokenSpan } from "./tokenGrammar";
 
 describe("parseTokenGrammar", () => {
@@ -29,6 +30,25 @@ describe("parseTokenGrammar", () => {
   it("parses !WO-2643 as a code link", () => {
     expect(parseTokenGrammar("!WO-2643")).toEqual([
       { kind: "codeLink", raw: "!WO-2643", value: "WO-2643" },
+    ]);
+  });
+
+  // Real objects issue two-segment date-sequence codes, not just the
+  // single-segment "AP-3121" shape — these must parse too (regression for the
+  // codex round-2 finding: CODE_LINK_RE originally split "!WO-20260612-001"
+  // into a codeLink "!WO-20260612" plus stray text "-001").
+  it("parses a real two-segment work-order code (WO-{request_no})", () => {
+    const code = workOrderCode("20260612-001");
+    expect(parseTokenGrammar(`상태 확인 !${code} 부탁`)).toEqual([
+      { kind: "text", value: "상태 확인 " },
+      { kind: "codeLink", raw: `!${code}`, value: code },
+      { kind: "text", value: " 부탁" },
+    ]);
+  });
+
+  it("parses a real two-segment journal code (JL-{date}-{seq})", () => {
+    expect(parseTokenGrammar("!JL-20260704-1")).toEqual([
+      { kind: "codeLink", raw: "!JL-20260704-1", value: "JL-20260704-1" },
     ]);
   });
 
@@ -100,6 +120,32 @@ describe("parseTokenGrammar", () => {
   ])("serializeTokenSpans(parseTokenGrammar(text)) round-trips exactly: %j", (text) => {
     expect(serializeTokenSpans(parseTokenGrammar(text))).toBe(text);
   });
+
+  // Hand-rolled generator (no fast-check dep) over every registry kind's real
+  // code shape — catches the class of bug where the parser only handles the
+  // shape of the *example* code in the spec, not the shapes objects actually
+  // issue (e.g. two-segment date-sequence codes).
+  it.each([
+    ["approval", "AP-3121"],
+    ["workOrder", workOrderCode("20260612-001")],
+    ["support", "CS-991"],
+    ["attendance", "AT-12"],
+    ["payroll", "PS-202607"],
+    ["contract", "C-55"],
+    ["journal", "JL-20260704-1"],
+    ["intake", "IN-7"],
+  ] satisfies Array<[ObjectKind, string]>)(
+    "!%s round-trips and resolves back to its own kind via kindFromCode",
+    (kind, code) => {
+      const text = `참고 !${code} 확인`;
+      const spans = parseTokenGrammar(text);
+      const codeLink = spans.find((span) => span.kind === "codeLink");
+
+      expect(codeLink).toEqual({ kind: "codeLink", raw: `!${code}`, value: code });
+      expect(serializeTokenSpans(spans)).toBe(text);
+      expect(kindFromCode(code)).toBe(kind);
+    },
+  );
 
   it("serializeTokenSpans reassembles arbitrary spans in order", () => {
     const spans: TokenSpan[] = [

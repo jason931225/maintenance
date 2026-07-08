@@ -11,8 +11,10 @@
  *   boundary-preceded).
  * - `#` fires only after the same boundary, followed by a search term whose
  *   first character is a letter — so pure-numeric `#23` never matches.
- * - `!` fires only for an explicit `CODE-NNNN` shape (`!AP-3121`) — so `!!`
- *   and other punctuation never match.
+ * - `!` fires only for an explicit `CODE-NNNN` shape (`!AP-3121`), including
+ *   the two-segment date-sequence codes real objects actually use
+ *   (`!WO-20260612-001`, `!JL-20260704-1`) — so `!!` and other punctuation
+ *   never match.
  */
 
 export type TokenKind = "mention" | "objectLink" | "codeLink";
@@ -23,7 +25,10 @@ export type TokenSpan =
 
 const MENTION_RE = /(^|[\s([{])(@[\p{L}\p{N}._-]{1,48})/gu;
 const OBJECT_LINK_RE = /(^|[\s([{])(#[\p{L}][\p{L}\p{N}_-]{0,63})/gu;
-const CODE_LINK_RE = /(^|[\s([{])(![A-Z]{1,8}-[0-9]{1,10})/gu;
+// Second optional `-NNNNNN` segment covers real two-segment codes like
+// workOrderCode()'s "WO-20260612-001" and journal's "JL-20260704-1", not just
+// the single-segment "AP-3121" shape.
+const CODE_LINK_RE = /(^|[\s([{])(![A-Z]{1,8}-[0-9]{1,10}(?:-[0-9]{1,6})?)/gu;
 
 interface RawMatch {
   start: number;
