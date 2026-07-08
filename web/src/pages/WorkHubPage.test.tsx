@@ -37,6 +37,14 @@ function renderPage(session: AuthSession) {
   );
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 const requestedPlanId = "44444444-4444-4444-8444-444444444444";
 const targetChangeId = "66666666-6666-4666-8666-666666666666";
 const testTenantId = "99999999-0000-4000-8000-999999999999";
@@ -569,5 +577,49 @@ describe("WorkHubPage", () => {
     });
 
     expect(await screen.findByText("데이터를 불러오지 못했습니다.")).toBeVisible();
+  });
+
+  it("does not commit a delayed load after unmount", async () => {
+    const workOrdersResponse = deferred<Response>();
+    server.use(
+      http.get("*/api/v1/work-orders", ({ request }) => {
+        workOrderListRequests.push(new URL(request.url));
+        return workOrdersResponse.promise;
+      }),
+      http.get("*/api/v1/support/tickets", () =>
+        HttpResponse.json({ items: [], next_cursor: null, total: 0 }),
+      ),
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+    );
+    const { unmount } = renderPage({
+      access_token: "receptionist-token",
+      roles: ["RECEPTIONIST"],
+      branches: [branchId],
+    });
+
+    await waitFor(() => {
+      expect(workOrderListRequests).toHaveLength(1);
+    });
+    unmount();
+
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      workOrdersResponse.resolve(
+        HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
+      );
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    } finally {
+      if (windowDescriptor) {
+        Object.defineProperty(globalThis, "window", windowDescriptor);
+      }
+    }
   });
 });

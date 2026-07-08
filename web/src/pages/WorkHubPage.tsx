@@ -7,7 +7,7 @@ import {
   MessageSquare,
   Timer,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -396,6 +396,7 @@ function skippedSource(key: SourceKey): Promise<CapturedSource<{ items: [] }>> {
 
 export function WorkHubPage() {
   const { api, session } = useAuth();
+  const mountedRef = useRef(false);
   const [data, setData] = useState<WorkHubData>(emptyData);
   const [failures, setFailures] = useState<SourceFailure[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
@@ -409,7 +410,25 @@ export function WorkHubPage() {
     hasAnyRole(session?.roles, MAIL_USE_ROLES) ||
     hasAnyFeatureGrant(session?.feature_grants, MAIL_USE_FEATURES);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const commitLoadResult = useCallback(
+    (nextData: WorkHubData, nextFailures: SourceFailure[], nextReadState: ReadState) => {
+      if (!mountedRef.current) return;
+      setData(nextData);
+      setFailures(nextFailures);
+      setReadState(nextReadState);
+    },
+    [],
+  );
+
   const loadData = useCallback(async () => {
+    if (!mountedRef.current) return;
     setReadState("loading");
     const workOrderQuery = canSeeTeamQueue
       ? { limit: 20, offset: 0 }
@@ -449,10 +468,12 @@ export function WorkHubPage() {
       messengerThreads: (results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? [],
     };
 
-    setData(nextData);
-    setFailures(nextFailures);
-    setReadState(requestedResults.every((result) => result.failed) ? "error" : "idle");
-  }, [api, canApprove, canSeeTeamQueue, canUseDailyPlan, canUseMessenger]);
+    commitLoadResult(
+      nextData,
+      nextFailures,
+      requestedResults.every((result) => result.failed) ? "error" : "idle",
+    );
+  }, [api, canApprove, canSeeTeamQueue, canUseDailyPlan, canUseMessenger, commitLoadResult]);
 
   useEffect(() => {
     void Promise.resolve().then(loadData);
