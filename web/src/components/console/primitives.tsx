@@ -1,7 +1,7 @@
 import type * as React from "react";
 
 import { ko } from "../../i18n/ko";
-import type { ObjectKind } from "../../lib/objectRegistry";
+import { objectRegistry, type ObjectKind } from "../../lib/objectRegistry";
 import { cn } from "../../lib/utils";
 import { consoleIcons, type ConsoleIconName } from "./icons";
 
@@ -71,22 +71,10 @@ export function MonoRef({
   );
 }
 
-const objectKindTone = {
-  approval: "accent",
-  workOrder: "info",
-  support: "warn",
-  attendance: "ok",
-  payroll: "purple",
-  contract: "neutral",
-  journal: "info",
-  intake: "warn",
-  person: "purple",
-  org: "neutral",
-} as const satisfies Record<ObjectKind, Tone>;
-
 /** Kept as an alias so existing imports of `ObjectChipKind` keep working —
  * the registry's `ObjectKind` (`lib/objectRegistry.ts`) is now the single
- * source of truth for which kinds exist. */
+ * source of truth for which kinds exist, their chip tone, and their icon
+ * (no second tone map to drift out of sync with it). */
 export type ObjectChipKind = ObjectKind;
 
 export function ObjectChip({
@@ -111,7 +99,12 @@ export function ObjectChip({
       )}
       onClick={() => onOpen?.(code)}
     >
-      <Chip tone={objectKindTone[kind]} className="px-1.5 font-mono" aria-hidden="true">
+      <Chip
+        tone={objectRegistry[kind].chipTone}
+        icon={objectRegistry[kind].icon}
+        className="px-1.5 font-mono"
+        aria-hidden="true"
+      >
         {prefix}
       </Chip>
       <MonoRef value={code} />
