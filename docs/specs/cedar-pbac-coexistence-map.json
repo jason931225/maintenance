@@ -57,11 +57,12 @@
     {
       "id": "identity.policy.role_manage",
       "domain": "identity.policy",
+      "resourceType": "identity.policy_role",
       "actions": [
-        "RoleManage",
-        "ElevatedRoleGrant",
-        "UserRoleAssignmentWrite",
-        "PolicyRoleWrite"
+        "role_manage",
+        "elevated_role_grant",
+        "user_role_assignment_write",
+        "policy_role_write"
       ],
       "currentMode": "legacy_only",
       "owner": "identity-platform",
@@ -97,11 +98,12 @@
     {
       "id": "workflow.guards.execution_action",
       "domain": "workflow.guards",
+      "resourceType": "workflow.execution_action",
       "actions": [
-        "WorkflowTrigger",
-        "WorkflowNodeExecute",
-        "WorkflowConnectorInvoke",
-        "WorkflowHumanApproval"
+        "workflow_trigger",
+        "workflow_node_execute",
+        "workflow_connector_invoke",
+        "workflow_human_approval"
       ],
       "currentMode": "legacy_only",
       "owner": "workflow-platform",

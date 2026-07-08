@@ -12,6 +12,26 @@ use mnt_kernel_core::{BranchId, KernelError, OrgId};
 
 use crate::{Action, Feature, PermissionLevel, Principal, authorize, authorize_org_wide};
 
+/// Real Cedar bundle compile/validate + evaluation adapter.
+///
+/// This submodule is not on any live authorization path yet: every caller still
+/// passes [`CedarEvaluation::NotConfigured`], so production behavior is
+/// unchanged. It exists so later slices can compile a schema-validated bundle
+/// and produce real `Allow`/`Deny`/`Error` results for the shadow lane.
+pub mod engine;
+
+/// Coexistence-map loader: parse the canonical map JSON into typed
+/// [`CoexistenceMapEntry`] rows.
+///
+/// This submodule is ADDITIVE/INERT (Cedar-activation slice 3): nothing consults
+/// the produced entries on a live request path yet (that is the shadow-wiring
+/// slice). It only turns the org-agnostic spec map
+/// (`docs/specs/cedar-pbac-coexistence-map.json`) into the entries the
+/// already-existing boundary consumes, and it fails closed on any drift between
+/// a map action id and the [`Feature`] matrix so an unmodeled/typo action can
+/// never silently enroll or drop.
+pub mod map;
+
 /// Mutable subject/version inputs that make stale subject material deny.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

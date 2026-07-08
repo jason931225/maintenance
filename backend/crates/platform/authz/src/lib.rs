@@ -570,6 +570,16 @@ pub struct Principal {
     /// principal is built; unsupported ABAC/PBAC conditions are omitted rather
     /// than guessed.
     pub effective_feature_grants: Vec<EffectiveFeatureGrant>,
+    /// Subject authorization freshness carried by the verified access token
+    /// (Cedar/PBAC activation, ADR-0021). Set from the token's mint-time snapshot
+    /// claims by `resolve_principal_from_bearer_token`.
+    ///
+    /// SLICE-2 only SOURCES this; no live authorization decision consults it and
+    /// the Cedar path stays unreachable. It defaults to the no-material baseline
+    /// (all zero), so a token minted before the freshness claims existed yields
+    /// [`SubjectFreshness::default`] and every current live path is unchanged.
+    #[serde(default)]
+    pub authz_freshness: SubjectFreshness,
 }
 
 impl Principal {
@@ -587,12 +597,27 @@ impl Principal {
             roles,
             branch_scope,
             effective_feature_grants: Vec::new(),
+            authz_freshness: SubjectFreshness {
+                policy_version: 0,
+                subject_version: 0,
+                session_generation: 0,
+                step_up_generation: None,
+            },
         }
     }
 
     #[must_use]
     pub const fn with_access_scope(mut self, access_scope: AccessScope) -> Self {
         self.access_scope = access_scope;
+        self
+    }
+
+    /// Attach the subject authorization freshness snapshot carried by the
+    /// verified token (Cedar/PBAC activation). SLICE-2 only sources it; no live
+    /// decision consults it yet.
+    #[must_use]
+    pub const fn with_authz_freshness(mut self, freshness: SubjectFreshness) -> Self {
+        self.authz_freshness = freshness;
         self
     }
 
