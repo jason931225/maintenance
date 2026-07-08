@@ -242,6 +242,12 @@ src/main/kotlin/com/maintenance/api/client/model/MessengerThreadKind.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationLink.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationLinkOneOf.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationLinkOneOf1.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationPage.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationReadAllResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionCatalogResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionExecutionResponse.kt
