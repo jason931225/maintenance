@@ -2363,10 +2363,6 @@ async fn seed_user_with_team(
     seed_user_in_org_with_team(pool, OrgId::knl(), name, roles, branch_id, team).await
 }
 
-async fn seed_user_in_org(pool: &PgPool, org_id: OrgId, name: &str, roles: &[&str]) -> UserId {
-    seed_user_in_org_with_team(pool, org_id, name, roles, None, None).await
-}
-
 async fn seed_user_in_org_with_team(
     pool: &PgPool,
     org_id: OrgId,
