@@ -9,6 +9,13 @@ export interface ObjectCandidate {
   label: string;
 }
 
+/** Distinguishes "loaded, zero matches" from "the fetch failed" — a provider
+ * must never collapse a 403/network error into an empty dropdown, which a
+ * caller would otherwise render as "no results" instead of an error state. */
+export type CandidateResult =
+  | { status: "ok"; candidates: ObjectCandidate[] }
+  | { status: "error" };
+
 /**
  * Kind-scoped candidate lookup for the token-grammar dropdown: given the
  * in-progress query text (may be empty — "show everything"), resolve
@@ -22,42 +29,77 @@ export interface ObjectCandidate {
  * resolve through a provider must be left as plain text by the caller
  * (`TokenText`'s `resolveObject`), never rendered as a link.
  */
-export type CandidateProvider = (query: string) => Promise<ObjectCandidate[]>;
+export type CandidateProvider = (query: string) => Promise<CandidateResult>;
 
 const CANDIDATE_LIMIT = 8;
-const FETCH_PAGE_SIZE = 50;
 
 function matches(needle: string, ...haystack: Array<string | null | undefined>): boolean {
   if (!needle) return true;
   return haystack.some((value) => value?.toLowerCase().includes(needle));
 }
 
-/** `@` mention candidates — real people, backed by the branch-scoped user list. */
-export function createPersonCandidateProvider(api: ConsoleApiClient): CandidateProvider {
+/**
+ * `@` mention candidates — real people.
+ *
+ * Deliberately NOT `/api/v1/users`: that endpoint requires `Feature::UserManage`
+ * (admin/super-admin only — see `identity/rest/src/lib.rs`'s `list_users`, and
+ * `DispatchPage.tsx`'s own `loadMechanics` which gates the same endpoint behind
+ * `isManager`), so a regular employee mentioning a coworker would always get a
+ * 403 and a permanently-empty dropdown. `/api/messenger/members` is the
+ * existing branch-scoped, non-admin endpoint built for exactly this ("discover
+ * active coworkers... without requiring the admin-only user-management
+ * endpoint") — reused here instead of adding a new one.
+ */
+export function createPersonCandidateProvider(
+  api: ConsoleApiClient,
+  branchId: string,
+): CandidateProvider {
   return async (query) => {
-    const response = await api.GET("/api/v1/users", {
-      params: { query: { limit: FETCH_PAGE_SIZE } },
-    });
+    let response;
+    try {
+      response = await api.GET("/api/messenger/members", {
+        params: { query: { branch_id: branchId, limit: 100 } },
+      });
+    } catch {
+      return { status: "error" };
+    }
+    if (response.error || !response.response.ok) return { status: "error" };
+
     const needle = query.trim().toLowerCase();
-    return (response.data?.items ?? [])
-      .filter((user) => user.is_active && matches(needle, user.display_name, user.employee_name))
+    const candidates = response.data.items
+      .filter((member) => matches(needle, member.display_name))
       .slice(0, CANDIDATE_LIMIT)
-      .map((user) => ({
+      .map((member) => ({
         kind: "person" as const,
-        code: user.id,
-        label: safeLabel(user.display_name, user.employee_name),
+        code: member.id,
+        label: safeLabel(member.display_name),
       }));
+    return { status: "ok", candidates };
   };
 }
+
+// ponytail: /api/v1/work-orders has no text-search query param, so this fetches
+// one page and filters client-side — matches past FETCH_PAGE_SIZE are invisible
+// to the dropdown. 100 is the endpoint's own server-side max (openapi.yaml),
+// so this is the largest single page obtainable; add real search if that ceiling
+// ever bites in practice.
+const FETCH_PAGE_SIZE = 100;
 
 /** `#`/`!` work-order candidates, backed by the branch-scoped work-order list. */
 export function createWorkOrderCandidateProvider(api: ConsoleApiClient): CandidateProvider {
   return async (query) => {
-    const response = await api.GET("/api/v1/work-orders", {
-      params: { query: { limit: FETCH_PAGE_SIZE } },
-    });
+    let response;
+    try {
+      response = await api.GET("/api/v1/work-orders", {
+        params: { query: { limit: FETCH_PAGE_SIZE } },
+      });
+    } catch {
+      return { status: "error" };
+    }
+    if (response.error || !response.response.ok) return { status: "error" };
+
     const needle = query.trim().toLowerCase();
-    return (response.data?.items ?? [])
+    const candidates = response.data.items
       .filter((wo) =>
         matches(needle, wo.request_no, wo.customer.name, wo.site.name, wo.equipment.model),
       )
@@ -67,5 +109,6 @@ export function createWorkOrderCandidateProvider(api: ConsoleApiClient): Candida
         code: workOrderCode(wo.request_no),
         label: `${safeLabel(wo.customer.name)} · ${safeLabel(wo.equipment.model, wo.equipment.equipment_no)}`,
       }));
+    return { status: "ok", candidates };
   };
 }
