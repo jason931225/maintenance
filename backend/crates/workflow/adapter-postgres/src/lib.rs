@@ -91,6 +91,27 @@ pub struct WaitingTaskListItem {
 pub struct RunListFilter {
     pub statuses: Vec<RunStatus>,
     pub object_type: Option<String>,
+    /// Free-text (`?q=`) case-insensitive substring search over the run's
+    /// human-readable content. `None` (or empty) returns all rows. The caller must
+    /// pass the raw search term already trimmed; LIKE metacharacters are escaped here.
+    pub q: Option<String>,
+}
+
+/// Escape LIKE/ILIKE metacharacters (`\`, `%`, `_`) in a raw search term and wrap it
+/// as a `%term%` substring pattern, so user input is matched literally (a `q` of
+/// `50%` matches the text `50%`, not `50<anything>`). Postgres ILIKE's default escape
+/// character is backslash, so no explicit `ESCAPE` clause is needed.
+fn ilike_contains_pattern(raw: &str) -> String {
+    let mut escaped = String::with_capacity(raw.len() + 2);
+    escaped.push('%');
+    for ch in raw.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped.push('%');
+    escaped
 }
 
 /// One submission-box row (a run the principal initiated).
@@ -673,6 +694,15 @@ impl PgWorkflowRuntimeStore {
             .iter()
             .map(|status| status.as_db_str().to_owned())
             .collect();
+        // Free-text `?q=` filter (Engine-Gen follow-up): case-insensitive substring
+        // over the row's human-readable content — the `object_type` slug and the
+        // caller-supplied `input_payload` (reason/subject/etc., a JSONB object with
+        // no dedicated title column). Added as an extra AND inside the existing
+        // org-scoped + initiator-scoped query, so it only narrows the caller's own
+        // rows and never widens visibility. No text index yet: per-user + LIMIT 200
+        // keeps this a scan over a handful of rows; a pg_trgm index would only pay
+        // off at large per-user submission volume (deferred).
+        let q_pattern = filter.q.as_deref().map(ilike_contains_pattern);
         with_org_conn::<_, Vec<RunListItem>, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
             Box::pin(async move {
                 let rows = sqlx::query(
@@ -682,12 +712,16 @@ impl PgWorkflowRuntimeStore {
                      WHERE r.initiated_by = $1 \
                        AND (cardinality($2::text[]) = 0 OR r.status = ANY($2)) \
                        AND ($3::text IS NULL OR r.object_type = $3) \
+                       AND ($4::text IS NULL \
+                            OR r.object_type ILIKE $4 \
+                            OR r.input_payload::text ILIKE $4) \
                      ORDER BY r.updated_at DESC \
                      LIMIT 200",
                 )
                 .bind(*me.as_uuid())
                 .bind(&statuses)
                 .bind(filter.object_type.as_deref())
+                .bind(q_pattern.as_deref())
                 .fetch_all(tx.as_mut())
                 .await
                 .map_err(PgWorkflowRuntimeError::from)?;
@@ -1986,5 +2020,21 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
             .await
             .map_err(KernelError::from)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ilike_contains_pattern;
+
+    #[test]
+    fn ilike_pattern_escapes_metacharacters() {
+        // Plain term is wrapped as a substring pattern.
+        assert_eq!(ilike_contains_pattern("annual"), "%annual%");
+        // LIKE metacharacters (\ % _) are escaped so they match literally, not as
+        // wildcards — a search for "50%" must not match "50<anything>".
+        assert_eq!(ilike_contains_pattern("50%"), "%50\\%%");
+        assert_eq!(ilike_contains_pattern("a_b"), "%a\\_b%");
+        assert_eq!(ilike_contains_pattern("c\\d"), "%c\\\\d%");
     }
 }

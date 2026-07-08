@@ -930,9 +930,11 @@ struct RunListQuery {
     status: Option<String>,
     #[serde(default)]
     object_type: Option<String>,
-    // `q` (free-text search) is accepted but not yet used — no text index exists.
-    #[serde(default, rename = "q")]
-    _q: Option<String>,
+    // `q` (free-text search): case-insensitive substring match over the submission
+    // row's human-readable content (object_type + input_payload). Applied inside the
+    // org-scoped, initiator-scoped query — it only ever narrows, never widens.
+    #[serde(default)]
+    q: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1637,6 +1639,13 @@ async fn list_my_workflow_runs(
             RunListFilter {
                 statuses,
                 object_type: query.object_type.clone(),
+                // Empty/whitespace-only q is treated as absent (returns all rows).
+                q: query
+                    .q
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|q| !q.is_empty())
+                    .map(ToOwned::to_owned),
             },
         )
         .await?;
