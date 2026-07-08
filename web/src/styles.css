@@ -16,12 +16,43 @@
   --color-line: #d7dee5;
 
   /* Authenticated console semantic tokens. These resolve through .console vars
-   * so storefront pages keep their existing KNL brand palette while app surfaces
-   * get one AA-tuned color language for status, priority, and SLA meaning. */
+   * so storefront pages keep their existing KNL brand palette untouched. */
   --color-console-canvas: var(--console-canvas);
   --color-console-surface: var(--console-surface);
   --color-console-muted: var(--console-muted);
   --color-console-border: var(--console-border);
+  --color-console-border-soft: var(--console-border-soft);
+  --color-console-ink: var(--console-ink);
+  --color-console-steel: var(--console-steel);
+  --color-console-faint: var(--console-faint);
+  --color-console-signal: var(--console-signal);
+  --color-console-signal-deep: var(--console-signal-deep);
+  --color-console-teal: var(--console-teal);
+  --color-console-danger-bg: var(--console-danger-bg);
+  --color-console-danger-bd: var(--console-danger-bd);
+  --color-console-danger-tx: var(--console-danger-tx);
+  --color-console-danger-solid: var(--console-danger-solid);
+  --color-console-warn-bg: var(--console-warn-bg);
+  --color-console-warn-bd: var(--console-warn-bd);
+  --color-console-warn-tx: var(--console-warn-tx);
+  --color-console-warn-solid: var(--console-warn-solid);
+  --color-console-ok-bg: var(--console-ok-bg);
+  --color-console-ok-bd: var(--console-ok-bd);
+  --color-console-ok-tx: var(--console-ok-tx);
+  --color-console-ok-solid: var(--console-ok-solid);
+  --color-console-info-bg: var(--console-info-bg);
+  --color-console-info-bd: var(--console-info-bd);
+  --color-console-info-tx: var(--console-info-tx);
+  --color-console-accent-bg: var(--console-accent-bg);
+  --color-console-accent-bd: var(--console-accent-bd);
+  --color-console-accent-tx: var(--console-accent-tx);
+  --color-console-purple-bg: var(--console-purple-bg);
+  --color-console-purple-bd: var(--console-purple-bd);
+  --color-console-purple-tx: var(--console-purple-tx);
+  --shadow-console: var(--console-shadow);
+  --shadow-console-pop: var(--console-shadow-pop);
+
+  /* Backward-compatible tone utilities for existing console routes. */
   --color-tone-danger-bg: var(--tone-danger-bg);
   --color-tone-danger-border: var(--tone-danger-border);
   --color-tone-danger-text: var(--tone-danger-text);
@@ -142,55 +173,183 @@ select {
  * and future dark/density modes can swap values without touching components.
  */
 .console {
-  --console-canvas: #f4f6f8;
+  --console-canvas: #f2f4f7;
   --console-surface: #ffffff;
-  --console-muted: #eef2f5;
-  --console-border: #d7dee5;
-  --tone-danger-bg: #fef2f2;
-  --tone-danger-border: #fca5a5;
-  --tone-danger-text: #991b1b;
-  --tone-warning-bg: #fffbeb;
-  --tone-warning-border: #fcd34d;
-  --tone-warning-text: #92400e;
-  --tone-success-bg: #ecfdf5;
-  --tone-success-border: #6ee7b7;
-  --tone-success-text: #065f46;
-  --tone-info-bg: #eff6ff;
-  --tone-info-border: #93c5fd;
-  --tone-info-text: #1e40af;
-  --tone-accent-bg: #fffbeb;
-  --tone-accent-border: #f6b521;
-  --tone-accent-text: #78350f;
-  --tone-neutral-bg: #eef2f5;
-  --tone-neutral-border: #d7dee5;
-  --tone-neutral-text: #51606c;
+  --console-muted: #eceff3;
+  --console-border: #dbe1e8;
+  --console-border-soft: #e8ecf1;
+  --console-ink: #141a21;
+  --console-steel: #566475;
+  --console-faint: #8b98a7;
+  --console-signal: #f6b521;
+  --console-signal-deep: #e2a30d;
+  --console-teal: #0f766e;
+  --console-danger-bg: #fef2f2;
+  --console-danger-bd: #fca5a5;
+  --console-danger-tx: #b91c1c;
+  --console-danger-solid: #dc2626;
+  --console-warn-bg: #fffbeb;
+  --console-warn-bd: #fcd34d;
+  --console-warn-tx: #92400e;
+  --console-warn-solid: #b45309;
+  --console-ok-bg: #ecfdf5;
+  --console-ok-bd: #6ee7b7;
+  --console-ok-tx: #065f46;
+  --console-ok-solid: #059669;
+  --console-info-bg: #eff6ff;
+  --console-info-bd: #93c5fd;
+  --console-info-tx: #1e40af;
+  --console-accent-bg: #fffbeb;
+  --console-accent-bd: #f6b521;
+  --console-accent-tx: #78350f;
+  --console-purple-bg: #f5f3ff;
+  --console-purple-bd: #c4b5fd;
+  --console-purple-tx: #5b21b6;
+  --console-shadow: 0 1px 2px rgba(20, 26, 33, 0.05);
+  --console-shadow-pop: 0 12px 32px rgba(20, 26, 33, 0.16);
+  --tone-danger-bg: var(--console-danger-bg);
+  --tone-danger-border: var(--console-danger-bd);
+  --tone-danger-text: var(--console-danger-tx);
+  --tone-warning-bg: var(--console-warn-bg);
+  --tone-warning-border: var(--console-warn-bd);
+  --tone-warning-text: var(--console-warn-tx);
+  --tone-success-bg: var(--console-ok-bg);
+  --tone-success-border: var(--console-ok-bd);
+  --tone-success-text: var(--console-ok-tx);
+  --tone-info-bg: var(--console-info-bg);
+  --tone-info-border: var(--console-info-bd);
+  --tone-info-text: var(--console-info-tx);
+  --tone-accent-bg: var(--console-accent-bg);
+  --tone-accent-border: var(--console-accent-bd);
+  --tone-accent-text: var(--console-accent-tx);
+  --tone-neutral-bg: var(--console-muted);
+  --tone-neutral-border: var(--console-border);
+  --tone-neutral-text: var(--console-steel);
+  color: var(--console-ink);
   background: var(--console-canvas);
 }
 
-.console.dark {
+.console.dark,
+.console.t-dark {
   color-scheme: dark;
-  --console-canvas: #0b1220;
-  --console-surface: #111827;
-  --console-muted: #1f2937;
-  --console-border: #334155;
-  --tone-danger-bg: #450a0a;
-  --tone-danger-border: #991b1b;
-  --tone-danger-text: #fecaca;
-  --tone-warning-bg: #451a03;
-  --tone-warning-border: #b45309;
-  --tone-warning-text: #fde68a;
-  --tone-success-bg: #022c22;
-  --tone-success-border: #047857;
-  --tone-success-text: #a7f3d0;
-  --tone-info-bg: #172554;
-  --tone-info-border: #2563eb;
-  --tone-info-text: #bfdbfe;
-  --tone-accent-bg: #422006;
-  --tone-accent-border: #c88800;
-  --tone-accent-text: #fde68a;
-  --tone-neutral-bg: #1f2937;
-  --tone-neutral-border: #475569;
-  --tone-neutral-text: #cbd5e1;
+  --console-canvas: #0e1319;
+  --console-surface: #161c24;
+  --console-muted: #1f2731;
+  --console-border: #2b3542;
+  --console-border-soft: #232c37;
+  --console-ink: #e8edf4;
+  --console-steel: #9cabbc;
+  --console-faint: #61707f;
+  --console-signal: #f6b521;
+  --console-signal-deep: #ffc93d;
+  --console-teal: #2dd4bf;
+  --console-danger-bg: #3a1214;
+  --console-danger-bd: #7f2b2b;
+  --console-danger-tx: #fda4a4;
+  --console-danger-solid: #f87171;
+  --console-warn-bg: #3a2606;
+  --console-warn-bd: #92610a;
+  --console-warn-tx: #fcd34d;
+  --console-warn-solid: #fbbf24;
+  --console-ok-bg: #062e22;
+  --console-ok-bd: #0b6e51;
+  --console-ok-tx: #6ee7b7;
+  --console-ok-solid: #34d399;
+  --console-info-bg: #14243f;
+  --console-info-bd: #2d5eb8;
+  --console-info-tx: #93c5fd;
+  --console-accent-bg: #362605;
+  --console-accent-bd: #a97b06;
+  --console-accent-tx: #fcd34d;
+  --console-purple-bg: #271449;
+  --console-purple-bd: #6d43c0;
+  --console-purple-tx: #c4b5fd;
+  --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --console-shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  .console:not(.t-light):not(.dark) {
+    color-scheme: dark;
+    --console-canvas: #0e1319;
+    --console-surface: #161c24;
+    --console-muted: #1f2731;
+    --console-border: #2b3542;
+    --console-border-soft: #232c37;
+    --console-ink: #e8edf4;
+    --console-steel: #9cabbc;
+    --console-faint: #61707f;
+    --console-signal: #f6b521;
+    --console-signal-deep: #ffc93d;
+    --console-teal: #2dd4bf;
+    --console-danger-bg: #3a1214;
+    --console-danger-bd: #7f2b2b;
+    --console-danger-tx: #fda4a4;
+    --console-danger-solid: #f87171;
+    --console-warn-bg: #3a2606;
+    --console-warn-bd: #92610a;
+    --console-warn-tx: #fcd34d;
+    --console-warn-solid: #fbbf24;
+    --console-ok-bg: #062e22;
+    --console-ok-bd: #0b6e51;
+    --console-ok-tx: #6ee7b7;
+    --console-ok-solid: #34d399;
+    --console-info-bg: #14243f;
+    --console-info-bd: #2d5eb8;
+    --console-info-tx: #93c5fd;
+    --console-accent-bg: #362605;
+    --console-accent-bd: #a97b06;
+    --console-accent-tx: #fcd34d;
+    --console-purple-bg: #271449;
+    --console-purple-bd: #6d43c0;
+    --console-purple-tx: #c4b5fd;
+    --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --console-shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.console-motion-pop {
+  animation: pop-in 0.14s ease both;
+}
+
+.console-motion-toast {
+  animation: toast-in 0.18s ease both;
+}
+
+.console-motion-pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
 /* Respect users who ask for less motion: neutralise transitions/animations. */
@@ -202,5 +361,11 @@ select {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .console-motion-pop,
+  .console-motion-toast,
+  .console-motion-pulse-dot {
+    animation: none !important;
   }
 }

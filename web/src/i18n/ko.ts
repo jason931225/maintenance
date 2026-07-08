@@ -10,6 +10,17 @@ import {
 } from "./hrWorkflows";
 
 export const ko = {
+  console: {
+    search: {
+      label: "검색",
+      placeholder: "검색어 입력",
+      clear: "검색어 지우기",
+    },
+    toast: {
+      undo: "실행 취소",
+      close: "닫기",
+    },
+  },
   nav: {
     "work-hub": "업무 허브",
     "my-attendance": "근태 기록",
