@@ -70,6 +70,8 @@ mnt-dispatch-adapter-postgres = { workspace = true }
 mnt-dispatch-domain = { workspace = true }
 mnt-dispatch-rest = { workspace = true }
 mnt-dispatch-worker = { workspace = true }
+mnt-workflow-domain = { workspace = true }
+mnt-workflow-runtime = { workspace = true }
 mnt-workflow-runtime-adapter-postgres = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
 mnt-workorder-rest = { workspace = true }

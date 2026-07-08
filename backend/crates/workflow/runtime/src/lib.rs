@@ -17,7 +17,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod authz_guard;
+pub mod completion;
 pub mod engine;
+pub mod graph;
 pub mod idempotency;
 pub mod interpreter;
 
@@ -25,7 +27,11 @@ pub use authz_guard::{
     GuardOutcome, NODE_TRANSITION_DOMAIN, WAITING_COMPLETION_DOMAIN, build_guard_request, guard,
     workflow_coexistence_entry,
 };
+pub use completion::{
+    FinalizeMode, FinalizePolicyOutcome, FinalizePolicyRequest, enforce_finalize_policy,
+};
 pub use engine::{
     AuditContext, NodeStepOutcome, ProcessNodeRequest, StartRunRequest, process_node, start_run,
 };
-pub use interpreter::{NodeKind, NodeOutcome, NodeSpec, interpret_node};
+pub use graph::{DriveOutcome, ExecGraph, drive_from};
+pub use interpreter::{HumanTaskSemantic, NodeKind, NodeOutcome, NodeSpec, interpret_node};

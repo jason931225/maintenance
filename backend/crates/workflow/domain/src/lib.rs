@@ -385,6 +385,63 @@ pub struct NodeStepCommit {
     pub audit_events: Vec<AuditEvent>,
 }
 
+/// Server-loaded facts for a waiting task that is being finalized.
+#[derive(Debug, Clone)]
+pub struct FinalizeWaitingTaskContext {
+    pub task_id: uuid::Uuid,
+    pub run_id: uuid::Uuid,
+    pub node_run_id: Option<uuid::Uuid>,
+    pub waiting_key: String,
+    pub task_status: WaitingTaskStatus,
+    pub run_status: RunStatus,
+    pub required_policy: Option<String>,
+    pub object_type: Option<String>,
+    pub object_id: Option<uuid::Uuid>,
+    pub initiated_by: UserId,
+}
+
+/// Audited command to complete a finalization waiting task.
+#[derive(Debug, Clone)]
+pub struct FinalizeWaitingTaskCommand {
+    pub task_id: uuid::Uuid,
+    pub actor: UserId,
+    pub idempotency_key: String,
+    pub mode: String,
+    pub delegated_reason: Option<String>,
+    pub transition_audits: Vec<AuditEvent>,
+}
+
+/// Persisted result returned by the finalization completion port.
+#[derive(Debug, Clone)]
+pub struct FinalizedWaitingTask {
+    pub task_id: uuid::Uuid,
+    pub run_id: uuid::Uuid,
+    pub status: WaitingTaskStatus,
+    pub completed_by: Option<UserId>,
+    pub decision_payload: serde_json::Value,
+    pub run_status: RunStatus,
+}
+
+/// Audited command to create a compensating post-finalization rejection document.
+#[derive(Debug, Clone)]
+pub struct PostFinalizationRejectionCommand {
+    pub original_run_id: uuid::Uuid,
+    pub actor: UserId,
+    pub reason: String,
+    pub idempotency_key: String,
+    pub transition_audits: Vec<AuditEvent>,
+}
+
+/// Persisted compensating document linked to the finalized original run.
+#[derive(Debug, Clone)]
+pub struct PostFinalizationRejection {
+    pub id: uuid::Uuid,
+    pub original_run_id: uuid::Uuid,
+    pub reason: String,
+    pub created_by: UserId,
+    pub run_status: RunStatus,
+}
+
 /// All DB access the workflow runtime engine performs. Implemented once, by the
 /// Postgres adapter. Object-safe (only `&self` + lifetime generics) so the engine
 /// can hold it as `&dyn WorkflowRuntimePort`.
@@ -406,6 +463,30 @@ pub trait WorkflowRuntimePort: Send + Sync {
     /// Run one atomic [`NodeStepCommit`] (node walk + emissions + waiting task +
     /// run transition + audit rows) in a single transaction.
     fn commit_node_step<'a>(&'a self, org: OrgId, commit: NodeStepCommit) -> PortFuture<'a, ()>;
+
+    /// Load server facts needed to authorize and validate a finalize request.
+    fn load_finalize_waiting_task<'a>(
+        &'a self,
+        org: OrgId,
+        task_id: uuid::Uuid,
+    ) -> PortFuture<'a, Option<FinalizeWaitingTaskContext>>;
+
+    /// Complete a finalization waiting task and close the run when no receipt step
+    /// remains in this slice. Implementations must audit the task mutation and any
+    /// node/run transitions in the same transaction.
+    fn finalize_waiting_task<'a>(
+        &'a self,
+        org: OrgId,
+        command: FinalizeWaitingTaskCommand,
+    ) -> PortFuture<'a, FinalizedWaitingTask>;
+
+    /// Create a compensating rejection document for an already-finalized run.
+    /// Implementations must not mutate the original terminal run.
+    fn create_post_finalization_rejection<'a>(
+        &'a self,
+        org: OrgId,
+        command: PostFinalizationRejectionCommand,
+    ) -> PortFuture<'a, PostFinalizationRejection>;
 }
 
 #[cfg(test)]
@@ -456,6 +537,24 @@ mod tests {
         // No edge leaves a terminal state, and STARTING may not skip to WAITING.
         assert!(validate_run_transition(RunStatus::Succeeded, RunStatus::Running).is_err());
         assert!(validate_run_transition(RunStatus::Starting, RunStatus::Waiting).is_err());
+    }
+
+    #[test]
+    fn finalized_runs_are_terminal_and_non_reopenable() {
+        assert!(validate_run_transition(RunStatus::Waiting, RunStatus::Succeeded).is_ok());
+        for reopen_target in [
+            RunStatus::Starting,
+            RunStatus::Running,
+            RunStatus::Waiting,
+            RunStatus::Failed,
+            RunStatus::Cancelled,
+            RunStatus::DeadLettered,
+        ] {
+            assert!(
+                validate_run_transition(RunStatus::Succeeded, reopen_target).is_err(),
+                "SUCCEEDED must not reopen to {reopen_target:?}"
+            );
+        }
     }
 
     #[test]

@@ -117,6 +117,10 @@ pub enum Feature {
     AssigneeManage,
     TargetManage,
     CompletionReview,
+    /// Delegate finalization for generalized approval documents. Author
+    /// finalization is owner-checked by the workflow runtime; delegate mode uses
+    /// this policy gate and records the inert Cedar shadow.
+    ApprovalFinalize,
     DailyPlanRequest,
     DailyPlanReview,
     /// Org-wide read of the work-order + daily-plan queues regardless of branch
@@ -206,7 +210,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 49] = [
+    pub const ALL: [Self; 50] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -218,6 +222,7 @@ impl Feature {
         Self::AssigneeManage,
         Self::TargetManage,
         Self::CompletionReview,
+        Self::ApprovalFinalize,
         Self::DailyPlanRequest,
         Self::DailyPlanReview,
         Self::OrgWideQueueTriage,
@@ -272,6 +277,7 @@ impl Feature {
             Self::AssigneeManage => "assignee_manage",
             Self::TargetManage => "target_manage",
             Self::CompletionReview => "completion_review",
+            Self::ApprovalFinalize => "approval_finalize",
             Self::DailyPlanRequest => "daily_plan_request",
             Self::DailyPlanReview => "daily_plan_review",
             Self::OrgWideQueueTriage => "org_wide_queue_triage",
@@ -333,6 +339,7 @@ impl Feature {
             Self::AssigneeManage => [D, D, D, A, D, A],
             Self::TargetManage => [D, D, R, A, D, A],
             Self::CompletionReview => [D, D, D, A, D, A],
+            Self::ApprovalFinalize => [D, D, D, A, A, A],
             Self::DailyPlanRequest => [D, D, A, A, D, A],
             Self::DailyPlanReview => [D, D, D, A, D, A],
             // Org-wide queue read: EXECUTIVE + SUPER_ADMIN only, matching the
@@ -407,6 +414,7 @@ impl FromStr for Feature {
             "assignee_manage" => Ok(Self::AssigneeManage),
             "target_manage" => Ok(Self::TargetManage),
             "completion_review" => Ok(Self::CompletionReview),
+            "approval_finalize" => Ok(Self::ApprovalFinalize),
             "daily_plan_request" => Ok(Self::DailyPlanRequest),
             "daily_plan_review" => Ok(Self::DailyPlanReview),
             "org_wide_queue_triage" => Ok(Self::OrgWideQueueTriage),
