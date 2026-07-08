@@ -2,9 +2,12 @@
 //
 // The layout is a per-person JSON blob behind GET/PUT /api/v1/me/workspace. We
 // load once on shell mount (sanitizing the untrusted blob), then debounce-save
-// on every panel change. localStorage is intentionally NOT used — the server
-// profile is the single source of truth so the layout follows the person across
-// devices.
+// on panel changes. localStorage is intentionally NOT used — the server profile
+// is the single source of truth so the layout follows the person across devices.
+//
+// Data-loss guard: a transient GET failure must NOT overwrite the real server
+// layout. On failure we hydrate an empty in-memory layout with saves DISABLED
+// (store.saveEnabled=false); saves turn on only after a successful load.
 
 import { useEffect, useRef } from "react";
 
@@ -33,42 +36,61 @@ function toLayout(panels: Panel[]) {
 export function useWorkspacePersistence(api: ConsoleApiClient, enabled: boolean) {
   const hydrate = useWorkspaceStore((s) => s.hydrate);
   const saveTimer = useRef<number | undefined>(undefined);
+  const pendingSave = useRef<Panel[] | null>(null);
+  // `api` changes on token refresh (memoized on the access token); pin the
+  // effects to a ref so a mid-session refresh does not re-run the load or
+  // resubscribe — otherwise every refresh re-GETs and re-hydrates.
+  const apiRef = useRef(api);
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
 
-  // Initial load. Always marks the store hydrated (even on failure / first-ever
-  // empty profile) so subsequent edits are allowed to save.
+  // Initial load — once per mount. Success (even empty) enables saves; failure
+  // hydrates empty with saves disabled so the next edit cannot clobber the server.
   useEffect(() => {
     if (!enabled) return undefined;
-    // Property access (not a narrowable `let`) so the async cancel check reads
-    // as a real runtime condition to the type-aware lint.
     const live = { current: true };
     void (async () => {
-      const res = (await api
+      const res = (await apiRef.current
         .GET("/api/v1/me/workspace")
-        .catch(() => undefined)) as { data?: { layout?: unknown } } | undefined;
+        .catch(() => undefined)) as
+        | { data?: { layout?: unknown }; response?: { ok?: boolean } }
+        | undefined;
       if (!live.current) return;
-      hydrate(sanitizeEnvelope(res?.data?.layout).panels);
+      if (res?.response?.ok !== true) {
+        hydrate([], false);
+        return;
+      }
+      hydrate(sanitizeEnvelope(res.data?.layout).panels, true);
     })();
     return () => {
       live.current = false;
     };
-  }, [api, enabled, hydrate]);
+  }, [enabled, hydrate]);
 
-  // Debounced save on panel changes, after hydration.
+  // Debounced save on panel changes, after a successful load.
   useEffect(() => {
     if (!enabled) return undefined;
-    const unsubscribe = useWorkspaceStore.subscribe((state, prev) => {
-      if (!state.hydrated || state.panels === prev.panels) return;
+    const flush = () => {
+      if (pendingSave.current === null) return;
+      const layout = toLayout(pendingSave.current);
+      pendingSave.current = null;
       window.clearTimeout(saveTimer.current);
-      const snapshot = state.panels;
-      saveTimer.current = window.setTimeout(() => {
-        void api
-          .PUT("/api/v1/me/workspace", { body: { layout: toLayout(snapshot) } })
-          .catch(() => undefined);
-      }, SAVE_DEBOUNCE_MS);
+      void apiRef.current
+        .PUT("/api/v1/me/workspace", { body: { layout } })
+        .catch(() => undefined);
+    };
+    const unsubscribe = useWorkspaceStore.subscribe((state, prev) => {
+      // Skip the hydrate transition (prev.hydrated=false) — that is a load, not
+      // a user edit — and never save when the load failed (saveEnabled=false).
+      if (!prev.hydrated || !state.saveEnabled || state.panels === prev.panels) return;
+      pendingSave.current = state.panels;
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = window.setTimeout(flush, SAVE_DEBOUNCE_MS);
     });
     return () => {
-      window.clearTimeout(saveTimer.current);
       unsubscribe();
+      flush(); // flush a pending debounced save on exit rather than dropping it
     };
-  }, [api, enabled]);
+  }, [enabled]);
 }

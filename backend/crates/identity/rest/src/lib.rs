@@ -2849,10 +2849,11 @@ async fn put_workspace(
     if !body.layout.is_object() {
         return Err(RestError::validation("layout must be a JSON object"));
     }
-    // Size cap at the boundary so an oversized layout is a clean 422, not the
-    // DB CHECK surfacing as a 500. Serialized length >= pg_column_size(jsonb)
-    // for realistic payloads, so this fires before the DB constraint; that
-    // CHECK (pg_column_size <= 64KiB, migration 0098) stays as the backstop.
+    // Size cap at the boundary is the REAL enforcement: the DB CHECK uses
+    // pg_column_size(), which measures the TOAST-COMPRESSED jsonb size and so
+    // rejects far fewer payloads than a raw byte count. Guarding the serialized
+    // length here returns a clean 422 (never a DB-CHECK 500); the CHECK
+    // (pg_column_size <= 64KiB, migration 0098) is only a defense-in-depth backstop.
     if serde_json::to_vec(&body.layout).map_or(usize::MAX, |bytes| bytes.len()) > 64 * 1024 {
         return Err(RestError::validation("layout exceeds the maximum size"));
     }

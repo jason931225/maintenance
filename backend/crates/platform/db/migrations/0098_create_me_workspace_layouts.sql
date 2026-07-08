@@ -30,6 +30,10 @@ CREATE TABLE me_workspace_layouts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (org_id, user_id),
     FOREIGN KEY (user_id, org_id) REFERENCES users(id, org_id) ON DELETE CASCADE,
+    -- Defense-in-depth backstop only. pg_column_size() measures the
+    -- TOAST-COMPRESSED size, so it rejects far fewer payloads than a raw byte
+    -- count; the authoritative size limit is the REST handler's serialized
+    -- byte-length guard (put_workspace), which returns a clean 422.
     CONSTRAINT me_workspace_layouts_size CHECK (pg_column_size(layout) <= 65536)
 );
 

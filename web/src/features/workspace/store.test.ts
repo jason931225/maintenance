@@ -7,7 +7,7 @@ const wo: PinnedObject = { kind: "workOrder", code: "WO-1", title: "작업 1", f
 const at: PinnedObject = { kind: "attendance", code: "AT-1", title: "출근", fields: [] };
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ panels: [], hydrated: false, snapPreview: null, draggingId: null });
+  useWorkspaceStore.setState({ panels: [], hydrated: false, saveEnabled: false, snapPreview: null, draggingId: null });
 });
 
 describe("useWorkspaceStore", () => {

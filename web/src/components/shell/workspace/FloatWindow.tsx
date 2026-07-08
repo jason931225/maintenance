@@ -1,9 +1,9 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 
 import { zoneFromPoint, zoneToArea } from "../../../features/workspace/layout";
 import { FLOAT_GRID_PX } from "../../../features/workspace/reducer";
 import { useWorkspaceStore } from "../../../features/workspace/store";
-import type { FloatRect, Panel, PanelArea } from "../../../features/workspace/types";
+import { DEFAULT_FLOAT_RECT, type FloatRect, type Panel, type PanelArea } from "../../../features/workspace/types";
 import { PinPanel } from "./PinPanel";
 
 // Bottom band (px) that counts as "over the tray" — dropping a float here
@@ -29,11 +29,16 @@ export function FloatWindow({
   onMinimize: () => void;
   onClose: () => void;
 }) {
-  const rect = panel.float ?? { x: 64, y: 96, w: 468, h: 412 };
+  const rect = panel.float ?? DEFAULT_FLOAT_RECT;
   const [live, setLive] = useState<FloatRect | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(
     null,
   );
+  // Active drag's listener teardown, so an unmount mid-drag (e.g. the panel is
+  // closed from elsewhere) removes the window listeners — otherwise a late
+  // pointerup would fire onSnap and RESURRECT the closed panel.
+  const cleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => cleanupRef.current?.(), []);
   const setSnapPreview = useWorkspaceStore((s) => s.setSnapPreview);
   const setDragging = useWorkspaceStore((s) => s.setDragging);
 
@@ -104,6 +109,7 @@ export function FloatWindow({
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
       window.removeEventListener("pointercancel", handleCancel);
+      cleanupRef.current = null;
     };
 
     const handleCancel = () => {
@@ -114,6 +120,7 @@ export function FloatWindow({
       cleanup();
     };
 
+    cleanupRef.current = cleanup;
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
     window.addEventListener("pointercancel", handleCancel);

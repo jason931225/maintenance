@@ -1,4 +1,4 @@
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import type { PinKind, PinnedObject } from "../../../features/workspace/types";
 import { ko } from "../../../i18n/ko";
@@ -46,6 +46,15 @@ export function PinPanel({
   onClose,
   onHeaderPointerDown,
 }: PinPanelProps) {
+  // Move focus into the panel header when it opens (pin / popout / restore) so
+  // keyboard and SR users land on the new panel. ponytail: also fires on a
+  // remount from screen switch (panels for the inactive screen unmount) — focus
+  // then lands on the visible panel, acceptable; gate on an "opened" signal if
+  // that proves jarring.
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    headerRef.current?.focus();
+  }, []);
   return (
     <section
       aria-label={`${object.code} ${object.title}`}
@@ -55,9 +64,11 @@ export function PinPanel({
       )}
     >
       <header
+        ref={headerRef}
+        tabIndex={-1}
         onPointerDown={onHeaderPointerDown}
         className={cn(
-          "flex min-h-[42px] items-center gap-2 border-b border-console-border-soft px-3 py-2",
+          "flex min-h-[42px] items-center gap-2 border-b border-console-border-soft px-3 py-2 focus:outline-none",
           onHeaderPointerDown && "cursor-grab touch-none select-none active:cursor-grabbing",
         )}
       >

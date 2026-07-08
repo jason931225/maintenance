@@ -4,10 +4,9 @@
 // snap / evict / dedupe / restore logic is unit-testable without React.
 
 import { areasOverlap } from "./layout";
-import type { FloatRect, Panel, PanelArea, PinnedObject, ScreenKey } from "./types";
+import { DEFAULT_FLOAT_RECT, type FloatRect, type Panel, type PanelArea, type PinnedObject, type ScreenKey } from "./types";
 
 export const FLOAT_GRID_PX = 16;
-const DEFAULT_FLOAT: FloatRect = { x: 64, y: 96, w: 468, h: 412 };
 const DEFAULT_PIN_AREA: PanelArea = "right";
 
 /** Snap a float rect to the 16px magnet grid. */
@@ -90,7 +89,7 @@ export function restorePanel(panels: Panel[], id: string): Panel[] {
 
 export function popoutPanel(panels: Panel[], id: string): Panel[] {
   return panels.map((p) =>
-    p.id === id ? { ...p, mode: "float", float: p.float ?? snapToGrid(DEFAULT_FLOAT) } : p,
+    p.id === id ? { ...p, mode: "float", float: p.float ?? snapToGrid(DEFAULT_FLOAT_RECT) } : p,
   );
 }
 

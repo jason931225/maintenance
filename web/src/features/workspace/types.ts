@@ -65,6 +65,10 @@ export interface FloatRect {
   h: number;
 }
 
+// Default popout geometry, used by the reducer (new float), FloatWindow (render
+// fallback) and the sanitizer (missing dimensions).
+export const DEFAULT_FLOAT_RECT: FloatRect = { x: 64, y: 96, w: 468, h: 412 };
+
 export interface Panel {
   id: string;
   screen: ScreenKey;

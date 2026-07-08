@@ -32,14 +32,23 @@ function Harness() {
   const close = useWorkspaceStore((s) => s.close);
   const restoreDefault = useWorkspaceStore((s) => s.restoreDefault);
   const minimized = panels.filter((p) => p.mode === "minimized");
+  // Mirror ConsoleShell: return focus to the workspace after removing the
+  // focused control.
+  const focus = () => workspaceRef.current?.focus();
   return (
     <>
       <QuadrantContainer
         workspaceRef={workspaceRef}
         panels={panels}
-        onMinimize={minimize}
+        onMinimize={(id) => {
+          minimize(id);
+          focus();
+        }}
         onPopout={popout}
-        onClose={close}
+        onClose={(id) => {
+          close(id);
+          focus();
+        }}
       >
         <ConsoleScreenContext.Provider value="work-hub">
           <PinButton object={wo} />
@@ -58,7 +67,7 @@ function Harness() {
 }
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ panels: [], hydrated: false, snapPreview: null, draggingId: null });
+  useWorkspaceStore.setState({ panels: [], hydrated: false, saveEnabled: false, snapPreview: null, draggingId: null });
 });
 
 describe("workspace window UI", () => {
@@ -85,6 +94,22 @@ describe("workspace window UI", () => {
     await user.click(screen.getByRole("button", { name: "작업 1 상세 고정" }));
     await user.click(screen.getByRole("button", { name: "닫기" }));
     expect(screen.queryByRole("region", { name: "WO-1 작업 1" })).not.toBeInTheDocument();
+  });
+
+  it("moves focus into the panel header on open", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "작업 1 상세 고정" }));
+    const header = screen.getByRole("region", { name: "WO-1 작업 1" }).querySelector("header");
+    expect(header).toHaveFocus();
+  });
+
+  it("returns focus to the workspace (not <body>) after close", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "작업 1 상세 고정" }));
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   it("restore-default clears the screen's panels", async () => {

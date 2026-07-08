@@ -104,8 +104,24 @@ function ConsoleShellContent() {
   const floats = activePanels.filter((p) => p.mode === "float");
   const minimized = activePanels.filter((p) => p.mode === "minimized");
 
+  // Return focus to the workspace region after an action removes the focused
+  // control (close / minimize / restore-default): otherwise focus drops to
+  // <body>. Opening (pin / popout / restore) moves focus into the new panel
+  // header (PinPanel).
+  const focusWorkspace = () => {
+    workspaceRef.current?.focus();
+  };
+  const minimizeAndFocus = (id: string) => {
+    minimize(id);
+    focusWorkspace();
+  };
+  const closeAndFocus = (id: string) => {
+    closePanel(id);
+    focusWorkspace();
+  };
+
   // Global keys: Cmd/Ctrl+K palette, Esc cascade (minimize the most-recent
-  // open panel one layer at a time, then dismiss the palette).
+  // open panel one layer at a time). Bail when an overlay owns Escape.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -114,6 +130,7 @@ function ConsoleShellContent() {
         return;
       }
       if (event.key === "Escape") {
+        if (commandPaletteOpen || sidebarOpen || event.defaultPrevented) return;
         const open = selectScreenPanels(useWorkspaceStore.getState().panels, activeScreen).filter(
           (p) => p.mode === "pinned" || p.mode === "float",
         );
@@ -121,6 +138,7 @@ function ConsoleShellContent() {
         if (last) {
           event.preventDefault();
           minimize(last.id);
+          workspaceRef.current?.focus();
         }
       }
     }
@@ -128,7 +146,7 @@ function ConsoleShellContent() {
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [activeScreen, minimize]);
+  }, [activeScreen, minimize, commandPaletteOpen, sidebarOpen]);
 
   if (!visible[activeScreen]) {
     const fallback =
@@ -178,9 +196,9 @@ function ConsoleShellContent() {
           <QuadrantContainer
             workspaceRef={workspaceRef}
             panels={activePanels}
-            onMinimize={minimize}
+            onMinimize={minimizeAndFocus}
             onPopout={popout}
-            onClose={closePanel}
+            onClose={closeAndFocus}
           >
             <RouteErrorBoundary resetKey={location.pathname}>
               <ScreenSlot screen="work-hub" active={activeScreen === "work-hub"} mounted={visible["work-hub"]}>
@@ -197,6 +215,7 @@ function ConsoleShellContent() {
             onRestore={restore}
             onRestoreDefault={() => {
               restoreDefault(activeScreen);
+              focusWorkspace();
             }}
           />
         </main>
@@ -214,10 +233,10 @@ function ConsoleShellContent() {
             moveFloat(panel.id, rect);
           }}
           onMinimize={() => {
-            minimize(panel.id);
+            minimizeAndFocus(panel.id);
           }}
           onClose={() => {
-            closePanel(panel.id);
+            closeAndFocus(panel.id);
           }}
         />
       ))}

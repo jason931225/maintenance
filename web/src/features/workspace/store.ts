@@ -25,11 +25,17 @@ import type {
 interface WorkspaceState {
   panels: Panel[];
   hydrated: boolean;
+  // Saves are enabled only after a SUCCESSFUL load. A failed load hydrates an
+  // empty in-memory layout with saveEnabled=false so a transient GET blip never
+  // overwrites the real server layout with {} on the next edit.
+  // ponytail: stays disabled until the next successful load (reload); no
+  // edit-with-confirmation re-enable flow — add if users report lost pins.
+  saveEnabled: boolean;
   // Transient drag state — never persisted.
   snapPreview: SnapZone | null;
   draggingId: string | null;
 
-  hydrate: (panels: Panel[]) => void;
+  hydrate: (panels: Panel[], saveEnabled?: boolean) => void;
   pin: (screen: ScreenKey, object: PinnedObject, area?: PanelArea) => void;
   minimize: (id: string) => void;
   restore: (id: string) => void;
@@ -44,11 +50,12 @@ interface WorkspaceState {
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   panels: [],
   hydrated: false,
+  saveEnabled: false,
   snapPreview: null,
   draggingId: null,
 
-  hydrate: (panels) => {
-    set({ panels, hydrated: true });
+  hydrate: (panels, saveEnabled = true) => {
+    set({ panels, hydrated: true, saveEnabled });
   },
   pin: (screen, object, area) => {
     set((s) => ({ panels: pinObject(s.panels, screen, object, area) }));

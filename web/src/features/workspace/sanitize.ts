@@ -6,6 +6,7 @@
 // mirrors the prototype's mergeCardLayout pass (logic-inventory sec 7).
 
 import {
+  DEFAULT_FLOAT_RECT,
   PANEL_AREAS,
   PIN_KINDS,
   SCREEN_KEYS,
@@ -70,8 +71,8 @@ function sanitizeFloat(value: unknown): FloatRect | undefined {
   return {
     x: clampNum(value.x, 0),
     y: clampNum(value.y, 0),
-    w: clampNum(value.w, 468),
-    h: clampNum(value.h, 412),
+    w: clampNum(value.w, DEFAULT_FLOAT_RECT.w),
+    h: clampNum(value.h, DEFAULT_FLOAT_RECT.h),
   };
 }
 
@@ -100,6 +101,9 @@ function sanitizePanel(value: unknown): Panel | undefined {
 export function sanitizeEnvelope(raw: unknown): WorkspaceEnvelope {
   const empty: WorkspaceEnvelope = { v: WORKSPACE_SCHEMA_VERSION, panels: [] };
   if (!isRecord(raw) || !Array.isArray(raw.panels)) return empty;
+  // Unknown/future schema version => start empty rather than misread a v2+ shape.
+  // A future migration reads the old `v` here and upgrades instead of dropping.
+  if (raw.v !== WORKSPACE_SCHEMA_VERSION) return empty;
 
   const seen = new Set<string>();
   const perScreen = new Map<ScreenKey, number>();
