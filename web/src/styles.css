@@ -14,9 +14,24 @@
   --color-steel: #51606c;
   --color-muted-panel: #eef2f5;
   --color-line: #d7dee5;
+}
 
-  /* Authenticated console semantic tokens. These resolve through .console vars
-   * so storefront pages keep their existing KNL brand palette untouched. */
+/*
+ * Authenticated console semantic tokens, in a SEPARATE `@theme inline` block:
+ * `inline` makes Tailwind bake the `var(--console-*)` reference straight into
+ * each generated utility (e.g. `.bg-console-surface{background-color:var(--console-surface)}`)
+ * instead of a plain `@theme` block's usual `--color-console-surface: var(--console-surface)`
+ * indirection declared once on `:root`. A plain `@theme` alias resolves
+ * `var(--console-surface)` at `:root` (where `.console` hasn't set it yet), so
+ * the alias computes to the CSS guaranteed-invalid value and every
+ * `bg-console-*`/`text-console-*`/etc. utility silently renders transparent —
+ * `.console`/`.console.dark` redeclaring `--console-surface` further down the
+ * tree can't retroactively fix an alias that's already invalid where it was
+ * declared. `inline` sidesteps that by having each utility read the scoped
+ * `--console-*` variable directly, so it resolves per-element through
+ * whichever `.console`/`.console.dark` ancestor is actually in scope.
+ */
+@theme inline {
   --color-console-canvas: var(--console-canvas);
   --color-console-surface: var(--console-surface);
   --color-console-muted: var(--console-muted);

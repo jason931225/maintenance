@@ -1,5 +1,5 @@
-import { ChevronsLeft, ChevronsRight, PanelsTopLeft } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import type { components } from "@maintenance/api-client-ts";
@@ -8,6 +8,7 @@ import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
 import { NOTIFICATION_COUNTS_INVALIDATED } from "../../lib/notification-events";
 import { cn } from "../../lib/utils";
+import { consoleIcons } from "../console/icons";
 import {
   FEATURES,
   hasAnyFeatureGrant,
@@ -15,6 +16,11 @@ import {
   isNavItemVisible,
 } from "./nav";
 import { navGroupLabel, navItemLabel } from "./nav-labels";
+
+// ponytail: the brand tile reuses the existing "overview" console icon as the
+// app mark instead of a per-tenant logo upload pipeline — swap for real
+// tenant branding when a milestone asks for it.
+const BrandMark = consoleIcons.overview;
 
 interface SidebarProps {
   collapsed: boolean;
@@ -62,6 +68,7 @@ export function Sidebar({
   session,
 }: SidebarProps) {
   const { api } = useAuth();
+  const panelRef = useRef<HTMLElement>(null);
   const roles = session?.roles;
   const groupRoles = session?.group_roles;
   const featureGrants = session?.feature_grants;
@@ -83,6 +90,78 @@ export function Sidebar({
   );
   const canLoadMailBadge = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
 
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+
+    const panel = panelRef.current;
+    const previouslyFocused = document.activeElement;
+    if (!panel) return undefined;
+    const panelEl = panel;
+
+    const focusableSelector = [
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+
+    function focusableElements() {
+      return Array.from(
+        panelEl.querySelectorAll<HTMLElement>(focusableSelector),
+      ).filter((element) => {
+        // getClientRects() is empty when the element OR any ancestor is
+        // display:none — unlike getComputedStyle(element).display, which only
+        // sees the element's own value. This excludes the desktop-only collapse
+        // toggle (its wrapper is `hidden lg:block`, so display:none at the
+        // mobile drawer width); otherwise it was wrongly picked as the trap's
+        // last stop and Shift+Tab focused an unrendered button instead of the
+        // last nav link. visibility is inherited, so the element's own computed
+        // value already reflects an ancestor's visibility:hidden.
+        if (element.getClientRects().length === 0) return false;
+        return window.getComputedStyle(element).visibility !== "hidden";
+      });
+    }
+
+    window.requestAnimationFrame(() => {
+      (focusableElements()[0] ?? panelEl).focus();
+    });
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Tab") return;
+      const elements = focusableElements();
+      if (elements.length === 0) {
+        event.preventDefault();
+        panelEl.focus();
+        return;
+      }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (!panelEl.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (
+        previouslyFocused instanceof HTMLElement &&
+        previouslyFocused.isConnected
+      ) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [mobileOpen]);
 
   useEffect(() => {
     let ignore = false;
@@ -198,29 +277,34 @@ export function Sidebar({
       {/* Mobile backdrop */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-20 bg-ink/40 lg:hidden"
+          className="fixed inset-0 z-20 bg-console-ink/40 lg:hidden"
           onClick={onMobileClose}
           aria-hidden="true"
         />
       )}
       <aside
+        ref={panelRef}
         aria-label={ko.shell.title}
+        aria-modal={mobileOpen ? "true" : undefined}
+        role={mobileOpen ? "dialog" : undefined}
+        tabIndex={-1}
         className={cn(
-          "fixed inset-y-0 left-0 z-30 flex flex-col bg-white border-r border-line transition-all duration-200",
+          "fixed inset-y-0 left-0 z-30 flex flex-col bg-console-surface border-r border-console-border transition-all duration-200",
           collapsed ? "w-16" : "w-60",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
           "lg:static lg:translate-x-0 lg:z-auto",
         )}
       >
         {/* Brand */}
-        <div className="flex h-14 items-center gap-3 px-4 border-b border-line shrink-0">
-          <PanelsTopLeft
-            size={20}
-            className="text-ink shrink-0"
+        <div className="flex h-14 items-center gap-3 px-4 border-b border-console-border shrink-0">
+          <span
             aria-hidden="true"
-          />
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-console-signal text-console-ink"
+          >
+            <BrandMark size={16} strokeWidth={2.5} />
+          </span>
           {!collapsed && (
-            <span className="font-bold text-ink truncate">
+            <span className="font-bold text-console-ink truncate">
               {ko.shell.title}
             </span>
           )}
@@ -234,7 +318,7 @@ export function Sidebar({
           {filteredGroups.map((group) => (
             <div key={group.key}>
               {!collapsed && (
-                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-steel">
+                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-console-steel">
                   {navGroupLabel(group.key)}
                 </p>
               )}
@@ -255,8 +339,8 @@ export function Sidebar({
                         cn(
                           "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
                           isActive
-                            ? "bg-muted-panel text-ink font-semibold"
-                            : "text-steel hover:bg-muted-panel hover:text-ink",
+                            ? "bg-console-muted text-console-ink font-semibold"
+                            : "text-console-steel hover:bg-console-muted hover:text-console-ink",
                         )
                       }
                       title={collapsed ? (showBadge ? `${labelStr} · ${badge.ariaLabel}` : labelStr) : undefined}
@@ -269,21 +353,29 @@ export function Sidebar({
                       {!collapsed && (
                         <span className="min-w-0 flex-1 truncate">{labelStr}</span>
                       )}
-                      {showBadge ? (
+                      {showBadge && collapsed ? (
+                        // Collapsed icon rail: a plain unread dot (no digits fit
+                        // at 64px) — the full count is still announced via the
+                        // NavLink's aria-label and hover `title` above.
                         <span
+                          aria-hidden="true"
                           className={cn(
-                            "ml-auto inline-flex min-w-10 justify-end gap-1",
-                            collapsed && "absolute right-1 top-1 ml-0 min-w-0",
+                            "absolute right-1.5 top-1.5 h-2 w-2 rounded-full",
+                            badge.tone === "neutral" ? "bg-console-steel" : "bg-console-danger-solid",
                           )}
+                        />
+                      ) : null}
+                      {showBadge && !collapsed ? (
+                        <span
+                          className="ml-auto inline-flex min-w-10 justify-end gap-1"
                           aria-label={badge.ariaLabel}
                         >
                           {badge.primary > 0 ? (
                             <span
                               aria-hidden="true"
                               className={cn(
-                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none text-white",
-                                badge.tone === "neutral" ? "bg-steel" : "bg-red-600",
-                                collapsed && "min-h-4 min-w-4 px-1 text-[10px]",
+                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none text-console-surface",
+                                badge.tone === "neutral" ? "bg-console-steel" : "bg-console-danger-solid",
                               )}
                             >
                               {badgeLabel(badge.primary)}
@@ -292,10 +384,7 @@ export function Sidebar({
                           {(badge.secondary ?? 0) > 0 ? (
                             <span
                               aria-hidden="true"
-                              className={cn(
-                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-muted-panel px-1.5 text-[11px] font-bold leading-none text-steel ring-1 ring-line",
-                                collapsed && "hidden",
-                              )}
+                              className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-console-muted px-1.5 text-[11px] font-bold leading-none text-console-steel ring-1 ring-console-border"
                               title={badge.secondaryLabel}
                             >
                               {badgeLabel(badge.secondary ?? 0)}
@@ -312,10 +401,10 @@ export function Sidebar({
         </nav>
 
         {/* Collapse toggle (desktop only) */}
-        <div className="border-t border-line px-2 py-3 hidden lg:block">
+        <div className="border-t border-console-border px-2 py-3 hidden lg:block">
           <button
             aria-label={collapsed ? ko.shell.expandMenu : ko.shell.collapseMenu}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-steel hover:bg-muted-panel"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-console-steel hover:bg-console-muted"
             onClick={onCollapse}
           >
             {collapsed ? (

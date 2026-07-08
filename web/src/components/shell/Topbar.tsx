@@ -23,6 +23,11 @@ interface TopbarProps {
   onOpenCommandPalette?: () => void;
 }
 
+function paletteKbdLabel(): string {
+  const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  return /mac|iphone|ipad|ipod/i.test(userAgent) ? "⌘K" : "Ctrl K";
+}
+
 export function Topbar({
   onOpenMobileSidebar,
   onOpenCommandPalette,
@@ -30,10 +35,10 @@ export function Topbar({
   const title = useCurrentTitle();
 
   return (
-    <header className="h-14 flex items-center gap-4 px-4 border-b border-line bg-white shrink-0 z-30 sticky top-0">
+    <header className="h-14 flex items-center gap-4 px-4 border-b border-console-border bg-console-surface shrink-0 z-30 sticky top-0">
       {/* Mobile hamburger */}
       <button
-        className="lg:hidden rounded-md p-2 text-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-ink"
+        className="lg:hidden rounded-md p-2 text-console-steel hover:bg-console-muted focus-visible:outline-2 focus-visible:outline-console-ink"
         aria-label={ko.shell.openMenu}
         onClick={onOpenMobileSidebar}
       >
@@ -43,7 +48,7 @@ export function Topbar({
       {/* Contextual page label — the primary <h1> lives in each page's PageHeader. */}
       <div className="flex-1 min-w-0">
         {title ? (
-          <p className="text-sm font-medium text-steel truncate">{title}</p>
+          <p className="text-sm font-medium text-console-steel truncate">{title}</p>
         ) : null}
       </div>
 
@@ -52,14 +57,14 @@ export function Topbar({
           type="button"
           aria-label={ko.shell.commandPalette.open}
           onClick={onOpenCommandPalette}
-          className="hidden min-w-44 items-center justify-between gap-3 rounded-lg border border-line bg-muted-panel/60 px-3 py-1.5 text-sm text-steel transition hover:bg-muted-panel hover:text-ink focus-visible:outline-2 focus-visible:outline-signal md:flex"
+          className="hidden min-w-44 items-center justify-between gap-3 rounded-lg border border-console-border bg-console-muted/60 px-3 py-1.5 text-sm text-console-steel transition hover:bg-console-muted hover:text-console-ink focus-visible:outline-2 focus-visible:outline-console-signal md:flex"
         >
           <span className="inline-flex min-w-0 items-center gap-2">
             <Search size={15} aria-hidden="true" className="shrink-0" />
             <span className="truncate">{ko.shell.commandPalette.trigger}</span>
           </span>
-          <kbd className="rounded border border-line bg-white px-1.5 py-0.5 text-[10px] font-semibold text-steel">
-            Ctrl/⌘K
+          <kbd className="rounded border border-console-border bg-console-surface px-1.5 py-0.5 text-[10px] font-semibold text-console-steel">
+            {paletteKbdLabel()}
           </kbd>
         </button>
       ) : null}
@@ -224,43 +229,43 @@ function NotificationBell() {
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => { setOpen((value) => !value); }}
-        className="relative rounded-md p-2 text-steel hover:bg-muted-panel hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
+        className="relative rounded-md p-2 text-console-steel hover:bg-console-muted hover:text-console-ink focus-visible:outline-2 focus-visible:outline-console-ink"
       >
         <Bell size={18} aria-hidden="true" />
         {total > 0 ? (
-          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">
+          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-console-danger-solid px-1 text-[10px] font-bold leading-none text-console-surface">
             {notificationBadge(total)}
           </span>
         ) : null}
       </button>
       {open ? (
         <div
-          className="absolute right-0 top-full z-50 mt-1 w-72 rounded-md border border-line bg-white p-3 shadow-md"
+          className="absolute right-0 top-full z-50 mt-1 w-72 rounded-md border border-console-border bg-console-surface p-3 shadow-console-pop"
           role="dialog"
           aria-label={ko.shell.notifications.title}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-ink">{ko.shell.notifications.title}</p>
-            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+            <p className="text-sm font-semibold text-console-ink">{ko.shell.notifications.title}</p>
+            <span className="rounded-full bg-console-danger-solid px-2 py-0.5 text-xs font-bold text-console-surface">
               {notificationBadge(total)}
             </span>
           </div>
           {loading ? (
-            <p className="mb-2 rounded-md bg-muted-panel px-2 py-1 text-xs text-steel">
+            <p className="mb-2 rounded-md bg-console-muted px-2 py-1 text-xs text-console-steel">
               {ko.shell.notifications.loading}
             </p>
           ) : null}
           {loadError ? (
-            <p role="alert" className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900">
+            <p role="alert" className="mb-2 rounded-md bg-console-warn-bg px-2 py-1 text-xs font-medium text-console-warn-tx">
               {ko.shell.notifications.loadFailed}
             </p>
           ) : null}
           {!loading && !loadError && total === 0 ? (
-            <p className="mb-2 rounded-md border border-dashed border-line px-2 py-2 text-sm text-steel">
+            <p className="mb-2 rounded-md border border-dashed border-console-border px-2 py-2 text-sm text-console-steel">
               {ko.shell.notifications.empty}
             </p>
           ) : null}
-          <ul className="grid gap-2 text-sm text-steel">
+          <ul className="grid gap-2 text-sm text-console-steel">
             {notificationItems.map((item) => (
               <NotificationCountRow
                 key={item.href}
@@ -323,11 +328,11 @@ function NotificationCountRow({
     <li>
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-signal"
+        className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-console-muted focus-visible:outline-2 focus-visible:outline-console-signal"
         onClick={onClick}
       >
         <span>{label}</span>
-        <strong className="text-ink">{count}</strong>
+        <strong className="text-console-ink">{count}</strong>
       </button>
     </li>
   );
@@ -341,7 +346,7 @@ export function BranchChip() {
   // loading, fall back to a neutral label; safeLabel guarantees a UUID-shaped
   // value can never reach the chip.
   return (
-    <span className="hidden sm:inline-flex items-center rounded-md border border-line bg-muted-panel px-2 py-1 text-xs font-medium text-steel">
+    <span className="hidden sm:inline-flex items-center rounded-md border border-console-border bg-console-muted px-2 py-1 text-xs font-medium text-console-steel">
       {ko.shell.branch}: {safeLabel(branchName, ko.shell.branchUnknown)}
     </span>
   );
@@ -413,7 +418,7 @@ function UserMenu() {
         aria-expanded={open}
         aria-label={ko.shell.userMenu}
         onClick={() => { setOpen((value) => !value); }}
-        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-ink"
+        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-console-steel hover:bg-console-muted focus-visible:outline-2 focus-visible:outline-console-ink"
       >
         <User size={18} aria-hidden="true" />
         <span className="hidden sm:inline">{name}</span>
@@ -422,8 +427,8 @@ function UserMenu() {
             className={cn(
               "hidden items-center rounded-md px-1.5 py-0.5 text-xs font-medium sm:inline-flex",
               pending
-                ? "border border-amber-300 bg-amber-50 text-amber-900"
-                : "border border-line bg-muted-panel text-steel",
+                ? "border border-console-warn-bd bg-console-warn-bg text-console-warn-tx"
+                : "border border-console-border bg-console-muted text-console-steel",
             )}
           >
             {roleChip}
@@ -433,19 +438,19 @@ function UserMenu() {
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border border-line bg-white py-1 shadow-md"
+          className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border border-console-border bg-console-surface py-1 shadow-console-pop"
         >
-          <div className="border-b border-line px-4 py-2">
-            <p className="text-xs text-steel">{ko.shell.user}</p>
-            <p className="text-sm font-semibold text-ink truncate">{name}</p>
+          <div className="border-b border-console-border px-4 py-2">
+            <p className="text-xs text-console-steel">{ko.shell.user}</p>
+            <p className="text-sm font-semibold text-console-ink truncate">{name}</p>
             {roleChip ? (
-              <p className="mt-0.5 text-xs text-steel">{roleChip}</p>
+              <p className="mt-0.5 text-xs text-console-steel">{roleChip}</p>
             ) : null}
           </div>
           <button
             type="button"
             role="menuitem"
-            className="flex w-full items-center gap-2 px-4 py-2 text-sm text-steel hover:bg-muted-panel"
+            className="flex w-full items-center gap-2 px-4 py-2 text-sm text-console-steel hover:bg-console-muted"
             onClick={() => { setOpen(false); void refresh(); }}
           >
             <RefreshCw size={16} aria-hidden="true" />
@@ -455,18 +460,18 @@ function UserMenu() {
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-steel hover:bg-muted-panel"
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-console-steel hover:bg-console-muted"
               onClick={() => { setOpen(false); void navigate("/settings/location"); }}
             >
               <MapPin size={16} aria-hidden="true" />
               {ko.shell.locationSettings}
             </button>
           ) : null}
-          <div className="border-t border-line">
+          <div className="border-t border-console-border">
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-700 hover:bg-red-50"
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-console-danger-tx hover:bg-console-danger-bg"
               onClick={() => { void handleLogout(); }}
             >
               <LogOut size={16} aria-hidden="true" />

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
@@ -12,6 +12,7 @@ import { ko } from "../../i18n/ko";
 import { PageHeader } from "./PageHeader";
 import { AppShell } from "./AppShell";
 import { FEATURES } from "./nav";
+import { CONSOLE_TOAST_EVENT } from "./useConsoleToast";
 
 const server = setupServer();
 
@@ -20,6 +21,7 @@ beforeAll(() => {
 });
 afterEach(() => {
   server.resetHandlers();
+  vi.useRealTimers();
 });
 afterAll(() => {
   server.close();
@@ -270,5 +272,24 @@ describe("AppShell navigation fabric", () => {
         screen.queryByRole("dialog", { name: "명령 팔레트" }),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("hosts console toasts and lets undo close the toast", async () => {
+    const user = userEvent.setup();
+    const undo = vi.fn();
+    renderShell(["ADMIN"]);
+
+    window.dispatchEvent(
+      new CustomEvent(CONSOLE_TOAST_EVENT, {
+        detail: { message: "AP-3124 상신 완료", onUndo: undo },
+      }),
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent("AP-3124 상신 완료");
+
+    await user.click(screen.getByRole("button", { name: ko.console.toast.undo }));
+
+    expect(undo).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
