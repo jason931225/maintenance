@@ -9,7 +9,12 @@ function validPanel(overrides: Partial<Panel> = {}): unknown {
     screen: "work-hub",
     area: "right",
     mode: "pinned",
-    object: { kind: "workOrder", code: "WO-1", title: "T", fields: [{ label: "a", value: "b" }] },
+    object: {
+      kind: "workOrder",
+      code: "WO-1",
+      title: "T",
+      fields: [{ label: "a", value: "b" }],
+    },
     ...overrides,
   };
 }
@@ -29,13 +34,15 @@ describe("sanitizeEnvelope", () => {
 
   it("rejects an unknown/missing schema version", () => {
     expect(sanitizeEnvelope({ panels: [validPanel()] }).panels).toEqual([]);
-    expect(sanitizeEnvelope({ v: 2, panels: [validPanel()] }).panels).toEqual([]);
+    expect(sanitizeEnvelope({ v: 2, panels: [validPanel()] }).panels).toEqual(
+      [],
+    );
   });
 
   it("keeps a valid panel and recomputes its id from screen + code", () => {
     const env = sanitizeEnvelope(wrap([validPanel()]));
     expect(env.panels).toHaveLength(1);
-    expect(env.panels[0].id).toBe("work-hub:WO-1");
+    expect(env.panels[0].id).toBe("work-hub:workOrder:WO-1");
   });
 
   it("drops panels with an unknown screen, area, mode, or object kind", () => {
@@ -44,15 +51,47 @@ describe("sanitizeEnvelope", () => {
         validPanel({ screen: "ghost-screen" as never }),
         validPanel({ area: "middle" as never }),
         validPanel({ mode: "floaty" as never }),
-        { ...(validPanel() as object), object: { kind: "spaceship", code: "X", title: "T", fields: [] } },
+        {
+          ...(validPanel() as object),
+          object: { kind: "spaceship", code: "X", title: "T", fields: [] },
+        },
       ]),
     );
     expect(env.panels).toEqual([]);
   });
 
-  it("dedupes panels that resolve to the same id", () => {
+  it("dedupes panels that resolve to the same screen/kind/code id", () => {
     const env = sanitizeEnvelope(wrap([validPanel(), validPanel()]));
     expect(env.panels).toHaveLength(1);
+  });
+
+  it("keeps same-code panels when their object kind differs", () => {
+    const env = sanitizeEnvelope(
+      wrap([
+        validPanel({
+          area: "left",
+          object: {
+            kind: "workOrder",
+            code: "DUP-1",
+            title: "Work",
+            fields: [],
+          },
+        }),
+        validPanel({
+          area: "right",
+          object: {
+            kind: "support",
+            code: "DUP-1",
+            title: "Support",
+            fields: [],
+          },
+        }),
+      ]),
+    );
+    expect(env.panels.map((panel) => panel.id)).toEqual([
+      "work-hub:workOrder:DUP-1",
+      "work-hub:support:DUP-1",
+    ]);
   });
 
   it("clamps a float rect's non-finite numbers", () => {
@@ -67,6 +106,18 @@ describe("sanitizeEnvelope", () => {
     expect(env.panels[0].float).toEqual({ x: 0, y: 40, w: 468, h: 412 });
   });
 
+  it("clamps finite but impossible float rect values", () => {
+    const env = sanitizeEnvelope(
+      wrap([
+        validPanel({
+          mode: "float",
+          float: { x: -10, y: -20, w: 0, h: -5 },
+        }),
+      ]),
+    );
+    expect(env.panels[0].float).toEqual({ x: 0, y: 0, w: 120, h: 120 });
+  });
+
   it("drops malformed fields but keeps well-formed ones", () => {
     const env = sanitizeEnvelope(
       wrap([
@@ -76,7 +127,12 @@ describe("sanitizeEnvelope", () => {
             kind: "workOrder",
             code: "WO-9",
             title: "T",
-            fields: [{ label: "ok", value: "v" }, { label: 5 }, "junk", { value: "no-label" }],
+            fields: [
+              { label: "ok", value: "v" },
+              { label: 5 },
+              "junk",
+              { value: "no-label" },
+            ],
           },
         },
       ]),
@@ -86,7 +142,14 @@ describe("sanitizeEnvelope", () => {
 
   it("caps panels per screen at 8", () => {
     const many = Array.from({ length: 12 }, (_, i) =>
-      validPanel({ object: { kind: "workOrder", code: `WO-${String(i)}`, title: "T", fields: [] } }),
+      validPanel({
+        object: {
+          kind: "workOrder",
+          code: `WO-${String(i)}`,
+          title: "T",
+          fields: [],
+        },
+      }),
     );
     const env = sanitizeEnvelope(wrap(many));
     expect(env.panels).toHaveLength(8);

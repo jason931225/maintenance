@@ -956,6 +956,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PATCH /api/v1/users/me`.
     /// - Remark: Generated from `#/paths//api/v1/users/me/patch(updateCurrentUser)`.
     func updateCurrentUser(_ input: Operations.UpdateCurrentUser.Input) async throws -> Operations.UpdateCurrentUser.Output
+    /// Get the authenticated user's console workspace layout
+    ///
+    /// Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)`.
+    func getCurrentUserWorkspace(_ input: Operations.GetCurrentUserWorkspace.Input) async throws -> Operations.GetCurrentUserWorkspace.Output
+    /// Upsert the authenticated user's console workspace layout
+    ///
+    /// Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)`.
+    func putCurrentUserWorkspace(_ input: Operations.PutCurrentUserWorkspace.Input) async throws -> Operations.PutCurrentUserWorkspace.Output
     /// Get a user by id within the caller's branch scope
     ///
     /// - Remark: HTTP `GET /api/v1/users/{id}`.
@@ -3569,6 +3583,30 @@ extension APIProtocol {
         body: Operations.UpdateCurrentUser.Input.Body
     ) async throws -> Operations.UpdateCurrentUser.Output {
         try await updateCurrentUser(Operations.UpdateCurrentUser.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Get the authenticated user's console workspace layout
+    ///
+    /// Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)`.
+    public func getCurrentUserWorkspace(headers: Operations.GetCurrentUserWorkspace.Input.Headers = .init()) async throws -> Operations.GetCurrentUserWorkspace.Output {
+        try await getCurrentUserWorkspace(Operations.GetCurrentUserWorkspace.Input(headers: headers))
+    }
+    /// Upsert the authenticated user's console workspace layout
+    ///
+    /// Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)`.
+    public func putCurrentUserWorkspace(
+        headers: Operations.PutCurrentUserWorkspace.Input.Headers = .init(),
+        body: Operations.PutCurrentUserWorkspace.Input.Body
+    ) async throws -> Operations.PutCurrentUserWorkspace.Output {
+        try await putCurrentUserWorkspace(Operations.PutCurrentUserWorkspace.Input(
             headers: headers,
             body: body
         ))
@@ -19114,6 +19152,80 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case displayName = "display_name"
                 case phone
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceResponse`.
+        public struct WorkspaceResponse: Codable, Hashable, Sendable {
+            /// Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceResponse/layout`.
+            public struct LayoutPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `LayoutPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceResponse/layout`.
+            public var layout: Components.Schemas.WorkspaceResponse.LayoutPayload
+            /// Creates a new `WorkspaceResponse`.
+            ///
+            /// - Parameters:
+            ///   - layout: Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`.
+            public init(layout: Components.Schemas.WorkspaceResponse.LayoutPayload) {
+                self.layout = layout
+            }
+            public enum CodingKeys: String, CodingKey {
+                case layout
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceUpsertRequest`.
+        public struct WorkspaceUpsertRequest: Codable, Hashable, Sendable {
+            /// Opaque, frontend-owned console layout object to store verbatim.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceUpsertRequest/layout`.
+            public struct LayoutPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `LayoutPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// Opaque, frontend-owned console layout object to store verbatim.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceUpsertRequest/layout`.
+            public var layout: Components.Schemas.WorkspaceUpsertRequest.LayoutPayload
+            /// Creates a new `WorkspaceUpsertRequest`.
+            ///
+            /// - Parameters:
+            ///   - layout: Opaque, frontend-owned console layout object to store verbatim.
+            public init(layout: Components.Schemas.WorkspaceUpsertRequest.LayoutPayload) {
+                self.layout = layout
+            }
+            public enum CodingKeys: String, CodingKey {
+                case layout
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreateRegionRequest`.
@@ -54676,6 +54788,412 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.UpdateCurrentUser.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get the authenticated user's console workspace layout
+    ///
+    /// Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)`.
+    public enum GetCurrentUserWorkspace {
+        public static let id: Swift.String = "getCurrentUserWorkspace"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetCurrentUserWorkspace.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetCurrentUserWorkspace.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetCurrentUserWorkspace.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.GetCurrentUserWorkspace.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkspaceResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkspaceResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetCurrentUserWorkspace.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetCurrentUserWorkspace.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The caller's workspace layout.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetCurrentUserWorkspace.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetCurrentUserWorkspace.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Upsert the authenticated user's console workspace layout
+    ///
+    /// Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)`.
+    public enum PutCurrentUserWorkspace {
+        public static let id: Swift.String = "putCurrentUserWorkspace"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PutCurrentUserWorkspace.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PutCurrentUserWorkspace.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PutCurrentUserWorkspace.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.WorkspaceUpsertRequest)
+            }
+            public var body: Operations.PutCurrentUserWorkspace.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PutCurrentUserWorkspace.Input.Headers = .init(),
+                body: Operations.PutCurrentUserWorkspace.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkspaceResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkspaceResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PutCurrentUserWorkspace.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PutCurrentUserWorkspace.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The stored workspace layout.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PutCurrentUserWorkspace.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PutCurrentUserWorkspace.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

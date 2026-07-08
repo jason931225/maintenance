@@ -46,8 +46,8 @@ export interface PinField {
   value: string;
 }
 
-// The real object a panel renders. `code` is the dedupe identity within a
-// screen (two pins of the same object collapse to one).
+// The real object a panel renders. `(kind, code)` is the dedupe identity
+// within a screen (two pins of the same object collapse to one).
 export interface PinnedObject {
   kind: PinKind;
   code: string;

@@ -4,7 +4,14 @@
 // snap / evict / dedupe / restore logic is unit-testable without React.
 
 import { areasOverlap } from "./layout";
-import { DEFAULT_FLOAT_RECT, type FloatRect, type Panel, type PanelArea, type PinnedObject, type ScreenKey } from "./types";
+import {
+  DEFAULT_FLOAT_RECT,
+  type FloatRect,
+  type Panel,
+  type PanelArea,
+  type PinnedObject,
+  type ScreenKey,
+} from "./types";
 
 export const FLOAT_GRID_PX = 16;
 const DEFAULT_PIN_AREA: PanelArea = "right";
@@ -12,16 +19,21 @@ const DEFAULT_PIN_AREA: PanelArea = "right";
 /** Snap a float rect to the 16px magnet grid. */
 export function snapToGrid(rect: FloatRect): FloatRect {
   const round = (n: number) => Math.round(n / FLOAT_GRID_PX) * FLOAT_GRID_PX;
-  return { x: round(rect.x), y: round(rect.y), w: round(rect.w), h: round(rect.h) };
+  return {
+    x: round(rect.x),
+    y: round(rect.y),
+    w: round(rect.w),
+    h: round(rect.h),
+  };
 }
 
-function panelId(screen: ScreenKey, code: string): string {
-  return `${screen}:${code}`;
+function panelId(screen: ScreenKey, object: PinnedObject): string {
+  return `${screen}:${object.kind}:${object.code}`;
 }
 
 /**
  * Pin an object to an area on a screen.
- * - dedupe: an existing panel for the same object (screen + object.code) is
+ * - dedupe: an existing panel for the same object (screen + object kind + code) is
  *   re-pinned to the target area rather than duplicated.
  * - evict: pinned panels on the same screen whose area overlaps the target are
  *   sent to the tray (minimized) so panels never visually overlap.
@@ -33,7 +45,7 @@ export function pinObject(
   object: PinnedObject,
   area: PanelArea = DEFAULT_PIN_AREA,
 ): Panel[] {
-  const id = panelId(screen, object.code);
+  const id = panelId(screen, object);
   const next: Panel[] = [];
   let placed = false;
 
@@ -63,7 +75,9 @@ export function pinObject(
 }
 
 export function minimizePanel(panels: Panel[], id: string): Panel[] {
-  return panels.map((p) => (p.id === id ? { ...p, mode: "minimized", float: undefined } : p));
+  return panels.map((p) =>
+    p.id === id ? { ...p, mode: "minimized", float: undefined } : p,
+  );
 }
 
 export function closePanel(panels: Panel[], id: string): Panel[] {
@@ -89,11 +103,21 @@ export function restorePanel(panels: Panel[], id: string): Panel[] {
 
 export function popoutPanel(panels: Panel[], id: string): Panel[] {
   return panels.map((p) =>
-    p.id === id ? { ...p, mode: "float", float: p.float ?? snapToGrid(DEFAULT_FLOAT_RECT) } : p,
+    p.id === id
+      ? {
+          ...p,
+          mode: "float",
+          float: p.float ?? snapToGrid(DEFAULT_FLOAT_RECT),
+        }
+      : p,
   );
 }
 
-export function moveFloat(panels: Panel[], id: string, rect: FloatRect): Panel[] {
+export function moveFloat(
+  panels: Panel[],
+  id: string,
+  rect: FloatRect,
+): Panel[] {
   return panels.map((p) =>
     p.id === id && p.mode === "float" ? { ...p, float: snapToGrid(rect) } : p,
   );

@@ -1,5 +1,11 @@
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 
+import { chipPrefix } from "../../../features/workspace/format";
 import type { PinKind, PinnedObject } from "../../../features/workspace/types";
 import { ko } from "../../../i18n/ko";
 import { cn } from "../../../lib/utils";
@@ -10,19 +16,16 @@ const MinimizeIcon = consoleIcons.minz;
 const PopoutIcon = consoleIcons.share;
 const CloseIcon = consoleIcons.close;
 
-const KIND_TONE: Record<PinKind, "info" | "accent" | "warn" | "ok" | "purple"> = {
-  workOrder: "info",
-  support: "warn",
-  approval: "accent",
-  dailyPlan: "purple",
-  conversation: "ok",
-  attendance: "ok",
-  person: "purple",
-};
-
-function chipPrefix(code: string): string {
-  return code.includes("-") ? code.split("-")[0] : code.slice(0, 2);
-}
+const KIND_TONE: Record<PinKind, "info" | "accent" | "warn" | "ok" | "purple"> =
+  {
+    workOrder: "info",
+    support: "warn",
+    approval: "accent",
+    dailyPlan: "purple",
+    conversation: "ok",
+    attendance: "ok",
+    person: "purple",
+  };
 
 export interface PinPanelProps {
   object: PinnedObject;
@@ -57,6 +60,7 @@ export function PinPanel({
   }, []);
   return (
     <section
+      data-testid="workspace-pin-panel"
       aria-label={`${object.code} ${object.title}`}
       className={cn(
         "flex min-h-0 flex-col overflow-hidden rounded-[9px] border border-console-border bg-console-surface shadow-console",
@@ -64,31 +68,52 @@ export function PinPanel({
       )}
     >
       <header
+        data-testid="workspace-pin-panel-header"
         ref={headerRef}
         tabIndex={-1}
         onPointerDown={onHeaderPointerDown}
         className={cn(
           "flex min-h-[42px] items-center gap-2 border-b border-console-border-soft px-3 py-2 focus:outline-none",
-          onHeaderPointerDown && "cursor-grab touch-none select-none active:cursor-grabbing",
+          onHeaderPointerDown &&
+            "cursor-grab touch-none select-none active:cursor-grabbing",
         )}
       >
         <Chip tone={KIND_TONE[object.kind]} className="px-1.5 font-mono">
           {chipPrefix(object.code)}
         </Chip>
-        <span className="font-mono text-[11px] font-extrabold text-console-ink">{object.code}</span>
+        <span className="font-mono text-[11px] font-extrabold text-console-ink">
+          {object.code}
+        </span>
         <h2 className="min-w-0 flex-1 truncate text-[12px] font-extrabold text-console-ink">
           {object.title}
         </h2>
         <div className="flex shrink-0 items-center gap-1">
-          <PanelButton label={ko.console.workspace.panel.minimize} onClick={onMinimize}>
-            <MinimizeIcon aria-hidden="true" className="h-4 w-4" strokeWidth={2} />
+          <PanelButton
+            label={ko.console.workspace.panel.minimize}
+            onClick={onMinimize}
+          >
+            <MinimizeIcon
+              aria-hidden="true"
+              className="h-4 w-4"
+              strokeWidth={2}
+            />
           </PanelButton>
           {onPopout ? (
-            <PanelButton label={ko.console.workspace.panel.popout} onClick={onPopout}>
-              <PopoutIcon aria-hidden="true" className="h-4 w-4" strokeWidth={2} />
+            <PanelButton
+              label={ko.console.workspace.panel.popout}
+              onClick={onPopout}
+            >
+              <PopoutIcon
+                aria-hidden="true"
+                className="h-4 w-4"
+                strokeWidth={2}
+              />
             </PanelButton>
           ) : null}
-          <PanelButton label={ko.console.workspace.panel.close} onClick={onClose}>
+          <PanelButton
+            label={ko.console.workspace.panel.close}
+            onClick={onClose}
+          >
             <CloseIcon aria-hidden="true" className="h-4 w-4" strokeWidth={2} />
           </PanelButton>
         </div>
@@ -100,7 +125,9 @@ export function PinPanel({
               <dt className="text-[11px] font-extrabold uppercase text-console-faint">
                 {field.label}
               </dt>
-              <dd className="min-w-0 break-words text-[12px] text-console-ink">{field.value}</dd>
+              <dd className="min-w-0 break-words text-[12px] text-console-ink">
+                {field.value}
+              </dd>
             </div>
           ))}
         </dl>

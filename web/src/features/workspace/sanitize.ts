@@ -23,6 +23,7 @@ import {
 
 const PANEL_MODES: PanelMode[] = ["pinned", "float", "minimized"];
 const MAX_PANELS_PER_SCREEN = 8;
+const MIN_FLOAT_SIZE = 120;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -32,8 +33,12 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+function oneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | undefined {
+  return typeof value === "string" &&
+    (allowed as readonly string[]).includes(value)
     ? (value as T)
     : undefined;
 }
@@ -44,7 +49,8 @@ function sanitizeFields(value: unknown): PinnedObject["fields"] {
   for (const entry of value) {
     if (!isRecord(entry)) continue;
     const label = asString(entry.label);
-    const fieldValue = typeof entry.value === "string" ? entry.value : undefined;
+    const fieldValue =
+      typeof entry.value === "string" ? entry.value : undefined;
     if (label === undefined || fieldValue === undefined) continue;
     fields.push({ label, value: fieldValue });
     if (fields.length >= 12) break;
@@ -69,11 +75,15 @@ function clampNum(value: unknown, fallback: number): number {
 function sanitizeFloat(value: unknown): FloatRect | undefined {
   if (!isRecord(value)) return undefined;
   return {
-    x: clampNum(value.x, 0),
-    y: clampNum(value.y, 0),
-    w: clampNum(value.w, DEFAULT_FLOAT_RECT.w),
-    h: clampNum(value.h, DEFAULT_FLOAT_RECT.h),
+    x: Math.max(0, clampNum(value.x, 0)),
+    y: Math.max(0, clampNum(value.y, 0)),
+    w: Math.max(MIN_FLOAT_SIZE, clampNum(value.w, DEFAULT_FLOAT_RECT.w)),
+    h: Math.max(MIN_FLOAT_SIZE, clampNum(value.h, DEFAULT_FLOAT_RECT.h)),
   };
+}
+
+function panelId(screen: ScreenKey, object: PinnedObject): string {
+  return `${screen}:${object.kind}:${object.code}`;
 }
 
 function sanitizePanel(value: unknown): Panel | undefined {
@@ -84,7 +94,7 @@ function sanitizePanel(value: unknown): Panel | undefined {
   const object = sanitizeObject(value.object);
   if (!screen || !area || !mode || !object) return undefined;
   return {
-    id: `${screen}:${object.code}`,
+    id: panelId(screen, object),
     screen,
     object,
     area,

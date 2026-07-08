@@ -33,10 +33,14 @@ function toLayout(panels: Panel[]) {
   };
 }
 
-export function useWorkspacePersistence(api: ConsoleApiClient, enabled: boolean) {
+export function useWorkspacePersistence(
+  api: ConsoleApiClient,
+  enabled: boolean,
+) {
   const hydrate = useWorkspaceStore((s) => s.hydrate);
   const saveTimer = useRef<number | undefined>(undefined);
   const pendingSave = useRef<Panel[] | null>(null);
+  const saveInFlight = useRef(false);
   // `api` changes on token refresh (memoized on the access token); pin the
   // effects to a ref so a mid-session refresh does not re-run the load or
   // resubscribe — otherwise every refresh re-GETs and re-hydrates.
@@ -71,22 +75,44 @@ export function useWorkspacePersistence(api: ConsoleApiClient, enabled: boolean)
   // Debounced save on panel changes, after a successful load.
   useEffect(() => {
     if (!enabled) return undefined;
+    const scheduleFlush = () => {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = window.setTimeout(flush, SAVE_DEBOUNCE_MS);
+    };
     const flush = () => {
-      if (pendingSave.current === null) return;
-      const layout = toLayout(pendingSave.current);
+      if (pendingSave.current === null || saveInFlight.current) return;
+      const panels = pendingSave.current;
+      const layout = toLayout(panels);
       pendingSave.current = null;
       window.clearTimeout(saveTimer.current);
+      saveInFlight.current = true;
       void apiRef.current
         .PUT("/api/v1/me/workspace", { body: { layout } })
-        .catch(() => undefined);
+        .then((res) => {
+          if (
+            (res as { response?: { ok?: boolean } } | undefined)?.response
+              ?.ok === false
+          ) {
+            throw new Error("workspace save failed");
+          }
+        })
+        .catch(() => {
+          // Keep the dirty layout if the write fails. If the user edited again
+          // while the PUT was in flight, that newer pending layout wins.
+          if (pendingSave.current === null) pendingSave.current = panels;
+        })
+        .finally(() => {
+          saveInFlight.current = false;
+          if (pendingSave.current !== null) scheduleFlush();
+        });
     };
     const unsubscribe = useWorkspaceStore.subscribe((state, prev) => {
       // Skip the hydrate transition (prev.hydrated=false) — that is a load, not
       // a user edit — and never save when the load failed (saveEnabled=false).
-      if (!prev.hydrated || !state.saveEnabled || state.panels === prev.panels) return;
+      if (!prev.hydrated || !state.saveEnabled || state.panels === prev.panels)
+        return;
       pendingSave.current = state.panels;
-      window.clearTimeout(saveTimer.current);
-      saveTimer.current = window.setTimeout(flush, SAVE_DEBOUNCE_MS);
+      scheduleFlush();
     });
     return () => {
       unsubscribe();

@@ -6,16 +6,29 @@ import { useWorkspacePersistence } from "./persistence";
 import { useWorkspaceStore } from "./store";
 import type { PinnedObject } from "./types";
 
-const wo: PinnedObject = { kind: "workOrder", code: "WO-1", title: "T", fields: [] };
+const wo: PinnedObject = {
+  kind: "workOrder",
+  code: "WO-1",
+  title: "T",
+  fields: [],
+};
 
-function makeApi(get: () => Promise<unknown>): ConsoleApiClient {
+function makeApi(
+  get: () => Promise<unknown>,
+  put: () => Promise<unknown> = () =>
+    Promise.resolve({ data: { layout: {} }, response: { ok: true } }),
+): ConsoleApiClient {
   return {
     GET: vi.fn(get),
-    PUT: vi.fn(() => Promise.resolve({ data: { layout: {} } })),
+    PUT: vi.fn(put),
   } as unknown as ConsoleApiClient;
 }
 
-const okEmpty = () => Promise.resolve({ data: { layout: { v: 1, panels: [] } }, response: { ok: true } });
+const okEmpty = () =>
+  Promise.resolve({
+    data: { layout: { v: 1, panels: [] } },
+    response: { ok: true },
+  });
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -45,6 +58,7 @@ async function tick(ms: number) {
   await act(async () => {
     vi.advanceTimersByTime(ms);
     await Promise.resolve(); // flush the debounced PUT promise
+    await Promise.resolve(); // flush catch/finally rescheduling
   });
 }
 
@@ -80,8 +94,40 @@ describe("useWorkspacePersistence", () => {
     expect(api.PUT).not.toHaveBeenCalled();
   });
 
+  it("retains and retries dirty edits after a failed PUT", async () => {
+    const put = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary write failure"))
+      .mockResolvedValueOnce({ data: { layout: {} }, response: { ok: true } });
+    const api = makeApi(okEmpty, put);
+    await mount(api);
+    act(() => {
+      useWorkspaceStore.getState().pin("work-hub", wo);
+    });
+
+    await tick(600);
+    expect(api.PUT).toHaveBeenCalledTimes(1);
+
+    await tick(600);
+    expect(api.PUT).toHaveBeenCalledTimes(2);
+    expect(api.PUT).toHaveBeenLastCalledWith(
+      "/api/v1/me/workspace",
+      expect.objectContaining({
+        body: expect.objectContaining({
+          layout: expect.objectContaining({
+            panels: expect.arrayContaining([
+              expect.objectContaining({ object: wo }),
+            ]),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("treats a non-ok HTTP response as a failed load", async () => {
-    const api = makeApi(() => Promise.resolve({ data: undefined, response: { ok: false } }));
+    const api = makeApi(() =>
+      Promise.resolve({ data: undefined, response: { ok: false } }),
+    );
     await mount(api);
     expect(useWorkspaceStore.getState().saveEnabled).toBe(false);
   });
