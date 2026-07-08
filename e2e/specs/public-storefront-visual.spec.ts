@@ -102,6 +102,14 @@ test.describe("UI-M1a public storefront visual guard", () => {
       await expect(page).toHaveScreenshot(route.snapshot, {
         fullPage: true,
         maxDiffPixelRatio: 0,
+        // The footer's "버전 vX.Y.Z" stamp reads web/package.json's version at
+        // build time. GitHub's default PR checkout builds the head/base MERGE
+        // commit, so every `main` release bump (chore(main): release X.Y.Z)
+        // that lands after this baseline was captured drifts the footer text
+        // for a PR that never touched the storefront — a real but
+        // storefront-unrelated diff. Mask it so the guard keeps proving actual
+        // storefront pixels are unchanged instead of rotting on every release.
+        mask: [page.getByTestId("storefront-footer-version")],
       });
     });
   }

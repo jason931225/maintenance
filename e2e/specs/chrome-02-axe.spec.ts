@@ -85,6 +85,11 @@ test("authenticated sidebar, topbar, drawer, menus, command palette, and toast h
     );
   }, CONSOLE_TOAST_EVENT);
   await expect(page.getByRole("status")).toContainText("AP-3124");
+  // The toast mounts with its `toast-in` entrance animation (opacity 0 -> 1,
+  // 0.18s) still running; scanning axe mid-fade reads a blended, partially
+  // transparent background and reports a spurious color-contrast violation.
+  // Wait for the animation to settle at its final opacity before scanning.
+  await expect(page.getByRole("status")).toHaveCSS("opacity", "1");
   await expectNoAxeViolations(page, "[role='status']", "console toast");
 
   await page.setViewportSize({ width: 320, height: 720 });
