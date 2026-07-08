@@ -99,17 +99,27 @@ test.describe("UI-M1a public storefront visual guard", () => {
       await page.goto(route.path);
       await page.waitForLoadState("networkidle");
 
+      // The footer's "버전 vX.Y.Z" stamp reads web/package.json's version at
+      // build time, so every `chore(main): release X.Y.Z` bump changes those
+      // pixels for a commit that never touched the storefront. A Playwright
+      // `mask` is NOT enough here: the stamp is right-anchored, so a version
+      // whose glyphs render even a sub-pixel wider shifts the element's
+      // bounding box — and the mask box tracks that bbox, leaving a ~1px
+      // sliver of unmasked pixels that fails under `maxDiffPixelRatio: 0`
+      // (observed: 0.1.42 baseline vs a 0.1.43 build differed by 17 px at the
+      // stamp's left edge on all four routes). Hide the stamp instead:
+      // `visibility: hidden` renders the region as plain footer background
+      // regardless of the version string's content OR width, so the committed
+      // baselines stay valid across every release. Screenshot-only — this
+      // never touches how production renders the version.
+      await page.addStyleTag({
+        content:
+          '[data-testid="storefront-footer-version"]{visibility:hidden !important;}',
+      });
+
       await expect(page).toHaveScreenshot(route.snapshot, {
         fullPage: true,
         maxDiffPixelRatio: 0,
-        // The footer's "버전 vX.Y.Z" stamp reads web/package.json's version at
-        // build time. GitHub's default PR checkout builds the head/base MERGE
-        // commit, so every `main` release bump (chore(main): release X.Y.Z)
-        // that lands after this baseline was captured drifts the footer text
-        // for a PR that never touched the storefront — a real but
-        // storefront-unrelated diff. Mask it so the guard keeps proving actual
-        // storefront pixels are unchanged instead of rotting on every release.
-        mask: [page.getByTestId("storefront-footer-version")],
       });
     });
   }
