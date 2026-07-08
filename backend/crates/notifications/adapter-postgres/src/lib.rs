@@ -195,9 +195,7 @@ impl PgNotificationStore {
                             KernelError::internal("dedup conflict but no existing notification")
                                 .into()
                         }),
-                    None => {
-                        Err(KernelError::internal("dedup sentinel without a dedup_key").into())
-                    }
+                    None => Err(KernelError::internal("dedup sentinel without a dedup_key").into()),
                 };
             }
             Err(other) => return Err(other),

@@ -7,12 +7,13 @@
 
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
-use mnt_kernel_core::{OrgId, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
 use mnt_notifications_adapter_postgres::PgNotificationStore;
 use mnt_notifications_application::EmitNotificationCommand;
 use mnt_notifications_domain::NotificationLink;
 use mnt_notifications_rest::{NotificationRestState, router};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+use mnt_platform_db::{DbError, with_audit};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -225,12 +226,34 @@ fn issue_token(private_key_pem: &[u8], public_key_pem: &[u8], user_id: UserId) -
 }
 
 async fn seed_user(pool: &PgPool, user_id: UserId, name: &str) {
-    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
-        .bind(user_id.as_uuid())
-        .bind(format!("{name} {}", uuid::Uuid::new_v4()))
-        .bind(Vec::from(["ADMIN"]))
-        .bind(OrgId::knl().as_uuid())
-        .execute(pool)
-        .await
-        .unwrap();
+    // Wrapped in with_audit so the audit-coverage gate (which scans rest-crate
+    // handler surfaces, tests included) sees a mutation routed through the
+    // transactional audit wrapper, matching the messenger REST test seed.
+    let name = name.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_user").unwrap(),
+        "user",
+        user_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(user_id.as_uuid())
+            .bind(format!("{name} {}", uuid::Uuid::new_v4()))
+            .bind(Vec::from(["ADMIN"]))
+            .bind(OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
 }
