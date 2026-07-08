@@ -37,6 +37,11 @@ export function TokenText({ text, resolveObject, onOpen, className }: TokenTextP
           return <span key={`text-${String(index)}`}>{span.value}</span>;
         }
 
+        // ponytail: `@` only resolves to "person" — DESIGN §4.7-7 also allows
+        // 부서/법인 (org-unit/team) mentions, but no candidate provider for
+        // those was in UI-M2a's scope. Add an org/team provider + branch this
+        // on the resolved candidate's kind (not a hardcoded literal) when
+        // that lands.
         const kind: ObjectKind | undefined =
           span.kind === "mention" ? "person" : kindFromCode(span.value);
         const resolved = kind ? resolveObject?.(kind, span.value) : undefined;
