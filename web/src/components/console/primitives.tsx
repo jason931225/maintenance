@@ -5,7 +5,7 @@ import { objectRegistry, type ObjectKind } from "../../lib/objectRegistry";
 import { cn } from "../../lib/utils";
 import { consoleIcons, type ConsoleIconName } from "./icons";
 
-type Tone = "neutral" | "accent" | "danger" | "warn" | "ok" | "info" | "purple";
+export type Tone = "neutral" | "accent" | "danger" | "warn" | "ok" | "info" | "purple";
 type Status = Exclude<Tone, "neutral">;
 
 const toneClasses: Record<Tone, string> = {

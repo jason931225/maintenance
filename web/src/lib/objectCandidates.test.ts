@@ -95,6 +95,9 @@ describe("createWorkOrderCandidateProvider", () => {
 
     const byRequestNo = await provide("20260612-002");
     expect(byRequestNo.status === "ok" && byRequestNo.candidates[0]?.code).toBe("WO-20260612-002");
+
+    const byEquipmentNo = await provide("D-30-305");
+    expect(byEquipmentNo.status === "ok" && byEquipmentNo.candidates[0]?.code).toBe("WO-20260612-002");
   });
 
   it("returns nothing for a query that matches no work order", async () => {

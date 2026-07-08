@@ -1,4 +1,5 @@
 import type { ConsoleIconName } from "../components/console/icons";
+import type { Tone } from "../components/console/primitives";
 import { ko } from "../i18n/ko";
 import { safeLabel } from "./utils";
 
@@ -22,14 +23,7 @@ export type ObjectKind =
   | "person"
   | "org";
 
-export type ObjectChipTone =
-  | "neutral"
-  | "accent"
-  | "danger"
-  | "warn"
-  | "ok"
-  | "info"
-  | "purple";
+export type ObjectChipTone = Tone;
 
 export interface ObjectRef {
   /** Route/id-scoped identifier (a UUID for most kinds). */
@@ -69,7 +63,7 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "info",
     icon: "wrench",
     kindLabel: ko.console.objectKinds.workOrder,
-    route: (ref) => `/work-orders/${ref.id}`,
+    route: (ref) => `/work-orders/${encodeURIComponent(ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   support: {

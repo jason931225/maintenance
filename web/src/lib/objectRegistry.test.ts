@@ -58,4 +58,10 @@ describe("objectRegistry", () => {
       objectRegistry.workOrder.route({ id: "abc", code: "WO-20260704-001", name: null }),
     ).toBe("/work-orders/abc");
   });
+
+  it("URL-encodes work-order route ids before interpolating the detail path", () => {
+    expect(objectRegistry.workOrder.route({ id: "abc/def ?x=1" })).toBe(
+      "/work-orders/abc%2Fdef%20%3Fx%3D1",
+    );
+  });
 });

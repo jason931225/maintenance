@@ -32,6 +32,10 @@ export type CandidateResult =
 export type CandidateProvider = (query: string) => Promise<CandidateResult>;
 
 const CANDIDATE_LIMIT = 8;
+// Same constraint as work orders below: /api/messenger/members has no
+// text-search query param, so this fetches one page and filters client-side —
+// matches beyond this page size are invisible to the dropdown.
+const MEMBER_FETCH_PAGE_SIZE = 100;
 
 function matches(needle: string, ...haystack: Array<string | null | undefined>): boolean {
   if (!needle) return true;
@@ -58,7 +62,7 @@ export function createPersonCandidateProvider(
     let response;
     try {
       response = await api.GET("/api/messenger/members", {
-        params: { query: { branch_id: branchId, limit: 100 } },
+        params: { query: { branch_id: branchId, limit: MEMBER_FETCH_PAGE_SIZE } },
       });
     } catch {
       return { status: "error" };
@@ -101,7 +105,14 @@ export function createWorkOrderCandidateProvider(api: ConsoleApiClient): Candida
     const needle = query.trim().toLowerCase();
     const candidates = response.data.items
       .filter((wo) =>
-        matches(needle, wo.request_no, wo.customer.name, wo.site.name, wo.equipment.model),
+        matches(
+          needle,
+          wo.request_no,
+          wo.customer.name,
+          wo.site.name,
+          wo.equipment.model,
+          wo.equipment.equipment_no,
+        ),
       )
       .slice(0, CANDIDATE_LIMIT)
       .map((wo) => ({

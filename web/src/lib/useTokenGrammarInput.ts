@@ -6,6 +6,7 @@ import {
   type ChangeEvent,
   type CompositionEvent,
   type KeyboardEvent,
+  type RefObject,
   type SyntheticEvent,
 } from "react";
 
@@ -137,7 +138,7 @@ export function computeDropdownPosition(
 type FieldElement = HTMLTextAreaElement | HTMLInputElement;
 
 export interface UseTokenGrammarInputResult {
-  inputRef: React.RefObject<FieldElement | null>;
+  inputRef: RefObject<FieldElement | null>;
   activeTrigger: ActiveTrigger | null;
   /** Which candidate (by code) the dropdown UI currently highlights — the
    * consumer owns arrow-key navigation over its candidate list and just
