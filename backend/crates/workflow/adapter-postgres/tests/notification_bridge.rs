@@ -99,7 +99,9 @@ async fn seed(owner_pool: &PgPool, org: Uuid, recipient: Uuid) -> Uuid {
     .bind(serde_json::json!({
         "event": "post_finalization_rejection",
         "reason": "예산 초과",
-        "recipients": [recipient.to_string()],
+        // A bogus non-UUID entry alongside the real recipient exercises L-2:
+        // it is skipped, counted, and does not block delivery of the valid one.
+        "recipients": [recipient.to_string(), "not-a-uuid"],
         "recipient_count": 1,
     }))
     .execute(owner_pool)
@@ -166,4 +168,63 @@ async fn notification_outbox_bridges_to_rows_idempotently(owner_pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(final_count, 1, "idempotent: still exactly one notification");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn poison_notification_event_dead_letters_at_ceiling(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::from_uuid(Uuid::from_u128(0x8404_8404_8404_8404_8404_8404_8404_8404));
+    let good = Uuid::new_v4();
+    let run_id = seed(&owner_pool, *org.as_uuid(), good).await;
+
+    // Poison event: a syntactically valid recipient UUID with NO users row, so
+    // emit FK-fails every drain. Pre-aged to attempt 9 with a due next_attempt_at
+    // so ONE drain crosses the dead-letter ceiling (10).
+    let poison_key = format!("bridge-poison-{}", Uuid::new_v4());
+    let bad = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO workflow_outbox_events \
+             (org_id, run_id, channel, destination_ref, idempotency_key, status, payload, \
+              attempt_count, next_attempt_at) \
+         VALUES ($1, $2, 'NOTIFICATION', 'approval_line', $3, 'FAILED', $4, 9, \
+                 now() - interval '1 minute')",
+    )
+    .bind(org.as_uuid())
+    .bind(run_id)
+    .bind(&poison_key)
+    .bind(serde_json::json!({ "reason": "x", "recipients": [bad.to_string()] }))
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    let store = PgWorkflowRuntimeStore::new(rt_pool.clone());
+    let sink = PgNotificationStore::new(rt_pool.clone());
+
+    scope_org(org, store.drain_notification_outbox(org, 100, &sink))
+        .await
+        .expect("drain");
+    let (status, attempts): (String, i32) = sqlx::query_as(
+        "SELECT status, attempt_count FROM workflow_outbox_events WHERE idempotency_key = $1",
+    )
+    .bind(&poison_key)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status, "DEAD_LETTERED",
+        "poison event dead-letters at the ceiling"
+    );
+    assert_eq!(attempts, 10);
+
+    // A dead-lettered event is excluded from the claim predicate forever.
+    scope_org(org, store.drain_notification_outbox(org, 100, &sink))
+        .await
+        .expect("second drain");
+    let after: String =
+        sqlx::query_scalar("SELECT status FROM workflow_outbox_events WHERE idempotency_key = $1")
+            .bind(&poison_key)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(after, "DEAD_LETTERED", "never re-claimed after dead-letter");
 }
