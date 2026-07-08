@@ -94,6 +94,7 @@ for (const securityNeedle of [
   requireIncludes(".github/workflows/security.yml", securityNeedle, `security workflow: ${securityNeedle}`);
 }
 for (const releaseNeedle of [
+  "docs/specs/**",
   "Wait for CI success",
   "Trivy scan (fail on HIGH/CRITICAL)",
   "cosign sign --yes",
