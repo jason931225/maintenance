@@ -111,8 +111,16 @@ export function Sidebar({
       return Array.from(
         panelEl.querySelectorAll<HTMLElement>(focusableSelector),
       ).filter((element) => {
-        const style = window.getComputedStyle(element);
-        return style.display !== "none" && style.visibility !== "hidden";
+        // getClientRects() is empty when the element OR any ancestor is
+        // display:none — unlike getComputedStyle(element).display, which only
+        // sees the element's own value. This excludes the desktop-only collapse
+        // toggle (its wrapper is `hidden lg:block`, so display:none at the
+        // mobile drawer width); otherwise it was wrongly picked as the trap's
+        // last stop and Shift+Tab focused an unrendered button instead of the
+        // last nav link. visibility is inherited, so the element's own computed
+        // value already reflects an ancestor's visibility:hidden.
+        if (element.getClientRects().length === 0) return false;
+        return window.getComputedStyle(element).visibility !== "hidden";
       });
     }
 
