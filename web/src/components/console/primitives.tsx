@@ -1,6 +1,7 @@
 import type * as React from "react";
 
 import { ko } from "../../i18n/ko";
+import type { ObjectKind } from "../../lib/objectRegistry";
 import { cn } from "../../lib/utils";
 import { consoleIcons, type ConsoleIconName } from "./icons";
 
@@ -73,12 +74,20 @@ export function MonoRef({
 const objectKindTone = {
   approval: "accent",
   workOrder: "info",
+  support: "warn",
   attendance: "ok",
+  payroll: "purple",
+  contract: "neutral",
+  journal: "info",
+  intake: "warn",
   person: "purple",
   org: "neutral",
-} as const satisfies Record<string, Tone>;
+} as const satisfies Record<ObjectKind, Tone>;
 
-export type ObjectChipKind = keyof typeof objectKindTone;
+/** Kept as an alias so existing imports of `ObjectChipKind` keep working —
+ * the registry's `ObjectKind` (`lib/objectRegistry.ts`) is now the single
+ * source of truth for which kinds exist. */
+export type ObjectChipKind = ObjectKind;
 
 export function ObjectChip({
   kind,
