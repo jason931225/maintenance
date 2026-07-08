@@ -43,6 +43,8 @@ use mnt_kernel_core::{
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
+use mnt_notifications_adapter_postgres::PgNotificationStore;
+use mnt_notifications_rest::NotificationRestState;
 use mnt_platform_auth::{
     AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
     JwtVerifier, PasskeyService, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH,
@@ -62,7 +64,8 @@ use mnt_platform_push::{
     SolapiConfig,
 };
 use mnt_platform_realtime::{
-    PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, RealtimeRestState,
+    PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, PostgresNotificationNotifier,
+    RealtimeRestState,
 };
 use mnt_platform_rest::PlatformRestState;
 use mnt_platform_storage::{
@@ -1296,6 +1299,8 @@ pub fn build_router(state: AppState) -> Router {
                 .unwrap_or_else(|| Arc::new(PgRealtimeHub::new(pool.clone(), Default::default())));
             let messenger_store = PgMessengerStore::new(pool.clone())
                 .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())));
+            let notification_store = PgNotificationStore::new(pool.clone())
+                .with_notifier(Arc::new(PostgresNotificationNotifier::new(pool.clone())));
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());
@@ -1411,6 +1416,10 @@ pub fn build_router(state: AppState) -> Router {
                 ))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_notifications_rest::router(NotificationRestState::new(
+                    notification_store,
                     state.jwt_verifier.clone(),
                 )))
                 // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the
