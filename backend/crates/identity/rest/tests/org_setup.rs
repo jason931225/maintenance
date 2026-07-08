@@ -2706,3 +2706,40 @@ async fn seed_passkey(pool: &PgPool, user_id: UserId) -> uuid::Uuid {
     .unwrap();
     id
 }
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn workspace_put_enforces_object_shape_and_size_bound(pool: PgPool) {
+    let harness = Harness::new(pool.clone());
+    let me = seed_user(&pool, "Workspace User", &["SUPER_ADMIN"], None).await;
+    let token = harness.token(me, &["SUPER_ADMIN"], vec![]);
+
+    // A JSON object round-trips verbatim (the opaque frontend-owned layout).
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token,
+        Some(json!({ "layout": { "v": 1, "panels": [] } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"]["v"], 1);
+
+    // A non-object layout (array / string) is a 422, not a DB-CHECK 500.
+    for bad in [json!({ "layout": [1, 2, 3] }), json!({ "layout": "nope" })] {
+        let (status, body) = send(&harness, "PUT", "/api/v1/me/workspace", &token, Some(bad)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    }
+
+    // An oversized layout (> 64KiB) is a clean 422 via the boundary guard.
+    let blob = "x".repeat(70 * 1024);
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token,
+        Some(json!({ "layout": { "blob": blob } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+}

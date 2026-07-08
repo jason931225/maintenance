@@ -2849,6 +2849,13 @@ async fn put_workspace(
     if !body.layout.is_object() {
         return Err(RestError::validation("layout must be a JSON object"));
     }
+    // Size cap at the boundary so an oversized layout is a clean 422, not the
+    // DB CHECK surfacing as a 500. Serialized length >= pg_column_size(jsonb)
+    // for realistic payloads, so this fires before the DB constraint; that
+    // CHECK (pg_column_size <= 64KiB, migration 0098) stays as the backstop.
+    if serde_json::to_vec(&body.layout).map_or(usize::MAX, |bytes| bytes.len()) > 64 * 1024 {
+        return Err(RestError::validation("layout exceeds the maximum size"));
+    }
     let layout = state
         .store
         .put_workspace_layout(

@@ -1,3 +1,7 @@
+-- Provenance: originated in a parallel session's worktree (commit e6764cdb);
+-- adopted here and AC-verified (person-scoped RLS as mnt_rt, 64KiB + object
+-- CHECK, audited PUT, boundary tests) as part of the UI-M1b slice.
+--
 -- Per-(org,user) workspace layout profile for the Oyatie Console window engine
 -- (UI-M1b). The console persists each person's window/panel arrangement (pinned
 -- object panels, popped-out float geometry, minimized tray chips) so the layout
