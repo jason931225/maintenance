@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 axum = { workspace = true }
+futures = { workspace = true }
 mnt-identity-adapter-postgres = { workspace = true }
 mnt-identity-application = { workspace = true }
 mnt-identity-domain = { workspace = true }

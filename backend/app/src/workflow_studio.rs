@@ -32,6 +32,11 @@ pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
 
 const WORKFLOW_STUDIO_REQUESTS_TOTAL: &str = "workflow_studio_requests_total";
 const WORKFLOW_DEFINITION_SCHEMA_VERSION: &str = "workflow.definition.v1";
+/// Bumped schema version for an *executable* definition: a run/node graph the M2
+/// workflow runtime interprets (design §3 closes "definition JSONB has no node
+/// graph"). `workflow.definition.v1` stays the authoring/policy schema; `wf.exec.v1`
+/// additionally carries a `nodes` graph the runtime walks.
+const WORKFLOW_EXEC_SCHEMA_VERSION: &str = "wf.exec.v1";
 const POLICY_TEMPLATE_EQUIPMENT_LOCATION_ACCESS: &str = "equipment_location_access";
 const POLICY_ACTION_START_WORK_ORDER: &str = "maintenance:StartWorkOrder";
 
@@ -55,6 +60,16 @@ const ALLOWED_CONNECTORS: &[ConnectorDescriptor] = &[
         connector_key: "internal.audit",
         display_name: "감사 로그",
         action_keys: &["append_timeline_event"],
+    },
+    // JOB channel (design §E / M2 runtime): the transactional-outbox connector the
+    // completion→approval→payroll template fans out through. `emit_payroll` enqueues
+    // one `JOB` outbox event via this connector; publish-validation rejects the
+    // template's action_allowlist entry `internal.jobs.draft_payroll_run` unless this
+    // descriptor is allowlisted (see `maintenance_completion_execution_definition`).
+    ConnectorDescriptor {
+        connector_key: "internal.jobs",
+        display_name: "백그라운드 잡",
+        action_keys: &["draft_payroll_run"],
     },
 ];
 
@@ -1647,11 +1662,16 @@ fn validate_definition_object(value: Value) -> Result<Value, WorkflowStudioError
             "definition must be a JSON object",
         ));
     };
-    if object.get("schema_version").and_then(Value::as_str)
-        != Some(WORKFLOW_DEFINITION_SCHEMA_VERSION)
-    {
+    let schema_version = object.get("schema_version").and_then(Value::as_str);
+    // Executable node-graph definition (M2 runtime). Validated separately; the
+    // authoring/policy schema below is left byte-identical.
+    if schema_version == Some(WORKFLOW_EXEC_SCHEMA_VERSION) {
+        validate_execution_graph(object)?;
+        return Ok(value);
+    }
+    if schema_version != Some(WORKFLOW_DEFINITION_SCHEMA_VERSION) {
         return Err(WorkflowStudioError::validation(format!(
-            "definition schema_version must be {WORKFLOW_DEFINITION_SCHEMA_VERSION}"
+            "definition schema_version must be {WORKFLOW_DEFINITION_SCHEMA_VERSION} or {WORKFLOW_EXEC_SCHEMA_VERSION}"
         )));
     }
     if object.contains_key("cedar_policy") || object.contains_key("cedar_policy_text") {
@@ -1663,6 +1683,49 @@ fn validate_definition_object(value: Value) -> Result<Value, WorkflowStudioError
         validate_policy_decision(policy_decision)?;
     }
     Ok(value)
+}
+
+/// Validate a `wf.exec.v1` executable definition's node graph (design §3/§template).
+/// Every node needs a stable `node_key` + a known `node_type`; a `job` node must fan
+/// out through an allowlisted connector, so the completion→approval→payroll template
+/// cannot publish without the `internal.jobs` connector.
+fn validate_execution_graph(
+    object: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    let nodes = object
+        .get("nodes")
+        .and_then(Value::as_array)
+        .filter(|nodes| !nodes.is_empty())
+        .ok_or_else(|| {
+            WorkflowStudioError::validation("execution definition requires a non-empty nodes array")
+        })?;
+    for node in nodes {
+        let node = node.as_object().ok_or_else(|| {
+            WorkflowStudioError::validation("execution nodes must be JSON objects")
+        })?;
+        required_string(node, "node_key")?;
+        match required_string(node, "node_type")? {
+            "object_gate" | "object_mutation" => {}
+            "human_task" => {
+                required_string(node, "assignee_role_key")?;
+            }
+            "job" => {
+                let connector_key = required_string(node, "connector_key")?;
+                let action_key = required_string(node, "action_key")?;
+                if !connector_allows(connector_key, action_key) {
+                    return Err(WorkflowStudioError::validation(format!(
+                        "execution node job action {connector_key}.{action_key} is not in the Workflow Studio connector allowlist"
+                    )));
+                }
+            }
+            other => {
+                return Err(WorkflowStudioError::validation(format!(
+                    "unsupported execution node_type {other}"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_policy_decision(value: &Value) -> Result<(), WorkflowStudioError> {
@@ -2088,6 +2151,93 @@ mod tests {
             err.message
                 .contains("not in the Workflow Studio connector allowlist")
         );
+        Ok(())
+    }
+
+    /// The canonical completion→approval→payroll executable node graph (design
+    /// §template). Published via Studio as a `wf.exec.v1` definition; the M2 runtime
+    /// walks it. `emit_payroll` fans out through the `internal.jobs` JOB connector.
+    fn maintenance_completion_execution_definition() -> Value {
+        json!({
+            "schema_version": WORKFLOW_EXEC_SCHEMA_VERSION,
+            "workflow_key": "work_order.maintenance_completion",
+            "object_type": "work_order",
+            "nodes": [
+                { "node_key": "mechanic_report", "node_type": "object_gate" },
+                {
+                    "node_key": "admin_approval",
+                    "node_type": "human_task",
+                    "title": "관리자 완료 승인",
+                    "required_policy": "completion_review",
+                    "assignee_role_key": "admin"
+                },
+                {
+                    "node_key": "executive_approval",
+                    "node_type": "human_task",
+                    "title": "임원 완료 승인",
+                    "required_policy": "completion_review",
+                    "assignee_role_key": "executive"
+                },
+                {
+                    "node_key": "apply_completion",
+                    "node_type": "object_mutation",
+                    "object_type": "work_order",
+                    "target_status": "FINAL_COMPLETED"
+                },
+                {
+                    "node_key": "emit_payroll",
+                    "node_type": "job",
+                    "connector_key": "internal.jobs",
+                    "action_key": "draft_payroll_run",
+                    "channel": "JOB",
+                    "destination_ref": "payroll.draft_run",
+                    "job": "payroll_draft"
+                }
+            ],
+            "edges": [
+                { "from": "mechanic_report", "to": "admin_approval" },
+                { "from": "admin_approval", "to": "executive_approval" },
+                { "from": "executive_approval", "to": "apply_completion" },
+                { "from": "apply_completion", "to": "emit_payroll" }
+            ]
+        })
+    }
+
+    #[test]
+    fn completion_approval_payroll_execution_graph_validates() -> Result<(), String> {
+        // The canonical wf.exec.v1 completion→approval→payroll graph is a valid
+        // executable definition.
+        validate_definition_object(maintenance_completion_execution_definition())
+            .map_err(|err| format!("canonical execution graph must validate: {}", err.message))?;
+        // Its payroll JOB action publishes only because internal.jobs is allowlisted.
+        assert!(connector_allows("internal.jobs", "draft_payroll_run"));
+        // The publish-time action_allowlist check (validate_action_allowlist) accepts
+        // the JOB connector entry the template carries.
+        validate_action_allowlist(&[json!({
+            "connector_key": "internal.jobs",
+            "action_key": "draft_payroll_run"
+        })])
+        .map_err(|err| {
+            format!(
+                "internal.jobs.draft_payroll_run must allowlist: {}",
+                err.message
+            )
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn execution_graph_job_node_requires_allowlisted_connector() -> Result<(), String> {
+        // Swap the payroll node onto an unknown connector: publish-validation of the
+        // graph must fail closed (internal.jobs is genuinely load-bearing).
+        let mut definition = maintenance_completion_execution_definition();
+        definition["nodes"][4]["connector_key"] = json!("external.random");
+        let err = match validate_definition_object(definition) {
+            Ok(_) => return Err("a job node on an unlisted connector must fail closed".to_owned()),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(err.message.contains("connector allowlist"));
         Ok(())
     }
 

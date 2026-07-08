@@ -247,6 +247,12 @@ async fn start_view_as(
                 // operator's own identity is audited separately at start/exit.
                 display_name: None,
                 feature_grants: Vec::new(),
+                // Deferred (SLICE-2): a platform view-as impersonation token does
+                // not source subject freshness. Safe 0 baseline; freshness is not
+                // consulted by any decision on the unreachable Cedar path.
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: now,
             },
             VIEW_AS_TOKEN_TTL,
@@ -374,6 +380,12 @@ async fn start_tenant_context(
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                // Deferred (SLICE-2): the platform tenant-context token does not
+                // source subject freshness. Safe 0 baseline; not consulted by any
+                // decision on the unreachable Cedar path.
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: now,
             },
             TENANT_CONTEXT_TOKEN_TTL,

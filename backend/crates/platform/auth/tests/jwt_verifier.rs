@@ -41,6 +41,9 @@ fn public_key_verifier_accepts_es256_access_token() {
             read_only: false,
             display_name: None,
             feature_grants: Vec::new(),
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap();

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.42](https://github.com/jason931225/maintenance/compare/v0.1.41...v0.1.42) (2026-07-04)
+
+
+### Features
+
+* **workflow-m2:** workflow runtime engine (dark, codex-approved) ([#179](https://github.com/jason931225/maintenance/issues/179)) ([7a8a5cb](https://github.com/jason931225/maintenance/commit/7a8a5cb4ab974f7a553b0b784d9c92bcb284401e))
+
 ## [0.1.41](https://github.com/jason931225/maintenance/compare/v0.1.40...v0.1.41) (2026-07-04)
 
 

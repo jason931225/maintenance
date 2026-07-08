@@ -121,6 +121,9 @@ jobs:
             ${{ runner.os }}-cargo-backend-
             ${{ runner.os }}-cargo-
 
+      - name: Cargo.lock freshness gate
+        run: cargo tree --locked --workspace --target all >/dev/null
+
       - name: rustfmt check
         run: cargo fmt --all -- --check
 
@@ -310,6 +313,9 @@ jobs:
       - name: Foundation gate contract
         run: npm run check:foundation-gates
 
+      - name: Shared text gate unit tests
+        run: npm run test:text-gate
+
       - name: Enterprise UX parity / no-text-wall gate
         run: npm run check:enterprise-ux-parity
 
@@ -324,6 +330,18 @@ jobs:
 
       - name: Workflow runtime spine gate
         run: npm run check:workflow-runtime-spine
+
+      - name: Workflow runtime M2 strangler dark-landing gate
+        run: npm run check:workflow-runtime-m2-strangler
+
+      - name: Workflow runtime M2 Cedar-guard observe-and-record gate
+        run: npm run check:workflow-runtime-m2-cedar-guards
+
+      - name: Workflow runtime M2 flag-ON runtime gate
+        run: npm run check:workflow-runtime-m2-runtime
+
+      - name: Workflow runtime M2 outbox-drainer transactional-idempotency gate
+        run: npm run check:workflow-runtime-m2-drainer
 
       - name: G006 asset equipment dispatch lifecycle gate
         run: npm run check:g006-asset-dispatch-lifecycle

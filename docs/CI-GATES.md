@@ -156,6 +156,21 @@ drift between the committed generated code and a fresh regeneration fails. (Hand
 editing generated client files therefore fails the gate — regenerate instead.)
 `check:ts` / `check:kotlin` / `check:swift` additionally compile each client.
 
+Generated-client source-control policy for cleanup issue #108:
+- `backend/openapi/openapi.yaml` is the reviewed source of truth for generated
+  clients. Keep generated TypeScript, Kotlin, and Swift client output committed
+  and versioned atomically with OpenAPI changes so web/mobile consumers have
+  reproducible source and CI can fail on drift.
+- Regenerate clients with `npm run gen:api:portable` and `npm run gen:api:swift`;
+  do not hand-edit `clients/ts/src/schema.d.ts`, `clients/kotlin/**`, or
+  `clients/swift/Sources/MaintenanceAPIClient/Generated/**`.
+- Code review and audit de-emphasize generated hunks and instead review
+  `backend/openapi/openapi.yaml`, generator scripts/configuration, and the drift
+  gate output for intent.
+- This policy can change only after a replacement release path proves consumer
+  builds, package publishing, and drift checks without committed generated
+  clients.
+
 ### 9. `check:openapi-app` — spec covers mounted routes
 
 `node scripts/check-openapi-app.mjs` asserts the committed `openapi.yaml`

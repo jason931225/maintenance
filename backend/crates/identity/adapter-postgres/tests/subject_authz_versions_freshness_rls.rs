@@ -1,0 +1,337 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+//! RUNTIME RLS + freshness gate for `subject_authz_versions` (Cedar/PBAC
+//! activation, ADR-0021, migration 0096).
+//!
+//! Two concerns proven as the GENUINE non-owner runtime role `mnt_rt`
+//! (NOSUPERUSER, NOBYPASSRLS, FORCE RLS) — never the BYPASSRLS superuser the
+//! default `#[sqlx::test]` pool connects as, which would green-light a broken or
+//! leaking policy:
+//!   1. Tenant isolation: under org A's armed GUC, only A's freshness row is
+//!      visible; B's is invisible. mnt_rt may NOT DELETE (REVOKE DELETE governance
+//!      history), so a runtime actor can never erase a subject's freshness back to
+//!      the absent-row "0" baseline.
+//!   2. Sourcing: `PgOrgStore::get_subject_authz_versions` reads the current
+//!      `(version, session_generation)` and returns `(0, 0)` before any bump; a
+//!      role change bumps the version and a deactivation bumps session_generation,
+//!      each inside the existing audited transaction.
+//!
+//! SLICE-2 is additive: no authorization decision consults this table yet.
+
+use mnt_identity_adapter_postgres::PgOrgStore;
+use mnt_identity_application::{DeactivateUserCommand, UpdateUserCommand};
+use mnt_kernel_core::{OrgId, TraceContext, UserId};
+use mnt_platform_request_context::CURRENT_ORG;
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
+use time::OffsetDateTime;
+use uuid::Uuid;
+
+/// A second, non-KNL tenant id, to prove cross-tenant isolation under `mnt_rt`.
+const ORG_B: Uuid = Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222);
+
+/// A pool whose every connection runs `SET ROLE mnt_rt`, so statements execute as
+/// the production runtime role (NOSUPERUSER, NOBYPASSRLS) under FORCE RLS.
+async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+async fn seed_org(owner_pool: &PgPool, org: Uuid, tag: &str) {
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(org)
+    .bind(format!("org-{}", tag.to_lowercase()))
+    .bind(format!("Org {tag}"))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+/// Seed an ACTIVE user (owner pool, row_security off). Audit actors and freshness
+/// rows both FK to `users`, so every fixture user is a real row.
+async fn seed_active_user(owner_pool: &PgPool, org: Uuid) -> UserId {
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let user_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id, is_active) VALUES ($1, $2, $3, true) RETURNING id",
+    )
+    .bind(format!("User {}", Uuid::new_v4()))
+    .bind(vec!["MECHANIC".to_string()])
+    .bind(org)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    UserId::from_uuid(user_id)
+}
+
+/// Insert a freshness row directly as the owner (row_security off), so the RLS
+/// isolation test starts from a known, tenant-tagged row per org.
+async fn seed_freshness_row(owner_pool: &PgPool, org: Uuid, user: UserId) {
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO subject_authz_versions (org_id, user_id, version, session_generation) VALUES ($1, $2, 1, 1)",
+    )
+    .bind(org)
+    .bind(*user.as_uuid())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+/// Count freshness rows visible to `mnt_rt` under the given tenant GUC.
+async fn count_as_runtime(rt_pool: &PgPool, org: Uuid) -> i64 {
+    let mut tx = rt_pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM subject_authz_versions")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    count
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn subject_authz_versions_isolate_tenants_and_deny_delete_as_runtime_role(
+    owner_pool: PgPool,
+) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org_a = *OrgId::knl().as_uuid();
+    let org_b = ORG_B;
+    seed_org(&owner_pool, org_a, "A").await;
+    seed_org(&owner_pool, org_b, "B").await;
+    let user_a = seed_active_user(&owner_pool, org_a).await;
+    let user_b = seed_active_user(&owner_pool, org_b).await;
+    seed_freshness_row(&owner_pool, org_a, user_a).await;
+    seed_freshness_row(&owner_pool, org_b, user_b).await;
+
+    // (1) Under each tenant's GUC, mnt_rt sees ONLY that tenant's freshness row.
+    assert_eq!(
+        count_as_runtime(&rt_pool, org_a).await,
+        1,
+        "org A must see exactly its own freshness row"
+    );
+    assert_eq!(
+        count_as_runtime(&rt_pool, org_b).await,
+        1,
+        "org B must see exactly its own freshness row"
+    );
+
+    // (2) Cross-tenant: under org A's GUC, B's row is invisible (queried by id).
+    {
+        let mut tx = rt_pool.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_a.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let visible: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM subject_authz_versions WHERE user_id = $1")
+                .bind(*user_b.as_uuid())
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(
+            visible, 0,
+            "org B's freshness row must be invisible under A"
+        );
+    }
+
+    // (3) mnt_rt may NEVER DELETE freshness rows (REVOKE DELETE governance guard),
+    // so it cannot erase a subject's freshness back to the absent-row baseline.
+    {
+        let mut tx = rt_pool.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_a.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let err = sqlx::query("DELETE FROM subject_authz_versions")
+            .execute(&mut *tx)
+            .await
+            .expect_err("mnt_rt must not DELETE subject_authz_versions")
+            .to_string();
+        assert!(
+            err.contains("permission denied"),
+            "DELETE as mnt_rt must be denied by the REVOKE, got: {err}"
+        );
+        let _ = tx.rollback().await;
+    }
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    seed_org(&owner_pool, org_uuid, "A").await;
+    let actor = seed_active_user(&owner_pool, org_uuid).await;
+    let target = seed_active_user(&owner_pool, org_uuid).await;
+
+    let store = PgOrgStore::new(rt_pool.clone());
+
+    // Before any bump there is no row → the safe (0, 0) baseline.
+    let initial = CURRENT_ORG
+        .scope(org, store.get_subject_authz_versions(target))
+        .await
+        .expect("get must succeed as mnt_rt under the armed GUC");
+    assert_eq!(initial, (0, 0), "no bump yet must read as (0, 0)");
+
+    // A system-role change bumps the subject version in the same audited tx. The
+    // first bump creates the row at the (1, 1) monotonic baseline.
+    CURRENT_ORG
+        .scope(
+            org,
+            store.update_user(UpdateUserCommand {
+                actor,
+                user_id: target,
+                display_name: None,
+                employee_id: None,
+                phone: None,
+                team: None,
+                roles: Some(vec!["ADMIN".to_owned()]),
+                branch_ids: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            }),
+        )
+        .await
+        .expect("update_user must succeed as mnt_rt under the armed GUC");
+    assert_eq!(
+        CURRENT_ORG
+            .scope(org, store.get_subject_authz_versions(target))
+            .await
+            .unwrap(),
+        (1, 1),
+        "first role change must create the row at (version 1, session_generation 1)"
+    );
+
+    // A second role change increments the version only.
+    CURRENT_ORG
+        .scope(
+            org,
+            store.update_user(UpdateUserCommand {
+                actor,
+                user_id: target,
+                display_name: None,
+                employee_id: None,
+                phone: None,
+                team: None,
+                roles: Some(vec!["SUPER_ADMIN".to_owned()]),
+                branch_ids: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            }),
+        )
+        .await
+        .expect("second update_user must succeed");
+    assert_eq!(
+        CURRENT_ORG
+            .scope(org, store.get_subject_authz_versions(target))
+            .await
+            .unwrap(),
+        (2, 1),
+        "second role change must increment version, leave session_generation"
+    );
+
+    // Deactivation (credential + session revocation) bumps session_generation.
+    CURRENT_ORG
+        .scope(
+            org,
+            store.deactivate_user(DeactivateUserCommand {
+                actor,
+                user_id: target,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            }),
+        )
+        .await
+        .expect("deactivate_user must succeed");
+    assert_eq!(
+        CURRENT_ORG
+            .scope(org, store.get_subject_authz_versions(target))
+            .await
+            .unwrap(),
+        (2, 2),
+        "deactivation must increment session_generation, leave version"
+    );
+
+    // A profile-only edit (no roles) must NOT bump either counter.
+    CURRENT_ORG
+        .scope(
+            org,
+            store.update_user(UpdateUserCommand {
+                actor,
+                user_id: target,
+                display_name: Some("Renamed".to_owned()),
+                employee_id: None,
+                phone: None,
+                team: None,
+                roles: None,
+                branch_ids: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            }),
+        )
+        .await
+        .expect("profile-only update_user must succeed");
+    assert_eq!(
+        CURRENT_ORG
+            .scope(org, store.get_subject_authz_versions(target))
+            .await
+            .unwrap(),
+        (2, 2),
+        "a profile-only edit must not touch authorization freshness"
+    );
+
+    // The row is confined to this tenant: as the owner (bypassing RLS) exactly one
+    // row exists for this user and org, proving no untenanted / duplicate write.
+    let rows: i64 = {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM subject_authz_versions WHERE user_id = $1 AND org_id = $2",
+        )
+        .bind(*target.as_uuid())
+        .bind(org_uuid)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        n
+    };
+    assert_eq!(rows, 1, "exactly one freshness row for the target subject");
+}

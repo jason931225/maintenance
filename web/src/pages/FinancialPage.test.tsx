@@ -4,25 +4,9 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { FinancialPage } from "./FinancialPage";
-import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
+import type { AuthSession } from "../context/auth";
+import { AuthTestProvider } from "../test/AuthTestProvider";
 import { ko } from "../i18n/ko";
-
-function makeAuthContext(session: AuthSession): AuthContextValue {
-  return {
-    session,
-    restoring: false,
-    login: async () => {},
-    logout: async () => {},
-    refresh: async () => {},
-    acceptTokens: () => {},
-    clearPasskeySetup: () => {},
-    viewAs: undefined,
-    enterViewAs: () => {},
-    exitViewAs: () => undefined,
-    api: {} as AuthContextValue["api"],
-  };
-}
 
 function CurrentLocation() {
   const location = useLocation();
@@ -39,12 +23,12 @@ function renderPage(
   session: AuthSession = { access_token: "a", roles: ["ADMIN"] },
 ) {
   return render(
-    <AuthContext.Provider value={makeAuthContext(session)}>
+    <AuthTestProvider session={session}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <FinancialPage />
         <CurrentLocation />
       </MemoryRouter>
-    </AuthContext.Provider>,
+    </AuthTestProvider>,
   );
 }
 

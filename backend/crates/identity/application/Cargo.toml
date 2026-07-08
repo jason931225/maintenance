@@ -1,7 +1,7 @@
 [package]
 name = "mnt-identity-application"
 version = "0.1.0"
-description = "Identity application layer: org-setup commands, DTOs, audit builders, and the future Bitween provider seam."
+description = "Identity application layer: org-setup commands, DTOs, and audit builders for local passkey-backed accounts."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,11 +12,7 @@ mnt-identity-domain = { workspace = true }
 mnt-kernel-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-time = { workspace = true }
 uuid = { workspace = true }
-
-[dev-dependencies]
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

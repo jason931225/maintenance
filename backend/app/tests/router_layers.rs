@@ -78,6 +78,9 @@ fn issue_token(private_key_pem: &[u8], public_key_pem: &[u8]) -> String {
             read_only: false,
             display_name: None,
             feature_grants: Vec::new(),
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap()
