@@ -70,7 +70,9 @@ test("rejects a non-HTTPS macOS Messages bridge URL even when files are readable
   assert.equal(result.stderr, "");
 });
 
-test("rejects unreadable Talos or bridge credential files", () => {
+test("rejects unreadable Talos or bridge credential files", {
+  skip: process.getuid?.() === 0 ? "root can read chmod 000 files on some runners" : false,
+}, () => {
   const inputs = makeReadableInputs();
   chmodSync(inputs.MESSAGES_BRIDGE_TLS_KEY_PATH, 0o000);
   try {
@@ -86,6 +88,20 @@ test("rejects unreadable Talos or bridge credential files", () => {
   } finally {
     chmodSync(inputs.MESSAGES_BRIDGE_TLS_KEY_PATH, 0o600);
   }
+});
+
+test("rejects credential paths that are directories", () => {
+  const inputs = makeReadableInputs();
+  const result = runDryRun({
+    ...inputs,
+    NON_OCI_TALOS_KUBECONFIG: mkdtempSync(join(tmpdir(), "non-oci-relay-dir-")),
+    MESSAGES_BRIDGE_URL: "https://bridge.internal.example",
+    MESSAGES_BRIDGE_TOKEN: "test-token-value-0000",
+  });
+
+  assert.equal(result.status, 2);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/), [BLOCKER_SUMMARY, BLOCKER]);
+  assert.equal(result.stderr, "");
 });
 
 test("passes dry-run with an HTTPS bridge URL and readable Talos plus mTLS files", () => {
@@ -107,7 +123,23 @@ test("relay component is stateless by default and fails closed on caller and bri
   assert.doesNotMatch(deployment, /DATABASE_URL|IMESSAGE_RELAY_DATABASE_URL|mnt-db-rt/);
   assert.doesNotMatch(networkPolicy, /allow-imessage-relay-egress-postgres|cnpg\.io\/cluster|port: 5432/);
   assert.match(deployment, /name: IMESSAGE_RELAY_RECIPIENT_SOURCE\s+value: static/);
-  assert.match(deployment, /name: IMESSAGE_RELAY_ALLOWED_RECIPIENTS[\s\S]*secretKeyRef: \{ name: imessage-relay-secrets, key: allowed-recipients \}/);
+  const allowedRecipientsEntry = deployment.match(
+    /- name: IMESSAGE_RELAY_ALLOWED_RECIPIENTS\n(?: {14}.+\n?){1,3}/,
+  )?.[0] ?? "";
+  assert.match(
+    allowedRecipientsEntry,
+    /secretKeyRef: \{ name: imessage-relay-secrets, key: allowed-recipients \}/,
+  );
+  assert.doesNotMatch(allowedRecipientsEntry, /relay-token|messages-bridge-token/);
+  assert.doesNotMatch(deployment, /- name: IMESSAGE_RELAY_TOKEN\n\s+valueFrom:/);
+  assert.doesNotMatch(deployment, /- name: MESSAGES_BRIDGE_TOKEN\n\s+valueFrom:/);
+  assert.match(deployment, /name: IMESSAGE_RELAY_TOKEN_FILE\s+value: \/var\/run\/imessage-relay\/secrets\/relay-token/);
+  assert.match(
+    deployment,
+    /name: MESSAGES_BRIDGE_TOKEN_FILE\s+value: \/var\/run\/imessage-relay\/secrets\/messages-bridge-token/,
+  );
+  assert.match(deployment, /- name: relay-secrets\n\s+mountPath: \/var\/run\/imessage-relay\/secrets\n\s+readOnly: true/);
+  assert.match(deployment, /limits: \{ cpu: 100m, memory: 192Mi \}/);
   assert.match(networkPolicy, /name: allow-imessage-relay-ingress-private-callers/);
   assert.match(networkPolicy, /cidr: 192\.0\.2\.0\/24/);
   assert.doesNotMatch(networkPolicy, /10\.0\.0\.0\/8/);

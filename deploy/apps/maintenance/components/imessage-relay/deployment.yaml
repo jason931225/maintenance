@@ -9,6 +9,7 @@ metadata:
     maintenance.knllogistic.com/mac-bridge-required: "macOS Messages bridge"
     maintenance.knllogistic.com/bridge-private-auth: "mTLS, VPN, or private endpoint"
     maintenance.knllogistic.com/image-contract: "non-OCI overlay must replace placeholder with signed immutable digest"
+    maintenance.knllogistic.com/secret-contract: "relay image must read *_TOKEN_FILE paths; tokens are mounted as files, not env values"
 spec:
   replicas: 1
   selector:
@@ -47,15 +48,13 @@ spec:
             - name: IMESSAGE_RELAY_ALLOWED_RECIPIENTS
               valueFrom:
                 secretKeyRef: { name: imessage-relay-secrets, key: allowed-recipients }
-            - name: IMESSAGE_RELAY_TOKEN
-              valueFrom:
-                secretKeyRef: { name: imessage-relay-secrets, key: relay-token }
+            - name: IMESSAGE_RELAY_TOKEN_FILE
+              value: /var/run/imessage-relay/secrets/relay-token
             - name: MESSAGES_BRIDGE_URL
               valueFrom:
                 secretKeyRef: { name: imessage-relay-secrets, key: messages-bridge-url }
-            - name: MESSAGES_BRIDGE_TOKEN
-              valueFrom:
-                secretKeyRef: { name: imessage-relay-secrets, key: messages-bridge-token }
+            - name: MESSAGES_BRIDGE_TOKEN_FILE
+              value: /var/run/imessage-relay/secrets/messages-bridge-token
             - name: MESSAGES_BRIDGE_TLS_CA
               value: /var/run/imessage-relay/bridge-mtls/ca.crt
             - name: MESSAGES_BRIDGE_TLS_CERT
@@ -63,6 +62,9 @@ spec:
             - name: MESSAGES_BRIDGE_TLS_KEY
               value: /var/run/imessage-relay/bridge-mtls/tls.key
           volumeMounts:
+            - name: relay-secrets
+              mountPath: /var/run/imessage-relay/secrets
+              readOnly: true
             - name: bridge-mtls
               mountPath: /var/run/imessage-relay/bridge-mtls
               readOnly: true
@@ -76,12 +78,18 @@ spec:
             timeoutSeconds: 2
           resources:
             requests: { cpu: 25m, memory: 96Mi }
-            limits: { memory: 192Mi }
+            limits: { cpu: 100m, memory: 192Mi }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
       volumes:
+        - name: relay-secrets
+          secret:
+            secretName: imessage-relay-secrets
+            items:
+              - { key: relay-token, path: relay-token }
+              - { key: messages-bridge-token, path: messages-bridge-token }
         - name: bridge-mtls
           secret:
             secretName: imessage-relay-secrets

@@ -20,6 +20,11 @@ Required secrets are names and keys only:
 | `imessage-relay-secrets` | `bridge-client.crt` | Bridge mTLS client certificate |
 | `imessage-relay-secrets` | `bridge-client.key` | Bridge mTLS client key |
 
+The relay and bridge token keys are mounted as read-only files under
+`/var/run/imessage-relay/secrets/`; the component passes only
+`IMESSAGE_RELAY_TOKEN_FILE` and `MESSAGES_BRIDGE_TOKEN_FILE` path variables to
+the container. Do not patch token values into environment variables.
+
 The component is stateless by default and intentionally does not mount
 `mnt-db-rt`. If a future platform-recipient database source is needed, add a
 dedicated least-privilege relay database role, secret, and NetworkPolicy in that

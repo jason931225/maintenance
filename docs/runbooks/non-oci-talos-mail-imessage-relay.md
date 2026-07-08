@@ -64,6 +64,8 @@ must be reachable by the relay only through a private authenticated channel:
 - No public bridge endpoint.
 - No token, certificate, private key, account password, message body, or contact
   content printed in logs or committed to git.
+- Runtime tokens mounted from Secret volumes as files, with only file-path
+  environment variables exposed to the relay container.
 
 Repository artifacts may reference only secret names and keys. The expected
 runtime inputs are non-OCI Talos kubeconfig/talosconfig plus macOS bridge

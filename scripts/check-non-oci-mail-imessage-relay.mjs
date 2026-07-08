@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 
 const BLOCKER_SUMMARY = "BLOCKED_PENDING_NON_OCI_TALOS_CREDENTIALS";
 const BLOCKER = "blocked_missing_non_oci_talos_or_bridge_credentials";
+const MIN_BRIDGE_TOKEN_LENGTH = 20;
 
 const args = new Set(process.argv.slice(2));
 
@@ -37,7 +38,10 @@ if (hasValue(process.env.MESSAGES_BRIDGE_URL) && !isHttpsUrl(process.env.MESSAGE
   missing.push("MESSAGES_BRIDGE_URL");
 }
 
-if (hasValue(process.env.MESSAGES_BRIDGE_TOKEN) && process.env.MESSAGES_BRIDGE_TOKEN.trim().length < 20) {
+if (
+  hasValue(process.env.MESSAGES_BRIDGE_TOKEN) &&
+  process.env.MESSAGES_BRIDGE_TOKEN.trim().length < MIN_BRIDGE_TOKEN_LENGTH
+) {
   missing.push("MESSAGES_BRIDGE_TOKEN");
 }
 
@@ -71,7 +75,8 @@ function isHttpsUrl(value) {
 async function canRead(path) {
   try {
     await access(path, constants.R_OK);
-    return true;
+    const entry = await stat(path);
+    return entry.isFile();
   } catch {
     return false;
   }
