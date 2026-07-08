@@ -2859,8 +2859,12 @@ async fn workspace_me_endpoint_scopes_layout_to_current_principal(pool: PgPool) 
 
     let org_c = OrgId::from_uuid(uuid::Uuid::from_u128(0xc0ffee));
     seed_org(&pool, org_c, "workspace-c").await;
-    let user_c = seed_user_in_org(&pool, org_c, "Workspace User C", &["MECHANIC"]).await;
-    let token_c = harness.token_for_org(org_c, user_c, &["MECHANIC"], vec![]);
+    // `users.id` is globally unique in the current schema, so a realistic
+    // cross-tenant duplicate user row cannot be inserted. The leak-prone case
+    // this endpoint must still reject is the same verified subject id presented
+    // under a different tenant claim: without the org-armed RLS lookup, the
+    // adapter's `WHERE user_id = $1` read would return user A's KNL layout here.
+    let token_c = harness.token_for_org(org_c, user_a, &["MECHANIC"], vec![]);
 
     let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_c, None).await;
     assert_eq!(status, StatusCode::OK, "{body:?}");
