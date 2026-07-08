@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PageHeader } from "../components/shell/PageHeader";
+import { PinButton } from "../components/shell/workspace/PinButton";
 import { RefreshButton } from "../components/shell/RefreshButton";
+import { attendanceRecordToPin } from "../features/workspace/adapters";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
 import { Button } from "../components/ui/button";
@@ -267,6 +269,9 @@ export function AttendancePage() {
                     <th scope="col" className="px-3 py-2 font-medium">
                       {t.columns.payroll}
                     </th>
+                    <th scope="col" className="px-3 py-2 font-medium">
+                      <span className="sr-only">{t.pinColumn}</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -286,6 +291,17 @@ export function AttendancePage() {
                       </td>
                       <td className="px-3 py-2 text-steel">
                         {t.linked}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <PinButton
+                          object={attendanceRecordToPin({
+                            code: record.payroll_material_ref_id,
+                            kindLabel: kindLabel(record.kind),
+                            occurredLabel: formatKoreanDateTime(record.occurred_at),
+                            stateLabel: stateLabel(record.state_after),
+                            note: noteLabel(record.note),
+                          })}
+                        />
                       </td>
                     </tr>
                   ))}

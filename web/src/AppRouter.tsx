@@ -42,11 +42,10 @@ const OnboardingPage = lazy(() =>
 const PendingPage = lazy(() =>
   import("./pages/PendingPage").then((m) => ({ default: m.PendingPage })),
 );
-const WorkHubPage = lazy(() =>
-  import("./pages/WorkHubPage").then((m) => ({ default: m.WorkHubPage })),
-);
-const AttendancePage = lazy(() =>
-  import("./pages/AttendancePage").then((m) => ({ default: m.AttendancePage })),
+// ConsoleShell hosts the mounted-persistent /work-hub and /attendance screens
+// (UI-M1b). It imports those pages directly, so they are no longer lazy here.
+const ConsoleShell = lazy(() =>
+  import("./components/shell/ConsoleShell").then((m) => ({ default: m.ConsoleShell })),
 );
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
@@ -304,13 +303,25 @@ export function AppRouter() {
             storefront home (#6); authenticated entry lands on /work-hub via the
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
+        {/* ConsoleShell (UI-M1b) — the new window-engine shell hosting the
+            mounted-persistent /work-hub and /attendance screens. It is a layout
+            route with two pathless children so the shell instance is preserved
+            across /work-hub <-> /attendance navigation (mounted persistence);
+            ConsoleShell reads the location itself and does not use <Outlet />.
+            Nav-visibility gating lives inside ConsoleShell. Every other route
+            stays on AppShell below (two-shell coexistence). */}
+        <Route
+          element={
+            <Suspense fallback={<PageSpinner />}>
+              <ConsoleShell />
+            </Suspense>
+          }
+        >
+          <Route path="/work-hub" element={null} />
+          <Route path="/attendance" element={null} />
+        </Route>
+
         <Route element={<AppShell />}>
-          <Route element={<RequireNavItemRoute itemKey="work-hub" />}>
-            <Route path="/work-hub" element={<WorkHubPage />} />
-          </Route>
-          <Route element={<RequireNavItemRoute itemKey="my-attendance" />}>
-            <Route path="/attendance" element={<AttendancePage />} />
-          </Route>
           <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
             <Route path="/dispatch" element={<DispatchPage />} />
             {/* Work-order detail (read gate is WorkOrderReadAll). Write controls

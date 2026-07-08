@@ -137,6 +137,10 @@ const server = setupServer(
     HttpResponse.json({ items: [], total: 0 }),
   ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
+  // Console workspace layout (UI-M1b): ConsoleShell loads it on mount for
+  // /work-hub and /attendance. Empty backend => empty layout object.
+  http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
+  http.put("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
@@ -156,6 +160,12 @@ const server = setupServer(
   ),
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
+  ),
+  // AttendancePage now mounts alongside WorkHubPage inside ConsoleShell
+  // (mounted persistence, UI-M1b), so its on-mount fetch fires on every console
+  // screen — mock it for the empty backend.
+  http.get("*/api/v1/hr/attendance-records/me", () =>
+    HttpResponse.json({ items: [] }),
   ),
   http.get("*/api/v1/hr/readiness-summary", () =>
     HttpResponse.json(emptyHrReadinessSummary),
