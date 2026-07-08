@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -67,15 +67,16 @@ describe("computeDropdownPosition", () => {
   const viewport = { width: 800, height: 600 };
   const dropdown = { width: 240, height: 160 };
 
-  it("places the dropdown below the caret when there is room", () => {
+  it("places the dropdown below the caret when there is room, at its full requested height", () => {
     const result = computeDropdownPosition({ top: 100, bottom: 116, left: 50 }, dropdown, viewport);
-    expect(result).toEqual({ top: 116, left: 50, placement: "below" });
+    expect(result).toEqual({ top: 116, left: 50, placement: "below", maxHeight: 160 });
   });
 
   it("flips above the caret when there is no room below", () => {
     const result = computeDropdownPosition({ top: 500, bottom: 516, left: 50 }, dropdown, viewport);
     expect(result.placement).toBe("above");
     expect(result.top).toBe(500 - dropdown.height);
+    expect(result.maxHeight).toBe(dropdown.height);
   });
 
   it("clamps the left edge so the dropdown never overflows the right viewport edge", () => {
@@ -88,12 +89,37 @@ describe("computeDropdownPosition", () => {
     const result = computeDropdownPosition({ top: 2, bottom: 18, left: 50 }, dropdown, { width: 800, height: 20 });
     expect(result.top).toBeGreaterThanOrEqual(0);
   });
+
+  it("shrinks maxHeight to the available space instead of clipping past the viewport edge", () => {
+    // Only 60px available below the caret (spaceBelow still >= spaceAbove, so
+    // "below" is still chosen) in a 600px-tall viewport, far less than the
+    // dropdown's requested 160px.
+    const result = computeDropdownPosition({ top: 10, bottom: 540, left: 50 }, dropdown, viewport);
+    expect(result.placement).toBe("below");
+    expect(result.maxHeight).toBeLessThan(dropdown.height);
+    expect(result.top + result.maxHeight).toBeLessThanOrEqual(viewport.height);
+  });
+
+  it("never returns a negative maxHeight even when there is no usable space at all", () => {
+    const result = computeDropdownPosition({ top: 2, bottom: 18, left: 50 }, dropdown, { width: 800, height: 20 });
+    expect(result.maxHeight).toBeGreaterThanOrEqual(0);
+  });
 });
 
 function TokenInputHarness() {
   const [value, setValue] = useState("");
-  const { inputRef, activeTrigger, confirmToken, handleChange, handleKeyDown, handleSelect } =
-    useTokenGrammarInput(value, setValue);
+  const {
+    inputRef,
+    activeTrigger,
+    highlightedCode,
+    setHighlightedCode,
+    confirmToken,
+    handleChange,
+    handleKeyDown,
+    handleSelect,
+    handleCompositionStart,
+    handleCompositionEnd,
+  } = useTokenGrammarInput(value, setValue);
   return (
     <div>
       <textarea
@@ -104,13 +130,20 @@ function TokenInputHarness() {
         onKeyDown={handleKeyDown}
         onSelect={handleSelect}
         onClick={handleSelect}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
       />
       <div data-testid="active-trigger">
         {activeTrigger ? `${activeTrigger.trigger}:${activeTrigger.query}` : "none"}
       </div>
+      <div data-testid="highlighted">{highlightedCode ?? "none"}</div>
+      <button type="button" onClick={() => { setHighlightedCode("WO-2643"); }}>
+        highlight
+      </button>
       <button type="button" onClick={() => { confirmToken("WO-2643"); }}>
         confirm
       </button>
+      <input aria-label="next field" />
     </div>
   );
 }
@@ -165,5 +198,74 @@ describe("useTokenGrammarInput", () => {
     await user.keyboard("{Escape}");
     expect(screen.getByTestId("active-trigger")).toHaveTextContent("none");
     expect(textarea).toHaveValue("!AP-31");
+  });
+
+  it("Tab confirms the highlighted candidate and prevents the default focus-move", async () => {
+    const user = userEvent.setup();
+    render(<TokenInputHarness />);
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>("composer");
+
+    await user.type(textarea, "참고 #작업");
+    await user.click(screen.getByText("highlight"));
+    expect(screen.getByTestId("highlighted")).toHaveTextContent("WO-2643");
+
+    // fireEvent (not userEvent) so the keydown is dispatched straight at the
+    // textarea regardless of userEvent's own focus-order tracking; its
+    // dispatchEvent return value is `false` iff preventDefault() was called.
+    const notPrevented = fireEvent.keyDown(textarea, { key: "Tab" });
+
+    expect(notPrevented).toBe(false);
+    expect(textarea.value).toBe("참고 #WO-2643 ");
+    expect(screen.getByTestId("active-trigger")).toHaveTextContent("none");
+    expect(screen.getByTestId("highlighted")).toHaveTextContent("none");
+  });
+
+  it("Tab does nothing (default browser focus-move stays uninterrupted) when no candidate is highlighted", async () => {
+    const user = userEvent.setup();
+    render(<TokenInputHarness />);
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>("composer");
+
+    await user.type(textarea, "참고 #작업");
+    const notPrevented = fireEvent.keyDown(textarea, { key: "Tab" });
+
+    expect(notPrevented).toBe(true); // preventDefault was NOT called — Tab keeps its normal behavior
+    expect(textarea.value).toBe("참고 #작업");
+    expect(textarea.value).not.toContain("WO-2643");
+  });
+
+  it("suspends trigger detection during IME composition and recomputes once composition ends", async () => {
+    const user = userEvent.setup();
+    render(<TokenInputHarness />);
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>("composer");
+
+    // userEvent can't emit real composition events, so this is driven manually
+    // (fireEvent) rather than through user.type.
+    await user.type(textarea, "@");
+    expect(screen.getByTestId("active-trigger")).toHaveTextContent("@:");
+
+    fireEvent.compositionStart(textarea);
+    // Mid-composition: this would normally clear the trigger (trailing space),
+    // but must be ignored while composing.
+    fireEvent.change(textarea, { target: { value: "@ ", selectionStart: 2 } });
+    expect(screen.getByTestId("active-trigger")).toHaveTextContent("@:");
+
+    fireEvent.compositionEnd(textarea, { target: { value: "@ ", selectionStart: 2 } });
+    expect(screen.getByTestId("active-trigger")).toHaveTextContent("none");
+  });
+
+  it("does not confirm a token while composing, even if a candidate is highlighted", async () => {
+    const user = userEvent.setup();
+    render(<TokenInputHarness />);
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>("composer");
+
+    await user.type(textarea, "참고 #작업");
+    await user.click(screen.getByText("highlight"));
+    fireEvent.compositionStart(textarea);
+
+    textarea.focus();
+    fireEvent.keyDown(textarea, { key: "Tab" });
+
+    expect(textarea.value).toBe("참고 #작업");
+    expect(textarea.value).not.toContain("WO-2643");
   });
 });
