@@ -311,21 +311,23 @@ impl PgOrgStore {
     /// The `layout` jsonb is OPAQUE to the backend — the frontend owns its shape
     /// and it is stored/returned verbatim. An absent row is the empty-default
     /// `{}` (a fresh user with no saved layout). Read under FORCE RLS for the
-    /// armed org (`app.current_org` via `with_org_conn`) and with an explicit
-    /// `user_id` predicate supplied by the `/me` handler's authenticated
-    /// principal.
+    /// armed org (`app.current_org` via `with_org_conn`) and with explicit
+    /// `(org_id, user_id)` predicates supplied by the request tenant and the
+    /// `/me` handler's authenticated principal.
     pub async fn get_workspace_layout(
         &self,
         user_id: UserId,
     ) -> Result<serde_json::Value, PgOrgError> {
         let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let user_uuid = *user_id.as_uuid();
         let layout =
             with_org_conn::<_, Option<serde_json::Value>, PgOrgError>(&self.pool, org, move |tx| {
                 Box::pin(async move {
                     Ok(sqlx::query_scalar(
-                        "SELECT layout FROM me_workspace_layouts WHERE user_id = $1",
+                        "SELECT layout FROM me_workspace_layouts WHERE org_id = $1 AND user_id = $2",
                     )
+                    .bind(org_uuid)
                     .bind(user_uuid)
                     .fetch_optional(tx.as_mut())
                     .await?)
