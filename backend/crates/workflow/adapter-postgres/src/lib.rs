@@ -11,7 +11,9 @@
 
 use std::collections::BTreeSet;
 
-use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, OrgId, TraceContext};
+use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, OrgId, TraceContext, UserId};
+use mnt_notifications_application::{EmitNotificationCommand, NotificationSink};
+use mnt_notifications_domain::NotificationLink;
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_workflow_domain::{
     FinalizeWaitingTaskCommand, FinalizeWaitingTaskContext, FinalizedWaitingTask, NewRun,
@@ -572,6 +574,155 @@ impl PgWorkflowRuntimeStore {
                 }
 
                 Ok((created, audit_events))
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// Compensation bridge — drain PENDING/FAILED `NOTIFICATION` outbox events
+    /// (the approval-line notify the post-finalization-rejection flow enqueues)
+    /// into real notification-center rows via the [`NotificationSink`] write
+    /// port. Two-phase and at-least-once: read the due events, emit one
+    /// notification per approval-line recipient (idempotent on the outbox event
+    /// id + recipient, so a re-drain never doubles a notification), then mark the
+    /// event `DELIVERED` with an audit row. A failed emit leaves the event
+    /// PENDING for the next tick. Returns the number of notifications emitted.
+    pub async fn drain_notification_outbox(
+        &self,
+        org: OrgId,
+        limit: i64,
+        sink: &dyn NotificationSink,
+    ) -> Result<u64, KernelError> {
+        // Phase 1: read due NOTIFICATION events (the lock is NOT held across the
+        // emits below; emit + mark are each idempotent, so a re-claim is safe).
+        let events: Vec<(Uuid, Uuid, serde_json::Value)> =
+            with_org_conn::<_, _, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    let rows = sqlx::query(
+                        "SELECT id, run_id, payload FROM workflow_outbox_events \
+                         WHERE channel = 'NOTIFICATION' \
+                           AND status IN ('PENDING', 'FAILED') \
+                           AND coalesce(next_attempt_at, created_at) <= now() \
+                         ORDER BY created_at \
+                         LIMIT $1",
+                    )
+                    .bind(limit)
+                    .fetch_all(tx.as_mut())
+                    .await?;
+                    rows.iter()
+                        .map(|row| {
+                            Ok((
+                                row.try_get("id")?,
+                                row.try_get("run_id")?,
+                                row.try_get("payload")?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, PgWorkflowRuntimeError>>()
+                })
+            })
+            .await
+            .map_err(KernelError::from)?;
+
+        let mut emitted: u64 = 0;
+        for (event_id, run_id, payload) in events {
+            let recipients = payload
+                .get("recipients")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let reason = payload
+                .get("reason")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+
+            let mut all_ok = true;
+            for value in &recipients {
+                let Some(recipient) = value.as_str().and_then(|s| Uuid::parse_str(s).ok()) else {
+                    continue;
+                };
+                let text = if reason.is_empty() {
+                    "결재가 반려되었습니다".to_owned()
+                } else {
+                    format!("결재가 반려되었습니다: {reason}")
+                };
+                let command = EmitNotificationCommand {
+                    actor: None,
+                    recipient: UserId::from_uuid(recipient),
+                    category: "결재".to_owned(),
+                    text,
+                    link: NotificationLink::Object {
+                        kind: "workflow_run".to_owned(),
+                        id: run_id.to_string(),
+                    },
+                    dedup_key: Some(format!("wf-outbox:{event_id}:{recipient}")),
+                    trace: TraceContext::generate(),
+                    occurred_at: time::OffsetDateTime::now_utc(),
+                };
+                match sink.emit(command).await {
+                    Ok(_) => emitted += 1,
+                    Err(err) => {
+                        tracing::warn!(
+                            %event_id,
+                            error = %err,
+                            "notification bridge: emit failed; leaving event PENDING for retry"
+                        );
+                        all_ok = false;
+                        break;
+                    }
+                }
+            }
+
+            if all_ok {
+                self.mark_notification_outbox_delivered(
+                    org,
+                    event_id,
+                    i64::try_from(recipients.len()).unwrap_or(i64::MAX),
+                )
+                .await?;
+            }
+        }
+        Ok(emitted)
+    }
+
+    async fn mark_notification_outbox_delivered(
+        &self,
+        org: OrgId,
+        event_id: Uuid,
+        recipient_count: i64,
+    ) -> Result<(), KernelError> {
+        with_audits::<_, (), PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    "UPDATE workflow_outbox_events \
+                     SET status = 'DELIVERED', delivered_at = now(), \
+                         attempt_count = attempt_count + 1, updated_at = now() \
+                     WHERE id = $1 AND channel = 'NOTIFICATION'",
+                )
+                .bind(event_id)
+                .execute(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let audit = AuditEvent::new(
+                    None,
+                    AuditAction::new(DRAIN_AUDIT_ACTION).map_err(PgWorkflowRuntimeError::from)?,
+                    "workflow_outbox_event",
+                    event_id.to_string(),
+                    TraceContext::generate(),
+                    time::OffsetDateTime::now_utc(),
+                )
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({ "status": "PENDING" })),
+                    Some(serde_json::json!({
+                        "status": "DELIVERED",
+                        "channel": "NOTIFICATION",
+                        "notifications_recipient_count": recipient_count,
+                    })),
+                );
+                Ok(((), vec![audit]))
             })
         })
         .await
