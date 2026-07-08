@@ -2965,6 +2965,30 @@ export interface paths {
         patch: operations["updateCurrentUser"];
         trace?: never;
     };
+    "/api/v1/me/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the authenticated user's console workspace layout
+         * @description Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+         */
+        get: operations["getCurrentUserWorkspace"];
+        /**
+         * Upsert the authenticated user's console workspace layout
+         * @description Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+         */
+        put: operations["putCurrentUserWorkspace"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{id}": {
         parameters: {
             query?: never;
@@ -6933,6 +6957,18 @@ export interface components {
         UpdateSelfProfileRequest: {
             display_name?: string;
             phone?: string | null;
+        };
+        WorkspaceResponse: {
+            /** @description Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`. */
+            layout: {
+                [key: string]: unknown;
+            };
+        };
+        WorkspaceUpsertRequest: {
+            /** @description Opaque, frontend-owned console layout object to store verbatim. */
+            layout: {
+                [key: string]: unknown;
+            };
         };
         CreateRegionRequest: {
             name: string;
@@ -11844,6 +11880,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getCurrentUserWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's workspace layout. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    putCurrentUserWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceUpsertRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored workspace layout. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

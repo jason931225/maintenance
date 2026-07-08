@@ -63,6 +63,9 @@ use uuid::Uuid;
 
 pub const USERS_PATH: &str = "/api/v1/users";
 pub const USERS_ME_PATH: &str = "/api/v1/users/me";
+/// Per-(org,user) Oyatie Console workspace layout (UI-M1b). GET returns the
+/// caller's saved layout (empty `{}` default), PUT upserts it. Opaque jsonb.
+pub const ME_WORKSPACE_PATH: &str = "/api/v1/me/workspace";
 pub const USER_PATH_TEMPLATE: &str = "/api/v1/users/{id}";
 pub const USER_DEACTIVATE_PATH_TEMPLATE: &str = "/api/v1/users/{id}/deactivate";
 pub const REGIONS_PATH: &str = "/api/v1/regions";
@@ -128,6 +131,7 @@ fn record_policy_studio_rejection(
 pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     USERS_PATH,
     USERS_ME_PATH,
+    ME_WORKSPACE_PATH,
     USER_PATH_TEMPLATE,
     USER_DEACTIVATE_PATH_TEMPLATE,
     REGIONS_PATH,
@@ -183,6 +187,7 @@ pub fn router(state: IdentityRestState) -> Router {
         // `/users/me` MUST be registered before `/users/{id}` so the literal
         // segment wins over the path capture.
         .route(USERS_ME_PATH, get(get_me).patch(update_me))
+        .route(ME_WORKSPACE_PATH, get(get_workspace).put(put_workspace))
         .route(USERS_PATH, get(list_users).post(create_user))
         .route(USER_PATH_TEMPLATE, get(get_user).patch(update_user))
         .route(USER_DEACTIVATE_PATH_TEMPLATE, post(deactivate_user))
@@ -2799,6 +2804,62 @@ async fn update_me(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(summary))
+}
+
+// ---------------------------------------------------------------------------
+// Console workspace layout handlers (any authenticated user; own row only)
+// ---------------------------------------------------------------------------
+
+/// Response for `GET /api/v1/me/workspace`. `layout` is an opaque, frontend-owned
+/// JSON object (the console window/panel arrangement); the empty default is `{}`.
+#[derive(Debug, Serialize)]
+struct WorkspaceResponse {
+    layout: serde_json::Value,
+}
+
+/// Body for `PUT /api/v1/me/workspace`. The `layout` is stored verbatim; the DB
+/// enforces it is a JSON object within the size cap.
+#[derive(Debug, Deserialize)]
+struct WorkspaceUpsertRequest {
+    layout: serde_json::Value,
+}
+
+async fn get_workspace(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let layout = state
+        .store
+        .get_workspace_layout(principal.user_id)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(WorkspaceResponse { layout }))
+}
+
+async fn put_workspace(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Json(body): Json<WorkspaceUpsertRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    // Reject non-object payloads at the boundary with a clear 422 rather than
+    // letting the DB CHECK surface as a generic 500. (The DB CHECK remains the
+    // final backstop for size and shape.)
+    if !body.layout.is_object() {
+        return Err(RestError::validation("layout must be a JSON object"));
+    }
+    let layout = state
+        .store
+        .put_workspace_layout(
+            principal.user_id,
+            body.layout,
+            TraceContext::generate(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(WorkspaceResponse { layout }))
 }
 
 // ---------------------------------------------------------------------------
