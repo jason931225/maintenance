@@ -74,6 +74,9 @@ src/main/kotlin/com/maintenance/api/client/model/BranchSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/ClaimWorkflowTaskRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ClaimWorkflowTaskResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/ClaimedWorkflowTask.kt
 src/main/kotlin/com/maintenance/api/client/model/CloneWorkflowDefinitionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CollaborationScopePolicy.kt
 src/main/kotlin/com/maintenance/api/client/model/CollaborationScopeType.kt
@@ -118,6 +121,9 @@ src/main/kotlin/com/maintenance/api/client/model/DailyPlanListPage.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideOwnershipTransferRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/DecideWorkflowTaskRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/DecideWorkflowTaskResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/DecidedWorkflowTask.kt
 src/main/kotlin/com/maintenance/api/client/model/DepreciationMethod.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceLoginApproveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceLoginApproveSessionRequest.kt
@@ -169,6 +175,10 @@ src/main/kotlin/com/maintenance/api/client/model/EvidenceStatusResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/ExecuteObjectActionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ExportSourceNote.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizeWorkflowTaskRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizeWorkflowTaskResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizedWorkflowRun.kt
+src/main/kotlin/com/maintenance/api/client/model/FinalizedWorkflowTask.kt
 src/main/kotlin/com/maintenance/api/client/model/FinancialConfigSnapshot.kt
 src/main/kotlin/com/maintenance/api/client/model/FindingSeverity.kt
 src/main/kotlin/com/maintenance/api/client/model/FindingStatus.kt
@@ -279,6 +289,9 @@ src/main/kotlin/com/maintenance/api/client/model/PollMyVote.kt
 src/main/kotlin/com/maintenance/api/client/model/PollOptionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PollResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PollStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionDocument.kt
+src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PrepareExpenditureRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PresignedUpload.kt
 src/main/kotlin/com/maintenance/api/client/model/PriorityLevel.kt
@@ -325,6 +338,8 @@ src/main/kotlin/com/maintenance/api/client/model/SimulateWorkflowDefinitionReque
 src/main/kotlin/com/maintenance/api/client/model/SiteContact.kt
 src/main/kotlin/com/maintenance/api/client/model/SiteLocationGroup.kt
 src/main/kotlin/com/maintenance/api/client/model/StartP1DispatchRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/StartWorkflowRunRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/StartWorkflowRunResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitInquiryRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
@@ -401,9 +416,14 @@ src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionEventResponse
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionHistoryResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowRunListItem.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowRunListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowRunSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowSimulationFinding.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowSimulationResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowStepUpRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowStudioCatalogResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowTaskListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowTaskSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowTemplateDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/WormReplicaStatus.kt

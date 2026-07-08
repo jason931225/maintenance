@@ -3,13 +3,29 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
-use mnt_kernel_core::{AuditAction, AuditEvent, ErrorKind, KernelError, TraceContext, UserId};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
+};
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
-use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
+use mnt_platform_authz::{Action, AuthorizationAuditEvent, Feature, Principal, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_workflow_domain::{
+    FinalizeWaitingTaskCommand, PostFinalizationRejectionCommand, RunStatus, TriggerType,
+    WaitingTaskStatus, WorkflowRuntimePort,
+};
+use mnt_workflow_runtime::{
+    AuditContext, ExecGraph, FinalizeMode, FinalizePolicyRequest, NodeKind, StartRunRequest,
+    WAITING_COMPLETION_DOMAIN, build_guard_request, drive_from, enforce_finalize_policy, guard,
+    start_run, workflow_coexistence_entry,
+};
+use mnt_workflow_runtime_adapter_postgres::{
+    ClaimWaitingTaskCommand, DecideWaitingTaskCommand, PgWorkflowRuntimeStore, RunListFilter,
+    RunListItem, TaskDecision, WaitingTaskListFilter, WaitingTaskListItem,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::str::FromStr;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -29,6 +45,14 @@ pub const WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/rollback";
 pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/clone";
+pub const WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/finalize";
+pub const WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-runs/{run_id}/post-finalization-rejection";
+pub const WORKFLOW_RUNS_PATH: &str = "/api/v1/workflow-runs";
+pub const WORKFLOW_RUNS_MINE_PATH: &str = "/api/v1/workflow-runs/mine";
+pub const WORKFLOW_TASKS_PATH: &str = "/api/v1/workflow-tasks";
+pub const WORKFLOW_TASK_CLAIM_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/claim";
+pub const WORKFLOW_TASK_DECIDE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/decide";
 
 const WORKFLOW_STUDIO_REQUESTS_TOTAL: &str = "workflow_studio_requests_total";
 const WORKFLOW_DEFINITION_SCHEMA_VERSION: &str = "workflow.definition.v1";
@@ -104,6 +128,95 @@ const WORKFLOW_TEMPLATES: &[WorkflowTemplate] = &[
     },
 ];
 
+#[allow(dead_code)]
+const APPROVAL_TEMPLATES: &[ApprovalTemplate] = &[
+    ApprovalTemplate {
+        key: "ot",
+        workflow_key: "approval.ot",
+        reason_enum: &["업무 마감", "긴급 대응", "정기 점검", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "work_order",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "hr_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "leave",
+        workflow_key: "approval.leave",
+        reason_enum: &["개인 사유", "병가", "경조", "가족 돌봄", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "attendance_schedule",
+            required: true,
+        }],
+        default_line: &["manager_approver"],
+        receipt_required: true,
+    },
+    ApprovalTemplate {
+        key: "expense",
+        workflow_key: "approval.expense",
+        reason_enum: &["교통", "식대", "숙박", "소모품", "접대", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "contract",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "finance_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "sub",
+        workflow_key: "approval.sub",
+        reason_enum: &["결원 대체", "휴가 대체", "긴급 투입", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "site",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "hr_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "purchase",
+        workflow_key: "approval.purchase",
+        reason_enum: &["자재", "비품", "장비", "수리", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "asset_or_inventory",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "finance_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "benefit",
+        workflow_key: "approval.benefit",
+        reason_enum: &["경조", "자기계발", "건강검진", "포상", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "payee",
+            required: true,
+        }],
+        default_line: &["team_lead_reviewer", "hr_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "reimburse",
+        workflow_key: "approval.reimburse",
+        reason_enum: &["교통", "식대", "숙박", "소모품", "접대", "기타"],
+        linked_objects: &[ApprovalLinkedObject {
+            kind: "project_or_work",
+            required: false,
+        }],
+        default_line: &["team_lead_reviewer", "finance_approver"],
+        receipt_required: false,
+    },
+    ApprovalTemplate {
+        key: "general",
+        workflow_key: "approval.general",
+        reason_enum: &["보고", "요청", "건의", "기타"],
+        linked_objects: &[],
+        default_line: &["team_lead_reviewer", "division_approver"],
+        receipt_required: false,
+    },
+];
+
 #[derive(Clone)]
 pub struct WorkflowStudioState {
     pool: PgPool,
@@ -165,6 +278,19 @@ pub fn router(state: WorkflowStudioState) -> Router {
             WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE,
             post(clone_definition),
         )
+        .route(WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE, post(finalize_task))
+        .route(
+            WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE,
+            post(create_post_finalization_rejection),
+        )
+        .route(WORKFLOW_RUNS_PATH, post(start_workflow_run))
+        .route(WORKFLOW_RUNS_MINE_PATH, get(list_my_workflow_runs))
+        .route(WORKFLOW_TASKS_PATH, get(list_workflow_tasks))
+        .route(WORKFLOW_TASK_CLAIM_PATH_TEMPLATE, post(claim_workflow_task))
+        .route(
+            WORKFLOW_TASK_DECIDE_PATH_TEMPLATE,
+            post(decide_workflow_task),
+        )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -196,6 +322,24 @@ struct WorkflowTemplate {
     object_type: &'static str,
     required_approval_line: bool,
     required_payment_line: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+struct ApprovalTemplate {
+    key: &'static str,
+    workflow_key: &'static str,
+    reason_enum: &'static [&'static str],
+    linked_objects: &'static [ApprovalLinkedObject],
+    default_line: &'static [&'static str],
+    receipt_required: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+struct ApprovalLinkedObject {
+    kind: &'static str,
+    required: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -336,6 +480,80 @@ struct WorkflowStepUpAssertionRequest {
     credential: PasskeyAuthenticationCredential,
 }
 
+#[derive(Debug, Deserialize)]
+struct FinalizeWorkflowTaskRequest {
+    mode: FinalizeWorkflowTaskMode,
+    #[serde(default)]
+    reason: Option<String>,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FinalizeWorkflowTaskMode {
+    Author,
+    Delegate,
+}
+
+impl FinalizeWorkflowTaskMode {
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Author => "author",
+            Self::Delegate => "delegate",
+        }
+    }
+
+    const fn policy_mode(&self) -> FinalizeMode {
+        match self {
+            Self::Author => FinalizeMode::Author,
+            Self::Delegate => FinalizeMode::Delegate,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct FinalizeWorkflowTaskResponse {
+    task: FinalizedTaskResponse,
+    run: FinalizedRunResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    archive_ref: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct FinalizedTaskResponse {
+    id: Uuid,
+    run_id: Uuid,
+    status: String,
+    completed_by: Option<UserId>,
+    decision_payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct FinalizedRunResponse {
+    id: Uuid,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PostFinalizationRejectionRequest {
+    reason: String,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PostFinalizationRejectionResponse {
+    compensation: PostFinalizationRejectionDocumentResponse,
+    run: FinalizedRunResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct PostFinalizationRejectionDocumentResponse {
+    id: Uuid,
+    original_run_id: Uuid,
+    reason: String,
+    created_by: UserId,
+}
+
 #[derive(Debug, Serialize)]
 struct WorkflowSimulationResponse {
     decision: String,
@@ -397,6 +615,1190 @@ async fn get_catalog(
                 required_payment_line: template.required_payment_line,
             })
             .collect(),
+    }))
+}
+
+async fn finalize_task(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(task_id): Path<Uuid>,
+    Json(request): Json<FinalizeWorkflowTaskRequest>,
+) -> Result<Json<FinalizeWorkflowTaskResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let context = store
+        .load_finalize_waiting_task(principal.org_id, task_id)
+        .await?
+        .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
+    if context.waiting_key != "finalize.author"
+        && context.required_policy.as_deref() != Some("approval_finalize")
+    {
+        return Err(WorkflowStudioError::validation(
+            "workflow task is not a finalization task",
+        ));
+    }
+
+    let branch = guard_branch(&principal);
+    let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = context
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| context.run_id.to_string());
+    let policy = enforce_finalize_policy(FinalizePolicyRequest {
+        mode: request.mode.policy_mode(),
+        reason: request.reason.as_deref(),
+        required_policy: context.required_policy.as_deref(),
+        principal: &principal,
+        org: principal.org_id,
+        branch,
+        resource_type,
+        resource_id,
+        initiated_by: context.initiated_by,
+    })?;
+
+    let mut audits = Vec::new();
+    if let Some(guard_audit) = policy.guard_audit {
+        audits.push(shadow_audit_event(
+            &guard_audit,
+            principal.user_id,
+            principal.org_id,
+            task_id,
+        )?);
+    }
+
+    let finalized = store
+        .finalize_waiting_task(
+            principal.org_id,
+            FinalizeWaitingTaskCommand {
+                task_id,
+                actor: principal.user_id,
+                idempotency_key: idempotency_key.to_owned(),
+                mode: request.mode.as_str().to_owned(),
+                delegated_reason: policy.delegated_reason,
+                transition_audits: audits,
+            },
+        )
+        .await?;
+
+    record_workflow_studio_request("task_finalize", "success");
+    Ok(Json(FinalizeWorkflowTaskResponse {
+        task: FinalizedTaskResponse {
+            id: finalized.task_id,
+            run_id: finalized.run_id,
+            status: finalized.status.as_db_str().to_owned(),
+            completed_by: finalized.completed_by,
+            decision_payload: finalized.decision_payload,
+        },
+        run: FinalizedRunResponse {
+            id: finalized.run_id,
+            status: finalized.run_status.as_db_str().to_owned(),
+        },
+        archive_ref: None,
+    }))
+}
+
+/// Post-finalization rejection: reverse an already-finalized run with a
+/// compensating document.
+///
+/// AUTHORITY IS ORG-WIDE BY DESIGN (security M4, DESIGN §2): the guard is
+/// [`Feature::ApprovalFinalize`] with no branch/object narrowing, so an
+/// 감사·컴플라이언스·CEO principal holding that feature may compensate ANY finalized
+/// run across the tenant. This is the charter's reversal authority — a documented
+/// decision, not a missing scope check. Narrowing it would break the
+/// audit/compliance reversal path.
+async fn create_post_finalization_rejection(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(run_id): Path<Uuid>,
+    Json(request): Json<PostFinalizationRejectionRequest>,
+) -> Result<Json<PostFinalizationRejectionResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    let reason = request.reason.trim();
+    if reason.is_empty() {
+        return Err(WorkflowStudioError::validation(
+            "post-finalization rejection requires a non-empty reason",
+        ));
+    }
+
+    let branch = guard_branch(&principal);
+    let authz_request = build_guard_request(
+        &principal,
+        Feature::ApprovalFinalize.as_str(),
+        principal.org_id,
+        branch,
+        "workflow_run",
+        &run_id.to_string(),
+        WAITING_COMPLETION_DOMAIN,
+    )
+    .map_err(|_| {
+        WorkflowStudioError::from(KernelError::forbidden(
+            "post-finalization rejection policy denied",
+        ))
+    })?;
+    let entry = workflow_coexistence_entry(
+        "workflow.waiting_task.post_finalization_rejection",
+        WAITING_COMPLETION_DOMAIN,
+        Feature::ApprovalFinalize,
+        "workflow_run",
+    );
+    let guard_outcome = guard(&authz_request, &entry);
+    if !guard_outcome.is_allowed() {
+        return Err(WorkflowStudioError::from(KernelError::forbidden(
+            "post-finalization rejection policy denied",
+        )));
+    }
+
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let compensation = store
+        .create_post_finalization_rejection(
+            principal.org_id,
+            PostFinalizationRejectionCommand {
+                original_run_id: run_id,
+                actor: principal.user_id,
+                reason: reason.to_owned(),
+                idempotency_key: idempotency_key.to_owned(),
+                transition_audits: vec![shadow_audit_event_for(
+                    &guard_outcome.audit,
+                    principal.user_id,
+                    principal.org_id,
+                    "workflow_run",
+                    run_id,
+                )?],
+            },
+        )
+        .await?;
+
+    record_workflow_studio_request("post_finalization_rejection", "success");
+    Ok(Json(PostFinalizationRejectionResponse {
+        compensation: PostFinalizationRejectionDocumentResponse {
+            id: compensation.id,
+            original_run_id: compensation.original_run_id,
+            reason: compensation.reason,
+            created_by: compensation.created_by,
+        },
+        run: FinalizedRunResponse {
+            id: compensation.original_run_id,
+            status: compensation.run_status.as_db_str().to_owned(),
+        },
+    }))
+}
+
+// ===========================================================================
+// Instance / task REST surface (engine-gen spike §"Instance/Task REST Surface").
+// ===========================================================================
+
+#[derive(Debug, Deserialize)]
+struct StartWorkflowRunRequest {
+    definition_id: Uuid,
+    #[serde(default)]
+    definition_version: Option<i32>,
+    #[serde(default)]
+    object_type: Option<String>,
+    #[serde(default)]
+    object_id: Option<Uuid>,
+    trigger_type: TriggerType,
+    idempotency_key: String,
+    #[serde(default)]
+    correlation_id: Option<String>,
+    #[serde(default = "empty_object")]
+    input_payload: Value,
+    #[serde(default = "empty_object")]
+    context_payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct StartWorkflowRunResponse {
+    run: RunSummaryResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_task: Option<TaskSummaryResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct RunSummaryResponse {
+    id: Uuid,
+    status: String,
+    definition_id: Uuid,
+    definition_version: i32,
+    object_type: Option<String>,
+    object_id: Option<Uuid>,
+    initiated_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct TaskSummaryResponse {
+    task_id: Uuid,
+    run_id: Uuid,
+    waiting_key: String,
+    title: String,
+    assignee_role_key: Option<String>,
+    required_policy: Option<String>,
+    object_type: Option<String>,
+    object_id: Option<Uuid>,
+    status: String,
+    claimed_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    due_at: Option<OffsetDateTime>,
+    form_payload: Value,
+}
+
+impl From<WaitingTaskListItem> for TaskSummaryResponse {
+    fn from(item: WaitingTaskListItem) -> Self {
+        Self {
+            task_id: item.task_id,
+            run_id: item.run_id,
+            waiting_key: item.waiting_key,
+            title: item.title,
+            assignee_role_key: item.assignee_role_key,
+            required_policy: item.required_policy,
+            object_type: item.object_type,
+            object_id: item.object_id,
+            status: item.status.as_db_str().to_owned(),
+            claimed_by: item.claimed_by,
+            due_at: item.due_at,
+            form_payload: item.form_payload,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowTaskListResponse {
+    items: Vec<TaskSummaryResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskListQuery {
+    #[serde(default)]
+    role_key: Option<String>,
+    #[serde(default)]
+    assignee: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RunListResponse {
+    items: Vec<RunListItemResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct RunListItemResponse {
+    run_id: Uuid,
+    status: String,
+    definition_id: Uuid,
+    definition_version: i32,
+    object_type: Option<String>,
+    object_id: Option<Uuid>,
+    initiated_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+}
+
+impl From<RunListItem> for RunListItemResponse {
+    fn from(item: RunListItem) -> Self {
+        Self {
+            run_id: item.run_id,
+            status: item.status.as_db_str().to_owned(),
+            definition_id: item.definition_id,
+            definition_version: item.definition_version,
+            object_type: item.object_type,
+            object_id: item.object_id,
+            initiated_by: item.initiated_by,
+            started_at: item.started_at,
+            updated_at: item.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RunListQuery {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    object_type: Option<String>,
+    // `q` (free-text search) is accepted but not yet used — no text index exists.
+    #[serde(default, rename = "q")]
+    _q: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaimWorkflowTaskRequest {
+    idempotency_key: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ClaimTaskResponse {
+    task: ClaimedTaskResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct ClaimedTaskResponse {
+    task_id: Uuid,
+    run_id: Uuid,
+    status: String,
+    claimed_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    claimed_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DecideWorkflowTaskRequest {
+    decision: DecisionRequest,
+    #[serde(default)]
+    comment: Option<String>,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DecisionRequest {
+    Approve,
+    Reject,
+    Return,
+}
+
+impl From<DecisionRequest> for TaskDecision {
+    fn from(value: DecisionRequest) -> Self {
+        match value {
+            DecisionRequest::Approve => Self::Approve,
+            DecisionRequest::Reject => Self::Reject,
+            DecisionRequest::Return => Self::Return,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DecideTaskResponse {
+    task: DecidedTaskResponse,
+    run: FinalizedRunResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_task: Option<TaskSummaryResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct DecidedTaskResponse {
+    task_id: Uuid,
+    run_id: Uuid,
+    status: String,
+    decision_payload: Value,
+}
+
+/// Map an approval `required_policy` string to a canonical legacy `Feature` key so
+/// the guard is well-defined without extending the frozen legacy permission matrix.
+/// `approval_review`/`approval_decide` reuse `completion_review`; the closeout
+/// policies reuse `approval_finalize`. Any other value must already be a real
+/// `Feature` key, else the caller treats it as a deny (fail closed).
+fn guard_policy(required_policy: &str) -> Option<String> {
+    match required_policy {
+        "approval_review" | "approval_decide" => Some("completion_review".to_owned()),
+        "approval_finalize" | "approval_receipt" => Some("approval_finalize".to_owned()),
+        other => Feature::from_str(other).ok().map(|_| other.to_owned()),
+    }
+}
+
+/// Serialized-size ceiling for a caller-supplied run payload (security M2). 64 KiB
+/// is far above any legitimate approval input; over it is a 422.
+const MAX_RUN_PAYLOAD_BYTES: usize = 64 * 1024;
+
+/// Reject an oversize `input_payload`/`context_payload` (security M2) with a 422.
+fn check_payload_size(field: &str, payload: &Value) -> Result<(), WorkflowStudioError> {
+    // Cheap upper bound: serialize once and measure. Bounded by the axum body
+    // limit already, but an explicit per-field cap keeps a single 64 KiB blob from
+    // riding in as run state.
+    let len = serde_json::to_vec(payload)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX);
+    if len > MAX_RUN_PAYLOAD_BYTES {
+        return Err(WorkflowStudioError::validation(format!(
+            "{field} must be at most {MAX_RUN_PAYLOAD_BYTES} bytes serialized"
+        )));
+    }
+    Ok(())
+}
+
+/// Fail-closed guard for the claim/decide action path (security H1, defense in
+/// depth): a waiting task with no `required_policy` carries no authorization
+/// boundary. Authoring now REQUIRES one (`validate_execution_graph`), so a
+/// policy-less row can only be a legacy record — refuse to act on it with a 403
+/// rather than fall through `guard_task_policy`'s ungated `Ok(None)` path (that
+/// path is for self-service *run starts*, never for acting on an existing task).
+fn require_task_authorization_boundary(
+    required_policy: Option<&str>,
+) -> Result<(), WorkflowStudioError> {
+    if required_policy.is_none() {
+        return Err(WorkflowStudioError::from(KernelError::forbidden(
+            "task has no authorization boundary",
+        )));
+    }
+    Ok(())
+}
+
+/// Legacy-enforce + Cedar-shadow guard for a task/run policy. Returns the shadow
+/// audit event to fold into the mutation (`None` when the task carries no policy —
+/// an ungated self-service step), or a 403 when the legacy contract denies.
+#[allow(clippy::too_many_arguments)]
+fn guard_task_policy(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    required_policy: Option<&str>,
+    resource_type: &str,
+    resource_id: &str,
+    action_id: &'static str,
+    shadow_target_id: Uuid,
+) -> Result<Option<AuditEvent>, WorkflowStudioError> {
+    let Some(policy) = required_policy else {
+        return Ok(None);
+    };
+    let feature_key = guard_policy(policy).ok_or_else(|| {
+        WorkflowStudioError::from(KernelError::forbidden("workflow task policy is unknown"))
+    })?;
+    let feature = Feature::from_str(&feature_key).map_err(|_| {
+        WorkflowStudioError::from(KernelError::forbidden("workflow task policy is unknown"))
+    })?;
+    let request = build_guard_request(
+        principal,
+        &feature_key,
+        org,
+        branch,
+        resource_type,
+        resource_id,
+        WAITING_COMPLETION_DOMAIN,
+    )
+    .map_err(|_| {
+        WorkflowStudioError::from(KernelError::forbidden("workflow task policy denied"))
+    })?;
+    let entry = workflow_coexistence_entry(
+        action_id,
+        WAITING_COMPLETION_DOMAIN,
+        feature,
+        resource_type.to_owned(),
+    );
+    let outcome = guard(&request, &entry);
+    if !outcome.is_allowed() {
+        return Err(WorkflowStudioError::from(KernelError::forbidden(
+            "workflow task policy denied",
+        )));
+    }
+    Ok(Some(shadow_audit_event(
+        &outcome.audit,
+        principal.user_id,
+        org,
+        shadow_target_id,
+    )?))
+}
+
+/// The workflow authority role keys resolved through the legacy matrix (security
+/// M3). All map to `completion_review` — the review/decide/approve tiers of the
+/// approval and completion lines — so "holds this role key" reuses the SAME guard
+/// `task_visible` runs, never a parallel role system.
+const WORKFLOW_AUTHORITY_ROLE_KEYS: [&str; 4] =
+    ["hr_reviewer", "manager_approver", "executive", "admin"];
+
+/// How a principal can "hold" a human-task `assignee_role_key` (security M3).
+enum RoleKeyKind {
+    /// Held when the principal passes the guard for this legacy feature key —
+    /// the same matrix guard `guard_policy`/`task_visible` already use.
+    Authority(&'static str),
+    /// Held only by the run's initiator (`workflow_runs.initiated_by == me`), a
+    /// fact the feature matrix cannot express. The task still carries a broad
+    /// policy (e.g. `approval_finalize`), so ownership — not policy — is the
+    /// addressee boundary.
+    Ownership,
+}
+
+/// Classify a human-task `assignee_role_key` (security M3). Authority keys reuse
+/// the matrix guard; ownership keys bind to the run initiator. An unknown key is
+/// held by no one (fail closed) — it surfaces only when claimed.
+///
+/// ponytail: `receipt_subject` has no per-user binding column yet
+/// (`workflow_waiting_tasks.assignee_user_id` is never written on insert), so it
+/// cannot be scoped to its subject — it is left unclassified (deny) until a
+/// subject column exists. In-scope templates use only
+/// hr_reviewer/manager_approver/initiator.
+fn classify_role_key(role_key: &str) -> Option<RoleKeyKind> {
+    if WORKFLOW_AUTHORITY_ROLE_KEYS.contains(&role_key) {
+        return Some(RoleKeyKind::Authority("completion_review"));
+    }
+    match role_key {
+        "initiator" => Some(RoleKeyKind::Ownership),
+        _ => None,
+    }
+}
+
+/// Whether the principal passes the legacy guard for a bare feature capability
+/// (security M3), reusing the exact `build_guard_request`/`guard` path
+/// `task_visible` uses — no concrete resource, since role membership is a
+/// capability question, not a per-object one.
+fn principal_holds_feature(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    feature_key: &str,
+) -> bool {
+    let Ok(feature) = Feature::from_str(feature_key) else {
+        return false;
+    };
+    let Ok(request) = build_guard_request(
+        principal,
+        feature_key,
+        org,
+        branch,
+        "workflow_run",
+        "role_membership",
+        WAITING_COMPLETION_DOMAIN,
+    ) else {
+        return false;
+    };
+    let entry = workflow_coexistence_entry(
+        "workflow.waiting_task.role_membership",
+        WAITING_COMPLETION_DOMAIN,
+        feature,
+        "workflow_run".to_owned(),
+    );
+    guard(&request, &entry).is_allowed()
+}
+
+/// The authority role keys this principal holds (security M3), for the personal
+/// inbox's OPEN-task filter (`assignee_role_key = ANY(...)`).
+fn held_authority_role_keys(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+) -> Vec<String> {
+    WORKFLOW_AUTHORITY_ROLE_KEYS
+        .iter()
+        .filter(|role_key| match classify_role_key(role_key) {
+            Some(RoleKeyKind::Authority(feature)) => {
+                principal_holds_feature(principal, org, branch, feature)
+            }
+            _ => false,
+        })
+        .map(|role_key| (*role_key).to_owned())
+        .collect()
+}
+
+/// Whether the principal may see the group (`role_key=`) inbox for `role_key`
+/// (security M3): an authority key requires the matrix guard; an ownership key has
+/// no org-wide queue (the owner sees it via `assignee=me`); an unknown key is
+/// denied. A false result is a deny-by-omission (200 empty), never a 403.
+fn holds_group_inbox_role(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    role_key: &str,
+) -> bool {
+    match classify_role_key(role_key) {
+        Some(RoleKeyKind::Authority(feature)) => {
+            principal_holds_feature(principal, org, branch, feature)
+        }
+        Some(RoleKeyKind::Ownership) | None => false,
+    }
+}
+
+/// Read-only visibility check for the inbox listings: a policy-bearing row is
+/// visible only when the legacy contract allows the principal (deny-by-omission —
+/// forbidden rows are absent, never returned as 403). Rows with no policy are
+/// visible (their `role_key`/`assignee` filter is the access boundary).
+fn task_visible(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    item: &WaitingTaskListItem,
+) -> bool {
+    // Ownership-held rows (e.g. the initiator's own finalize task) reach this
+    // filter ONLY when the adapter SQL already bound them to the caller
+    // (initiated_by/claimed_by). Author finalization is owner-checked, not
+    // policy-gated (authz: ApprovalFinalize), so a low-privilege owner must not
+    // be stripped here by the policy layer (security M3).
+    if item
+        .assignee_role_key
+        .as_deref()
+        .and_then(classify_role_key)
+        .is_some_and(|kind| matches!(kind, RoleKeyKind::Ownership))
+    {
+        return true;
+    }
+    let Some(policy) = item.required_policy.as_deref() else {
+        return true;
+    };
+    let Some(feature_key) = guard_policy(policy) else {
+        return false;
+    };
+    let Ok(feature) = Feature::from_str(&feature_key) else {
+        return false;
+    };
+    let resource_type = item.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = item
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| item.run_id.to_string());
+    let Ok(request) = build_guard_request(
+        principal,
+        &feature_key,
+        org,
+        branch,
+        resource_type,
+        &resource_id,
+        WAITING_COMPLETION_DOMAIN,
+    ) else {
+        return false;
+    };
+    let entry = workflow_coexistence_entry(
+        "workflow.waiting_task.list",
+        WAITING_COMPLETION_DOMAIN,
+        feature,
+        resource_type.to_owned(),
+    );
+    guard(&request, &entry).is_allowed()
+}
+
+fn parse_task_statuses(raw: Option<&str>) -> Result<Vec<WaitingTaskStatus>, WorkflowStudioError> {
+    let Some(raw) = raw else {
+        return Ok(vec![WaitingTaskStatus::Open]);
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| WaitingTaskStatus::from_db_str(value).map_err(WorkflowStudioError::from))
+        .collect()
+}
+
+fn parse_run_statuses(raw: Option<&str>) -> Result<Vec<RunStatus>, WorkflowStudioError> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| RunStatus::from_db_str(value).map_err(WorkflowStudioError::from))
+        .collect()
+}
+
+/// Load a definition's chosen version JSON, gating on ACTIVE status. Returns the
+/// resolved `(version, definition)` for the run to bind to.
+async fn resolve_start_definition(
+    pool: &PgPool,
+    org: mnt_kernel_core::OrgId,
+    definition_id: Uuid,
+    requested_version: Option<i32>,
+) -> Result<(i32, Value), WorkflowStudioError> {
+    let row = with_org_conn::<_, Option<(String, Option<Value>, Option<i32>)>, DbError>(
+        pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT d.status, v.definition, v.version \
+                     FROM workflow_definitions d \
+                     LEFT JOIN workflow_definition_versions v \
+                       ON v.definition_id = d.id AND v.org_id = d.org_id \
+                      AND v.version = COALESCE($2, d.active_version) \
+                     WHERE d.id = $1",
+                )
+                .bind(definition_id)
+                .bind(requested_version)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let Some(row) = row else {
+                    return Ok(None);
+                };
+                Ok(Some((
+                    row.try_get("status")?,
+                    row.try_get("definition")?,
+                    row.try_get("version")?,
+                )))
+            })
+        },
+    )
+    .await
+    .map_err(WorkflowStudioError::from)?;
+
+    let Some((status, definition, version)) = row else {
+        return Err(WorkflowStudioError::from(KernelError::not_found(
+            "workflow definition not found",
+        )));
+    };
+    if status != "ACTIVE" {
+        return Err(WorkflowStudioError::from(KernelError::conflict(
+            "workflow definition is not active",
+        )));
+    }
+    let (Some(definition), Some(version)) = (definition, version) else {
+        return Err(WorkflowStudioError::from(KernelError::conflict(
+            "workflow definition has no published version to start",
+        )));
+    };
+    Ok((version, definition))
+}
+
+/// Load a run summary + its current OPEN/CLAIMED waiting task (the run's `next_task`).
+async fn load_run_view(
+    pool: &PgPool,
+    org: mnt_kernel_core::OrgId,
+    run_id: Uuid,
+) -> Result<(RunSummaryResponse, Option<TaskSummaryResponse>), WorkflowStudioError> {
+    with_org_conn::<_, (RunSummaryResponse, Option<TaskSummaryResponse>), DbError>(
+        pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let run = sqlx::query(
+                    "SELECT id, status, definition_id, definition_version, object_type, \
+                            object_id, initiated_by, started_at \
+                     FROM workflow_runs WHERE id = $1",
+                )
+                .bind(run_id)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let summary = RunSummaryResponse {
+                    id: run.try_get("id")?,
+                    status: run.try_get("status")?,
+                    definition_id: run.try_get("definition_id")?,
+                    definition_version: run.try_get("definition_version")?,
+                    object_type: run.try_get("object_type")?,
+                    object_id: run.try_get("object_id")?,
+                    initiated_by: run.try_get("initiated_by")?,
+                    started_at: run.try_get("started_at")?,
+                };
+
+                let task = sqlx::query(
+                    "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
+                            t.assignee_role_key, t.required_policy, t.status, t.claimed_by, \
+                            t.due_at, t.form_payload, r.object_type, r.object_id \
+                     FROM workflow_waiting_tasks t \
+                     JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                     WHERE t.run_id = $1 AND t.status IN ('OPEN', 'CLAIMED') \
+                     ORDER BY t.created_at DESC LIMIT 1",
+                )
+                .bind(run_id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let next_task = match task {
+                    None => None,
+                    Some(task) => Some(TaskSummaryResponse {
+                        task_id: task.try_get("task_id")?,
+                        run_id: task.try_get("run_id")?,
+                        waiting_key: task.try_get("waiting_key")?,
+                        title: task.try_get("title")?,
+                        assignee_role_key: task.try_get("assignee_role_key")?,
+                        required_policy: task.try_get("required_policy")?,
+                        object_type: task.try_get("object_type")?,
+                        object_id: task.try_get("object_id")?,
+                        status: task.try_get("status")?,
+                        claimed_by: task.try_get("claimed_by")?,
+                        due_at: task.try_get("due_at")?,
+                        form_payload: task.try_get("form_payload")?,
+                    }),
+                };
+                Ok((summary, next_task))
+            })
+        },
+    )
+    .await
+    .map_err(WorkflowStudioError::from)
+}
+
+async fn start_workflow_run(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<StartWorkflowRunRequest>,
+) -> Result<Json<StartWorkflowRunResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    if request.object_type.is_some() != request.object_id.is_some() {
+        return Err(WorkflowStudioError::validation(
+            "object_type and object_id must be provided together",
+        ));
+    }
+    // Bound the caller-supplied payloads (security M2): an unbounded input/context
+    // blob is a memory/storage abuse vector. 64 KiB serialized is far above any
+    // legitimate approval payload; over that is a 422.
+    check_payload_size("input_payload", &request.input_payload)?;
+    check_payload_size("context_payload", &request.context_payload)?;
+
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let (version, definition) = resolve_start_definition(
+        &state.pool,
+        org,
+        request.definition_id,
+        request.definition_version,
+    )
+    .await?;
+    let graph = ExecGraph::parse(&definition).map_err(WorkflowStudioError::from)?;
+    let entry = graph
+        .entry_node_key()
+        .map_err(WorkflowStudioError::from)?
+        .to_owned();
+
+    // Start authz: legacy-enforce + Cedar-shadow, gated on the definition's
+    // per-start authority (security M2). A top-level `start_policy` (additive,
+    // wf.exec.v1-compatible) constrains WHO may initiate this definition; when
+    // absent it falls back to the entry node's policy. Approval templates
+    // deliberately carry NEITHER (their entry gate is self-service) so 전자결재
+    // 기안/상신 stays all-employee per DESIGN §4.8; operational pipelines (e.g. the
+    // completion→approval→payroll template) set `start_policy` so a start is a
+    // policy-gated 403 + shadow for non-privileged personas.
+    let branch = guard_branch(&principal);
+    let entry_policy = match graph.node_spec(&entry).map(|spec| &spec.kind) {
+        Some(NodeKind::HumanTask {
+            required_policy, ..
+        }) => required_policy.clone(),
+        _ => None,
+    };
+    let start_policy = definition
+        .get("start_policy")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or(entry_policy);
+    let resource_type = request
+        .object_type
+        .clone()
+        .unwrap_or_else(|| "workflow_run".to_owned());
+    let resource_id = request
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| request.definition_id.to_string());
+    let start_shadow = guard_task_policy(
+        &principal,
+        org,
+        branch,
+        start_policy.as_deref(),
+        &resource_type,
+        &resource_id,
+        "workflow.run.start",
+        request.definition_id,
+    )?;
+
+    let run_id = Uuid::new_v4();
+    let correlation_id = request
+        .correlation_id
+        .clone()
+        .unwrap_or_else(|| format!("workflow-run:{run_id}"));
+    if correlation_id.trim().len() < 8 {
+        return Err(WorkflowStudioError::validation(
+            "correlation_id must be at least 8 characters",
+        ));
+    }
+    let audit = AuditContext {
+        actor: Some(principal.user_id),
+        trace: TraceContext::generate(),
+        occurred_at: OffsetDateTime::now_utc(),
+    };
+
+    let started = start_run(
+        &store,
+        StartRunRequest {
+            run_id,
+            org_id: org,
+            definition_id: request.definition_id,
+            definition_version: version,
+            trigger_type: request.trigger_type,
+            object_type: request.object_type.clone(),
+            object_id: request.object_id,
+            idempotency_key: idempotency_key.to_owned(),
+            correlation_id,
+            trace_id: None,
+            input_payload: request.input_payload.clone(),
+            context_payload: request.context_payload.clone(),
+            initiated_by: Some(principal.user_id),
+        },
+        &audit,
+    )
+    .await;
+
+    let resolved_run_id = match started {
+        Ok(id) => {
+            // Fresh run: drive synchronously until the first WAITING task or terminal.
+            let guard_audits: Vec<AuditEvent> = start_shadow.into_iter().collect();
+            drive_from(
+                &store,
+                org,
+                id,
+                RunStatus::Running,
+                &graph,
+                &entry,
+                guard_audits,
+                &audit,
+            )
+            .await?;
+            id
+        }
+        Err(err) if err.kind == ErrorKind::Conflict => {
+            // Replay: same idempotency_key. Return the existing run if it matches;
+            // a mismatch on the same key is a 409.
+            match store
+                .load_run_by_idempotency_key(org, idempotency_key.to_owned())
+                .await?
+            {
+                Some(existing) => {
+                    if existing.definition_id != request.definition_id
+                        || existing.object_type != request.object_type
+                        || existing.object_id != request.object_id
+                    {
+                        return Err(WorkflowStudioError::from(KernelError::conflict(
+                            "idempotency_key already used for a different run",
+                        )));
+                    }
+                    existing.id
+                }
+                None => return Err(WorkflowStudioError::from(err)),
+            }
+        }
+        Err(err) => return Err(WorkflowStudioError::from(err)),
+    };
+
+    let (run, next_task) = load_run_view(&state.pool, org, resolved_run_id).await?;
+    record_workflow_studio_request("run_start", "success");
+    Ok(Json(StartWorkflowRunResponse { run, next_task }))
+}
+
+async fn list_workflow_tasks(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<TaskListQuery>,
+) -> Result<Json<WorkflowTaskListResponse>, WorkflowStudioError> {
+    let assignee_me = query.assignee.as_deref() == Some("me");
+    if query.role_key.is_none() && !assignee_me {
+        return Err(WorkflowStudioError::validation(
+            "workflow-tasks requires role_key or assignee=me",
+        ));
+    }
+    let statuses = parse_task_statuses(query.status.as_deref())?;
+    let org = principal.org_id;
+    let branch = guard_branch(&principal);
+
+    // Group inbox (security M3): a `role_key=` query returns rows only when the
+    // caller holds that role. Deny-by-omission — a caller who does not is handed
+    // an empty list (200), never a 403 (never leaks the queue's existence).
+    if let Some(role_key) = query.role_key.as_deref()
+        && !holds_group_inbox_role(&principal, org, branch, role_key)
+    {
+        record_workflow_studio_request("task_list", "success");
+        return Ok(Json(WorkflowTaskListResponse { items: vec![] }));
+    }
+
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let items = store
+        .list_waiting_tasks(
+            org,
+            principal.user_id,
+            WaitingTaskListFilter {
+                role_key: query.role_key.clone(),
+                assignee_me,
+                // Personal inbox OPEN-task gate (security M3): the authority role
+                // keys this caller holds. Ownership-keyed OPEN tasks bind to the
+                // run initiator in SQL instead.
+                authority_role_keys: held_authority_role_keys(&principal, org, branch),
+                statuses,
+            },
+        )
+        .await?;
+    let items = items
+        .into_iter()
+        .filter(|item| task_visible(&principal, org, branch, item))
+        .map(TaskSummaryResponse::from)
+        .collect();
+    record_workflow_studio_request("task_list", "success");
+    Ok(Json(WorkflowTaskListResponse { items }))
+}
+
+async fn list_my_workflow_runs(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<RunListQuery>,
+) -> Result<Json<RunListResponse>, WorkflowStudioError> {
+    let statuses = parse_run_statuses(query.status.as_deref())?;
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let items = store
+        .list_runs_for_initiator(
+            org,
+            principal.user_id,
+            RunListFilter {
+                statuses,
+                object_type: query.object_type.clone(),
+            },
+        )
+        .await?;
+    record_workflow_studio_request("run_mine", "success");
+    Ok(Json(RunListResponse {
+        items: items.into_iter().map(RunListItemResponse::from).collect(),
+    }))
+}
+
+async fn claim_workflow_task(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(task_id): Path<Uuid>,
+    Json(request): Json<ClaimWorkflowTaskRequest>,
+) -> Result<Json<ClaimTaskResponse>, WorkflowStudioError> {
+    if request.idempotency_key.trim().len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let context = store
+        .load_finalize_waiting_task(org, task_id)
+        .await?
+        .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
+
+    // Defense in depth (security H1): a legacy task row that predates the
+    // authoring-time `required_policy` requirement carries no authorization
+    // boundary. Refuse the mutation rather than let any org member claim it.
+    require_task_authorization_boundary(context.required_policy.as_deref())?;
+
+    let branch = guard_branch(&principal);
+    let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = context
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| context.run_id.to_string());
+    let shadow = guard_task_policy(
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+        "workflow.waiting_task.claim",
+        task_id,
+    )?;
+
+    let claimed = store
+        .claim_waiting_task(
+            org,
+            ClaimWaitingTaskCommand {
+                task_id,
+                actor: principal.user_id,
+                transition_audits: shadow.into_iter().collect(),
+            },
+        )
+        .await?;
+    record_workflow_studio_request("task_claim", "success");
+    Ok(Json(ClaimTaskResponse {
+        task: ClaimedTaskResponse {
+            task_id: claimed.task_id,
+            run_id: claimed.run_id,
+            status: claimed.status.as_db_str().to_owned(),
+            claimed_by: claimed.claimed_by,
+            claimed_at: claimed.claimed_at,
+        },
+    }))
+}
+
+async fn decide_workflow_task(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(task_id): Path<Uuid>,
+    Json(request): Json<DecideWorkflowTaskRequest>,
+) -> Result<Json<DecideTaskResponse>, WorkflowStudioError> {
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.len() < 16 {
+        return Err(WorkflowStudioError::validation(
+            "idempotency_key must be at least 16 characters",
+        ));
+    }
+    // Bound the free-text comment (security L5), mirroring the DB-bounded reason
+    // pattern of migration 0096: an over-long comment is a 422, not a silent DB
+    // truncation or an unbounded write.
+    if request
+        .comment
+        .as_deref()
+        .is_some_and(|comment| comment.chars().count() > 4000)
+    {
+        return Err(WorkflowStudioError::validation(
+            "comment must be at most 4000 characters",
+        ));
+    }
+    let decision = TaskDecision::from(request.decision);
+    let comment = request
+        .comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if matches!(decision, TaskDecision::Reject | TaskDecision::Return) && comment.is_none() {
+        return Err(WorkflowStudioError::validation(
+            "reject and return require a non-empty comment",
+        ));
+    }
+
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let context = store
+        .load_finalize_waiting_task(org, task_id)
+        .await?
+        .ok_or_else(|| KernelError::not_found("workflow task not found"))?;
+
+    // Defense in depth (security H1): a policy-less legacy task row has no
+    // authorization boundary — refuse to decide it (403) rather than let any
+    // org member push the run forward.
+    require_task_authorization_boundary(context.required_policy.as_deref())?;
+
+    let branch = guard_branch(&principal);
+    let resource_type = context.object_type.as_deref().unwrap_or("workflow_run");
+    let resource_id = context
+        .object_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| context.run_id.to_string());
+    let shadow = guard_task_policy(
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+        "workflow.waiting_task.decide",
+        task_id,
+    )?;
+
+    let decided = store
+        .decide_waiting_task(
+            org,
+            DecideWaitingTaskCommand {
+                task_id,
+                actor: principal.user_id,
+                decision,
+                comment: comment.map(ToOwned::to_owned),
+                idempotency_key: idempotency_key.to_owned(),
+                transition_audits: shadow.into_iter().collect(),
+            },
+        )
+        .await?;
+    record_workflow_studio_request("task_decide", "success");
+    Ok(Json(DecideTaskResponse {
+        task: DecidedTaskResponse {
+            task_id: decided.task_id,
+            run_id: decided.run_id,
+            status: decided.status.as_db_str().to_owned(),
+            decision_payload: decided.decision_payload,
+        },
+        run: FinalizedRunResponse {
+            id: decided.run_id,
+            status: decided.run_status.as_db_str().to_owned(),
+        },
+        next_task: decided.next_task.map(TaskSummaryResponse::from),
     }))
 }
 
@@ -1656,6 +3058,67 @@ fn normalize_display_name(raw: &str) -> Result<String, WorkflowStudioError> {
     }
 }
 
+#[allow(dead_code)]
+fn build_approval_execution_definition(template_key: &str) -> Result<Value, WorkflowStudioError> {
+    let template = APPROVAL_TEMPLATES
+        .iter()
+        .find(|template| template.key == template_key)
+        .ok_or_else(|| WorkflowStudioError::validation("unknown approval template"))?;
+
+    let mut nodes = Vec::with_capacity(template.default_line.len() + 3);
+    nodes.push(json!({ "node_key": "submit", "node_type": "object_gate" }));
+    for (index, role_key) in template.default_line.iter().enumerate() {
+        nodes.push(json!({
+            "node_key": format!("approve.{role_key}"),
+            "node_type": "human_task",
+            "title": format!("Approval step {}", index + 1),
+            "required_policy": "approval_decide",
+            "assignee_role_key": role_key
+        }));
+    }
+    nodes.push(json!({
+        "node_key": "finalize.author",
+        "node_type": "human_task",
+        "title": "Author finalize",
+        "required_policy": "approval_finalize",
+        "assignee_role_key": "initiator"
+    }));
+    if template.receipt_required {
+        nodes.push(json!({
+            "node_key": "receipt.target",
+            "node_type": "human_task",
+            "title": "Receipt confirmation",
+            "required_policy": "approval_receipt",
+            "assignee_role_key": "receipt_subject"
+        }));
+    }
+
+    let mut edges = Vec::with_capacity(nodes.len().saturating_sub(1));
+    for pair in nodes.windows(2) {
+        edges.push(json!({
+            "from": pair[0]["node_key"],
+            "to": pair[1]["node_key"]
+        }));
+    }
+
+    // No `start_policy`: 전자결재 기안/상신 is deliberately all-employee self-service
+    // (DESIGN §4.8) — any employee may draft/submit an approval document. Only
+    // operational pipelines (e.g. the completion→approval→payroll template) carry
+    // a `start_policy` to constrain who may initiate them (security M2).
+    Ok(json!({
+        "schema_version": WORKFLOW_EXEC_SCHEMA_VERSION,
+        "workflow_key": template.workflow_key,
+        "object_type": "approval_document",
+        "approval_template": template.key,
+        "reason_enum": template.reason_enum,
+        "linked_objects": template.linked_objects.iter().map(|link| {
+            json!({ "kind": link.kind, "required": link.required })
+        }).collect::<Vec<_>>(),
+        "nodes": nodes,
+        "edges": edges
+    }))
+}
+
 fn validate_definition_object(value: Value) -> Result<Value, WorkflowStudioError> {
     let Some(object) = value.as_object() else {
         return Err(WorkflowStudioError::validation(
@@ -1708,6 +3171,11 @@ fn validate_execution_graph(
             "object_gate" | "object_mutation" => {}
             "human_task" => {
                 required_string(node, "assignee_role_key")?;
+                // Fail-closed authorization boundary (security H1): a human task
+                // MUST declare the policy that gates who may claim/decide it. An
+                // omitted `required_policy` is an authoring-time 422, never a task
+                // any org member could act on.
+                required_string(node, "required_policy")?;
             }
             "job" => {
                 let connector_key = required_string(node, "connector_key")?;
@@ -2048,6 +3516,48 @@ fn record_workflow_studio_request(surface: &'static str, outcome: &'static str) 
     .increment(1);
 }
 
+fn guard_branch(principal: &Principal) -> BranchId {
+    match &principal.branch_scope {
+        BranchScope::All => BranchId::new(),
+        BranchScope::Branches(branches) => branches
+            .iter()
+            .next()
+            .copied()
+            .unwrap_or_else(BranchId::new),
+    }
+}
+
+fn shadow_audit_event(
+    shadow: &AuthorizationAuditEvent,
+    actor: UserId,
+    org: mnt_kernel_core::OrgId,
+    task_id: Uuid,
+) -> Result<AuditEvent, KernelError> {
+    shadow_audit_event_for(shadow, actor, org, "workflow_waiting_task", task_id)
+}
+
+fn shadow_audit_event_for(
+    shadow: &AuthorizationAuditEvent,
+    actor: UserId,
+    org: mnt_kernel_core::OrgId,
+    target_type: &'static str,
+    target_id: Uuid,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_runtime.cedar_shadow")?,
+        target_type,
+        target_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(serde_json::to_value(shadow).map_err(|err| KernelError::internal(err.to_string()))?),
+    ))
+}
+
 #[derive(Debug)]
 struct WorkflowStudioError {
     status: StatusCode,
@@ -2162,6 +3672,10 @@ mod tests {
             "schema_version": WORKFLOW_EXEC_SCHEMA_VERSION,
             "workflow_key": "work_order.maintenance_completion",
             "object_type": "work_order",
+            // Operational pipeline, NOT self-service 기안: only completion_review
+            // authority may initiate the completion→approval→payroll run (security
+            // M2). Contrast the approval templates, which carry no `start_policy`.
+            "start_policy": "completion_review",
             "nodes": [
                 { "node_key": "mechanic_report", "node_type": "object_gate" },
                 {
@@ -2223,6 +3737,121 @@ mod tests {
                 err.message
             )
         })?;
+        Ok(())
+    }
+
+    #[test]
+    fn receipt_required_approval_definition_includes_receipt_waiting_node() -> Result<(), String> {
+        let definition = build_approval_execution_definition("leave")
+            .map_err(|err| format!("leave template should build: {}", err.message))?;
+
+        validate_definition_object(definition.clone())
+            .map_err(|err| format!("leave approval graph must validate: {}", err.message))?;
+
+        let nodes = definition["nodes"]
+            .as_array()
+            .ok_or_else(|| "nodes must be an array".to_owned())?;
+        assert!(
+            nodes.iter().any(|node| {
+                node["node_key"] == json!("receipt.target")
+                    && node["node_type"] == json!("human_task")
+                    && node["assignee_role_key"] == json!("receipt_subject")
+                    && node["required_policy"] == json!("approval_receipt")
+            }),
+            "receipt-required template must emit receipt.target human task"
+        );
+
+        let edges = definition["edges"]
+            .as_array()
+            .ok_or_else(|| "edges must be an array".to_owned())?;
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge["from"] == json!("finalize.author")
+                    && edge["to"] == json!("receipt.target")),
+            "receipt-required template must route finalization to receipt confirmation"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn all_approval_template_builder_outputs_validate() -> Result<(), String> {
+        for template in APPROVAL_TEMPLATES {
+            let definition = build_approval_execution_definition(template.key)
+                .map_err(|err| format!("{} should build: {}", template.key, err.message))?;
+            validate_definition_object(definition.clone()).map_err(|err| {
+                format!(
+                    "{} approval graph must validate: {}",
+                    template.key, err.message
+                )
+            })?;
+
+            let has_receipt = definition["nodes"]
+                .as_array()
+                .ok_or_else(|| format!("{} nodes must be an array", template.key))?
+                .iter()
+                .any(|node| node["node_key"] == json!("receipt.target"));
+            assert_eq!(
+                has_receipt, template.receipt_required,
+                "{} receipt node must match catalog flag",
+                template.key
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn human_task_without_required_policy_fails_authoring() -> Result<(), String> {
+        // Security H1(a): a human_task node MUST declare required_policy at authoring
+        // time. Drop it from the executable graph → publish-validation is a 422.
+        let mut definition = maintenance_completion_execution_definition();
+        // node 1 is the admin_approval human_task.
+        definition["nodes"][1]
+            .as_object_mut()
+            .ok_or_else(|| "node must be an object".to_owned())?
+            .remove("required_policy");
+        let err = match validate_definition_object(definition) {
+            Ok(_) => {
+                return Err("a human_task without required_policy must fail closed".to_owned());
+            }
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            err.message.contains("required_policy"),
+            "message should name the missing field: {}",
+            err.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn oversize_run_payload_is_rejected() -> Result<(), String> {
+        // Security M2: a payload over the 64 KiB serialized ceiling is a 422.
+        let big = json!({ "blob": "x".repeat(MAX_RUN_PAYLOAD_BYTES + 1) });
+        let err = match check_payload_size("input_payload", &big) {
+            Ok(()) => return Err("oversize payload must be rejected".to_owned()),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        // A modest payload passes.
+        check_payload_size("input_payload", &json!({ "reason": "annual" }))
+            .map_err(|e| format!("a small payload must pass: {}", e.message))?;
+        Ok(())
+    }
+
+    #[test]
+    fn policy_less_task_has_no_authorization_boundary() -> Result<(), String> {
+        // Security H1(b): the claim/decide path fails closed (403) on a legacy
+        // policy-less row; a policy-bearing row passes the boundary check.
+        let err = match require_task_authorization_boundary(None) {
+            Ok(()) => return Err("a policy-less task must be refused".to_owned()),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::FORBIDDEN);
+        assert!(err.message.contains("authorization boundary"));
+        require_task_authorization_boundary(Some("approval_finalize"))
+            .map_err(|e| format!("a policy-bearing task must pass: {}", e.message))?;
         Ok(())
     }
 

@@ -23,19 +23,19 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 49] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 50] {
     use Feature::{
-        AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
-        DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage, EmployeeDirectoryRead,
-        EquipmentCostLedgerRead, EquipmentCostLedgerWrite, EquipmentManage, EvidenceAttach,
-        ExcelDownload, ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport, ExitSettlementManage,
-        InspectionRoundComplete, InspectionScheduleManage, IntegrityFindingTriage,
-        IntegrityFindingsRead, KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse,
-        MasterListImport, OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
-        PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
-        RegionManage, RentalQuoteManage, RoleManage, SalesManage, SubordinateUserCreate,
-        TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
-        WorkOrderStart, WorkReportSubmit,
+        AiAssist, ApprovalFinalize, AssigneeManage, AuditLogRead, BranchManage, CompletionReview,
+        DailyPlanRequest, DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage,
+        EmployeeDirectoryRead, EquipmentCostLedgerRead, EquipmentCostLedgerWrite, EquipmentManage,
+        EvidenceAttach, ExcelDownload, ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport,
+        ExitSettlementManage, InspectionRoundComplete, InspectionScheduleManage,
+        IntegrityFindingTriage, IntegrityFindingsRead, KpiExclusionManage, KpiRead, Login,
+        MailAccountManage, MailUse, MasterListImport, OpsDashboardRead, OrgWideQueueTriage,
+        PriorityManage, PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove,
+        PurchaseRequestCreate, PurchaseRequestRead, RegionManage, RentalQuoteManage, RoleManage,
+        SalesManage, SubordinateUserCreate, TargetManage, UserManage, WorkOrderCreate,
+        WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -53,6 +53,7 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 49] {
         (AssigneeManage, [D, D, D, A, D, A]),
         (TargetManage, [D, D, R, A, D, A]),
         (CompletionReview, [D, D, D, A, D, A]),
+        (ApprovalFinalize, [D, D, D, A, A, A]),
         (DailyPlanRequest, [D, D, A, A, D, A]),
         (DailyPlanReview, [D, D, D, A, D, A]),
         // Org-wide queue triage read: EXECUTIVE + SUPER_ADMIN only (a branch
@@ -767,7 +768,7 @@ fn cedar_compiled_bundle_cache_key_requires_versioned_identity() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 49);
+    assert_eq!(Feature::ALL.len(), 50);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {
