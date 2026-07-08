@@ -1,0 +1,26 @@
+/* Typography — Pretendard Variable (Korean-first enterprise UI). */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+
+:root {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Console type scale (px) */
+  --text-h1: 17px;      /* screen title */
+  --text-card-title: 14px;
+  --text-body: 13px;    /* base UI text */
+  --text-value: 15px;   /* compact stat value */
+  --text-value-lg: 20px;/* KPI value */
+  --text-sm: 11.5px;    /* secondary */
+  --text-xs: 10px;      /* labels / meta */
+  --text-micro: 9.5px;  /* chips */
+
+  /* Weights: 500 body · 700 medium · 800 strong · 900 logo */
+  --fw-body: 500; --fw-medium: 700; --fw-strong: 800;
+
+  --lh-base: 1.5;
+  --tracking-tight: -0.3px; /* headings */
+  --tracking-label: 0.4px;  /* uppercase-ish labels */
+}
+
+/* word-break: keep-all is the console default for Korean text. */
