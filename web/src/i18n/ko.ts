@@ -59,6 +59,21 @@ export const ko = {
         center: "중앙 (고정 안 함)",
       },
     },
+    // UI-M2a object registry (lib/objectRegistry.ts) — kind labels for
+    // accessible names/aria-labels on reference chips and token-grammar links.
+    objectKinds: {
+      approval: "결재",
+      workOrder: "정비/배차",
+      support: "회신",
+      attendance: "근태 예외",
+      payroll: "급여 회차",
+      contract: "계약",
+      journal: "업무일지",
+      intake: "접수",
+      person: "사람",
+      org: "조직",
+
+    },
   },
   nav: {
     "work-hub": "업무 허브",

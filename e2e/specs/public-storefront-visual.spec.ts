@@ -25,6 +25,7 @@ const PUBLIC_ROUTES = [
 
 const STATIC_PREVIEW_FALLBACK = process.env.E2E_STATIC_PREVIEW_FALLBACK === "1";
 const DIST_DIR = join(process.cwd(), "web", "dist");
+const FOOTER_VERSION_MASK_WIDTH_PX = 62;
 
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css",
@@ -98,16 +99,26 @@ test.describe("UI-M1a public storefront visual guard", () => {
       await page.setViewportSize({ width: 1440, height: 1100 });
       await page.goto(route.path);
       await page.waitForLoadState("networkidle");
+      await page.addStyleTag({
+        content: `
+          [data-testid="storefront-footer-version"] {
+            display: inline-block !important;
+            overflow: hidden !important;
+            text-align: right !important;
+            white-space: nowrap !important;
+            width: ${FOOTER_VERSION_MASK_WIDTH_PX}px !important;
+          }
+        `,
+      });
 
       await expect(page).toHaveScreenshot(route.snapshot, {
         fullPage: true,
         maxDiffPixelRatio: 0,
         // The footer's "버전 vX.Y.Z" stamp reads web/package.json's version at
-        // build time. GitHub's default PR checkout builds the head/base MERGE
-        // commit, so every `main` release bump (chore(main): release X.Y.Z)
-        // that lands after this baseline was captured drifts the footer text
-        // for a PR that never touched the storefront — a real but
-        // storefront-unrelated diff. Mask it so the guard keeps proving actual
+        // build time. Release bumps can change the text width by a pixel, which
+        // moves Playwright's pink mask edge even though the storefront did not
+        // visually regress. The screenshot-only CSS above pins the mask box to
+        // the committed Linux baselines so the guard keeps proving actual
         // storefront pixels are unchanged instead of rotting on every release.
         mask: [page.getByTestId("storefront-footer-version")],
       });
