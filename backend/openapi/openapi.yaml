@@ -564,6 +564,13 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          description: The attestation signer failed to initialize, or verify_org_chain hit a genuine DB/infra
+            error while recomputing the chain (never on a tamper finding, which is a 200 with ok=false).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '503':
           description: JWT verification is not configured, or the database is not configured.
           content:

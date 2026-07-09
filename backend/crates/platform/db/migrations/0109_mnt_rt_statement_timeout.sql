@@ -42,7 +42,11 @@ DO $$
 BEGIN
     ALTER ROLE mnt_rt SET statement_timeout = '30s';
 EXCEPTION
-    WHEN internal_error THEN NULL; -- XX000 tuple-concurrently-updated race; see above
+    WHEN internal_error THEN
+        -- XX000 tuple-concurrently-updated race; see above. NOTICE (not silent)
+        -- so a real failure is at least visible in migration-apply logs; the
+        -- assertion below is the actual pass/fail gate.
+        RAISE NOTICE 'mnt_rt statement_timeout ALTER lost a concurrent-update race; a racer already set it (or will)';
 END
 $$;
 
@@ -50,6 +54,34 @@ DO $$
 BEGIN
     ALTER ROLE mnt_rt SET idle_in_transaction_session_timeout = '30s';
 EXCEPTION
-    WHEN internal_error THEN NULL; -- XX000 tuple-concurrently-updated race; see above
+    WHEN internal_error THEN
+        RAISE NOTICE 'mnt_rt idle_in_transaction_session_timeout ALTER lost a concurrent-update race; a racer already set it (or will)';
+END
+$$;
+
+-- Post-migration assertion: a swallowed exception above is only safe if SOME
+-- racer's write actually landed. Confirm both GUCs are present on mnt_rt's
+-- role-default settings (regardless of which statement/attempt won) and fail
+-- the migration loudly if not — a silently-lost race here would defeat the
+-- whole F2 invariant with no signal at all.
+DO $$
+DECLARE
+    settings TEXT[];
+BEGIN
+    SELECT drs.setconfig INTO settings
+    FROM pg_db_role_setting drs
+    JOIN pg_roles r ON r.oid = drs.setrole
+    WHERE r.rolname = 'mnt_rt' AND drs.setdatabase = 0;
+
+    IF settings IS NULL
+        OR NOT EXISTS (SELECT 1 FROM unnest(settings) AS s WHERE s LIKE 'statement_timeout=%')
+        OR NOT EXISTS (
+            SELECT 1 FROM unnest(settings) AS s WHERE s LIKE 'idle_in_transaction_session_timeout=%'
+        )
+    THEN
+        RAISE EXCEPTION
+            'mnt_rt statement_timeout / idle_in_transaction_session_timeout did not land (pg_db_role_setting.setconfig = %) — F2 invariant not enforced',
+            settings;
+    END IF;
 END
 $$;

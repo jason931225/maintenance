@@ -9173,6 +9173,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description The attestation signer failed to initialize, or verify_org_chain hit a genuine DB/infra error while recomputing the chain (never on a tamper finding, which is a 200 with ok=false). */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description JWT verification is not configured, or the database is not configured. */
             503: {
                 headers: {
