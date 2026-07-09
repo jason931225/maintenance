@@ -25,7 +25,6 @@ const PUBLIC_ROUTES = [
 
 const STATIC_PREVIEW_FALLBACK = process.env.E2E_STATIC_PREVIEW_FALLBACK === "1";
 const DIST_DIR = join(process.cwd(), "web", "dist");
-const FOOTER_VERSION_MASK_WIDTH_PX = 62;
 
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css",
@@ -99,28 +98,28 @@ test.describe("UI-M1a public storefront visual guard", () => {
       await page.setViewportSize({ width: 1440, height: 1100 });
       await page.goto(route.path);
       await page.waitForLoadState("networkidle");
+
+      // The footer's "버전 vX.Y.Z" stamp reads web/package.json's version at
+      // build time, so every `chore(main): release X.Y.Z` bump changes those
+      // pixels for a commit that never touched the storefront. A Playwright
+      // `mask` is NOT enough here: the stamp is right-anchored, so a version
+      // whose glyphs render even a sub-pixel wider shifts the element's
+      // bounding box — and the mask box tracks that bbox, leaving a ~1px
+      // sliver of unmasked pixels that fails under `maxDiffPixelRatio: 0`
+      // (observed: 0.1.42 baseline vs a 0.1.43 build differed by 17 px at the
+      // stamp's left edge on all four routes). Hide the stamp instead:
+      // `visibility: hidden` renders the region as plain footer background
+      // regardless of the version string's content OR width, so the committed
+      // baselines stay valid across every release. Screenshot-only — this
+      // never touches how production renders the version.
       await page.addStyleTag({
-        content: `
-          [data-testid="storefront-footer-version"] {
-            display: inline-block !important;
-            overflow: hidden !important;
-            text-align: right !important;
-            white-space: nowrap !important;
-            width: ${FOOTER_VERSION_MASK_WIDTH_PX}px !important;
-          }
-        `,
+        content:
+          '[data-testid="storefront-footer-version"]{visibility:hidden !important;}',
       });
 
       await expect(page).toHaveScreenshot(route.snapshot, {
         fullPage: true,
         maxDiffPixelRatio: 0,
-        // The footer's "버전 vX.Y.Z" stamp reads web/package.json's version at
-        // build time. Release bumps can change the text width by a pixel, which
-        // moves Playwright's pink mask edge even though the storefront did not
-        // visually regress. The screenshot-only CSS above pins the mask box to
-        // the committed Linux baselines so the guard keeps proving actual
-        // storefront pixels are unchanged instead of rotting on every release.
-        mask: [page.getByTestId("storefront-footer-version")],
       });
     });
   }
