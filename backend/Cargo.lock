@@ -2738,6 +2738,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "croner",
+ "futures",
  "hex",
  "http",
  "jsonwebtoken",

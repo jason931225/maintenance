@@ -6,10 +6,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+default-run = "mnt-app"
 
 [[bin]]
 name = "mnt-app"
 path = "src/main.rs"
+
+# Cedar/PBAC parity evidence: read-only aggregation of recorded shadow parity
+# observations (`authz.cedar_pbac_parity` audit rows) into per-site agree/disagree
+# totals + concrete divergent cases. Promotion gate reads this; no REST surface.
+[[bin]]
+name = "mnt-cedar-parity-report"
+path = "src/bin/mnt_cedar_parity_report.rs"
 
 [lib]
 name = "mnt_app"
@@ -28,6 +36,7 @@ calamine = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 croner = { workspace = true }
+futures = { workspace = true }
 http = { workspace = true }
 hex = { workspace = true }
 jsonwebtoken = { workspace = true }

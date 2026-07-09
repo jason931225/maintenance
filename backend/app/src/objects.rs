@@ -21,7 +21,9 @@ use mnt_kernel_core::{
     UserId,
 };
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Feature, PermissionLevel, Principal, permission_for};
+use mnt_platform_authz::{
+    AuthorizationResource, Feature, PermissionLevel, Principal, permission_for,
+};
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -575,7 +577,32 @@ async fn resolve_object(
     // object_graph) carries the quiet per-node form of the same declared gate
     // (omit, not error) for kinds discovered mid-walk.
     let satisfied = satisfied_features(&principal);
-    if !auth_satisfied(required, &satisfied) {
+    let legacy_allowed = auth_satisfied(required, &satisfied);
+
+    // Enrollment wave 2 (read surface): audit-only Cedar parity observation.
+    // Recorded BEFORE the kind-level 403 below so both allow and deny directions
+    // are measured. Only the capability-gated kinds (`RequiredAuth::Feature`)
+    // carry a Cedar-expressible visibility decision (work_order/equipment ->
+    // WorkOrderReadAll, account -> UserManage); `MembershipOnly`/`SelfScoped`
+    // kinds are pure branch-scope/RLS with no capability verdict to compare.
+    // Legacy remains the sole enforcer — this never gates.
+    if let RequiredAuth::Feature(feature) = required {
+        let resource = AuthorizationResource::org_wide(principal.org_id, kind.as_str().to_owned())
+            .with_resource_id(id.clone());
+        crate::cedar_parity::observe_parity(
+            &state.pool,
+            &principal,
+            principal.org_id,
+            feature,
+            resource,
+            crate::cedar_parity::OBJECT_RESOLVE_DOMAIN,
+            crate::cedar_parity::CEDAR_PBAC_SHADOW_OBJECT_RESOLVE_FLAG,
+            legacy_allowed,
+        )
+        .await;
+    }
+
+    if !legacy_allowed {
         return Err(ObjectError::from_kernel(KernelError::forbidden(
             "insufficient permission for this object kind",
         )));

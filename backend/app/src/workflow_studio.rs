@@ -8,8 +8,8 @@ use mnt_kernel_core::{
 };
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
 use mnt_platform_authz::{
-    Action, AuthorizationAuditEvent, Feature, PermissionLevel, Principal, authorize_org_wide,
-    permission_for,
+    Action, AuthorizationAuditEvent, AuthorizationResource, Feature, PermissionLevel, Principal,
+    authorize_org_wide, permission_for,
 };
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_workflow_domain::{
@@ -703,6 +703,7 @@ async fn finalize_task(
         .object_id
         .map(|id| id.to_string())
         .unwrap_or_else(|| context.run_id.to_string());
+    let shadow_resource_id = resource_id.clone();
     let policy = enforce_finalize_policy(FinalizePolicyRequest {
         mode: request.mode.policy_mode(),
         reason: request.reason.as_deref(),
@@ -724,6 +725,32 @@ async fn finalize_task(
             task_id,
         )?);
     }
+
+    // Enrollment wave 2: audit-only Cedar parity observation. Legacy
+    // (`enforce_finalize_policy`) already enforced above (this line is only
+    // reached on its ALLOW); the shadow records how Cedar-alone compares and can
+    // never affect the finalize.
+    let shadow_resource = AuthorizationResource::branch(
+        principal.org_id,
+        branch,
+        context
+            .object_type
+            .as_deref()
+            .unwrap_or("workflow_run")
+            .to_owned(),
+    )
+    .with_resource_id(shadow_resource_id);
+    crate::cedar_parity::observe_parity(
+        &state.pool,
+        &principal,
+        principal.org_id,
+        Feature::ApprovalFinalize,
+        shadow_resource,
+        crate::cedar_parity::WORKFLOW_DECIDE_DOMAIN,
+        crate::cedar_parity::CEDAR_PBAC_SHADOW_WORKFLOW_DECIDE_FLAG,
+        true,
+    )
+    .await;
 
     let finalized = store
         .finalize_waiting_task(
@@ -811,6 +838,23 @@ async fn create_post_finalization_rejection(
             "post-finalization rejection policy denied",
         )));
     }
+
+    // Enrollment wave 2: audit-only Cedar parity observation (legacy already
+    // enforced above). Scope is branch + run-specific so the parity row mirrors
+    // the workflow run the already-enforced legacy decision acted on.
+    let shadow_resource = AuthorizationResource::branch(principal.org_id, branch, "workflow_run")
+        .with_resource_id(run_id.to_string());
+    crate::cedar_parity::observe_parity(
+        &state.pool,
+        &principal,
+        principal.org_id,
+        Feature::ApprovalFinalize,
+        shadow_resource,
+        crate::cedar_parity::WORKFLOW_DECIDE_DOMAIN,
+        crate::cedar_parity::CEDAR_PBAC_SHADOW_WORKFLOW_DECIDE_FLAG,
+        true,
+    )
+    .await;
 
     let store = PgWorkflowRuntimeStore::new(state.pool.clone());
     let compensation = store
@@ -1155,6 +1199,41 @@ fn guard_task_policy(
         org,
         shadow_target_id,
     )?))
+}
+
+/// Enrollment wave 2: fire the audit-only Cedar parity observation for a
+/// decide/claim task guard that legacy just ALLOWED (this is only called after
+/// `guard_task_policy` returned `Ok`). Best-effort and side-effect-only — it can
+/// never affect the mutation. Records nothing for a policy-less task (there is no
+/// capability decision to compare).
+async fn observe_task_decide_parity(
+    pool: &PgPool,
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    required_policy: Option<&str>,
+    resource_type: &str,
+    resource_id: &str,
+) {
+    let Some(feature) = required_policy
+        .and_then(guard_policy)
+        .and_then(|key| Feature::from_str(&key).ok())
+    else {
+        return;
+    };
+    let resource = AuthorizationResource::branch(org, branch, resource_type.to_owned())
+        .with_resource_id(resource_id.to_owned());
+    crate::cedar_parity::observe_parity(
+        pool,
+        principal,
+        org,
+        feature,
+        resource,
+        crate::cedar_parity::WORKFLOW_DECIDE_DOMAIN,
+        crate::cedar_parity::CEDAR_PBAC_SHADOW_WORKFLOW_DECIDE_FLAG,
+        true,
+    )
+    .await;
 }
 
 /// The workflow authority role keys resolved through the legacy matrix (security
@@ -2043,6 +2122,16 @@ async fn claim_workflow_task(
         "workflow.waiting_task.claim",
         task_id,
     )?;
+    observe_task_decide_parity(
+        &state.pool,
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+    )
+    .await;
 
     let claimed = store
         .claim_waiting_task(
@@ -2130,6 +2219,16 @@ async fn decide_workflow_task(
         "workflow.waiting_task.decide",
         task_id,
     )?;
+    observe_task_decide_parity(
+        &state.pool,
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+    )
+    .await;
 
     let decided = store
         .decide_waiting_task(
