@@ -258,6 +258,17 @@ export function WorkflowStudioPage() {
     [api],
   );
 
+  const loadHistoryNonCritical = useCallback(
+    async (definitionId: string | undefined) => {
+      try {
+        await loadHistory(definitionId);
+      } catch {
+        setHistory([]);
+      }
+    },
+    [loadHistory],
+  );
+
 
   const loadCanvasDefinition = useCallback(
     (
@@ -335,13 +346,13 @@ export function WorkflowStudioPage() {
         ) ?? definitionsResponse.data.items.at(0);
       setSelectedDefinitionId(selectedItem?.id);
       loadCanvasDefinition(selectedItem);
-      await loadHistory(selectedItem?.id);
+      await loadHistoryNonCritical(selectedItem?.id);
       setReadState("idle");
     } catch {
       setReadState("error");
       setError(ko.workflowStudio.loadFailed);
     }
-  }, [api, loadCanvasDefinition, loadHistory, selectedDefinitionId]);
+  }, [api, loadCanvasDefinition, loadHistoryNonCritical, selectedDefinitionId]);
 
   useEffect(() => {
     const task = window.setTimeout(() => {
@@ -418,7 +429,7 @@ export function WorkflowStudioPage() {
         setSelectedDefinitionId(updated.id);
         setEditingDefinitionId(undefined);
         loadCanvasDefinition(updated);
-        await loadHistory(updated.id);
+        await loadHistoryNonCritical(updated.id);
         showSuccess(ko.workflowStudio.updateSuccess);
       } else {
         const response = await api.POST("/api/v1/workflow-studio/definitions", {
@@ -433,7 +444,7 @@ export function WorkflowStudioPage() {
         setDefinitions((items) => [created, ...items]);
         setSelectedDefinitionId(created.id);
         loadCanvasDefinition(created);
-        await loadHistory(created.id);
+        await loadHistoryNonCritical(created.id);
         showSuccess(ko.workflowStudio.createSuccess);
       }
     } catch {

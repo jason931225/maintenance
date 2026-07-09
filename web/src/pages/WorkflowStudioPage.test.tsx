@@ -342,6 +342,51 @@ describe("WorkflowStudioPage", () => {
     ).toBeInTheDocument();
   }, 15000);
 
+  it("keeps draft create success when the post-create history refresh fails", async () => {
+    installBaseHandlers();
+    const createdId = "77777777-7777-4777-8777-777777777777";
+    server.use(
+      http.get("*/api/v1/workflow-studio/definitions/:id/history", ({ params }) => {
+        if (params.id === createdId) {
+          return HttpResponse.json({ message: "history unavailable" }, { status: 500 });
+        }
+        return HttpResponse.json(historyResponse);
+      }),
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        const body = await request.json();
+        createRequests.push(body);
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: createdId,
+          workflow_key: (body as { workflow_key: string }).workflow_key,
+          display_name: (body as { display_name: string }).display_name,
+          object_type: (body as { object_type: string }).object_type,
+          definition: (body as { definition: unknown }).definition,
+        });
+      }),
+    );
+
+    renderApp();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "휴가 신청 승인 템플릿 사용" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    await waitFor(() => {
+      expect(createRequests).toHaveLength(1);
+    });
+    expect(
+      await screen.findByText("워크플로 초안을 생성했습니다."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("초안 생성에 실패했습니다. 캔버스 설정과 허용 커넥터를 확인하세요."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("워크플로 스튜디오를 불러오지 못했습니다."),
+    ).not.toBeInTheDocument();
+  }, 15000);
+
   it("creates a fixed no-code policy decision draft from the equipment location template", async () => {
     installBaseHandlers();
     server.use(
@@ -425,6 +470,12 @@ describe("WorkflowStudioPage", () => {
       ],
       notification_rules: [],
     });
+    expect(
+      await screen.findByText("워크플로 초안을 생성했습니다."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("초안 생성에 실패했습니다. 캔버스 설정과 허용 커넥터를 확인하세요."),
+    ).not.toBeInTheDocument();
   });
 
   it("resets policy fields when switching back to a standard catalog template", async () => {

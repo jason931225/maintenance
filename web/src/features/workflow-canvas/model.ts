@@ -962,7 +962,23 @@ export function reactFlowLayoutToCanvas(
 
 export function isWorkflowDefinitionV1(value: unknown): value is WorkflowDefinitionV1 {
   if (!value || typeof value !== "object") return false;
-  return (value as { schema_version?: unknown }).schema_version === "workflow.definition.v1";
+  const candidate = value as Record<string, unknown>;
+  const graph = candidate.graph as Record<string, unknown> | undefined;
+  return (
+    candidate.schema_version === "workflow.definition.v1" &&
+    isObjectRecord(candidate.metadata) &&
+    isObjectRecord(graph) &&
+    Array.isArray(graph.nodes) &&
+    Array.isArray(graph.edges) &&
+    Array.isArray(graph.variables) &&
+    Array.isArray(graph.simulation_cases) &&
+    isObjectRecord(candidate.canvas) &&
+    isObjectRecord(candidate.validation)
+  );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export function summarizeNode(node: WorkflowNode): string {
