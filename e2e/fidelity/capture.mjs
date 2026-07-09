@@ -9,10 +9,16 @@
  *
  * P0.0 acceptance is that the rig WORKS: it emits `<screen>.reference.png`,
  * `<screen>.build.png`, and a `manifest.json` under e2e/.artifacts/fidelity/
- * (gitignored) so the themed empty viewport background can be compared. Later
- * slices navigate the prototype to a target screen/state (via prototype-anatomy
- * selectors) and hand the pair to the `visual-verdict` skill — the rig already
- * takes a `--screen` parameter so that extension needs no structural change.
+ * (gitignored) so the themed empty viewport background can be compared — and
+ * the rig FAILS (non-zero exit) if that background doesn't match between the
+ * two captures. Later slices navigate the prototype to a target screen/state
+ * (via prototype-anatomy selectors) and hand the pair to the `visual-verdict`
+ * skill — the rig already takes a `--screen` parameter so that extension needs
+ * no structural change, but in P0.0 the parameter is INERT: `ConsoleApp` has
+ * no state.screen navigation yet (that's P0.1+), so every capture shows the
+ * same empty themed viewport regardless of `--screen`. The manifest records
+ * this explicitly so a later reader doesn't mistake today's runs for
+ * per-screen coverage.
  *
  * The built `/console` sits behind ProtectedRoute; to reach the themed viewport
  * without standing up a backend, the rig stubs the ONE boot call
@@ -116,6 +122,9 @@ async function main() {
 
   const manifest = {
     screen,
+    screenNavigation:
+      "inert-until-P0.1 — ConsoleApp has no state.screen navigation yet; every capture " +
+      "renders the same empty themed viewport regardless of --screen",
     viewport: { width, height },
     capturedAt: new Date().toISOString(),
     reference: {},
@@ -159,9 +168,25 @@ async function main() {
 
   await browser.close();
 
+  const bgMatch = manifest.reference.consoleBg === manifest.build.consoleBg;
+  manifest.consoleBgMatch = bgMatch;
+
   const manifestPath = join(outDir, "manifest.json");
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-  console.log(`fidelity rig OK — screen "${screen}"`);
+
+  if (!bgMatch) {
+    console.error(
+      `fidelity rig FAILED — screen "${screen}": reference/build .console background mismatch ` +
+        `(reference ${manifest.reference.consoleBg} vs build ${manifest.build.consoleBg})`,
+    );
+    console.error(`  reference: ${manifest.reference.png}`);
+    console.error(`  build:     ${manifest.build.png}`);
+    console.error(`  manifest:  e2e/.artifacts/fidelity/manifest.json`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`fidelity rig OK — screen "${screen}" (reference/build .console background match)`);
   console.log(`  reference: ${manifest.reference.png} (console bg ${manifest.reference.consoleBg})`);
   console.log(`  build:     ${manifest.build.png} (console bg ${manifest.build.consoleBg})`);
   console.log(`  manifest:  e2e/.artifacts/fidelity/manifest.json`);
