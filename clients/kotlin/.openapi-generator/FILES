@@ -381,6 +381,7 @@ src/main/kotlin/com/maintenance/api/client/model/TokenPairResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/TransitionTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TriageFindingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
+src/main/kotlin/com/maintenance/api/client/model/UnreadNotificationCountResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateBranchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateEquipmentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateInquiryStatusRequest.kt

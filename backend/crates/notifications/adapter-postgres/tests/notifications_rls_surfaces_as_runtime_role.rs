@@ -14,7 +14,7 @@ use mnt_notifications_adapter_postgres::PgNotificationStore;
 use mnt_notifications_application::{
     EmitNotificationCommand, ListNotificationsQuery, MarkAllNotificationsReadCommand,
     MarkNotificationReadCommand, NotificationCreatedNotification, NotificationNotifier,
-    NotificationNotifyFuture,
+    NotificationNotifyFuture, UnreadNotificationCountQuery,
 };
 use mnt_notifications_domain::NotificationLink;
 use sqlx::PgPool;
@@ -105,6 +105,10 @@ fn emit_to(recipient: UserId, category: &str, dedup_key: Option<&str>) -> EmitNo
         trace: TraceContext::generate(),
         occurred_at: OffsetDateTime::now_utc(),
     }
+}
+
+fn unread_count_of(recipient: UserId) -> UnreadNotificationCountQuery {
+    UnreadNotificationCountQuery { recipient }
 }
 
 fn list_unread(recipient: UserId) -> ListNotificationsQuery {
@@ -222,6 +226,75 @@ async fn recipient_isolation_and_read_marking_as_runtime_role(owner_pool: PgPool
         0,
         "another tenant sees none of A's notifications"
     );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn unread_count_is_recipient_scoped_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let user_a = seed_user(&owner_pool, *knl.as_uuid(), "Counter A").await;
+    let user_b = seed_user(&owner_pool, *knl.as_uuid(), "Counter B").await;
+    let store = PgNotificationStore::new(rt_pool.clone());
+
+    // Zero unread to start.
+    let zero = mnt_platform_request_context::scope_org(knl, async {
+        store.unread_count(unread_count_of(user_a)).await
+    })
+    .await
+    .expect("A count when empty");
+    assert_eq!(zero, 0, "no notifications => zero unread");
+
+    // Two for A, one for B.
+    let a_first = mnt_platform_request_context::scope_org(knl, async {
+        store.emit_notification(emit_to(user_a, "결재", None)).await
+    })
+    .await
+    .expect("emit A#1");
+    mnt_platform_request_context::scope_org(knl, async {
+        store.emit_notification(emit_to(user_a, "멘션", None)).await
+    })
+    .await
+    .expect("emit A#2");
+    mnt_platform_request_context::scope_org(knl, async {
+        store.emit_notification(emit_to(user_b, "공지", None)).await
+    })
+    .await
+    .expect("emit B#1");
+
+    let a_count = mnt_platform_request_context::scope_org(knl, async {
+        store.unread_count(unread_count_of(user_a)).await
+    })
+    .await
+    .expect("A count");
+    assert_eq!(a_count, 2, "A has exactly its own two unread");
+
+    // Cross-user isolation: B's count is unaffected by A's rows.
+    let b_count = mnt_platform_request_context::scope_org(knl, async {
+        store.unread_count(unread_count_of(user_b)).await
+    })
+    .await
+    .expect("B count");
+    assert_eq!(b_count, 1, "B sees only its own unread");
+
+    // Read rows are excluded: marking one of A's read drops the count to one.
+    mnt_platform_request_context::scope_org(knl, async {
+        store
+            .mark_read(MarkNotificationReadCommand {
+                recipient: user_a,
+                notification_id: a_first.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+    })
+    .await
+    .expect("A marks one read");
+    let a_after = mnt_platform_request_context::scope_org(knl, async {
+        store.unread_count(unread_count_of(user_a)).await
+    })
+    .await
+    .expect("A count after read");
+    assert_eq!(a_after, 1, "read rows are excluded from the unread count");
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]

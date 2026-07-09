@@ -2984,6 +2984,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Count the authenticated user's unread notifications */
+        get: operations["getMyUnreadNotificationCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/notifications/read-all": {
         parameters: {
             query?: never;
@@ -6184,6 +6201,13 @@ export interface components {
              * @description The number of notifications marked read.
              */
             marked: number;
+        };
+        UnreadNotificationCountResponse: {
+            /**
+             * Format: int64
+             * @description The number of the caller's unread notifications.
+             */
+            unread: number;
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -11992,6 +12016,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getMyUnreadNotificationCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of the caller's unread notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadNotificationCountResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
