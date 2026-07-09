@@ -5,6 +5,19 @@ It uses fastlane `2.236.1`, verified live from RubyGems on 2026-06-12, because t
 
 Uploads are intentionally not faked. On a `v*` tag, the workflow fails before upload with an explicit missing-secret message until the values below are added by the user.
 
+Release gating is intentionally split:
+
+- PR/main CI keeps path filters for fast feedback, but OpenAPI contract and
+  generated Swift-client changes are included in both the main CI and iOS UI
+  gates because the iOS app depends on `clients/swift`.
+- GitHub Actions does not evaluate `paths` for tag pushes, so `v*` tags run the
+  full CI workflow and the iOS UI workflow regardless of changed files.
+- `.github/workflows/release.yml` waits for the same SHA's CI and iOS UI test
+  workflows before any Play/TestFlight upload step starts. Dry-run dispatches
+  skip that upstream wait so local build checks remain cheap.
+- `.github/workflows/image-release.yml` separately waits for the same SHA's CI
+  workflow before building, scanning, signing, and publishing images.
+
 ## GitHub Secrets
 
 Add these in GitHub repository settings as Actions secrets.
@@ -46,16 +59,40 @@ Optional:
 - `APP_STORE_CONNECT_KEY_ID`: App Store Connect API key ID.
 - `APP_STORE_CONNECT_ISSUER_ID`: App Store Connect issuer ID.
 - `APP_STORE_CONNECT_KEY_BASE64`: base64 of the downloaded App Store Connect `.p8` API key. Apple only allows downloading the key file once.
-- `IOS_APP_IDENTIFIER`: bundle identifier registered in App Store Connect.
-- `IOS_SCHEME`: Xcode scheme to archive.
-- `IOS_XCODE_PROJECT`: path to the Xcode project, for example `ios/MaintenanceField.xcodeproj`.
-- `IOS_XCODE_WORKSPACE`: path to the Xcode workspace if the app uses one. Set this instead of `IOS_XCODE_PROJECT`.
+- `IOS_APP_IDENTIFIER`: bundle identifier registered in App Store Connect. The
+  repo default is `com.maintenance.field` (`ios/Config/App.xcconfig` defaults
+  `MNT_IOS_BUNDLE_ID` to the same value under Team `98Q89GFZWP`), but this is
+  production-ready only after the App ID and capabilities are registered and
+  matched by provisioning profiles.
+- `IOS_SCHEME`: Xcode scheme to archive, for example `MaintenanceFieldApp` once
+  the archive-capable project/workspace is available to the release job.
+- `IOS_XCODE_PROJECT`: path to an archive-capable Xcode project that exists in
+  the checkout, for example `ios/MaintenanceField.xcodeproj` only after that
+  project has been generated/committed or otherwise materialized for release.
+- `IOS_XCODE_WORKSPACE`: path to the Xcode workspace if the app uses one. Set
+  this instead of `IOS_XCODE_PROJECT`; the path must exist in the checkout before
+  fastlane runs.
 - `IOS_CERTIFICATE_P12_BASE64`: base64 of the Apple Distribution certificate exported as `.p12`.
 - `IOS_CERTIFICATE_PASSWORD`: password for the `.p12`.
 - `IOS_PROVISIONING_PROFILE_BASE64`: base64 of the App Store distribution provisioning profile.
 - `IOS_KEYCHAIN_PASSWORD`: temporary CI keychain password.
 
-Current iOS repo state: `ios/` is a SwiftPM package and does not yet include an `.xcodeproj` or `.xcworkspace`. The dry-run lane builds the Swift package. The TestFlight lane fails clearly until the Xcode packaging layer exists and `IOS_XCODE_PROJECT` or `IOS_XCODE_WORKSPACE` is provided.
+Current iOS repo state has three separate readiness levels:
+
+1. **SwiftPM build/test:** `ios/` builds through Swift Package Manager. The
+   release dry-run lane and main CI build this path without uploading to
+   TestFlight.
+2. **XcodeGen/XCUITest:** `.github/workflows/ios-ui-tests.yml` generates
+   `ios/MaintenanceField.xcodeproj` from `ios/project.yml` with XcodeGen and runs
+   Simulator XCUITest/accessibility checks. That generated `.xcodeproj` is a CI
+   artifact and is not committed.
+3. **TestFlight/archive:** the release workflow has an iOS/TestFlight lane, but
+   it requires App Store Connect credentials, manual signing assets,
+   `IOS_APP_IDENTIFIER`, `IOS_SCHEME`, and either `IOS_XCODE_PROJECT` or
+   `IOS_XCODE_WORKSPACE` pointing at an archive-capable path that exists in the
+   release checkout. Until those inputs and a signed archive/export have been
+   proven, TestFlight and production go-live are blocked.
+
 The workflow derives `IOS_PROVISIONING_PROFILE_NAME` from the uploaded provisioning profile and passes it to fastlane export options. If you run the `ios release` lane locally, set `IOS_PROVISIONING_PROFILE_NAME` to that profile's `Name` value.
 
 ## Local Dry Runs
@@ -79,17 +116,23 @@ Android release builds remain unsigned unless all four `ANDROID_KEYSTORE_*` envi
 
 ## Release Tags
 
-Push a tag matching `v*` only after all required secrets are present:
+Push a tag matching `v*` only after all required secrets are present and the
+release commit has passed CI + iOS UI gates:
 
 ```sh
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow uploads:
+When all required secrets and archive inputs are present, the mobile release
+workflow waits for CI and iOS UI tests on the same SHA, then uploads:
 
 - Android `android/app/build/outputs/bundle/release/app-release.aab` to the Play internal track.
 - iOS archive output from the configured Xcode project/workspace to TestFlight.
+
+A passing SwiftPM build, release dry run, or XcodeGen XCUITest run is not itself
+TestFlight or production readiness; it is only the corresponding build/test state
+above.
 
 ## Sources Checked
 
