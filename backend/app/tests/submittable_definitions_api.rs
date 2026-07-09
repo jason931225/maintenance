@@ -114,10 +114,10 @@ async fn entry_node_required_policy_and_no_entry_graph_are_deny_by_omission(pool
     // No top-level start_policy: the entry node itself is a human_task whose
     // required_policy is the fallback start authority.
     let entry_gated =
-        seed_entry_policy_definition(&pool, "ops.entry-gated", "completion_review").await;
+        seed_entry_policy_definition(&pool, "ops.entry_gated", "completion_review").await;
     // A graph with no entry node (cycle) parses but is not startable; the catalog
     // must fail closed and omit it for every caller.
-    let no_entry = seed_no_entry_definition(&pool, "ops.no-entry").await;
+    let no_entry = seed_no_entry_definition(&pool, "ops.no_entry").await;
 
     let member_token = keys.token(member, &["MEMBER"], branch);
     let (_, member_body) = list(&pool, &keys, &member_token).await;
