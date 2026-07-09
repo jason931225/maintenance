@@ -261,6 +261,86 @@ async fn resolves_kinds_and_denies_by_omission(pool: PgPool) {
     assert_eq!(unknown.0, StatusCode::NOT_FOUND);
 }
 
+/// The generic resolver must enforce the same feature guards as the domain
+/// read endpoints it aggregates: work_order and equipment GETs require
+/// `WorkOrderReadAll`, which a MEMBER (Login-only, matrix index 0) is denied.
+/// Without the kind-level gate a MEMBER could read heads its role forbids by
+/// harvesting ids from object_links and resolving them here. The deny fires
+/// before any lookup (id-independent), so it introduces no existence oracle;
+/// membership-gated kinds (support_ticket) stay at membership parity.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn resolve_enforces_domain_feature_guards(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let branch = seed_branch(&pool, "Region G", "Branch G").await;
+    let member = UserId::new();
+    seed_user_in_branch(&pool, member, "MEMBER", branch).await;
+    let member_token = issue_token_with_roles(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        member,
+        vec![branch],
+        vec!["MEMBER".to_owned()],
+    );
+    let admin = UserId::new();
+    seed_user_in_branch(&pool, admin, "ADMIN", branch).await;
+    let admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin,
+        vec![branch],
+    );
+
+    // MEMBER holds Login but not WorkOrderReadAll: both guarded kinds are 403
+    // regardless of the id — the gate fires before resolution.
+    for kind in ["work_order", "equipment"] {
+        let denied = resolve(
+            &pool,
+            &public_key_pem,
+            &member_token,
+            kind,
+            &Uuid::new_v4().to_string(),
+        )
+        .await;
+        assert_eq!(
+            denied.0,
+            StatusCode::FORBIDDEN,
+            "MEMBER must be denied {kind} heads: {}",
+            denied.1
+        );
+    }
+
+    // Membership-gated kinds keep membership parity for the same MEMBER.
+    let ticket = resolve(
+        &pool,
+        &public_key_pem,
+        &member_token,
+        "support_ticket",
+        &Uuid::new_v4().to_string(),
+    )
+    .await;
+    assert_eq!(ticket.0, StatusCode::OK);
+    assert_eq!(ticket.1["exists"], false);
+
+    // Control: a WorkOrderReadAll-holding role resolves the guarded kinds
+    // (absent id -> exists:false, not an authz error).
+    let allowed = resolve(
+        &pool,
+        &public_key_pem,
+        &admin_token,
+        "work_order",
+        &Uuid::new_v4().to_string(),
+    )
+    .await;
+    assert_eq!(allowed.0, StatusCode::OK);
+    assert_eq!(allowed.1["exists"], false);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
