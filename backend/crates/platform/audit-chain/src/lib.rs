@@ -258,16 +258,67 @@ fn opt_uuid_bytes(value: &Option<Uuid>) -> &[u8] {
     }
 }
 
-/// Canonical JSON for a JSONB snapshot: re-serialize the parsed `Value` with
-/// `serde_json` (sorted keys, no whitespace — the workspace does NOT enable
-/// `preserve_order`), so the bytes do not depend on the stored text layout or
-/// the Postgres version. NULL → empty.
+/// Deterministic JSON bytes for a JSONB snapshot, with object keys sorted in
+/// CRATE-OWNED code. This must NOT rely on serde_json's Map ordering: the
+/// `preserve_order`/`indexmap` feature IS enabled transitively in this workspace
+/// (cedar-policy-core + sqlx-postgres pull it), so `Value::Object` is an
+/// insertion-ordered `IndexMap`, not sorted. Re-serializing with plain
+/// `serde_json::to_vec` would emit keys in JSONB-storage order — seal==verify
+/// only by accident, and a dep bump flipping the feature would mass-fail every
+/// existing seal. Sorting here makes the encoding independent of the Map
+/// backing; scalars reuse serde_json's own deterministic serialization (only
+/// object key ORDER is controlled here). NULL column → empty.
 fn canonical_json(value: &Option<serde_json::Value>) -> Result<Vec<u8>, AuditChainError> {
     match value {
         None => Ok(Vec::new()),
-        Some(json) => serde_json::to_vec(json)
-            .map_err(|err| AuditChainError::Canonical(format!("json re-serialize: {err}"))),
+        Some(json) => {
+            let mut out = Vec::new();
+            write_canonical_json(json, &mut out)?;
+            Ok(out)
+        }
     }
+}
+
+fn write_canonical_json(
+    value: &serde_json::Value,
+    out: &mut Vec<u8>,
+) -> Result<(), AuditChainError> {
+    match value {
+        serde_json::Value::Object(map) => {
+            out.push(b'{');
+            let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            for (i, key) in keys.iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                // Key as a JSON string (serde's escaping), then ':' then value.
+                serde_json::to_writer(&mut *out, *key)
+                    .map_err(|err| AuditChainError::Canonical(format!("json key: {err}")))?;
+                out.push(b':');
+                let child = map
+                    .get(*key)
+                    .ok_or_else(|| AuditChainError::Canonical("map key vanished".to_owned()))?;
+                write_canonical_json(child, out)?;
+            }
+            out.push(b'}');
+        }
+        serde_json::Value::Array(items) => {
+            out.push(b'[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                write_canonical_json(item, out)?;
+            }
+            out.push(b']');
+        }
+        // Null / Bool / Number / String: serde's serialization is deterministic
+        // and free of any key-order concern.
+        scalar => serde_json::to_writer(&mut *out, scalar)
+            .map_err(|err| AuditChainError::Canonical(format!("json scalar: {err}")))?,
+    }
+    Ok(())
 }
 
 /// Canonical timestamp string (forced UTC, fixed 9-digit sub-second).
@@ -508,7 +559,7 @@ async fn fetch_batch(
                 "SELECT {SELECT_BATCH_COLUMNS} FROM audit_events \
                  WHERE created_at <= $1 ORDER BY created_at ASC, id ASC LIMIT $2"
             );
-            sqlx::query_as::<_, AuditRow>(&sql)
+            sqlx::query_as::<_, AuditRow>(sqlx::AssertSqlSafe(sql))
                 .bind(watermark)
                 .bind(batch_max)
                 .fetch_all(tx.as_mut())
@@ -521,7 +572,7 @@ async fn fetch_batch(
                    AND (created_at > $2 OR (created_at = $2 AND id > $3)) \
                  ORDER BY created_at ASC, id ASC LIMIT $4"
             );
-            sqlx::query_as::<_, AuditRow>(&sql)
+            sqlx::query_as::<_, AuditRow>(sqlx::AssertSqlSafe(sql))
                 .bind(watermark)
                 .bind(cursor_ca)
                 .bind(cursor_id)
@@ -622,10 +673,11 @@ async fn run_tick(pool: &PgPool, signer: &Arc<dyn SealSigner>, config: &SealConf
 // Verify routine (charter §5.3)
 // ===========================================================================
 
-/// The classification of a chain's state.
+/// The TAMPER classification of a chain. Distinct from the behind-schedule
+/// freshness signal (`ChainReport::unsealed_tail`), which is NOT tamper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChainReportKind {
-    /// Every seal recomputes, chains, and verifies; no unsealed old tail.
+    /// Every seal recomputes, chains, verifies, and covers its range with no gap.
     Ok,
     /// A seal's stored `seal_hash` does not equal the hash recomputed from its
     /// own stored scalar fields — a seal row was tampered.
@@ -640,37 +692,55 @@ pub enum ChainReportKind {
     BadSignature,
     /// The `seq` column is not contiguous from 1 — a seal was deleted or spliced.
     MissingSeq,
-    /// The worker fell behind or was stopped: `audit_events` older than the
-    /// watermark exist beyond the head seal's cursor. Reported, not tamper.
-    UnsealedTail,
+    /// A committed `audit_events` row sits in a hole the sealed ranges do not
+    /// cover — before the first seal, or strictly between two consecutive seals.
+    /// This is what turns a codex-class backdated-insert / commit-order gap into
+    /// a DETECTABLE finding (the seal_lag watermark bounds it at seal time; this
+    /// check catches anything that still slipped in below the head).
+    CoverageGap,
 }
 
-/// The verdict for one org's chain. `ok` iff `kind == Ok`.
+/// The verdict for one org's chain.
+///
+/// `ok` reflects TAMPER integrity ONLY (`kind` is the classification). The
+/// separate `unsealed_tail` freshness flag — old rows past the head that the
+/// worker has not sealed yet — must NOT force `ok = false`: a live tenant always
+/// carries a rolling unsealed window (up to `seal_lag + tick`), so conflating
+/// behind-schedule with tamper would false-alarm every healthy chain. Tamper
+/// (act now) and behind-schedule (a freshness/ops signal) are kept distinct.
 #[derive(Debug, Clone)]
 pub struct ChainReport {
     pub org_id: Uuid,
+    /// No tamper detected. Independent of `unsealed_tail`.
     pub ok: bool,
     /// The first offending seal's `seq`, when the failure localizes to a seal.
     pub first_bad_seq: Option<i64>,
     pub kind: ChainReportKind,
+    /// Freshness signal: committed rows older than the grace-margined watermark
+    /// exist beyond the head seal's cursor (worker fell behind / was stopped).
+    /// A healthy live chain leaves this `false`; it never sets `ok = false`.
+    pub unsealed_tail: bool,
 }
 
 impl ChainReport {
-    fn ok(org_id: Uuid) -> Self {
+    fn healthy(org_id: Uuid, unsealed_tail: bool) -> Self {
         Self {
             org_id,
             ok: true,
             first_bad_seq: None,
             kind: ChainReportKind::Ok,
+            unsealed_tail,
         }
     }
 
-    fn bad(org_id: Uuid, seq: Option<i64>, kind: ChainReportKind) -> Self {
+    fn tampered(org_id: Uuid, seq: Option<i64>, kind: ChainReportKind) -> Self {
         Self {
             org_id,
             ok: false,
             first_bad_seq: seq,
             kind,
+            // Integrity already failed; freshness is moot.
+            unsealed_tail: false,
         }
     }
 }
@@ -827,7 +897,7 @@ async fn fetch_range(
            AND (created_at < $3 OR (created_at = $3 AND id <= $4)) \
          ORDER BY created_at ASC, id ASC"
     );
-    let rows = sqlx::query_as::<_, AuditRow>(&sql)
+    let rows = sqlx::query_as::<_, AuditRow>(sqlx::AssertSqlSafe(sql))
         .bind(from.0)
         .bind(from.1)
         .bind(to.0)

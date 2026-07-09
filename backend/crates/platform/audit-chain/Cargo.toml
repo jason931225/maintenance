@@ -14,7 +14,9 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 sqlx = { workspace = true }
-tokio = { workspace = true }
+# The workspace tokio enables only rt-multi-thread + macros; the seal worker also
+# needs the watch channel (sync) and interval timer (time).
+tokio = { workspace = true, features = ["sync", "time"] }
 time = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
