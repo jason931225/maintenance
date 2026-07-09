@@ -401,10 +401,19 @@ jobs:
           --health-retries 5
     env:
       CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract
+      # This job builds mnt-app before comparing the app-served OpenAPI and
+      # running the generated-client round-trip. Match the backend job's lean
+      # Cargo artifacts so the standard runner does not exhaust disk on cache
+      # misses.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Free runner disk for API contract
+        uses: ./.github/actions/free-runner-disk
 
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
