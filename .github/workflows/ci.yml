@@ -160,6 +160,9 @@ jobs:
       - name: Dev-auth-absence gate
         run: cargo run -p mnt-gate-dev-auth-absence
 
+      - name: IaC tier-discipline gate
+        run: cargo run -p mnt-gate-iac-tier
+
       - name: Dev-auth feature build/tests
         # `dev-auth` is NOT in default features (proven above) — build/test it
         # explicitly so its code path still compiles and its own tests
