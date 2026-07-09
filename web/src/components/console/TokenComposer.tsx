@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type DragEvent,
   type KeyboardEvent,
@@ -8,7 +9,7 @@ import {
   type RefObject,
 } from "react";
 
-import type { CandidateProvider, ObjectCandidate } from "../../lib/objectCandidates";
+import { filterCandidates, type CandidateProvider, type ObjectCandidate } from "../../lib/objectCandidates";
 import { OBJECT_DND_MIME, readDraggedObject, tokenForDraggedObject } from "../../lib/objectDrag";
 import { objectRegistry, type ObjectKind, type ObjectRef } from "../../lib/objectRegistry";
 import {
@@ -93,7 +94,7 @@ export function TokenComposer({
     handleCompositionEnd,
   } = useTokenGrammarInput(value, onChange);
   const [resolved, setResolved] = useState<Record<string, ObjectRef>>({});
-  const [candidates, setCandidates] = useState<ObjectCandidate[]>([]);
+  const [rawCandidates, setRawCandidates] = useState<ObjectCandidate[]>([]);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
   const [dragOver, setDragOver] = useState(false);
 
@@ -108,32 +109,37 @@ export function TokenComposer({
 
   const trigger = activeTrigger?.trigger;
   const query = activeTrigger?.query ?? "";
+  const triggerStart = activeTrigger?.start;
   const provider = trigger ? providers[trigger] : undefined;
 
-  // Fetch candidates whenever the active trigger/query changes. A stale response
-  // (the trigger moved on) is discarded via the `live` guard. When there is no
-  // provider the dropdown is not rendered (`showDropdown`), so leftover
-  // candidate state is harmless and left untouched — the next provider fetch
-  // overwrites it.
+  // Fetch one page when a trigger session opens (keyed on provider + trigger
+  // position); typing only changes `query`, which re-filters the cached page
+  // below — so a burst of keystrokes never refetches. A stale response (the
+  // trigger moved on) is discarded via the `live` guard.
   useEffect(() => {
     if (!provider) return undefined;
     const guard = { live: true };
     void (async () => {
       setLoadState("loading");
-      const result = await provider(query);
+      const result = await provider();
       if (!guard.live) return;
       if (result.status === "error") {
-        setCandidates([]);
+        setRawCandidates([]);
         setLoadState("error");
         return;
       }
-      setCandidates(result.candidates);
+      setRawCandidates(result.candidates);
       setLoadState("idle");
     })();
     return () => {
       guard.live = false;
     };
-  }, [provider, query]);
+  }, [provider, triggerStart]);
+
+  const candidates = useMemo(
+    () => filterCandidates(rawCandidates, query),
+    [rawCandidates, query],
+  );
 
   const confirm = useCallback(
     (candidate: ObjectCandidate) => {

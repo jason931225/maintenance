@@ -916,7 +916,9 @@ async fn resolve_mention_recipients(
         .await?;
     Ok(mentioned
         .into_iter()
-        .filter(|id| *id != actor && member_uuids.contains(id.as_uuid()))
+        // `member_uuids` is a subset of `candidate_uuids`, which already
+        // excluded `actor` above — so membership alone enforces no self-notify.
+        .filter(|id| member_uuids.contains(id.as_uuid()))
         .collect())
 }
 
