@@ -104,6 +104,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
 pub mod action_inbox;
+pub mod cedar_parity;
 mod collaboration;
 mod hr;
 pub mod lifecycle;

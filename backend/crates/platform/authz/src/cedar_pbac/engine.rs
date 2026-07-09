@@ -126,6 +126,73 @@ pub fn compile_bundle(org_id: OrgId, policy_version: u64) -> Result<CompiledBund
     }
 }
 
+/// Cedar schema for an arbitrary enrolled `feature`, mirroring
+/// [`ROLE_MANAGE_SCHEMA`] but with the declared action id bound to
+/// [`Feature::as_str`]. The server-derived `Subject`/`Resource`/context shape is
+/// identical; only the action name changes, so an enrolled feature addresses
+/// exactly its own Cedar action and cannot match another feature's permits.
+#[must_use]
+pub fn feature_schema(feature: Feature) -> String {
+    format!(
+        r#"entity Subject = {{
+  "org": String,
+  "roles": Set<String>,
+  "subject_version": Long
+}};
+
+entity Resource = {{
+  "org": String,
+  "resource_type": String,
+  "branch"?: String
+}};
+
+action "{action}" appliesTo {{
+  principal: [Subject],
+  resource: [Resource],
+  context: {{
+    "purpose"?: String,
+    "channel"?: String,
+    "step_up"?: Bool
+  }}
+}};
+"#,
+        action = feature.as_str()
+    )
+}
+
+/// Schema identity for a per-feature bundle, distinct per feature so cache keys
+/// never collide across features/actions.
+#[must_use]
+pub fn feature_schema_version(feature: Feature) -> String {
+    format!("2026-07-feature-{}-v1", feature.as_str())
+}
+
+/// Compile a strict-validated Cedar bundle for an arbitrary enrolled `feature`,
+/// with `permit`s generated from the legacy permission matrix (so Cedar and the
+/// matrix stay provably equivalent). Panic-safe and fail-closed exactly like
+/// [`compile_bundle`]; this is the enrollment-wave-2 generalization of the
+/// RoleManage pilot to the workflow decide-path and object-resolve features.
+pub fn compile_bundle_for_feature(
+    org_id: OrgId,
+    policy_version: u64,
+    feature: Feature,
+) -> Result<CompiledBundle, KernelError> {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| {
+        compile_bundle_from_sources(
+            org_id,
+            policy_version,
+            &feature_schema_version(feature),
+            &feature_schema(feature),
+            &generate_policies(feature),
+        )
+    })) {
+        Ok(result) => result,
+        Err(_) => Err(KernelError::validation(
+            "cedar feature bundle compilation panicked".to_owned(),
+        )),
+    }
+}
+
 fn compile_bundle_inner(org_id: OrgId, policy_version: u64) -> Result<CompiledBundle, KernelError> {
     compile_bundle_from_sources(
         org_id,
@@ -333,7 +400,7 @@ mod tests {
     use mnt_kernel_core::{BranchScope, OrgId, UserId};
 
     use super::{
-        ROLE_MANAGE_SCHEMA, ROLE_MANAGE_SCHEMA_VERSION, compile_bundle,
+        ROLE_MANAGE_SCHEMA, ROLE_MANAGE_SCHEMA_VERSION, compile_bundle, compile_bundle_for_feature,
         compile_bundle_from_sources, evaluate, generate_policies,
     };
     use crate::{
@@ -353,6 +420,61 @@ mod tests {
             Action::new(Feature::RoleManage),
             AuthorizationResource::org_wide(OrgId::knl(), "role"),
         )
+    }
+
+    fn feature_request(feature: Feature, role: Role) -> AuthorizationRequest {
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::knl(),
+            BTreeSet::from([role]),
+            BranchScope::All,
+        );
+        AuthorizationRequest::new(
+            principal,
+            Action::new(feature),
+            AuthorizationResource::org_wide(OrgId::knl(), "work_order"),
+        )
+    }
+
+    /// The enrollment-wave-2 generalization: a per-feature bundle compiles under
+    /// strict validation and its Cedar verdict matches the legacy matrix for the
+    /// enrolled feature (allow the matrix-allowed role, deny the denied one) — the
+    /// property parity measurement depends on.
+    #[test]
+    fn per_feature_bundle_matches_the_legacy_matrix() {
+        for feature in [
+            Feature::WorkOrderReadAll,
+            Feature::UserManage,
+            Feature::CompletionReview,
+            Feature::ApprovalFinalize,
+        ] {
+            let bundle = compile_bundle_for_feature(OrgId::knl(), 1, feature)
+                .expect("per-feature bundle must compile + strict-validate");
+
+            // SUPER_ADMIN is Allow for every enrolled feature above.
+            let allow = evaluate(&feature_request(feature, Role::SuperAdmin), &bundle);
+            assert!(
+                matches!(allow, CedarEvaluation::Allow { .. }),
+                "{feature:?}: SUPER_ADMIN must be allowed, got {allow:?}"
+            );
+
+            // MEMBER (bottom of the matrix) is Deny for every one of them.
+            let deny = evaluate(&feature_request(feature, Role::Member), &bundle);
+            assert!(
+                matches!(deny, CedarEvaluation::Deny { .. }),
+                "{feature:?}: MEMBER must be denied, got {deny:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn per_feature_bundle_keys_differ_across_features() {
+        let a = compile_bundle_for_feature(OrgId::knl(), 1, Feature::WorkOrderReadAll).unwrap();
+        let b = compile_bundle_for_feature(OrgId::knl(), 1, Feature::UserManage).unwrap();
+        assert_ne!(
+            a.key, b.key,
+            "distinct features must produce distinct bundle identities"
+        );
     }
 
     #[test]
