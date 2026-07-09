@@ -17,10 +17,10 @@ import { createContext, useContext } from "react";
  * different file layout under `policy/`.
  */
 
-export interface PolicyResource {
+export type PolicyResource = string | {
   kind: string;
   id: string;
-}
+};
 
 /** Returns whether `action` on the (optional) resource is permitted. */
 export type PolicyDecider = (action: string, resource?: PolicyResource) => boolean;

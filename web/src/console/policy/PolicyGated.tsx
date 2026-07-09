@@ -26,11 +26,13 @@ export function PolicyGated({
   action,
   resource,
   children,
+  fallback = null,
 }: {
   action: string;
   resource?: PolicyResource;
   children: ReactNode;
+  fallback?: ReactNode;
 }) {
   const gate = usePolicyGate();
-  return gate.can(action, resource) ? <>{children}</> : null;
+  return <>{gate.can(action, resource) ? children : fallback}</>;
 }

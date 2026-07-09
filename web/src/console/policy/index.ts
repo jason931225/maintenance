@@ -1,4 +1,5 @@
 export { PolicyGated, PolicyGateProvider } from "./PolicyGated";
+export { PolicyProvider, type PolicyQuery, type PolicyQueryDecider } from "./components";
 export {
   usePolicyGate,
   DENY_ALL,
