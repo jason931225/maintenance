@@ -13998,9 +13998,9 @@ components:
         kind:
           $ref: '#/components/schemas/MessengerThreadKind'
         visibility:
-          description: 'Optional taxonomy override; when omitted the server derives it from kind/title (a named team thread
-            defaults to a channel, everything else to direct). A channel requires a title; DM and work-order threads are
-            always direct.'
+          description: 'Optional taxonomy override; when omitted the thread is always direct (fixed member set) — pass
+            visibility=channel explicitly to create a joinable, discoverable team channel. A channel requires a title;
+            DM and work-order threads are always direct.'
           oneOf:
           - $ref: '#/components/schemas/MessengerThreadVisibility'
           - type: 'null'

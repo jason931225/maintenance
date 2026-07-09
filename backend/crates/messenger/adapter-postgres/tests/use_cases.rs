@@ -890,6 +890,78 @@ async fn ack_toggle_is_idempotent_and_member_only(pool: PgPool) {
     .await;
 }
 
+// Double-tap / two-tab race: a second toggle-on whose own DELETE also
+// observed "not yet acked" (it started before the first toggle committed)
+// reaches the INSERT after the winner's row already exists. Before the ON
+// CONFLICT DO NOTHING fix this raw duplicate INSERT hit the (message_id,
+// user_id) primary key and the request 500'd instead of landing idempotently.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn racing_duplicate_ack_insert_is_absorbed_not_a_500(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+        let message = send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "동시 확인",
+            OffsetDateTime::now_utc(),
+        )
+        .await;
+
+        // The "winner": toggles on normally.
+        store
+            .toggle_ack(ToggleAckCommand {
+                actor: seeded.recipient,
+                branch_scope: BranchScope::single(seeded.branch),
+                message_id: message.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+
+        // The "loser": the exact INSERT toggle_ack issues on its own
+        // delete-then-insert not-yet-acked branch, run directly against the
+        // already-acked row.
+        let result = sqlx::query(
+            r#"
+            INSERT INTO messenger_message_acks (message_id, user_id, org_id, acked_at)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (message_id, user_id) DO NOTHING
+            "#,
+        )
+        .bind(*message.id.as_uuid())
+        .bind(*seeded.recipient.as_uuid())
+        .bind(*mnt_kernel_core::OrgId::knl().as_uuid())
+        .bind(OffsetDateTime::now_utc())
+        .execute(&pool)
+        .await;
+
+        let result = result.expect(
+            "the racing duplicate ack INSERT must resolve via ON CONFLICT DO NOTHING, not a 500",
+        );
+        assert_eq!(
+            result.rows_affected(),
+            0,
+            "the conflict must be a no-op, not a second row"
+        );
+
+        let row_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM messenger_message_acks WHERE message_id = $1")
+                .bind(*message.id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            row_count, 1,
+            "the race must converge on exactly one ack row, never a duplicate or an error"
+        );
+    })
+    .await;
+}
+
 // Capability 4: reply-quote surfaces a same-thread quote and rejects a
 // cross-thread one.
 #[sqlx::test(migrations = "../../platform/db/migrations")]

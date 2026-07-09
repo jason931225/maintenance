@@ -6926,7 +6926,7 @@ export interface components {
         CreateMessengerThreadRequest: {
             branch_id: components["schemas"]["Uuid"];
             kind: components["schemas"]["MessengerThreadKind"];
-            /** @description Optional taxonomy override; when omitted the server derives it from kind/title (a named team thread defaults to a channel, everything else to direct). A channel requires a title; DM and work-order threads are always direct. */
+            /** @description Optional taxonomy override; when omitted the thread is always direct (fixed member set) — pass visibility=channel explicitly to create a joinable, discoverable team channel. A channel requires a title; DM and work-order threads are always direct. */
             visibility?: components["schemas"]["MessengerThreadVisibility"] | null;
             title?: string | null;
             /** Format: uuid */

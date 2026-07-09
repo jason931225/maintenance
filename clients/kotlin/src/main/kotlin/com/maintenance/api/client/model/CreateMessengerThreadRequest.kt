@@ -36,7 +36,7 @@ import kotlinx.serialization.Contextual
  * @param branchId
  * @param kind
  * @param memberIds
- * @param visibility Optional taxonomy override; when omitted the server derives it from kind/title (a named team thread defaults to a channel, everything else to direct). A channel requires a title; DM and work-order threads are always direct.
+ * @param visibility Optional taxonomy override; when omitted the thread is always direct (fixed member set) — pass visibility=channel explicitly to create a joinable, discoverable team channel. A channel requires a title; DM and work-order threads are always direct.
  * @param title
  * @param workOrderId
  */
@@ -53,7 +53,7 @@ data class CreateMessengerThreadRequest (
     @SerialName(value = "member_ids")
     val memberIds: kotlin.collections.List<@Contextual java.util.UUID>,
 
-    /* Optional taxonomy override; when omitted the server derives it from kind/title (a named team thread defaults to a channel, everything else to direct). A channel requires a title; DM and work-order threads are always direct. */
+    /* Optional taxonomy override; when omitted the thread is always direct (fixed member set) — pass visibility=channel explicitly to create a joinable, discoverable team channel. A channel requires a title; DM and work-order threads are always direct. */
     @Contextual @SerialName(value = "visibility")
     val visibility: MessengerThreadVisibility? = null,
 

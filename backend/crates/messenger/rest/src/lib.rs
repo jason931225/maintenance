@@ -157,6 +157,12 @@ async fn create_thread(
     Json(body): Json<CreateThreadRequest>,
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
+    // Safer default: an API-created team thread is direct (fixed member set)
+    // unless the caller EXPLICITLY passes visibility=channel. Left to the
+    // domain default, a named `team` thread silently became a joinable
+    // channel, exposing full history to anyone who joins even though the
+    // caller supplied a curated `member_ids` list expecting a fixed set.
+    let visibility = body.visibility.or(Some(ThreadVisibility::Direct));
     let summary = state
         .store
         .create_thread(CreateThreadCommand {
@@ -164,7 +170,7 @@ async fn create_thread(
             branch_scope: principal.branch_scope,
             branch_id: body.branch_id,
             kind: body.kind,
-            visibility: body.visibility,
+            visibility,
             title: body.title,
             work_order_id: body.work_order_id,
             member_ids: body.member_ids,

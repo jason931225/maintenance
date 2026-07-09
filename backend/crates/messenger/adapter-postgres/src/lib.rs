@@ -664,10 +664,17 @@ impl PgMessengerStore {
                 .await?
                 .rows_affected();
                 let acked = if deleted == 0 {
+                    // ON CONFLICT DO NOTHING: a concurrent toggle (double-tap,
+                    // two tabs) can race this same DELETE-then-INSERT and win
+                    // the INSERT first. Either way a row now exists for
+                    // (message_id, user_id), so the caller is acked — without
+                    // this, the loser's INSERT hits the primary key and the
+                    // request 500s instead of landing idempotently.
                     sqlx::query(
                         r#"
                         INSERT INTO messenger_message_acks (message_id, user_id, org_id, acked_at)
                         VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (message_id, user_id) DO NOTHING
                         "#,
                     )
                     .bind(*message_id.as_uuid())

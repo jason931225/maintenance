@@ -218,6 +218,93 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
     .await;
 }
 
+// Safer default (review polish, PR #261 item 3): an API-created `team` thread
+// with a title used to silently default to a joinable `channel`, exposing
+// full history to anyone who joined even though the caller supplied a
+// curated `member_ids` list. Omitting `visibility` must now yield `direct`;
+// the caller must explicitly pass `visibility: "channel"` to opt in.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_thread_named_team_thread_defaults_to_direct_via_rest(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_key_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+        let branch_id = seed_branch(&pool, "Visibility Region", "Visibility Branch").await;
+        let sender = UserId::new();
+        let recipient = UserId::new();
+        seed_user_with_branch(&pool, sender, "MECHANIC", branch_id).await;
+        seed_user_with_branch(&pool, recipient, "ADMIN", branch_id).await;
+        let token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            sender,
+            vec!["MECHANIC".to_owned()],
+            vec![branch_id],
+        )
+        .unwrap();
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            public_key_pem.as_bytes(),
+        )
+        .unwrap();
+        let service = router(MessengerRestState::new(
+            PgMessengerStore::new(runtime_role_pool(&pool).await),
+            Some(verifier),
+        ));
+
+        // No `visibility` in the request body -> direct, not channel.
+        let no_visibility = post_json(
+            service.clone(),
+            "/api/messenger/threads",
+            &token,
+            json!({
+                "branch_id": branch_id,
+                "kind": "team",
+                "title": "정비팀",
+                "member_ids": [sender, recipient],
+            }),
+        )
+        .await;
+        assert_eq!(
+            no_visibility.status,
+            StatusCode::CREATED,
+            "{:?}",
+            no_visibility.json
+        );
+        assert_eq!(no_visibility.json["visibility"], "direct");
+
+        // Explicit `visibility: "channel"` still opts in.
+        let explicit_channel = post_json(
+            service,
+            "/api/messenger/threads",
+            &token,
+            json!({
+                "branch_id": branch_id,
+                "kind": "team",
+                "visibility": "channel",
+                "title": "공지 채널",
+                "member_ids": [sender, recipient],
+            }),
+        )
+        .await;
+        assert_eq!(
+            explicit_channel.status,
+            StatusCode::CREATED,
+            "{:?}",
+            explicit_channel.json
+        );
+        assert_eq!(explicit_channel.json["visibility"], "channel");
+    })
+    .await;
+}
+
 #[derive(Debug)]
 struct JsonResponse {
     status: StatusCode,
