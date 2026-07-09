@@ -2682,11 +2682,7 @@ async fn check_self_approval_tx(
 
     // Allowed exception: 대표 or SUPER_ADMIN self-approving.
     // Write a governance finding so this is audited and visible on the
-    // integrity dashboard. The finding is idempotent (ON CONFLICT DO UPDATE).
-    let finding_id = uuid::Uuid::new_v4();
-    let detector_id = "anomaly.self_approval";
-    let entity_type = "financial_purchase_request";
-    let entity_id = purchase_request_id.as_uuid().to_string();
+    // integrity dashboard, via the shared upsert owned by the integrity crate.
     let exemption_reason = if is_super_admin {
         "super_admin_exempt"
     } else {
@@ -2699,33 +2695,20 @@ async fn check_self_approval_tx(
         "approver": actor_uuid.to_string(),
         "exemption_reason": exemption_reason,
     });
-    let now = OffsetDateTime::now_utc();
-
-    sqlx::query(
-        r#"
-        INSERT INTO governance_findings
-            (id, org_id, detector_id, entity_type, entity_id,
-             subject_user_id, score, severity, evidence, status, detected_at, created_at, updated_at)
-        VALUES
-            ($1, $2, $3, $4, $5, $6, 1.0, 'HIGH', $7, 'OPEN', $8, $8, $8)
-        ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE
-            SET score = EXCLUDED.score,
-                severity = EXCLUDED.severity,
-                evidence = EXCLUDED.evidence,
-                status = 'OPEN',
-                detected_at = EXCLUDED.detected_at,
-                updated_at = EXCLUDED.updated_at
-        "#,
+    let entity_id = purchase_request_id.as_uuid().to_string();
+    mnt_platform_db::upsert_open_finding_tx(
+        tx,
+        OrgId::from_uuid(org_uuid),
+        mnt_platform_db::OpenFinding {
+            detector_id: "anomaly.self_approval",
+            entity_type: "financial_purchase_request",
+            entity_id: &entity_id,
+            subject_user_id: Some(actor_uuid),
+            score: 1.0,
+            severity: "HIGH",
+            evidence,
+        },
     )
-    .bind(finding_id)
-    .bind(org_uuid)
-    .bind(detector_id)
-    .bind(entity_type)
-    .bind(entity_id)
-    .bind(actor_uuid)
-    .bind(sqlx::types::Json(&evidence))
-    .bind(now)
-    .execute(tx.as_mut())
     .await?;
 
     Ok(())

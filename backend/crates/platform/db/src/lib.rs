@@ -26,6 +26,7 @@
 
 pub mod audit_tx;
 pub mod error;
+pub mod governance_finding;
 pub mod lifecycle;
 pub mod period_lock;
 pub mod versioning;
@@ -35,5 +36,6 @@ pub use audit_tx::{
     with_audits, with_org_conn,
 };
 pub use error::DbError;
+pub use governance_finding::{OpenFinding, upsert_open_finding_tx};
 pub use period_lock::{PeriodLockDomain, assert_period_open, assert_period_open_range};
 pub use versioning::{ObjectVersionRecord, ObjectVersions};

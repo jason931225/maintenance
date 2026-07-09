@@ -19,8 +19,8 @@ use mnt_workflow_runtime::{
     start_run, workflow_coexistence_entry,
 };
 use mnt_workflow_runtime_adapter_postgres::{
-    ClaimWaitingTaskCommand, DecideWaitingTaskCommand, PgWorkflowRuntimeStore, RunListFilter,
-    RunListItem, TaskDecision, WaitingTaskListFilter, WaitingTaskListItem,
+    AdminRunListFilter, ClaimWaitingTaskCommand, DecideWaitingTaskCommand, PgWorkflowRuntimeStore,
+    RunListFilter, RunListItem, TaskDecision, WaitingTaskListFilter, WaitingTaskListItem,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -61,6 +61,7 @@ pub const WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE: &str =
     "/api/v1/workflow-runs/{run_id}/post-finalization-rejection";
 pub const WORKFLOW_RUNS_PATH: &str = "/api/v1/workflow-runs";
 pub const WORKFLOW_RUNS_MINE_PATH: &str = "/api/v1/workflow-runs/mine";
+pub const WORKFLOW_RUN_PATH_TEMPLATE: &str = "/api/v1/workflow-runs/{run_id}";
 pub const WORKFLOW_TASKS_PATH: &str = "/api/v1/workflow-tasks";
 pub const WORKFLOW_TASK_CLAIM_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/claim";
 pub const WORKFLOW_TASK_DECIDE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/decide";
@@ -322,8 +323,12 @@ pub fn router(state: WorkflowStudioState) -> Router {
             WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE,
             post(create_post_finalization_rejection),
         )
-        .route(WORKFLOW_RUNS_PATH, post(start_workflow_run))
+        .route(
+            WORKFLOW_RUNS_PATH,
+            post(start_workflow_run).get(list_workflow_runs_admin),
+        )
         .route(WORKFLOW_RUNS_MINE_PATH, get(list_my_workflow_runs))
+        .route(WORKFLOW_RUN_PATH_TEMPLATE, get(get_workflow_run))
         .route(WORKFLOW_TASKS_PATH, get(list_workflow_tasks))
         .route(WORKFLOW_TASK_CLAIM_PATH_TEMPLATE, post(claim_workflow_task))
         .route(
@@ -1693,6 +1698,271 @@ async fn list_my_workflow_runs(
     Ok(Json(RunListResponse {
         items: items.into_iter().map(RunListItemResponse::from).collect(),
     }))
+}
+
+#[derive(Debug, Deserialize)]
+struct AdminRunListQuery {
+    #[serde(default)]
+    status: Option<String>,
+    /// Keyset cursor: the last `run_id` of the previous page.
+    #[serde(default)]
+    before: Option<Uuid>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminRunListResponse {
+    items: Vec<RunListItemResponse>,
+    /// Cursor to pass as `?before=` for the next page; absent on the last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<Uuid>,
+}
+
+/// `GET /api/v1/workflow-runs?status=...&before=...&limit=...` — org-wide admin
+/// run list (workflow-manage). Filterable by status (incl. `FAILED`/`DEAD_LETTERED`
+/// for dead-letter visibility) and keyset-paginated over `(updated_at, id)`.
+async fn list_workflow_runs_admin(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    axum::extract::Query(query): axum::extract::Query<AdminRunListQuery>,
+) -> Result<Json<AdminRunListResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let statuses = parse_run_statuses(query.status.as_deref())?;
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let org = principal.org_id;
+    let store = PgWorkflowRuntimeStore::new(state.pool.clone());
+    let items = store
+        .list_runs_admin(
+            org,
+            AdminRunListFilter {
+                statuses,
+                before: query.before,
+                limit,
+            },
+        )
+        .await?;
+    // A full page implies more rows may follow: hand back the last row's id as the
+    // next cursor. A short page is the end of the list.
+    let next_cursor = (items.len() as i64 == limit)
+        .then(|| items.last().map(|item| item.run_id))
+        .flatten();
+    record_workflow_studio_request("run_admin_list", "success");
+    Ok(Json(AdminRunListResponse {
+        items: items.into_iter().map(RunListItemResponse::from).collect(),
+        next_cursor,
+    }))
+}
+
+#[derive(Debug, Serialize)]
+struct RunDetailRun {
+    id: Uuid,
+    status: String,
+    definition_id: Uuid,
+    definition_version: i32,
+    trigger_type: String,
+    object_type: Option<String>,
+    object_id: Option<Uuid>,
+    initiated_by: Option<Uuid>,
+    /// Failure reason for FAILED / DEAD_LETTERED runs (dead-letter visibility).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_payload: Option<Value>,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    completed_at: Option<OffsetDateTime>,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    failed_at: Option<OffsetDateTime>,
+}
+
+/// One executed node in a run's timeline (append-only `workflow_node_runs`),
+/// enriched with the deciding actor + outcome from its linked waiting task.
+#[derive(Debug, Serialize)]
+struct RunTimelineStep {
+    node_key: String,
+    /// The node kind (`object_gate` / `human_task` / `job` / ...).
+    node_type: String,
+    status: String,
+    attempt: i32,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    started_at: Option<OffsetDateTime>,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    finished_at: Option<OffsetDateTime>,
+    /// The user who decided this node (decision nodes only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    actor: Option<Uuid>,
+    /// The decision payload recorded on the node's waiting task, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outcome: Option<Value>,
+    /// The node's error payload for a FAILED node step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct RunDetailResponse {
+    run: RunDetailRun,
+    /// Current OPEN/CLAIMED waiting task(s).
+    waiting_tasks: Vec<TaskSummaryResponse>,
+    /// Node-step timeline, oldest first.
+    timeline: Vec<RunTimelineStep>,
+}
+
+/// `GET /api/v1/workflow-runs/{run_id}` — read-only run detail: head, current
+/// waiting task(s), and the node-step timeline. Visibility mirrors the approval
+/// inbox exactly (`resolve_approval_run`): the initiator, a claimer, or a holder
+/// of a routed authority role — plus workflow-manage admins org-wide. Everyone
+/// else gets 404 (deny-by-omission), never a leak of another branch's run.
+async fn get_workflow_run(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<RunDetailResponse>, WorkflowStudioError> {
+    let org = principal.org_id;
+    let is_admin = authorize_workflow_manage(&principal).is_ok();
+    let caller = *principal.user_id.as_uuid();
+    let held_role_keys = held_authority_role_keys(&principal, org, guard_branch(&principal));
+
+    let detail = with_org_conn::<_, Option<RunDetailResponse>, WorkflowStudioError>(
+        &state.pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let run = sqlx::query(
+                    "SELECT r.id, r.status, r.definition_id, r.definition_version, \
+                            r.trigger_type, r.object_type, r.object_id, r.initiated_by, \
+                            r.error_payload, r.started_at, r.updated_at, \
+                            r.completed_at, r.failed_at \
+                     FROM workflow_runs r \
+                     WHERE r.id = $1 \
+                       AND ($2 \
+                            OR r.initiated_by = $3 \
+                            OR EXISTS ( \
+                                SELECT 1 FROM workflow_waiting_tasks t \
+                                WHERE t.run_id = r.id AND t.org_id = r.org_id \
+                                  AND t.status IN ('OPEN', 'CLAIMED') \
+                                  AND (t.claimed_by = $3 OR t.assignee_role_key = ANY($4))))",
+                )
+                .bind(run_id)
+                .bind(is_admin)
+                .bind(caller)
+                .bind(&held_role_keys)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let Some(run) = run else {
+                    return Ok(None);
+                };
+                let run = RunDetailRun {
+                    id: run.try_get("id")?,
+                    status: run.try_get("status")?,
+                    definition_id: run.try_get("definition_id")?,
+                    definition_version: run.try_get("definition_version")?,
+                    trigger_type: run.try_get("trigger_type")?,
+                    object_type: run.try_get("object_type")?,
+                    object_id: run.try_get("object_id")?,
+                    initiated_by: run.try_get("initiated_by")?,
+                    error_payload: run.try_get("error_payload")?,
+                    started_at: run.try_get("started_at")?,
+                    updated_at: run.try_get("updated_at")?,
+                    completed_at: run.try_get("completed_at")?,
+                    failed_at: run.try_get("failed_at")?,
+                };
+
+                let task_rows = sqlx::query(
+                    "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
+                            t.assignee_role_key, t.required_policy, t.status, t.claimed_by, \
+                            t.due_at, t.form_payload, r.object_type, r.object_id \
+                     FROM workflow_waiting_tasks t \
+                     JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                     WHERE t.run_id = $1 AND t.status IN ('OPEN', 'CLAIMED') \
+                     ORDER BY t.created_at ASC",
+                )
+                .bind(run_id)
+                .fetch_all(tx.as_mut())
+                .await?;
+                let waiting_tasks = task_rows
+                    .iter()
+                    .map(|task| {
+                        Ok(TaskSummaryResponse {
+                            task_id: task.try_get("task_id")?,
+                            run_id: task.try_get("run_id")?,
+                            waiting_key: task.try_get("waiting_key")?,
+                            title: task.try_get("title")?,
+                            assignee_role_key: task.try_get("assignee_role_key")?,
+                            required_policy: task.try_get("required_policy")?,
+                            object_type: task.try_get("object_type")?,
+                            object_id: task.try_get("object_id")?,
+                            status: task.try_get("status")?,
+                            claimed_by: task.try_get("claimed_by")?,
+                            due_at: task.try_get("due_at")?,
+                            form_payload: task.try_get("form_payload")?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, sqlx::Error>>()?;
+
+                let step_rows = sqlx::query(
+                    "SELECT nr.node_key, nr.node_type, nr.status, nr.attempt, \
+                            nr.started_at, nr.finished_at, nr.error_payload, \
+                            t.completed_by, t.decision_payload \
+                     FROM workflow_node_runs nr \
+                     LEFT JOIN workflow_waiting_tasks t \
+                            ON t.node_run_id = nr.id AND t.org_id = nr.org_id \
+                     WHERE nr.run_id = $1 \
+                     ORDER BY COALESCE(nr.started_at, nr.updated_at) ASC, nr.node_key ASC, nr.attempt ASC",
+                )
+                .bind(run_id)
+                .fetch_all(tx.as_mut())
+                .await?;
+                let timeline = step_rows
+                    .iter()
+                    .map(|step| {
+                        Ok(RunTimelineStep {
+                            node_key: step.try_get("node_key")?,
+                            node_type: step.try_get("node_type")?,
+                            status: step.try_get("status")?,
+                            attempt: step.try_get("attempt")?,
+                            started_at: step.try_get("started_at")?,
+                            finished_at: step.try_get("finished_at")?,
+                            actor: step.try_get("completed_by")?,
+                            outcome: step.try_get("decision_payload")?,
+                            error: step.try_get("error_payload")?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, sqlx::Error>>()?;
+
+                Ok(Some(RunDetailResponse {
+                    run,
+                    waiting_tasks,
+                    timeline,
+                }))
+            })
+        },
+    )
+    .await?;
+
+    match detail {
+        Some(detail) => {
+            record_workflow_studio_request("run_detail", "success");
+            Ok(Json(detail))
+        }
+        None => Err(WorkflowStudioError::from(KernelError::not_found(
+            "workflow run not found",
+        ))),
+    }
 }
 
 async fn claim_workflow_task(
