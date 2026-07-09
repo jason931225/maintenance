@@ -35,7 +35,7 @@ const PLATFORM_ROUTES = [
 async function assertPlatformConsoleNotShown(page: Page): Promise<void> {
   await expect(page).not.toHaveURL(/\/platform/, { timeout: 8_000 });
   await expect(page).toHaveURL(/\/overview/, { timeout: 8_000 });
-  // Visible-outcome: the tenant work hub heading is shown, the platform tenants
+  // Visible-outcome: the tenant overview heading is shown, the platform tenants
   // table heading is not.
   await expect(
     page.getByRole("heading", { name: /통합 개요/, level: 1 }).first(),

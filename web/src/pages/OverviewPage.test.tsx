@@ -6,6 +6,10 @@ import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuthSession } from "../context/auth";
+import {
+  CONSOLE_TOAST_EVENT,
+  type ConsoleToastDetail,
+} from "../components/shell/useConsoleToast";
 import { AuthTestProvider } from "../test/AuthTestProvider";
 import { kpiReport } from "../test/fixtures";
 import { OverviewPage } from "./OverviewPage";
@@ -350,23 +354,39 @@ describe("OverviewPage", () => {
 
   it("resolves an in-progress ticket and undo reopens it", async () => {
     const user = userEvent.setup();
+    let undo: (() => void) | undefined;
+    function captureUndo(event: Event) {
+      const detail = (event as CustomEvent<ConsoleToastDetail>).detail;
+      undo = detail.onUndo;
+    }
+    window.addEventListener(CONSOLE_TOAST_EVENT, captureUndo);
     renderPage();
     await screen.findByText("지게차 배터리 교체 요청");
 
-    await user.click(
-      screen.getByRole("button", { name: "지게차 배터리 교체 요청 해결" }),
-    );
-    await waitFor(() => {
-      expect(transitionRequests).toHaveLength(1);
-    });
-    expect(transitionRequests[0]).toEqual({
-      id: TICKET_ID,
-      body: { to_status: "RESOLVED" },
-    });
+    try {
+      await user.click(
+        screen.getByRole("button", { name: "지게차 배터리 교체 요청 해결" }),
+      );
+      await waitFor(() => {
+        expect(transitionRequests).toHaveLength(1);
+      });
+      expect(transitionRequests[0]).toEqual({
+        id: TICKET_ID,
+        body: { to_status: "RESOLVED" },
+      });
+      expect(undo).toEqual(expect.any(Function));
 
-    // The success toast is rendered by ConsoleShell (outside this harness),
-    // but the undo transition is exercised through the emitted event detail.
-    // Covered here by dispatching undo directly: reopen = IN_PROGRESS.
+      undo?.();
+      await waitFor(() => {
+        expect(transitionRequests).toHaveLength(2);
+      });
+      expect(transitionRequests[1]).toEqual({
+        id: TICKET_ID,
+        body: { to_status: "IN_PROGRESS" },
+      });
+    } finally {
+      window.removeEventListener(CONSOLE_TOAST_EVENT, captureUndo);
+    }
   });
 
   it("keyboard: J moves selection and Enter runs the primary action", async () => {

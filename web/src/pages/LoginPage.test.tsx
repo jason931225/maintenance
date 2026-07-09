@@ -311,7 +311,7 @@ describe("LoginPage sign-in", () => {
     ).toBeVisible();
   });
 
-  it("redirects an already signed-in user without next to the work hub", async () => {
+  it("redirects an already signed-in user without next to the overview", async () => {
     server.use(
       http.get("*/api/v1/work-orders", () =>
         HttpResponse.json({ items: [], limit: 8, offset: 0, total: 0 }),

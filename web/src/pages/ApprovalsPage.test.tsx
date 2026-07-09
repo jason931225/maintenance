@@ -378,7 +378,7 @@ describe("ApprovalsPage", () => {
     expect(screen.queryByText("20260612-002")).not.toBeInTheDocument();
   });
 
-  it("focuses the work-order approval linked from the work hub", async () => {
+  it("focuses the work-order approval linked from the overview", async () => {
     installHappyHandlers();
 
     const focusedWorkOrder = federatedApprovalPayload().items.find(

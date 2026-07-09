@@ -51,54 +51,60 @@ test("ADMIN-21 admin drives the overview action inbox end to end", async ({
     page.getByRole("group", { name: "항목 종류 필터" }),
   ).toBeVisible();
 
-  // (1) The seeded OPEN ticket is an inbox row whose primary action runs the
-  // real support FSM transition. 접수 = OPEN → IN_PROGRESS…
-  await expect(page.getByText(ticketTitle)).toBeVisible({ timeout: 15_000 });
-  const transitionResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes("/transition") &&
-      response.request().method() === "POST" &&
-      response.status() === 200,
-  );
-  await page.getByRole("button", { name: `${ticketTitle} 접수` }).click();
-  await transitionResponse;
-  await expect(page.getByText("티켓을 접수했습니다.")).toBeVisible();
-  // …and after the refetch the SAME row's primary action is the next legal
-  // transition (IN_PROGRESS → RESOLVED), proving the mutation stuck.
-  await expect(
-    page.getByRole("button", { name: `${ticketTitle} 해결` }),
-  ).toBeVisible({ timeout: 15_000 });
+  await test.step("ticket primary action runs the real support FSM", async () => {
+    // (1) The seeded OPEN ticket is an inbox row whose primary action runs the
+    // real support FSM transition. 접수 = OPEN → IN_PROGRESS…
+    await expect(page.getByText(ticketTitle)).toBeVisible({ timeout: 15_000 });
+    const transitionResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/transition") &&
+        response.request().method() === "POST" &&
+        response.status() === 200,
+    );
+    await page.getByRole("button", { name: `${ticketTitle} 접수` }).click();
+    await transitionResponse;
+    await expect(page.getByText("티켓을 접수했습니다.")).toBeVisible();
+    // …and after the refetch the SAME row's primary action is the next legal
+    // transition (IN_PROGRESS → RESOLVED), proving the mutation stuck.
+    await expect(
+      page.getByRole("button", { name: `${ticketTitle} 해결` }),
+    ).toBeVisible({ timeout: 15_000 });
+  });
 
-  // (2) Todos CRUD against the real todos domain.
-  const todoText = `E2E 할 일 ${Date.now()}`;
-  const createResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes("/api/v1/me/todos") &&
-      response.request().method() === "POST" &&
-      response.status() === 201,
-  );
-  await page.getByRole("textbox", { name: "할 일 추가" }).fill(todoText);
-  await page.getByRole("button", { name: "추가" }).click();
-  await createResponse;
-  await expect(page.getByText(todoText)).toBeVisible();
+  await test.step("todos CRUD uses the real todos domain", async () => {
+    // (2) Todos CRUD against the real todos domain.
+    const todoText = `E2E 할 일 ${Date.now()}`;
+    const createResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/v1/me/todos") &&
+        response.request().method() === "POST" &&
+        response.status() === 201,
+    );
+    await page.getByRole("textbox", { name: "할 일 추가" }).fill(todoText);
+    await page.getByRole("button", { name: "추가" }).click();
+    await createResponse;
+    await expect(page.getByText(todoText)).toBeVisible();
 
-  // Complete it — explicit done state; the undo toast appears; the open list
-  // no longer shows it.
-  await page
-    .getByRole("checkbox", { name: `${todoText} 완료로 표시` })
-    .click();
-  await expect(page.getByText("할 일을 완료했습니다.")).toBeVisible();
-  await expect(page.getByText(todoText)).not.toBeVisible({ timeout: 15_000 });
+    // Complete it — explicit done state; the undo toast appears; the open list
+    // no longer shows it.
+    await page
+      .getByRole("checkbox", { name: `${todoText} 완료로 표시` })
+      .click();
+    await expect(page.getByText("할 일을 완료했습니다.")).toBeVisible();
+    await expect(page.getByText(todoText)).not.toBeVisible({ timeout: 15_000 });
 
-  // Show done items, then delete it for a clean slate.
-  await page.getByRole("checkbox", { name: "완료 항목 표시" }).check();
-  await expect(page.getByText(todoText)).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: `${todoText} 삭제` }).click();
-  await expect(page.getByText("할 일을 삭제했습니다.")).toBeVisible();
-  await expect(page.getByText(todoText)).not.toBeVisible({ timeout: 15_000 });
+    // Show done items, then delete it for a clean slate.
+    await page.getByRole("checkbox", { name: "완료 항목 표시" }).check();
+    await expect(page.getByText(todoText)).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: `${todoText} 삭제` }).click();
+    await expect(page.getByText("할 일을 삭제했습니다.")).toBeVisible();
+    await expect(page.getByText(todoText)).not.toBeVisible({ timeout: 15_000 });
+  });
 
-  // (3) No route-error fallback anywhere on the surface.
-  await expect(page.getByText("이 화면을 표시하지 못했습니다.")).not.toBeVisible();
+  await test.step("route-error fallback stays absent", async () => {
+    // (3) No route-error fallback anywhere on the surface.
+    await expect(page.getByText("이 화면을 표시하지 못했습니다.")).not.toBeVisible();
+  });
 
   await auditPage(page, { context: "/overview-action-inbox", consoleGuard });
 });

@@ -114,7 +114,7 @@ function skippedSource(key: OverviewSource): Promise<CapturedSource> {
 }
 
 /** Inclusive-start / exclusive-end current-month period for the KPI strip. */
-export function currentMonthPeriod(now: Date): string {
+function currentMonthPeriod(now: Date): string {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const day = (d: Date) => d.toISOString().slice(0, 10);
@@ -127,9 +127,9 @@ function bpsToPercent(bps: number | null | undefined): string {
 }
 
 function kpiStatItems(report: KpiReport): StatBarItem[] {
+  if (report.rollups.length === 0) return [];
   const rollup =
     report.rollups.find((r) => r.scope.kind === "company") ?? report.rollups[0];
-  if (!rollup) return [];
   return [
     {
       label: ko.overview.kpi.completed,
@@ -158,6 +158,7 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
   const { api, session } = useAuth();
   const navigate = useNavigate();
   const mountedRef = useRef(false);
+  const loadDataRequestRef = useRef(0);
   const [data, setData] = useState<OverviewData>(emptyData);
   const [failures, setFailures] = useState<OverviewSource[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
@@ -179,6 +180,10 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
 
   const loadData = useCallback(async () => {
     if (!mountedRef.current) return;
+    const requestId = loadDataRequestRef.current + 1;
+    loadDataRequestRef.current = requestId;
+    const isCurrentRequest = () =>
+      mountedRef.current && loadDataRequestRef.current === requestId;
     setReadState("loading");
 
     const results = await Promise.all([
@@ -211,7 +216,7 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
           params: { query: { period: currentMonthPeriod(new Date()) } },
         })
         .catch(() => undefined);
-      if (mountedRef.current) setKpi(kpiResponse?.data);
+      if (isCurrentRequest()) setKpi(kpiResponse?.data);
     }
 
     const requested = results.filter((result) => !result.skipped);
@@ -246,7 +251,7 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
         )?.items ?? [],
     };
 
-    if (!mountedRef.current) return;
+    if (!isCurrentRequest()) return;
     setData(nextData);
     setFailures(nextFailures);
     setReadState(
@@ -373,10 +378,10 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
       if (!mountedRef.current) return;
       if (message) {
         emitConsoleToast({ message, onUndo });
-        await loadData();
       } else {
         emitConsoleToast({ message: ko.overview.toasts.actionFailed });
       }
+      await loadData();
     },
     [api, busyItemId, loadData, navigate, transitionTicket],
   );
@@ -384,8 +389,7 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
   const listNav = useListNav({
     count: visibleItems.length,
     onOpen: (index) => {
-      const item = visibleItems[index];
-      if (item) void runAction(item);
+      void runAction(visibleItems[index]);
     },
   });
 
@@ -454,9 +458,6 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
                 >
                   {ko.overview.sections.inbox}
                 </h2>
-                <p className="text-sm text-console-steel">
-                  {ko.overview.sections.inboxHint}
-                </p>
               </div>
               <div
                 className="flex flex-wrap gap-1.5"

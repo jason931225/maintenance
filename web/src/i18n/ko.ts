@@ -2485,7 +2485,6 @@ export const ko = {
     refreshHint: "새로 고침",
     sections: {
       inbox: "액션 인박스",
-      inboxHint: "J/K 키로 이동하고 Enter로 기본 동작을 실행합니다.",
     },
     partialFailure: "일부 원천을 불러오지 못했습니다: {sources}",
     emptyInbox: "현재 처리할 항목이 없습니다.",

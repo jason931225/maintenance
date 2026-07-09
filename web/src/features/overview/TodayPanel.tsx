@@ -28,6 +28,7 @@ function isPunchState(value: string): value is PunchState {
 export function TodayPanel({ active = true }: { active?: boolean }) {
   const { api } = useAuth();
   const mountedRef = useRef(false);
+  const loadTodosRequestRef = useRef(0);
   const [todos, setTodos] = useState<TodoSummary[]>([]);
   const [todosState, setTodosState] = useState<ReadState>("loading");
   const [showDone, setShowDone] = useState(false);
@@ -44,13 +45,17 @@ export function TodayPanel({ active = true }: { active?: boolean }) {
 
   const loadTodos = useCallback(
     async (includeDone: boolean) => {
+      const requestId = loadTodosRequestRef.current + 1;
+      loadTodosRequestRef.current = requestId;
+      const isCurrentRequest = () =>
+        mountedRef.current && loadTodosRequestRef.current === requestId;
       setTodosState("loading");
       const response = await api
         .GET("/api/v1/me/todos", {
           params: { query: { include_done: includeDone, limit: 100 } },
         })
         .catch(() => undefined);
-      if (!mountedRef.current) return;
+      if (!isCurrentRequest()) return;
       if (!response?.data) {
         setTodosState("error");
         return;
@@ -74,8 +79,8 @@ export function TodayPanel({ active = true }: { active?: boolean }) {
       setPunch(undefined);
       return;
     }
-    const latest = response.data.items[0]?.state_after;
-    setPunch(latest === undefined ? "OFF_DUTY" : isPunchState(latest) ? latest : undefined);
+    const latest = response.data.items[0]?.state_after ?? "OFF_DUTY";
+    setPunch(isPunchState(latest) ? latest : undefined);
   }, [api]);
 
   useEffect(() => {
@@ -103,16 +108,25 @@ export function TodayPanel({ active = true }: { active?: boolean }) {
     await loadTodos(showDone);
   }, [api, busy, loadTodos, showDone, text]);
 
-  const setDone = useCallback(
-    async (todo: TodoSummary, done: boolean, withUndoToast: boolean) => {
+  const writeTodoDone = useCallback(
+    async (todo: TodoSummary, done: boolean) => {
       const response = await api
         .POST("/api/v1/me/todos/{todoId}/done", {
           params: { path: { todoId: todo.id } },
           body: { done },
         })
         .catch(() => undefined);
+      if (!mountedRef.current) return undefined;
+      return Boolean(response?.data);
+    },
+    [api],
+  );
+
+  const setDone = useCallback(
+    async (todo: TodoSummary, done: boolean, withUndoToast: boolean) => {
+      const ok = await writeTodoDone(todo, done);
       if (!mountedRef.current) return;
-      if (!response?.data) {
+      if (!ok) {
         emitConsoleToast({ message: t.mutateFailed });
         return;
       }
@@ -120,19 +134,21 @@ export function TodayPanel({ active = true }: { active?: boolean }) {
         emitConsoleToast({
           message: t.doneToast,
           onUndo: () => {
-            void setDoneRef.current?.(todo, false, false);
+            void writeTodoDone(todo, false).then((undoOk) => {
+              if (!mountedRef.current) return;
+              if (!undoOk) {
+                emitConsoleToast({ message: t.mutateFailed });
+                return;
+              }
+              void loadTodos(showDone);
+            });
           },
         });
       }
       await loadTodos(showDone);
     },
-    [api, loadTodos, showDone],
+    [loadTodos, showDone, writeTodoDone],
   );
-  // Stable self-reference so the undo closure survives re-renders.
-  const setDoneRef = useRef<typeof setDone>(setDone);
-  useEffect(() => {
-    setDoneRef.current = setDone;
-  }, [setDone]);
 
   const deleteTodo = useCallback(
     async (todo: TodoSummary) => {
@@ -144,6 +160,7 @@ export function TodayPanel({ active = true }: { active?: boolean }) {
       if (!mountedRef.current) return;
       if (!response || response.response.status >= 400) {
         emitConsoleToast({ message: t.mutateFailed });
+        await loadTodos(showDone);
         return;
       }
       emitConsoleToast({ message: t.deletedToast });

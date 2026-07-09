@@ -224,10 +224,10 @@ describe("nav role gating", () => {
     ).toBe(true);
   });
 
-  it("does not leak logistics or equipment-sales nav to a mail-only custom grant", () => {
+  it("lands feature-only custom grants on overview without leaking logistics nav", () => {
     expect(
       visibleItems([ROLES.MEMBER], undefined, [FEATURES.MAIL_USE]),
-    ).toEqual(["mail", "profile"]);
+    ).toEqual(["overview", "mail", "profile"]);
     expect(
       isNavItemVisible("dispatch", [ROLES.MEMBER], undefined, [
         FEATURES.MAIL_USE,
@@ -238,6 +238,14 @@ describe("nav role gating", () => {
         FEATURES.MAIL_USE,
       ]),
     ).toBe(false);
+    for (const grant of [
+      FEATURES.DAILY_PLAN_REQUEST,
+      FEATURES.KPI_READ,
+      FEATURES.EMPLOYEE_DIRECTORY_READ,
+      FEATURES.INTEGRITY_FINDINGS_READ,
+    ]) {
+      expect(isNavItemVisible("overview", [ROLES.MEMBER], undefined, [grant])).toBe(true);
+    }
   });
 
   it("maps operational persona custom grants to intended non-admin nav surfaces", () => {
@@ -553,7 +561,7 @@ describe("nav role gating", () => {
       visibleNavItemsForRoles(["MEMBER"], undefined, [FEATURES.MAIL_USE]).find(
         (item) => item.key !== "profile",
       )?.href,
-    ).toBe("/mail");
+    ).toBe("/overview");
     expect(
       visibleNavItemsForRoles(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], []).find(
         (item) => item.key !== "profile",
