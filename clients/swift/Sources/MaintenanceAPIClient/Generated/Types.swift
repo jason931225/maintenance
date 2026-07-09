@@ -1384,9 +1384,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/simulate`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/simulate/post(simulateWorkflowDefinition)`.
     func simulateWorkflowDefinition(_ input: Operations.SimulateWorkflowDefinition.Input) async throws -> Operations.SimulateWorkflowDefinition.Output
-    /// Publish a workflow definition version
+    /// Publish a workflow definition version (direct for new, staged for active)
     ///
-    /// Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+    /// Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response's pending_version signals a staged (not-yet-applied) revision.
     ///
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/publish`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/publish/post(publishWorkflowDefinition)`.
@@ -1406,6 +1406,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/clone`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/clone/post(cloneWorkflowDefinition)`.
     func cloneWorkflowDefinition(_ input: Operations.CloneWorkflowDefinition.Input) async throws -> Operations.CloneWorkflowDefinition.Output
+    /// Automation rules acting on an object kind (dynamics↔ontology)
+    ///
+    /// The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/definitions/by-object-kind/{kind}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/by-object-kind/{kind}/get(listWorkflowDefinitionsByObjectKind)`.
+    func listWorkflowDefinitionsByObjectKind(_ input: Operations.ListWorkflowDefinitionsByObjectKind.Input) async throws -> Operations.ListWorkflowDefinitionsByObjectKind.Output
+    /// Approve a staged pending revision (four-eyes application)
+    ///
+    /// Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)`.
+    func approveWorkflowDefinitionRevision(_ input: Operations.ApproveWorkflowDefinitionRevision.Input) async throws -> Operations.ApproveWorkflowDefinitionRevision.Output
+    /// Withdraw (discard) a staged pending revision
+    ///
+    /// Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)`.
+    func withdrawWorkflowDefinitionRevision(_ input: Operations.WithdrawWorkflowDefinitionRevision.Input) async throws -> Operations.WithdrawWorkflowDefinitionRevision.Output
     /// List workflow trigger bindings (domain event → workflow start rules)
     ///
     /// - Remark: HTTP `GET /api/v1/workflow-studio/trigger-bindings`.
@@ -4716,9 +4737,9 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// Publish a workflow definition version
+    /// Publish a workflow definition version (direct for new, staged for active)
     ///
-    /// Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+    /// Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response's pending_version signals a staged (not-yet-applied) revision.
     ///
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/publish`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/publish/post(publishWorkflowDefinition)`.
@@ -4776,6 +4797,53 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// Automation rules acting on an object kind (dynamics↔ontology)
+    ///
+    /// The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/definitions/by-object-kind/{kind}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/by-object-kind/{kind}/get(listWorkflowDefinitionsByObjectKind)`.
+    public func listWorkflowDefinitionsByObjectKind(
+        path: Operations.ListWorkflowDefinitionsByObjectKind.Input.Path,
+        headers: Operations.ListWorkflowDefinitionsByObjectKind.Input.Headers = .init()
+    ) async throws -> Operations.ListWorkflowDefinitionsByObjectKind.Output {
+        try await listWorkflowDefinitionsByObjectKind(Operations.ListWorkflowDefinitionsByObjectKind.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Approve a staged pending revision (four-eyes application)
+    ///
+    /// Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)`.
+    public func approveWorkflowDefinitionRevision(
+        path: Operations.ApproveWorkflowDefinitionRevision.Input.Path,
+        headers: Operations.ApproveWorkflowDefinitionRevision.Input.Headers = .init(),
+        body: Operations.ApproveWorkflowDefinitionRevision.Input.Body
+    ) async throws -> Operations.ApproveWorkflowDefinitionRevision.Output {
+        try await approveWorkflowDefinitionRevision(Operations.ApproveWorkflowDefinitionRevision.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Withdraw (discard) a staged pending revision
+    ///
+    /// Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)`.
+    public func withdrawWorkflowDefinitionRevision(
+        path: Operations.WithdrawWorkflowDefinitionRevision.Input.Path,
+        headers: Operations.WithdrawWorkflowDefinitionRevision.Input.Headers = .init()
+    ) async throws -> Operations.WithdrawWorkflowDefinitionRevision.Output {
+        try await withdrawWorkflowDefinitionRevision(Operations.WithdrawWorkflowDefinitionRevision.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// List workflow trigger bindings (domain event → workflow start rules)
@@ -8606,6 +8674,14 @@ public enum Components {
             public var requiredApprovalLine: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/WorkflowDefinitionResponse/required_payment_line`.
             public var requiredPaymentLine: Swift.Bool
+            /// Ontology object kinds this definition's nodes touch (dynamics↔ontology).
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowDefinitionResponse/object_kinds`.
+            public var objectKinds: [Swift.String]
+            /// A staged revision (version) awaiting four-eyes approval; null when none is pending.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowDefinitionResponse/pending_version`.
+            public var pendingVersion: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/WorkflowDefinitionResponse/created_at`.
             public var createdAt: Foundation.Date
             /// - Remark: Generated from `#/components/schemas/WorkflowDefinitionResponse/updated_at`.
@@ -8627,6 +8703,8 @@ public enum Components {
             ///   - actionAllowlist:
             ///   - requiredApprovalLine:
             ///   - requiredPaymentLine:
+            ///   - objectKinds: Ontology object kinds this definition's nodes touch (dynamics↔ontology).
+            ///   - pendingVersion: A staged revision (version) awaiting four-eyes approval; null when none is pending.
             ///   - createdAt:
             ///   - updatedAt:
             public init(
@@ -8644,6 +8722,8 @@ public enum Components {
                 actionAllowlist: [Components.Schemas.WorkflowActionAllowlistEntry],
                 requiredApprovalLine: Swift.Bool,
                 requiredPaymentLine: Swift.Bool,
+                objectKinds: [Swift.String],
+                pendingVersion: Swift.Int32? = nil,
                 createdAt: Foundation.Date,
                 updatedAt: Foundation.Date
             ) {
@@ -8661,6 +8741,8 @@ public enum Components {
                 self.actionAllowlist = actionAllowlist
                 self.requiredApprovalLine = requiredApprovalLine
                 self.requiredPaymentLine = requiredPaymentLine
+                self.objectKinds = objectKinds
+                self.pendingVersion = pendingVersion
                 self.createdAt = createdAt
                 self.updatedAt = updatedAt
             }
@@ -8679,6 +8761,8 @@ public enum Components {
                 case actionAllowlist = "action_allowlist"
                 case requiredApprovalLine = "required_approval_line"
                 case requiredPaymentLine = "required_payment_line"
+                case objectKinds = "object_kinds"
+                case pendingVersion = "pending_version"
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
             }
@@ -10265,6 +10349,10 @@ public enum Components {
             public var triggerType: Components.Schemas.TriggerBindingResponse.TriggerTypePayload
             /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/event_key`.
             public var eventKey: Swift.String
+            /// The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped.
+            ///
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/subject_kind`.
+            public var subjectKind: Swift.String?
             /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/enabled`.
             public var enabled: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/created_at`.
@@ -10278,6 +10366,7 @@ public enum Components {
             ///   - definitionId:
             ///   - triggerType:
             ///   - eventKey:
+            ///   - subjectKind: The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped.
             ///   - enabled:
             ///   - createdAt:
             ///   - updatedAt:
@@ -10286,6 +10375,7 @@ public enum Components {
                 definitionId: Components.Schemas.Uuid,
                 triggerType: Components.Schemas.TriggerBindingResponse.TriggerTypePayload,
                 eventKey: Swift.String,
+                subjectKind: Swift.String? = nil,
                 enabled: Swift.Bool,
                 createdAt: Foundation.Date,
                 updatedAt: Foundation.Date
@@ -10294,6 +10384,7 @@ public enum Components {
                 self.definitionId = definitionId
                 self.triggerType = triggerType
                 self.eventKey = eventKey
+                self.subjectKind = subjectKind
                 self.enabled = enabled
                 self.createdAt = createdAt
                 self.updatedAt = updatedAt
@@ -10303,6 +10394,7 @@ public enum Components {
                 case definitionId = "definition_id"
                 case triggerType = "trigger_type"
                 case eventKey = "event_key"
+                case subjectKind = "subject_kind"
                 case enabled
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
@@ -10348,6 +10440,10 @@ public enum Components {
             public var triggerType: Components.Schemas.CreateTriggerBindingRequest.TriggerTypePayload
             /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/event_key`.
             public var eventKey: Swift.String
+            /// Optional ontology object kind the rule acts on; must be a registered object_types.kind.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/subject_kind`.
+            public var subjectKind: Swift.String?
             /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/enabled`.
             public var enabled: Swift.Bool?
             /// Creates a new `CreateTriggerBindingRequest`.
@@ -10356,23 +10452,56 @@ public enum Components {
             ///   - definitionId:
             ///   - triggerType:
             ///   - eventKey:
+            ///   - subjectKind: Optional ontology object kind the rule acts on; must be a registered object_types.kind.
             ///   - enabled:
             public init(
                 definitionId: Components.Schemas.Uuid,
                 triggerType: Components.Schemas.CreateTriggerBindingRequest.TriggerTypePayload,
                 eventKey: Swift.String,
+                subjectKind: Swift.String? = nil,
                 enabled: Swift.Bool? = nil
             ) {
                 self.definitionId = definitionId
                 self.triggerType = triggerType
                 self.eventKey = eventKey
+                self.subjectKind = subjectKind
                 self.enabled = enabled
             }
             public enum CodingKeys: String, CodingKey {
                 case definitionId = "definition_id"
                 case triggerType = "trigger_type"
                 case eventKey = "event_key"
+                case subjectKind = "subject_kind"
                 case enabled
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DefinitionsByObjectKindResponse`.
+        public struct DefinitionsByObjectKindResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DefinitionsByObjectKindResponse/kind`.
+            public var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DefinitionsByObjectKindResponse/definitions`.
+            public var definitions: [Components.Schemas.WorkflowDefinitionResponse]
+            /// - Remark: Generated from `#/components/schemas/DefinitionsByObjectKindResponse/bindings`.
+            public var bindings: [Components.Schemas.TriggerBindingResponse]
+            /// Creates a new `DefinitionsByObjectKindResponse`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - definitions:
+            ///   - bindings:
+            public init(
+                kind: Swift.String,
+                definitions: [Components.Schemas.WorkflowDefinitionResponse],
+                bindings: [Components.Schemas.TriggerBindingResponse]
+            ) {
+                self.kind = kind
+                self.definitions = definitions
+                self.bindings = bindings
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case definitions
+                case bindings
             }
         }
         /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse`.
@@ -10765,6 +10894,30 @@ public enum Components {
             public var notificationRules: Components.Schemas.SimulateWorkflowDefinitionRequest.NotificationRulesPayload?
             /// - Remark: Generated from `#/components/schemas/SimulateWorkflowDefinitionRequest/action_allowlist`.
             public var actionAllowlist: [Components.Schemas.WorkflowActionAllowlistEntry]?
+            /// Sample run context to exercise condition/branch nodes against (defaults to {}).
+            ///
+            /// - Remark: Generated from `#/components/schemas/SimulateWorkflowDefinitionRequest/sample_context`.
+            public struct SampleContextPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `SampleContextPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// Sample run context to exercise condition/branch nodes against (defaults to {}).
+            ///
+            /// - Remark: Generated from `#/components/schemas/SimulateWorkflowDefinitionRequest/sample_context`.
+            public var sampleContext: Components.Schemas.SimulateWorkflowDefinitionRequest.SampleContextPayload?
             /// Creates a new `SimulateWorkflowDefinitionRequest`.
             ///
             /// - Parameters:
@@ -10773,18 +10926,21 @@ public enum Components {
             ///   - paymentLine:
             ///   - notificationRules:
             ///   - actionAllowlist:
+            ///   - sampleContext: Sample run context to exercise condition/branch nodes against (defaults to {}).
             public init(
                 definition: Components.Schemas.SimulateWorkflowDefinitionRequest.DefinitionPayload? = nil,
                 approvalLine: Components.Schemas.SimulateWorkflowDefinitionRequest.ApprovalLinePayload? = nil,
                 paymentLine: Components.Schemas.SimulateWorkflowDefinitionRequest.PaymentLinePayload? = nil,
                 notificationRules: Components.Schemas.SimulateWorkflowDefinitionRequest.NotificationRulesPayload? = nil,
-                actionAllowlist: [Components.Schemas.WorkflowActionAllowlistEntry]? = nil
+                actionAllowlist: [Components.Schemas.WorkflowActionAllowlistEntry]? = nil,
+                sampleContext: Components.Schemas.SimulateWorkflowDefinitionRequest.SampleContextPayload? = nil
             ) {
                 self.definition = definition
                 self.approvalLine = approvalLine
                 self.paymentLine = paymentLine
                 self.notificationRules = notificationRules
                 self.actionAllowlist = actionAllowlist
+                self.sampleContext = sampleContext
             }
             public enum CodingKeys: String, CodingKey {
                 case definition
@@ -10792,6 +10948,7 @@ public enum Components {
                 case paymentLine = "payment_line"
                 case notificationRules = "notification_rules"
                 case actionAllowlist = "action_allowlist"
+                case sampleContext = "sample_context"
             }
         }
         /// - Remark: Generated from `#/components/schemas/WorkflowSimulationResponse`.
@@ -10805,21 +10962,29 @@ public enum Components {
             public var decision: Components.Schemas.WorkflowSimulationResponse.DecisionPayload
             /// - Remark: Generated from `#/components/schemas/WorkflowSimulationResponse/findings`.
             public var findings: [Components.Schemas.WorkflowSimulationFinding]
+            /// For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowSimulationResponse/simulated_path`.
+            public var simulatedPath: [Swift.String]?
             /// Creates a new `WorkflowSimulationResponse`.
             ///
             /// - Parameters:
             ///   - decision:
             ///   - findings:
+            ///   - simulatedPath: For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions.
             public init(
                 decision: Components.Schemas.WorkflowSimulationResponse.DecisionPayload,
-                findings: [Components.Schemas.WorkflowSimulationFinding]
+                findings: [Components.Schemas.WorkflowSimulationFinding],
+                simulatedPath: [Swift.String]? = nil
             ) {
                 self.decision = decision
                 self.findings = findings
+                self.simulatedPath = simulatedPath
             }
             public enum CodingKeys: String, CodingKey {
                 case decision
                 case findings
+                case simulatedPath = "simulated_path"
             }
         }
         /// - Remark: Generated from `#/components/schemas/WorkflowSimulationFinding`.
@@ -71923,9 +72088,9 @@ public enum Operations {
             }
         }
     }
-    /// Publish a workflow definition version
+    /// Publish a workflow definition version (direct for new, staged for active)
     ///
-    /// Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+    /// Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response's pending_version signals a staged (not-yet-applied) revision.
     ///
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/publish`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/publish/post(publishWorkflowDefinition)`.
@@ -73009,6 +73174,750 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Automation rules acting on an object kind (dynamics↔ontology)
+    ///
+    /// The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/definitions/by-object-kind/{kind}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/by-object-kind/{kind}/get(listWorkflowDefinitionsByObjectKind)`.
+    public enum ListWorkflowDefinitionsByObjectKind {
+        public static let id: Swift.String = "listWorkflowDefinitionsByObjectKind"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/by-object-kind/{kind}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/by-object-kind/{kind}/GET/path/kind`.
+                public var kind: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - kind:
+                public init(kind: Swift.String) {
+                    self.kind = kind
+                }
+            }
+            public var path: Operations.ListWorkflowDefinitionsByObjectKind.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/by-object-kind/{kind}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowDefinitionsByObjectKind.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowDefinitionsByObjectKind.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListWorkflowDefinitionsByObjectKind.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ListWorkflowDefinitionsByObjectKind.Input.Path,
+                headers: Operations.ListWorkflowDefinitionsByObjectKind.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/by-object-kind/{kind}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/by-object-kind/{kind}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DefinitionsByObjectKindResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.DefinitionsByObjectKindResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListWorkflowDefinitionsByObjectKind.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListWorkflowDefinitionsByObjectKind.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Definitions and trigger bindings touching the object kind.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/by-object-kind/{kind}/get(listWorkflowDefinitionsByObjectKind)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListWorkflowDefinitionsByObjectKind.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListWorkflowDefinitionsByObjectKind.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/by-object-kind/{kind}/get(listWorkflowDefinitionsByObjectKind)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/by-object-kind/{kind}/get(listWorkflowDefinitionsByObjectKind)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/by-object-kind/{kind}/get(listWorkflowDefinitionsByObjectKind)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Approve a staged pending revision (four-eyes application)
+    ///
+    /// Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)`.
+    public enum ApproveWorkflowDefinitionRevision {
+        public static let id: Swift.String = "approveWorkflowDefinitionRevision"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// The pending revision (version number) being approved.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/path/rev`.
+                public var rev: Swift.Int32
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                ///   - rev: The pending revision (version number) being approved.
+                public init(
+                    id: Components.Schemas.Uuid,
+                    rev: Swift.Int32
+                ) {
+                    self.id = id
+                    self.rev = rev
+                }
+            }
+            public var path: Operations.ApproveWorkflowDefinitionRevision.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApproveWorkflowDefinitionRevision.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApproveWorkflowDefinitionRevision.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ApproveWorkflowDefinitionRevision.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.WorkflowStepUpRequest)
+            }
+            public var body: Operations.ApproveWorkflowDefinitionRevision.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.ApproveWorkflowDefinitionRevision.Input.Path,
+                headers: Operations.ApproveWorkflowDefinitionRevision.Input.Headers = .init(),
+                body: Operations.ApproveWorkflowDefinitionRevision.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowDefinitionResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowDefinitionResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ApproveWorkflowDefinitionRevision.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ApproveWorkflowDefinitionRevision.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Revision applied; the new version is active.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ApproveWorkflowDefinitionRevision.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ApproveWorkflowDefinitionRevision.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/responses/428/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/POST/responses/428/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ApproveWorkflowDefinitionRevision.Output.PreconditionRequired.Body
+                /// Creates a new `PreconditionRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ApproveWorkflowDefinitionRevision.Output.PreconditionRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Fresh passkey step-up is required.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)/responses/428`.
+            ///
+            /// HTTP response code: `428 preconditionRequired`.
+            case preconditionRequired(Operations.ApproveWorkflowDefinitionRevision.Output.PreconditionRequired)
+            /// The associated value of the enum case if `self` is `.preconditionRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionRequired`.
+            /// - SeeAlso: `.preconditionRequired`.
+            public var preconditionRequired: Operations.ApproveWorkflowDefinitionRevision.Output.PreconditionRequired {
+                get throws {
+                    switch self {
+                    case let .preconditionRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve/post(approveWorkflowDefinitionRevision)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Withdraw (discard) a staged pending revision
+    ///
+    /// Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)`.
+    public enum WithdrawWorkflowDefinitionRevision {
+        public static let id: Swift.String = "withdrawWorkflowDefinitionRevision"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// The pending revision (version number) being withdrawn.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/POST/path/rev`.
+                public var rev: Swift.Int32
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                ///   - rev: The pending revision (version number) being withdrawn.
+                public init(
+                    id: Components.Schemas.Uuid,
+                    rev: Swift.Int32
+                ) {
+                    self.id = id
+                    self.rev = rev
+                }
+            }
+            public var path: Operations.WithdrawWorkflowDefinitionRevision.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.WithdrawWorkflowDefinitionRevision.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.WithdrawWorkflowDefinitionRevision.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.WithdrawWorkflowDefinitionRevision.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.WithdrawWorkflowDefinitionRevision.Input.Path,
+                headers: Operations.WithdrawWorkflowDefinitionRevision.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowDefinitionResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowDefinitionResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.WithdrawWorkflowDefinitionRevision.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.WithdrawWorkflowDefinitionRevision.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Pending revision withdrawn.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.WithdrawWorkflowDefinitionRevision.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.WithdrawWorkflowDefinitionRevision.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw/post(withdrawWorkflowDefinitionRevision)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }

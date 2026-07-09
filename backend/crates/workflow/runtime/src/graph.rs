@@ -8,22 +8,18 @@
 //! reaches a terminal node — the exact synchronous-until-WAITING semantics the
 //! spike's instance surface requires.
 //!
-//! Linear approval lines (submit → review → approve → finalize → receipt) are the
-//! only shape the builder emits today, so the walk follows a single outgoing edge
-//! per node. Branching/parallel graphs are a later charter.
+//! Linear approval lines (submit → review → approve → finalize → receipt) follow a
+//! single outgoing edge per node. BE-AUTO slice 2 adds `condition` nodes: a
+//! condition passes through, then its predicate (evaluated against the run
+//! context threaded into [`drive_from`]) selects which `when`-labeled outgoing
+//! edge the walk follows. The untaken branch simply never executes — no node run
+//! rows are written for it (a dead branch leaves no trace, which the FSM's
+//! terminal-node = no-successor invariant already tolerates).
 //!
-//! ## Condition node kind — deferred to BE-AUTO slice 2 (deliberate)
-//! A `condition` node is only meaningful with ≥2 outgoing edges selected by a
-//! predicate — but this walker's invariants are single-outgoing-edge
-//! ([`ExecGraph::next_node_key`] returns THE successor) and terminal-node =
-//! no-successor (run → SUCCEEDED). Admitting a `condition` node_type without
-//! the branching walk would create a kind that parses but cannot branch — a
-//! facade, worse than absence. Branching additionally needs the run's
-//! input/context payload threaded through [`drive_from`] (predicates evaluate
-//! against it; today each node gets an empty input) and a SKIPPED-marking pass
-//! for the untaken branch so the FSM's node bookkeeping stays complete. That
-//! is the slice-2 unit of work; the trigger/schedule substrate (slice 1) does
-//! not depend on it.
+//! ponytail: the untaken branch is left unmarked rather than swept as SKIPPED.
+//! Upgrade path if audit completeness ever needs the untaken subtree recorded:
+//! compute reachable-from-untaken-minus-reachable-from-taken and emit SKIPPED
+//! node steps for that set.
 
 use mnt_kernel_core::{AuditEvent, KernelError, OrgId};
 use mnt_workflow_domain::{RunStatus, WorkflowRuntimePort};
@@ -33,12 +29,21 @@ use uuid::Uuid;
 use crate::engine::{AuditContext, ProcessNodeRequest, process_node};
 use crate::interpreter::{NodeKind, NodeSpec};
 
+/// A directed edge. `when` labels a condition node's branch (`"true"`/`"false"`);
+/// `None` for the single successor of an ordinary (non-branching) node.
+#[derive(Debug, Clone)]
+struct Edge {
+    from: String,
+    to: String,
+    when: Option<String>,
+}
+
 /// A parsed `wf.exec.v1` node graph: the typed node specs plus their directed
 /// edges. Built once per run drive from the published definition JSON.
 #[derive(Debug, Clone)]
 pub struct ExecGraph {
     nodes: Vec<NodeSpec>,
-    edges: Vec<(String, String)>,
+    edges: Vec<Edge>,
 }
 
 impl ExecGraph {
@@ -68,7 +73,15 @@ impl ExecGraph {
                     .filter_map(|edge| {
                         let from = edge.get("from").and_then(Value::as_str)?;
                         let to = edge.get("to").and_then(Value::as_str)?;
-                        Some((from.to_owned(), to.to_owned()))
+                        let when = edge
+                            .get("when")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned);
+                        Some(Edge {
+                            from: from.to_owned(),
+                            to: to.to_owned(),
+                            when,
+                        })
                     })
                     .collect()
             })
@@ -84,7 +97,7 @@ impl ExecGraph {
             .nodes
             .iter()
             .map(|node| node.node_key.as_str())
-            .filter(|key| !self.edges.iter().any(|(_, to)| to == key));
+            .filter(|key| !self.edges.iter().any(|edge| edge.to == *key));
         let first = entries
             .next()
             .ok_or_else(|| KernelError::validation("workflow graph has no entry node"))?;
@@ -102,13 +115,78 @@ impl ExecGraph {
         self.nodes.iter().find(|node| node.node_key == key)
     }
 
-    /// The single node following `from` along its outgoing edge, if any.
+    /// The single node following `from` along its outgoing edge, if any. Used for
+    /// ordinary (non-branching) nodes, whose one outgoing edge carries no `when`.
     #[must_use]
     pub fn next_node_key(&self, from: &str) -> Option<&str> {
         self.edges
             .iter()
-            .find(|(edge_from, _)| edge_from == from)
-            .map(|(_, to)| to.as_str())
+            .find(|edge| edge.from == from)
+            .map(|edge| edge.to.as_str())
+    }
+
+    /// The branch target following a condition node `from` for the evaluated
+    /// `outcome`: the outgoing edge whose `when` is `"true"`/`"false"` to match.
+    /// `None` when the graph declares no edge for that outcome (a mis-authored
+    /// condition — the caller fails closed).
+    #[must_use]
+    pub fn next_branch(&self, from: &str, outcome: bool) -> Option<&str> {
+        let want = if outcome { "true" } else { "false" };
+        self.edges
+            .iter()
+            .find(|edge| edge.from == from && edge.when.as_deref() == Some(want))
+            .map(|edge| edge.to.as_str())
+    }
+
+    /// The node key the walk advances to after `key`, given a run `context` used
+    /// to evaluate a condition node's predicate. Fails closed for a condition
+    /// node whose selected branch has no edge.
+    fn successor(&self, key: &str, context: &Value) -> Result<Option<String>, KernelError> {
+        match self.node_spec(key).map(|spec| &spec.kind) {
+            Some(NodeKind::Condition { predicate }) => {
+                let outcome = predicate.eval(context);
+                match self.next_branch(key, outcome) {
+                    Some(next) => Ok(Some(next.to_owned())),
+                    None => Err(KernelError::validation(format!(
+                        "condition node {key:?} has no {} branch edge",
+                        if outcome { "true" } else { "false" }
+                    ))),
+                }
+            }
+            _ => Ok(self.next_node_key(key).map(ToOwned::to_owned)),
+        }
+    }
+}
+
+/// Purely walk the graph from the entry node, following condition branches by
+/// evaluating their predicates against `context`, and return the ordered node
+/// keys that WOULD execute — stopping at the first human task (the run would
+/// park there) or a terminal node. No I/O: this is what the simulate endpoint
+/// uses to exercise branches without starting a run.
+pub fn simulate_path(graph: &ExecGraph, context: &Value) -> Result<Vec<String>, KernelError> {
+    let mut key = graph.entry_node_key()?.to_owned();
+    let mut path = Vec::new();
+    loop {
+        let spec = graph
+            .node_spec(&key)
+            .ok_or_else(|| KernelError::validation(format!("graph has no node {key:?}")))?;
+        path.push(key.clone());
+        if matches!(spec.kind, NodeKind::HumanTask { .. }) {
+            return Ok(path);
+        }
+        match graph.successor(&key, context)? {
+            Some(next) => {
+                // A cycle would loop forever; the graph is a DAG in practice, but
+                // guard so a mis-authored back-edge can't hang the simulator.
+                if path.iter().any(|seen| seen == &next) {
+                    return Err(KernelError::validation(
+                        "workflow graph has a cycle; simulate cannot resolve a linear path",
+                    ));
+                }
+                key = next;
+            }
+            None => return Ok(path),
+        }
     }
 }
 
@@ -158,6 +236,11 @@ fn parse_node(node: &Value) -> Result<NodeSpec, KernelError> {
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned),
         },
+        "condition" => NodeKind::Condition {
+            predicate: crate::predicate::Predicate::parse(node.get("predicate").ok_or_else(
+                || KernelError::validation("workflow condition node missing predicate"),
+            )?)?,
+        },
         other => {
             return Err(KernelError::validation(format!(
                 "unsupported workflow node_type {other:?}"
@@ -199,6 +282,7 @@ pub async fn drive_from<P: WorkflowRuntimePort + ?Sized>(
     graph: &ExecGraph,
     start_key: &str,
     first_node_guard_audits: Vec<AuditEvent>,
+    context: &Value,
     audit: &AuditContext,
 ) -> Result<DriveOutcome, KernelError> {
     let mut node_key = start_key.to_owned();
@@ -212,7 +296,10 @@ pub async fn drive_from<P: WorkflowRuntimePort + ?Sized>(
             })?
             .clone();
         let is_human = matches!(spec.kind, NodeKind::HumanTask { .. });
-        let next = graph.next_node_key(&node_key).map(ToOwned::to_owned);
+        // Condition nodes select their successor by predicate over the run
+        // context; ordinary nodes follow their single outgoing edge. A condition
+        // whose chosen branch has no edge fails closed here.
+        let next = graph.successor(&node_key, context)?;
 
         let run_target = if is_human {
             RunStatus::Waiting
@@ -316,5 +403,70 @@ mod tests {
         let completion =
             json!({"schema_version": "wf.exec.v1", "template": "work_order_completion"});
         assert!(ExecGraph::parse(&completion).is_err());
+    }
+
+    fn branching_graph() -> Value {
+        // gate → decide(condition on amount) → [true] escalate.exec / [false] auto.approve
+        json!({
+            "schema_version": "wf.exec.v1",
+            "nodes": [
+                {"node_key": "gate", "node_type": "object_gate"},
+                {"node_key": "decide", "node_type": "condition",
+                 "predicate": {"field": "amount", "op": "gt", "value": 1000}},
+                {"node_key": "escalate.exec", "node_type": "human_task",
+                 "assignee_role_key": "executive", "required_policy": "approval_decide"},
+                {"node_key": "auto.approve", "node_type": "object_mutation"}
+            ],
+            "edges": [
+                {"from": "gate", "to": "decide"},
+                {"from": "decide", "to": "escalate.exec", "when": "true"},
+                {"from": "decide", "to": "auto.approve", "when": "false"}
+            ]
+        })
+    }
+
+    #[test]
+    fn condition_node_parses_with_predicate() {
+        let graph = ExecGraph::parse(&branching_graph()).unwrap();
+        match &graph.node_spec("decide").unwrap().kind {
+            NodeKind::Condition { .. } => {}
+            other => panic!("expected condition, got {other:?}"),
+        }
+        assert_eq!(graph.next_branch("decide", true), Some("escalate.exec"));
+        assert_eq!(graph.next_branch("decide", false), Some("auto.approve"));
+    }
+
+    #[test]
+    fn simulate_takes_true_branch_and_dead_branch_is_absent() {
+        let graph = ExecGraph::parse(&branching_graph()).unwrap();
+        // amount > 1000 ⇒ true branch, parks at the human task.
+        let path = simulate_path(&graph, &json!({ "amount": 5000 })).unwrap();
+        assert_eq!(path, vec!["gate", "decide", "escalate.exec"]);
+        assert!(
+            !path.iter().any(|n| n == "auto.approve"),
+            "the dead (false) branch must never appear in the taken path"
+        );
+    }
+
+    #[test]
+    fn simulate_takes_false_branch_to_terminal() {
+        let graph = ExecGraph::parse(&branching_graph()).unwrap();
+        // amount <= 1000 (and missing ⇒ false) ⇒ false branch, runs to terminal.
+        let path = simulate_path(&graph, &json!({ "amount": 100 })).unwrap();
+        assert_eq!(path, vec!["gate", "decide", "auto.approve"]);
+        let empty = simulate_path(&graph, &json!({})).unwrap();
+        assert_eq!(empty, vec!["gate", "decide", "auto.approve"]);
+    }
+
+    #[test]
+    fn condition_missing_a_branch_edge_fails_closed_at_walk() {
+        let mut def = branching_graph();
+        // Drop the false branch edge.
+        def["edges"] = json!([
+            {"from": "gate", "to": "decide"},
+            {"from": "decide", "to": "escalate.exec", "when": "true"}
+        ]);
+        let graph = ExecGraph::parse(&def).unwrap();
+        assert!(simulate_path(&graph, &json!({ "amount": 1 })).is_err());
     }
 }

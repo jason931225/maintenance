@@ -4010,8 +4010,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish a workflow definition version
-         * @description Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+         * Publish a workflow definition version (direct for new, staged for active)
+         * @description Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response's pending_version signals a staged (not-yet-applied) revision.
          */
         post: operations["publishWorkflowDefinition"];
         delete?: never;
@@ -4065,6 +4065,66 @@ export interface paths {
         put?: never;
         /** Clone a workflow definition into a new draft */
         post: operations["cloneWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/by-object-kind/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Automation rules acting on an object kind (dynamics↔ontology)
+         * @description The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+         */
+        get: operations["listWorkflowDefinitionsByObjectKind"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a staged pending revision (four-eyes application)
+         * @description Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+         */
+        post: operations["approveWorkflowDefinitionRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw (discard) a staged pending revision
+         * @description Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+         */
+        post: operations["withdrawWorkflowDefinitionRevision"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5370,6 +5430,15 @@ export interface components {
             action_allowlist: components["schemas"]["WorkflowActionAllowlistEntry"][];
             required_approval_line: boolean;
             required_payment_line: boolean;
+            /** @description Ontology object kinds this definition's nodes touch (dynamics↔ontology). */
+            object_kinds: string[];
+            /**
+             * Format: int32
+             * @description A staged revision (version) awaiting four-eyes approval; null when none is pending.
+             */
+            pending_version: number | null;
+            /** @description Who staged the pending revision (the actor barred from self-approving it). */
+            pending_staged_by: components["schemas"]["Uuid"] | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -5647,6 +5716,8 @@ export interface components {
             /** @enum {string} */
             trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
             event_key: string;
+            /** @description The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped. */
+            subject_kind: string | null;
             enabled: boolean;
             /** Format: date-time */
             created_at: string;
@@ -5662,8 +5733,15 @@ export interface components {
             /** @enum {string} */
             trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
             event_key: string;
+            /** @description Optional ontology object kind the rule acts on; must be a registered object_types.kind. */
+            subject_kind?: string;
             /** @default true */
             enabled: boolean;
+        };
+        DefinitionsByObjectKindResponse: {
+            kind: string;
+            definitions: components["schemas"]["WorkflowDefinitionResponse"][];
+            bindings: components["schemas"]["TriggerBindingResponse"][];
         };
         WorkflowScheduleResponse: {
             id: components["schemas"]["Uuid"];
@@ -5741,11 +5819,17 @@ export interface components {
                 [key: string]: unknown;
             }[];
             action_allowlist?: components["schemas"]["WorkflowActionAllowlistEntry"][];
+            /** @description Sample run context to exercise condition/branch nodes against (defaults to {}). */
+            sample_context?: {
+                [key: string]: unknown;
+            };
         };
         WorkflowSimulationResponse: {
             /** @enum {string} */
             decision: "ready" | "blocked";
             findings: components["schemas"]["WorkflowSimulationFinding"][];
+            /** @description For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions. */
+            simulated_path?: string[];
         };
         WorkflowSimulationFinding: {
             /** @enum {string} */
@@ -15103,6 +15187,101 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listWorkflowDefinitionsByObjectKind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Definitions and trigger bindings touching the object kind. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefinitionsByObjectKindResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    approveWorkflowDefinitionRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                /** @description The pending revision (version number) being approved. */
+                rev: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Revision applied; the new version is active. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    withdrawWorkflowDefinitionRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                /** @description The pending revision (version number) being withdrawn. */
+                rev: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending revision withdrawn. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listWorkflowTriggerBindings: {

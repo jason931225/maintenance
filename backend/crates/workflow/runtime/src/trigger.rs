@@ -66,6 +66,10 @@ pub async fn start_bound_run<P: WorkflowRuntimePort + ?Sized>(
         version: request.definition_version,
     };
     let idempotency_key = request.idempotency_key.clone();
+    // The run context condition nodes evaluate against. A deterministic
+    // re-dispatch/re-poll carries the same context, so a resumed run branches
+    // identically.
+    let context = request.context_payload.clone();
 
     match start_run(port, request, audit).await {
         Ok(run_id) => {
@@ -77,6 +81,7 @@ pub async fn start_bound_run<P: WorkflowRuntimePort + ?Sized>(
                 &graph,
                 &entry,
                 Vec::new(),
+                &context,
                 audit,
             )
             .await?;
@@ -96,6 +101,7 @@ pub async fn start_bound_run<P: WorkflowRuntimePort + ?Sized>(
                 requested_definition,
                 &graph,
                 &entry,
+                &context,
                 audit,
             )
             .await
@@ -104,6 +110,7 @@ pub async fn start_bound_run<P: WorkflowRuntimePort + ?Sized>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn resume_conflicted_run<P: WorkflowRuntimePort + ?Sized>(
     port: &P,
     org: mnt_kernel_core::OrgId,
@@ -111,6 +118,7 @@ async fn resume_conflicted_run<P: WorkflowRuntimePort + ?Sized>(
     requested_definition: RequestedDefinition,
     graph: &ExecGraph,
     entry: &str,
+    context: &Value,
     audit: &AuditContext,
 ) -> Result<TriggeredStart, KernelError> {
     let Some(existing) = port
@@ -154,10 +162,10 @@ async fn resume_conflicted_run<P: WorkflowRuntimePort + ?Sized>(
                     Err(err)
                 };
             }
-            drive_existing_running(port, org, existing.id, graph, entry, audit).await
+            drive_existing_running(port, org, existing.id, graph, entry, context, audit).await
         }
         RunStatus::Running => {
-            drive_existing_running(port, org, existing.id, graph, entry, audit).await
+            drive_existing_running(port, org, existing.id, graph, entry, context, audit).await
         }
         RunStatus::Waiting => Ok(TriggeredStart::Started {
             run_id: existing.id,
@@ -170,12 +178,14 @@ async fn resume_conflicted_run<P: WorkflowRuntimePort + ?Sized>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn drive_existing_running<P: WorkflowRuntimePort + ?Sized>(
     port: &P,
     org: mnt_kernel_core::OrgId,
     run_id: uuid::Uuid,
     graph: &ExecGraph,
     entry: &str,
+    context: &Value,
     audit: &AuditContext,
 ) -> Result<TriggeredStart, KernelError> {
     let outcome = drive_from(
@@ -186,6 +196,7 @@ async fn drive_existing_running<P: WorkflowRuntimePort + ?Sized>(
         graph,
         entry,
         Vec::new(),
+        context,
         audit,
     )
     .await?;

@@ -135,6 +135,7 @@ src/main/kotlin/com/maintenance/api/client/model/DecideOwnershipTransferRequest.
 src/main/kotlin/com/maintenance/api/client/model/DecideWorkflowTaskRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideWorkflowTaskResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DecidedWorkflowTask.kt
+src/main/kotlin/com/maintenance/api/client/model/DefinitionsByObjectKindResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DepreciationMethod.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceLoginApproveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceLoginApproveSessionRequest.kt

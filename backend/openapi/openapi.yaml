@@ -6752,10 +6752,13 @@ paths:
   /api/v1/workflow-studio/definitions/{id}/publish:
     post:
       operationId: publishWorkflowDefinition
-      summary: Publish a workflow definition version
+      summary: Publish a workflow definition version (direct for new, staged for active)
       description: Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion,
         required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions,
-        workflow_definition_events, and audit log.
+        workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing
+        a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a
+        second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response's pending_version signals a
+        staged (not-yet-applied) revision.
       security:
       - bearerAuth: []
       parameters:
@@ -6908,6 +6911,120 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/definitions/by-object-kind/{kind}:
+    get:
+      operationId: listWorkflowDefinitionsByObjectKind
+      summary: Automation rules acting on an object kind (dynamics↔ontology)
+      description: The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or
+        whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Definitions and trigger bindings touching the object kind.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DefinitionsByObjectKindResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve:
+    post:
+      operationId: approveWorkflowDefinitionRevision
+      summary: Approve a staged pending revision (four-eyes application)
+      description: Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve
+        (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The
+        approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: rev
+        in: path
+        required: true
+        description: The pending revision (version number) being approved.
+        schema:
+          type: integer
+          format: int32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowStepUpRequest'
+      responses:
+        '200':
+          description: Revision applied; the new version is active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowDefinitionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          description: Fresh passkey step-up is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw:
+    post:
+      operationId: withdrawWorkflowDefinitionRevision
+      summary: Withdraw (discard) a staged pending revision
+      description: Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history.
+        Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: rev
+        in: path
+        required: true
+        description: The pending revision (version number) being withdrawn.
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: Pending revision withdrawn.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowDefinitionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/workflow-studio/trigger-bindings:
     get:
       operationId: listWorkflowTriggerBindings
@@ -10160,6 +10277,9 @@ components:
       - action_allowlist
       - required_approval_line
       - required_payment_line
+      - object_kinds
+      - pending_version
+      - pending_staged_by
       - created_at
       - updated_at
       properties:
@@ -10213,6 +10333,22 @@ components:
           type: boolean
         required_payment_line:
           type: boolean
+        object_kinds:
+          type: array
+          description: Ontology object kinds this definition's nodes touch (dynamics↔ontology).
+          items:
+            type: string
+        pending_version:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: A staged revision (version) awaiting four-eyes approval; null when none is pending.
+        pending_staged_by:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+          description: Who staged the pending revision (the actor barred from self-approving it).
         created_at:
           type: string
           format: date-time
@@ -10810,7 +10946,7 @@ components:
           $ref: '#/components/schemas/PasskeyStepUpAssertion'
     TriggerBindingResponse:
       type: object
-      required: [id, definition_id, trigger_type, event_key, enabled, created_at, updated_at]
+      required: [id, definition_id, trigger_type, event_key, subject_kind, enabled, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
@@ -10821,6 +10957,11 @@ components:
           enum: [OBJECT_EVENT, IMPORT_EVENT, MAIL_EVENT, MESSENGER_EVENT, CALENDAR_EVENT, POLL_EVENT]
         event_key:
           type: string
+        subject_kind:
+          type:
+          - string
+          - 'null'
+          description: The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped.
         enabled:
           type: boolean
         created_at:
@@ -10852,9 +10993,26 @@ components:
           enum: [OBJECT_EVENT, IMPORT_EVENT, MAIL_EVENT, MESSENGER_EVENT, CALENDAR_EVENT, POLL_EVENT]
         event_key:
           type: string
+        subject_kind:
+          type: string
+          description: Optional ontology object kind the rule acts on; must be a registered object_types.kind.
         enabled:
           type: boolean
           default: true
+    DefinitionsByObjectKindResponse:
+      type: object
+      required: [kind, definitions, bindings]
+      properties:
+        kind:
+          type: string
+        definitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowDefinitionResponse'
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/TriggerBindingResponse'
     WorkflowScheduleResponse:
       type: object
       required: [id, label, cron_expr, timezone, definition_id, enabled, created_at, updated_at]
@@ -11005,6 +11163,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WorkflowActionAllowlistEntry'
+        sample_context:
+          type: object
+          additionalProperties: true
+          description: Sample run context to exercise condition/branch nodes against (defaults to {}).
     WorkflowSimulationResponse:
       type: object
       required:
@@ -11020,6 +11182,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WorkflowSimulationFinding'
+        simulated_path:
+          type: array
+          description: For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context
+            (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions.
+          items:
+            type: string
     WorkflowSimulationFinding:
       type: object
       required:

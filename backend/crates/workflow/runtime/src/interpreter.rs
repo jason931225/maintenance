@@ -16,9 +16,10 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::idempotency::outbox_job_key;
+use crate::predicate::Predicate;
 
 /// The behavioral classification of a workflow node.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
     /// An object gate / event capture: passes through immediately (SUCCEEDED).
     ObjectGate,
@@ -37,6 +38,10 @@ pub enum NodeKind {
         job: String,
         emits_status: Option<String>,
     },
+    /// A branch/condition step: passes through immediately (SUCCEEDED, no side
+    /// effects), but its `predicate` selects which outgoing (`when`) edge the
+    /// [`crate::graph`] walk follows next. Evaluated against the run context.
+    Condition { predicate: Predicate },
 }
 
 /// Business meaning for approval human tasks that affect closeout semantics.
@@ -52,7 +57,7 @@ pub enum HumanTaskSemantic {
 
 /// A typed workflow node: its stable `node_key`, its DB `node_type` spelling, and
 /// its behavioral [`NodeKind`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NodeSpec {
     pub node_key: String,
     pub node_type: String,
@@ -122,6 +127,13 @@ pub fn interpret_node(
     match &spec.kind {
         NodeKind::ObjectGate | NodeKind::ObjectMutation => NodeOutcome::Succeeded {
             output: json!({ "node_key": spec.node_key.as_str() }),
+            emissions: Vec::new(),
+        },
+        // A condition node is a pass-through: it never mutates or parks. The
+        // branch decision (which outgoing edge to follow) is made by the graph
+        // walk from the predicate + run context, not here.
+        NodeKind::Condition { .. } => NodeOutcome::Succeeded {
+            output: json!({ "node_key": spec.node_key.as_str(), "kind": "condition" }),
             emissions: Vec::new(),
         },
         NodeKind::HumanTask {

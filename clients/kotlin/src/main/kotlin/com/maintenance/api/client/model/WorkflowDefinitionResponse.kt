@@ -46,6 +46,9 @@ import kotlinx.serialization.Contextual
  * @param actionAllowlist
  * @param requiredApprovalLine
  * @param requiredPaymentLine
+ * @param objectKinds Ontology object kinds this definition's nodes touch (dynamics↔ontology).
+ * @param pendingVersion A staged revision (version) awaiting four-eyes approval; null when none is pending.
+ * @param pendingStagedBy Who staged the pending revision (the actor barred from self-approving it).
  * @param createdAt
  * @param updatedAt
  */
@@ -94,6 +97,18 @@ data class WorkflowDefinitionResponse (
 
     @SerialName(value = "required_payment_line")
     val requiredPaymentLine: kotlin.Boolean,
+
+    /* Ontology object kinds this definition's nodes touch (dynamics↔ontology). */
+    @SerialName(value = "object_kinds")
+    val objectKinds: kotlin.collections.List<kotlin.String>,
+
+    /* A staged revision (version) awaiting four-eyes approval; null when none is pending. */
+    @SerialName(value = "pending_version")
+    val pendingVersion: kotlin.Int?,
+
+    /* Who staged the pending revision (the actor barred from self-approving it). */
+    @Contextual @SerialName(value = "pending_staged_by")
+    val pendingStagedBy: java.util.UUID?,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,
