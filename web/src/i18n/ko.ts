@@ -783,6 +783,12 @@ export const ko = {
       resultsLabel: "이동 가능한 명령",
       empty: "일치하는 명령이 없습니다.",
       current: "현재",
+      sections: {
+        screens: "화면",
+        work: "대기 업무",
+        people: "사람",
+      },
+      loading: "검색 중…",
     },
   },
   page: {
