@@ -74,6 +74,7 @@ import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateObjectLinkRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreateOwnershipTransferRequest
+import com.maintenance.api.client.model.CreatePeriodLockRequest
 import com.maintenance.api.client.model.CreatePolicyRoleRequest
 import com.maintenance.api.client.model.CreatePollRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
@@ -116,9 +117,11 @@ import com.maintenance.api.client.model.EquipmentByLocationPage
 import com.maintenance.api.client.model.EquipmentListItem
 import com.maintenance.api.client.model.EquipmentListPage
 import com.maintenance.api.client.model.EquipmentLookupResponse
+import com.maintenance.api.client.model.EquipmentRollbackResult
 import com.maintenance.api.client.model.EquipmentSortBy
 import com.maintenance.api.client.model.EquipmentStatus
 import com.maintenance.api.client.model.EquipmentTimelineGraph
+import com.maintenance.api.client.model.EquipmentVersionList
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
@@ -170,6 +173,7 @@ import com.maintenance.api.client.model.NotificationSummary
 import com.maintenance.api.client.model.ObjectActionCatalogResponse
 import com.maintenance.api.client.model.ObjectActionExecutionResponse
 import com.maintenance.api.client.model.ObjectHead
+import com.maintenance.api.client.model.ObjectLifecycle
 import com.maintenance.api.client.model.ObjectLinkResponse
 import com.maintenance.api.client.model.ObjectLinksListResponse
 import com.maintenance.api.client.model.OpsSummary
@@ -186,6 +190,8 @@ import com.maintenance.api.client.model.PasskeyRegisterFinishResponse
 import com.maintenance.api.client.model.PasskeyRegisterStartRequest
 import com.maintenance.api.client.model.PasskeyRegisterStartResponse
 import com.maintenance.api.client.model.PasskeySummary
+import com.maintenance.api.client.model.PeriodLock
+import com.maintenance.api.client.model.PeriodLockList
 import com.maintenance.api.client.model.PolicyAssignmentPreviewResponse
 import com.maintenance.api.client.model.PolicyAuditEventResponse
 import com.maintenance.api.client.model.PolicyFeatureResponse
@@ -232,6 +238,7 @@ import com.maintenance.api.client.model.ScheduleRunListResponse
 import com.maintenance.api.client.model.SendMailRequest
 import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
+import com.maintenance.api.client.model.SetLifecycleHoldRequest
 import com.maintenance.api.client.model.SignupRequest
 import com.maintenance.api.client.model.SignupResponse
 import com.maintenance.api.client.model.SimulateWorkflowDefinitionRequest
@@ -256,10 +263,12 @@ import com.maintenance.api.client.model.SyncBatchResponse
 import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
 import com.maintenance.api.client.model.TokenPairResponse
+import com.maintenance.api.client.model.TransitionLifecycleRequest
 import com.maintenance.api.client.model.TransitionTicketRequest
 import com.maintenance.api.client.model.TriageFindingRequest
 import com.maintenance.api.client.model.TriggerBindingListResponse
 import com.maintenance.api.client.model.TriggerBindingResponse
+import com.maintenance.api.client.model.UnlockPeriodLockRequest
 import com.maintenance.api.client.model.UnreadNotificationCountResponse
 import com.maintenance.api.client.model.UpdateBranchRequest
 import com.maintenance.api.client.model.UpdateEquipmentRequest
@@ -4443,6 +4452,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/period-locks
+     * Lock a payroll/accounting period (freeze window)
+     * Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409. Overlapping an existing active lock in the same domain is refused.
+     * @param createPeriodLockRequest
+     * @return PeriodLock
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createPeriodLock(createPeriodLockRequest: CreatePeriodLockRequest) : PeriodLock = withContext(Dispatchers.IO) {
+        val localVarResponse = createPeriodLockWithHttpInfo(createPeriodLockRequest = createPeriodLockRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PeriodLock
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/period-locks
+     * Lock a payroll/accounting period (freeze window)
+     * Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409. Overlapping an existing active lock in the same domain is refused.
+     * @param createPeriodLockRequest
+     * @return ApiResponse<PeriodLock?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createPeriodLockWithHttpInfo(createPeriodLockRequest: CreatePeriodLockRequest) : ApiResponse<PeriodLock?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createPeriodLockRequestConfig(createPeriodLockRequest = createPeriodLockRequest)
+
+        return@withContext request<CreatePeriodLockRequest, PeriodLock>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createPeriodLock
+     *
+     * @param createPeriodLockRequest
+     * @return RequestConfig
+     */
+    fun createPeriodLockRequestConfig(createPeriodLockRequest: CreatePeriodLockRequest) : RequestConfig<CreatePeriodLockRequest> {
+        val localVariableBody = createPeriodLockRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/period-locks",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/policy/roles
      * Create a tenant custom role definition
      * Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
@@ -8315,6 +8398,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/lifecycles/{objectType}/{objectId}
+     * Read one object&#39;s lifecycle state and transition log
+     * Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold / retention flags, and the append-only transition history (newest first).
+     * @param objectType
+     * @param objectId
+     * @return ObjectLifecycle
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getObjectLifecycle(objectType: kotlin.String, objectId: java.util.UUID) : ObjectLifecycle = withContext(Dispatchers.IO) {
+        val localVarResponse = getObjectLifecycleWithHttpInfo(objectType = objectType, objectId = objectId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectLifecycle
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/lifecycles/{objectType}/{objectId}
+     * Read one object&#39;s lifecycle state and transition log
+     * Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold / retention flags, and the append-only transition history (newest first).
+     * @param objectType
+     * @param objectId
+     * @return ApiResponse<ObjectLifecycle?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getObjectLifecycleWithHttpInfo(objectType: kotlin.String, objectId: java.util.UUID) : ApiResponse<ObjectLifecycle?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getObjectLifecycleRequestConfig(objectType = objectType, objectId = objectId)
+
+        return@withContext request<Unit, ObjectLifecycle>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getObjectLifecycle
+     *
+     * @param objectType
+     * @param objectId
+     * @return RequestConfig
+     */
+    fun getObjectLifecycleRequestConfig(objectType: kotlin.String, objectId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/lifecycles/{objectType}/{objectId}".replace("{"+"objectType"+"}", encodeURIComponent(objectType.toString())).replace("{"+"objectId"+"}", encodeURIComponent(objectId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/ops/summary
      * Per-tenant operational dashboard rollup
      * Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
@@ -10815,6 +10974,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/equipment/{id}/versions
+     * List the append-only version history of one equipment master row
+     * Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment detail read.
+     * @param id
+     * @return EquipmentVersionList
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEquipmentVersions(id: java.util.UUID) : EquipmentVersionList = withContext(Dispatchers.IO) {
+        val localVarResponse = listEquipmentVersionsWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentVersionList
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment/{id}/versions
+     * List the append-only version history of one equipment master row
+     * Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment detail read.
+     * @param id
+     * @return ApiResponse<EquipmentVersionList?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEquipmentVersionsWithHttpInfo(id: java.util.UUID) : ApiResponse<EquipmentVersionList?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEquipmentVersionsRequestConfig(id = id)
+
+        return@withContext request<Unit, EquipmentVersionList>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEquipmentVersions
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun listEquipmentVersionsRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment/{id}/versions".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/hr/attendance-summary
      * List branch-scoped attendance summaries
      * Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
@@ -12164,6 +12396,107 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/passkeys",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * enum for parameter domain
+     */
+     enum class DomainListPeriodLocks(val value: kotlin.String) {
+         @SerialName(value = "payroll") PAYROLL("payroll"),
+         @SerialName(value = "accounting") ACCOUNTING("accounting");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /api/v1/period-locks
+     * List payroll/accounting period locks
+     * Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are rows with no unlockedAt.
+     * @param domain  (optional)
+     * @param limit  (optional)
+     * @return PeriodLockList
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPeriodLocks(domain: DomainListPeriodLocks? = null, limit: kotlin.Long? = null) : PeriodLockList = withContext(Dispatchers.IO) {
+        val localVarResponse = listPeriodLocksWithHttpInfo(domain = domain, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PeriodLockList
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/period-locks
+     * List payroll/accounting period locks
+     * Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are rows with no unlockedAt.
+     * @param domain  (optional)
+     * @param limit  (optional)
+     * @return ApiResponse<PeriodLockList?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPeriodLocksWithHttpInfo(domain: DomainListPeriodLocks?, limit: kotlin.Long?) : ApiResponse<PeriodLockList?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPeriodLocksRequestConfig(domain = domain, limit = limit)
+
+        return@withContext request<Unit, PeriodLockList>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPeriodLocks
+     *
+     * @param domain  (optional)
+     * @param limit  (optional)
+     * @return RequestConfig
+     */
+    fun listPeriodLocksRequestConfig(domain: DomainListPeriodLocks?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (domain != null) {
+                    put("domain", listOf(domain.value))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/period-locks",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -16031,6 +16364,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/equipment/{id}/versions/{version}/rollback
+     * Roll one equipment master row back to a prior version
+     * Admin-gated (EquipmentManage), audited. Re-applies the target version&#39;s stored content through the normal update path and appends a NEW version (status ROLLBACK, sourceVersion &#x3D; target); version history is never mutated.
+     * @param id
+     * @param version
+     * @return EquipmentRollbackResult
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun rollbackEquipmentVersion(id: java.util.UUID, version: kotlin.Int) : EquipmentRollbackResult = withContext(Dispatchers.IO) {
+        val localVarResponse = rollbackEquipmentVersionWithHttpInfo(id = id, version = version)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentRollbackResult
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment/{id}/versions/{version}/rollback
+     * Roll one equipment master row back to a prior version
+     * Admin-gated (EquipmentManage), audited. Re-applies the target version&#39;s stored content through the normal update path and appends a NEW version (status ROLLBACK, sourceVersion &#x3D; target); version history is never mutated.
+     * @param id
+     * @param version
+     * @return ApiResponse<EquipmentRollbackResult?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun rollbackEquipmentVersionWithHttpInfo(id: java.util.UUID, version: kotlin.Int) : ApiResponse<EquipmentRollbackResult?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = rollbackEquipmentVersionRequestConfig(id = id, version = version)
+
+        return@withContext request<Unit, EquipmentRollbackResult>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation rollbackEquipmentVersion
+     *
+     * @param id
+     * @param version
+     * @return RequestConfig
+     */
+    fun rollbackEquipmentVersionRequestConfig(id: java.util.UUID, version: kotlin.Int) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment/{id}/versions/{version}/rollback".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"version"+"}", encodeURIComponent(version.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/workflow-studio/definitions/{id}/rollback
      * Roll back by appending a new active version copied from history
      *
@@ -16482,6 +16891,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/mail/threads/{id}/read-state".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/lifecycles/{objectType}/{objectId}/hold
+     * Set or clear legal hold / retention on one object&#39;s lifecycle
+     * Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when absent so a hold can be placed before the object ever transitions.
+     * @param objectType
+     * @param objectId
+     * @param setLifecycleHoldRequest
+     * @return ObjectLifecycle
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun setObjectLifecycleHold(objectType: kotlin.String, objectId: java.util.UUID, setLifecycleHoldRequest: SetLifecycleHoldRequest) : ObjectLifecycle = withContext(Dispatchers.IO) {
+        val localVarResponse = setObjectLifecycleHoldWithHttpInfo(objectType = objectType, objectId = objectId, setLifecycleHoldRequest = setLifecycleHoldRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectLifecycle
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/lifecycles/{objectType}/{objectId}/hold
+     * Set or clear legal hold / retention on one object&#39;s lifecycle
+     * Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when absent so a hold can be placed before the object ever transitions.
+     * @param objectType
+     * @param objectId
+     * @param setLifecycleHoldRequest
+     * @return ApiResponse<ObjectLifecycle?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun setObjectLifecycleHoldWithHttpInfo(objectType: kotlin.String, objectId: java.util.UUID, setLifecycleHoldRequest: SetLifecycleHoldRequest) : ApiResponse<ObjectLifecycle?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = setObjectLifecycleHoldRequestConfig(objectType = objectType, objectId = objectId, setLifecycleHoldRequest = setLifecycleHoldRequest)
+
+        return@withContext request<SetLifecycleHoldRequest, ObjectLifecycle>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation setObjectLifecycleHold
+     *
+     * @param objectType
+     * @param objectId
+     * @param setLifecycleHoldRequest
+     * @return RequestConfig
+     */
+    fun setObjectLifecycleHoldRequestConfig(objectType: kotlin.String, objectId: java.util.UUID, setLifecycleHoldRequest: SetLifecycleHoldRequest) : RequestConfig<SetLifecycleHoldRequest> {
+        val localVariableBody = setLifecycleHoldRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/lifecycles/{objectType}/{objectId}/hold".replace("{"+"objectType"+"}", encodeURIComponent(objectType.toString())).replace("{"+"objectId"+"}", encodeURIComponent(objectId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -17554,6 +18043,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/lifecycles/{objectType}/{objectId}/transition
+     * Transition one object&#39;s lifecycle state
+     * Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed); an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object implicitly registers its lifecycle at draft.
+     * @param objectType
+     * @param objectId
+     * @param transitionLifecycleRequest
+     * @return ObjectLifecycle
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun transitionObjectLifecycle(objectType: kotlin.String, objectId: java.util.UUID, transitionLifecycleRequest: TransitionLifecycleRequest) : ObjectLifecycle = withContext(Dispatchers.IO) {
+        val localVarResponse = transitionObjectLifecycleWithHttpInfo(objectType = objectType, objectId = objectId, transitionLifecycleRequest = transitionLifecycleRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectLifecycle
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/lifecycles/{objectType}/{objectId}/transition
+     * Transition one object&#39;s lifecycle state
+     * Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed); an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object implicitly registers its lifecycle at draft.
+     * @param objectType
+     * @param objectId
+     * @param transitionLifecycleRequest
+     * @return ApiResponse<ObjectLifecycle?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun transitionObjectLifecycleWithHttpInfo(objectType: kotlin.String, objectId: java.util.UUID, transitionLifecycleRequest: TransitionLifecycleRequest) : ApiResponse<ObjectLifecycle?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = transitionObjectLifecycleRequestConfig(objectType = objectType, objectId = objectId, transitionLifecycleRequest = transitionLifecycleRequest)
+
+        return@withContext request<TransitionLifecycleRequest, ObjectLifecycle>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation transitionObjectLifecycle
+     *
+     * @param objectType
+     * @param objectId
+     * @param transitionLifecycleRequest
+     * @return RequestConfig
+     */
+    fun transitionObjectLifecycleRequestConfig(objectType: kotlin.String, objectId: java.util.UUID, transitionLifecycleRequest: TransitionLifecycleRequest) : RequestConfig<TransitionLifecycleRequest> {
+        val localVariableBody = transitionLifecycleRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/lifecycles/{objectType}/{objectId}/transition".replace("{"+"objectType"+"}", encodeURIComponent(objectType.toString())).replace("{"+"objectId"+"}", encodeURIComponent(objectId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/support/tickets/{id}/transition
      * Drive the support ticket status FSM
      *
@@ -17700,6 +18269,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/integrity/findings/{id}/triage".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/period-locks/{lockId}/unlock
+     * Unlock a period lock (one-shot, reason required)
+     * Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking the same window appends a new lock row.
+     * @param lockId
+     * @param unlockPeriodLockRequest
+     * @return PeriodLock
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun unlockPeriodLock(lockId: java.util.UUID, unlockPeriodLockRequest: UnlockPeriodLockRequest) : PeriodLock = withContext(Dispatchers.IO) {
+        val localVarResponse = unlockPeriodLockWithHttpInfo(lockId = lockId, unlockPeriodLockRequest = unlockPeriodLockRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PeriodLock
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/period-locks/{lockId}/unlock
+     * Unlock a period lock (one-shot, reason required)
+     * Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking the same window appends a new lock row.
+     * @param lockId
+     * @param unlockPeriodLockRequest
+     * @return ApiResponse<PeriodLock?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun unlockPeriodLockWithHttpInfo(lockId: java.util.UUID, unlockPeriodLockRequest: UnlockPeriodLockRequest) : ApiResponse<PeriodLock?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = unlockPeriodLockRequestConfig(lockId = lockId, unlockPeriodLockRequest = unlockPeriodLockRequest)
+
+        return@withContext request<UnlockPeriodLockRequest, PeriodLock>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation unlockPeriodLock
+     *
+     * @param lockId
+     * @param unlockPeriodLockRequest
+     * @return RequestConfig
+     */
+    fun unlockPeriodLockRequestConfig(lockId: java.util.UUID, unlockPeriodLockRequest: UnlockPeriodLockRequest) : RequestConfig<UnlockPeriodLockRequest> {
+        val localVariableBody = unlockPeriodLockRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/period-locks/{lockId}/unlock".replace("{"+"lockId"+"}", encodeURIComponent(lockId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

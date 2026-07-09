@@ -1041,6 +1041,46 @@ export interface paths {
         patch: operations["updateEquipment"];
         trace?: never;
     };
+    "/api/v1/equipment/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the append-only version history of one equipment master row
+         * @description Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment detail read.
+         */
+        get: operations["listEquipmentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment/{id}/versions/{version}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Roll one equipment master row back to a prior version
+         * @description Admin-gated (EquipmentManage), audited. Re-applies the target version's stored content through the normal update path and appends a NEW version (status ROLLBACK, sourceVersion = target); version history is never mutated.
+         */
+        post: operations["rollbackEquipmentVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment/{id}/timeline-graph": {
         parameters: {
             query?: never;
@@ -4335,6 +4375,110 @@ export interface paths {
         get: operations["downloadPurchaseRequestAttachment"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/period-locks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List payroll/accounting period locks
+         * @description Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are rows with no unlockedAt.
+         */
+        get: operations["listPeriodLocks"];
+        put?: never;
+        /**
+         * Lock a payroll/accounting period (freeze window)
+         * @description Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409. Overlapping an existing active lock in the same domain is refused.
+         */
+        post: operations["createPeriodLock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/period-locks/{lockId}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unlock a period lock (one-shot, reason required)
+         * @description Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking the same window appends a new lock row.
+         */
+        post: operations["unlockPeriodLock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lifecycles/{objectType}/{objectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one object's lifecycle state and transition log
+         * @description Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold / retention flags, and the append-only transition history (newest first).
+         */
+        get: operations["getObjectLifecycle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lifecycles/{objectType}/{objectId}/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transition one object's lifecycle state
+         * @description Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed); an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object implicitly registers its lifecycle at draft.
+         */
+        post: operations["transitionObjectLifecycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lifecycles/{objectType}/{objectId}/hold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set or clear legal hold / retention on one object's lifecycle
+         * @description Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when absent so a hold can be placed before the object ever transitions.
+         */
+        post: operations["setObjectLifecycleHold"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7914,6 +8058,98 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        EquipmentVersion: {
+            /** Format: int32 */
+            version: number;
+            /** @enum {string} */
+            status: "CAPTURED" | "ROLLBACK";
+            /** Format: int32 */
+            sourceVersion?: number;
+            content: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            createdBy?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        EquipmentVersionList: {
+            items: components["schemas"]["EquipmentVersion"][];
+        };
+        EquipmentRollbackResult: {
+            /** Format: int32 */
+            version: number;
+        };
+        PeriodLock: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            domain: "payroll" | "accounting";
+            /** Format: date */
+            periodStart: string;
+            /** Format: date */
+            periodEnd: string;
+            reason: string;
+            /** Format: uuid */
+            lockedBy?: string;
+            /** Format: date-time */
+            lockedAt: string;
+            /** Format: uuid */
+            unlockedBy?: string;
+            /** Format: date-time */
+            unlockedAt?: string;
+            unlockReason?: string;
+        };
+        PeriodLockList: {
+            items: components["schemas"]["PeriodLock"][];
+        };
+        CreatePeriodLockRequest: {
+            /** @enum {string} */
+            domain: "payroll" | "accounting";
+            /** Format: date */
+            periodStart: string;
+            /** Format: date */
+            periodEnd: string;
+            reason: string;
+        };
+        UnlockPeriodLockRequest: {
+            reason: string;
+        };
+        ObjectLifecycleTransition: {
+            fromState: string;
+            toState: string;
+            /** Format: uuid */
+            actor?: string;
+            reason: string;
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        ObjectLifecycle: {
+            objectType: string;
+            /** Format: uuid */
+            objectId: string;
+            currentState: string;
+            legalHold: boolean;
+            /** Format: date */
+            retentionUntil?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            transitions: components["schemas"]["ObjectLifecycleTransition"][];
+        };
+        TransitionLifecycleRequest: {
+            toState: string;
+            reason: string;
+        };
+        SetLifecycleHoldRequest: {
+            legalHold: boolean;
+            /**
+             * Format: date
+             * @description ISO date; omit or null to clear the retention deadline.
+             */
+            retentionUntil?: string;
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -7999,6 +8235,8 @@ export interface components {
         };
     };
     parameters: {
+        LifecycleObjectType: string;
+        LifecycleObjectId: string;
         WorkOrderId: string;
         PlanId: string;
         RequestId: string;
@@ -9862,6 +10100,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listEquipmentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version history, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentVersionList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rollbackEquipmentVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rollback landed as a new version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentRollbackResult"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
@@ -14911,6 +15215,220 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listPeriodLocks: {
+        parameters: {
+            query?: {
+                domain?: "payroll" | "accounting";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Period locks, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeriodLockList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createPeriodLock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePeriodLockRequest"];
+            };
+        };
+        responses: {
+            /** @description Period locked. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeriodLock"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unlockPeriodLock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockPeriodLockRequest"];
+            };
+        };
+        responses: {
+            /** @description Period unlocked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeriodLock"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getObjectLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                objectType: components["parameters"]["LifecycleObjectType"];
+                objectId: components["parameters"]["LifecycleObjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lifecycle record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLifecycle"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    transitionObjectLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                objectType: components["parameters"]["LifecycleObjectType"];
+                objectId: components["parameters"]["LifecycleObjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionLifecycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Transition applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLifecycle"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setObjectLifecycleHold: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                objectType: components["parameters"]["LifecycleObjectType"];
+                objectId: components["parameters"]["LifecycleObjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLifecycleHoldRequest"];
+            };
+        };
+        responses: {
+            /** @description Hold updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLifecycle"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
 }

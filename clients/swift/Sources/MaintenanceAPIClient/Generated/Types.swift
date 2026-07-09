@@ -397,6 +397,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/v1/equipment/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)`.
     func deleteEquipment(_ input: Operations.DeleteEquipment.Input) async throws -> Operations.DeleteEquipment.Output
+    /// List the append-only version history of one equipment master row
+    ///
+    /// Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment detail read.
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}/versions`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)`.
+    func listEquipmentVersions(_ input: Operations.ListEquipmentVersions.Input) async throws -> Operations.ListEquipmentVersions.Output
+    /// Roll one equipment master row back to a prior version
+    ///
+    /// Admin-gated (EquipmentManage), audited. Re-applies the target version's stored content through the normal update path and appends a NEW version (status ROLLBACK, sourceVersion = target); version history is never mutated.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment/{id}/versions/{version}/rollback`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)`.
+    func rollbackEquipmentVersion(_ input: Operations.RollbackEquipmentVersion.Input) async throws -> Operations.RollbackEquipmentVersion.Output
     /// Read one equipment lifecycle ribbon and relationship graph
     ///
     /// Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order graph visible within the caller's branch scope. A foreign or missing equipment id returns 404 without revealing existence.
@@ -1519,6 +1533,48 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download`.
     /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download/get(downloadPurchaseRequestAttachment)`.
     func downloadPurchaseRequestAttachment(_ input: Operations.DownloadPurchaseRequestAttachment.Input) async throws -> Operations.DownloadPurchaseRequestAttachment.Output
+    /// List payroll/accounting period locks
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are rows with no unlockedAt.
+    ///
+    /// - Remark: HTTP `GET /api/v1/period-locks`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)`.
+    func listPeriodLocks(_ input: Operations.ListPeriodLocks.Input) async throws -> Operations.ListPeriodLocks.Output
+    /// Lock a payroll/accounting period (freeze window)
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409. Overlapping an existing active lock in the same domain is refused.
+    ///
+    /// - Remark: HTTP `POST /api/v1/period-locks`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)`.
+    func createPeriodLock(_ input: Operations.CreatePeriodLock.Input) async throws -> Operations.CreatePeriodLock.Output
+    /// Unlock a period lock (one-shot, reason required)
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking the same window appends a new lock row.
+    ///
+    /// - Remark: HTTP `POST /api/v1/period-locks/{lockId}/unlock`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)`.
+    func unlockPeriodLock(_ input: Operations.UnlockPeriodLock.Input) async throws -> Operations.UnlockPeriodLock.Output
+    /// Read one object's lifecycle state and transition log
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold / retention flags, and the append-only transition history (newest first).
+    ///
+    /// - Remark: HTTP `GET /api/v1/lifecycles/{objectType}/{objectId}`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)`.
+    func getObjectLifecycle(_ input: Operations.GetObjectLifecycle.Input) async throws -> Operations.GetObjectLifecycle.Output
+    /// Transition one object's lifecycle state
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed); an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object implicitly registers its lifecycle at draft.
+    ///
+    /// - Remark: HTTP `POST /api/v1/lifecycles/{objectType}/{objectId}/transition`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)`.
+    func transitionObjectLifecycle(_ input: Operations.TransitionObjectLifecycle.Input) async throws -> Operations.TransitionObjectLifecycle.Output
+    /// Set or clear legal hold / retention on one object's lifecycle
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when absent so a hold can be placed before the object ever transitions.
+    ///
+    /// - Remark: HTTP `POST /api/v1/lifecycles/{objectType}/{objectId}/hold`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)`.
+    func setObjectLifecycleHold(_ input: Operations.SetObjectLifecycleHold.Input) async throws -> Operations.SetObjectLifecycleHold.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -2407,6 +2463,36 @@ extension APIProtocol {
         headers: Operations.DeleteEquipment.Input.Headers = .init()
     ) async throws -> Operations.DeleteEquipment.Output {
         try await deleteEquipment(Operations.DeleteEquipment.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// List the append-only version history of one equipment master row
+    ///
+    /// Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment detail read.
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}/versions`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)`.
+    public func listEquipmentVersions(
+        path: Operations.ListEquipmentVersions.Input.Path,
+        headers: Operations.ListEquipmentVersions.Input.Headers = .init()
+    ) async throws -> Operations.ListEquipmentVersions.Output {
+        try await listEquipmentVersions(Operations.ListEquipmentVersions.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Roll one equipment master row back to a prior version
+    ///
+    /// Admin-gated (EquipmentManage), audited. Re-applies the target version's stored content through the normal update path and appends a NEW version (status ROLLBACK, sourceVersion = target); version history is never mutated.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment/{id}/versions/{version}/rollback`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)`.
+    public func rollbackEquipmentVersion(
+        path: Operations.RollbackEquipmentVersion.Input.Path,
+        headers: Operations.RollbackEquipmentVersion.Input.Headers = .init()
+    ) async throws -> Operations.RollbackEquipmentVersion.Output {
+        try await rollbackEquipmentVersion(Operations.RollbackEquipmentVersion.Input(
             path: path,
             headers: headers
         ))
@@ -4919,6 +5005,102 @@ extension APIProtocol {
         try await downloadPurchaseRequestAttachment(Operations.DownloadPurchaseRequestAttachment.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// List payroll/accounting period locks
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are rows with no unlockedAt.
+    ///
+    /// - Remark: HTTP `GET /api/v1/period-locks`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)`.
+    public func listPeriodLocks(
+        query: Operations.ListPeriodLocks.Input.Query = .init(),
+        headers: Operations.ListPeriodLocks.Input.Headers = .init()
+    ) async throws -> Operations.ListPeriodLocks.Output {
+        try await listPeriodLocks(Operations.ListPeriodLocks.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Lock a payroll/accounting period (freeze window)
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409. Overlapping an existing active lock in the same domain is refused.
+    ///
+    /// - Remark: HTTP `POST /api/v1/period-locks`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)`.
+    public func createPeriodLock(
+        headers: Operations.CreatePeriodLock.Input.Headers = .init(),
+        body: Operations.CreatePeriodLock.Input.Body
+    ) async throws -> Operations.CreatePeriodLock.Output {
+        try await createPeriodLock(Operations.CreatePeriodLock.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Unlock a period lock (one-shot, reason required)
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking the same window appends a new lock row.
+    ///
+    /// - Remark: HTTP `POST /api/v1/period-locks/{lockId}/unlock`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)`.
+    public func unlockPeriodLock(
+        path: Operations.UnlockPeriodLock.Input.Path,
+        headers: Operations.UnlockPeriodLock.Input.Headers = .init(),
+        body: Operations.UnlockPeriodLock.Input.Body
+    ) async throws -> Operations.UnlockPeriodLock.Output {
+        try await unlockPeriodLock(Operations.UnlockPeriodLock.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Read one object's lifecycle state and transition log
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold / retention flags, and the append-only transition history (newest first).
+    ///
+    /// - Remark: HTTP `GET /api/v1/lifecycles/{objectType}/{objectId}`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)`.
+    public func getObjectLifecycle(
+        path: Operations.GetObjectLifecycle.Input.Path,
+        headers: Operations.GetObjectLifecycle.Input.Headers = .init()
+    ) async throws -> Operations.GetObjectLifecycle.Output {
+        try await getObjectLifecycle(Operations.GetObjectLifecycle.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Transition one object's lifecycle state
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed); an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object implicitly registers its lifecycle at draft.
+    ///
+    /// - Remark: HTTP `POST /api/v1/lifecycles/{objectType}/{objectId}/transition`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)`.
+    public func transitionObjectLifecycle(
+        path: Operations.TransitionObjectLifecycle.Input.Path,
+        headers: Operations.TransitionObjectLifecycle.Input.Headers = .init(),
+        body: Operations.TransitionObjectLifecycle.Input.Body
+    ) async throws -> Operations.TransitionObjectLifecycle.Output {
+        try await transitionObjectLifecycle(Operations.TransitionObjectLifecycle.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Set or clear legal hold / retention on one object's lifecycle
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when absent so a hold can be placed before the object ever transitions.
+    ///
+    /// - Remark: HTTP `POST /api/v1/lifecycles/{objectType}/{objectId}/hold`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)`.
+    public func setObjectLifecycleHold(
+        path: Operations.SetObjectLifecycleHold.Input.Path,
+        headers: Operations.SetObjectLifecycleHold.Input.Headers = .init(),
+        body: Operations.SetObjectLifecycleHold.Input.Body
+    ) async throws -> Operations.SetObjectLifecycleHold.Output {
+        try await setObjectLifecycleHold(Operations.SetObjectLifecycleHold.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
 }
@@ -22578,9 +22760,407 @@ public enum Components {
                 case preferences
             }
         }
+        /// - Remark: Generated from `#/components/schemas/EquipmentVersion`.
+        public struct EquipmentVersion: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/version`.
+            public var version: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case captured = "CAPTURED"
+                case rollback = "ROLLBACK"
+            }
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/status`.
+            public var status: Components.Schemas.EquipmentVersion.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/sourceVersion`.
+            public var sourceVersion: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/content`.
+            public struct ContentPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ContentPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/content`.
+            public var content: Components.Schemas.EquipmentVersion.ContentPayload
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/createdBy`.
+            public var createdBy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersion/createdAt`.
+            public var createdAt: Foundation.Date
+            /// Creates a new `EquipmentVersion`.
+            ///
+            /// - Parameters:
+            ///   - version:
+            ///   - status:
+            ///   - sourceVersion:
+            ///   - content:
+            ///   - createdBy:
+            ///   - createdAt:
+            public init(
+                version: Swift.Int32,
+                status: Components.Schemas.EquipmentVersion.StatusPayload,
+                sourceVersion: Swift.Int32? = nil,
+                content: Components.Schemas.EquipmentVersion.ContentPayload,
+                createdBy: Swift.String? = nil,
+                createdAt: Foundation.Date
+            ) {
+                self.version = version
+                self.status = status
+                self.sourceVersion = sourceVersion
+                self.content = content
+                self.createdBy = createdBy
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case version
+                case status
+                case sourceVersion
+                case content
+                case createdBy
+                case createdAt
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentVersionList`.
+        public struct EquipmentVersionList: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentVersionList/items`.
+            public var items: [Components.Schemas.EquipmentVersion]
+            /// Creates a new `EquipmentVersionList`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.EquipmentVersion]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentRollbackResult`.
+        public struct EquipmentRollbackResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentRollbackResult/version`.
+            public var version: Swift.Int32
+            /// Creates a new `EquipmentRollbackResult`.
+            ///
+            /// - Parameters:
+            ///   - version:
+            public init(version: Swift.Int32) {
+                self.version = version
+            }
+            public enum CodingKeys: String, CodingKey {
+                case version
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PeriodLock`.
+        public struct PeriodLock: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/domain`.
+            @frozen public enum DomainPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case payroll = "payroll"
+                case accounting = "accounting"
+            }
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/domain`.
+            public var domain: Components.Schemas.PeriodLock.DomainPayload
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/periodStart`.
+            public var periodStart: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/periodEnd`.
+            public var periodEnd: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/reason`.
+            public var reason: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/lockedBy`.
+            public var lockedBy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/lockedAt`.
+            public var lockedAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/unlockedBy`.
+            public var unlockedBy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/unlockedAt`.
+            public var unlockedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/PeriodLock/unlockReason`.
+            public var unlockReason: Swift.String?
+            /// Creates a new `PeriodLock`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - domain:
+            ///   - periodStart:
+            ///   - periodEnd:
+            ///   - reason:
+            ///   - lockedBy:
+            ///   - lockedAt:
+            ///   - unlockedBy:
+            ///   - unlockedAt:
+            ///   - unlockReason:
+            public init(
+                id: Swift.String,
+                domain: Components.Schemas.PeriodLock.DomainPayload,
+                periodStart: Swift.String,
+                periodEnd: Swift.String,
+                reason: Swift.String,
+                lockedBy: Swift.String? = nil,
+                lockedAt: Foundation.Date,
+                unlockedBy: Swift.String? = nil,
+                unlockedAt: Foundation.Date? = nil,
+                unlockReason: Swift.String? = nil
+            ) {
+                self.id = id
+                self.domain = domain
+                self.periodStart = periodStart
+                self.periodEnd = periodEnd
+                self.reason = reason
+                self.lockedBy = lockedBy
+                self.lockedAt = lockedAt
+                self.unlockedBy = unlockedBy
+                self.unlockedAt = unlockedAt
+                self.unlockReason = unlockReason
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case domain
+                case periodStart
+                case periodEnd
+                case reason
+                case lockedBy
+                case lockedAt
+                case unlockedBy
+                case unlockedAt
+                case unlockReason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PeriodLockList`.
+        public struct PeriodLockList: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PeriodLockList/items`.
+            public var items: [Components.Schemas.PeriodLock]
+            /// Creates a new `PeriodLockList`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.PeriodLock]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreatePeriodLockRequest`.
+        public struct CreatePeriodLockRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreatePeriodLockRequest/domain`.
+            @frozen public enum DomainPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case payroll = "payroll"
+                case accounting = "accounting"
+            }
+            /// - Remark: Generated from `#/components/schemas/CreatePeriodLockRequest/domain`.
+            public var domain: Components.Schemas.CreatePeriodLockRequest.DomainPayload
+            /// - Remark: Generated from `#/components/schemas/CreatePeriodLockRequest/periodStart`.
+            public var periodStart: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreatePeriodLockRequest/periodEnd`.
+            public var periodEnd: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreatePeriodLockRequest/reason`.
+            public var reason: Swift.String
+            /// Creates a new `CreatePeriodLockRequest`.
+            ///
+            /// - Parameters:
+            ///   - domain:
+            ///   - periodStart:
+            ///   - periodEnd:
+            ///   - reason:
+            public init(
+                domain: Components.Schemas.CreatePeriodLockRequest.DomainPayload,
+                periodStart: Swift.String,
+                periodEnd: Swift.String,
+                reason: Swift.String
+            ) {
+                self.domain = domain
+                self.periodStart = periodStart
+                self.periodEnd = periodEnd
+                self.reason = reason
+            }
+            public enum CodingKeys: String, CodingKey {
+                case domain
+                case periodStart
+                case periodEnd
+                case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UnlockPeriodLockRequest`.
+        public struct UnlockPeriodLockRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UnlockPeriodLockRequest/reason`.
+            public var reason: Swift.String
+            /// Creates a new `UnlockPeriodLockRequest`.
+            ///
+            /// - Parameters:
+            ///   - reason:
+            public init(reason: Swift.String) {
+                self.reason = reason
+            }
+            public enum CodingKeys: String, CodingKey {
+                case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectLifecycleTransition`.
+        public struct ObjectLifecycleTransition: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycleTransition/fromState`.
+            public var fromState: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycleTransition/toState`.
+            public var toState: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycleTransition/actor`.
+            public var actor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycleTransition/reason`.
+            public var reason: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycleTransition/occurredAt`.
+            public var occurredAt: Foundation.Date
+            /// Creates a new `ObjectLifecycleTransition`.
+            ///
+            /// - Parameters:
+            ///   - fromState:
+            ///   - toState:
+            ///   - actor:
+            ///   - reason:
+            ///   - occurredAt:
+            public init(
+                fromState: Swift.String,
+                toState: Swift.String,
+                actor: Swift.String? = nil,
+                reason: Swift.String,
+                occurredAt: Foundation.Date
+            ) {
+                self.fromState = fromState
+                self.toState = toState
+                self.actor = actor
+                self.reason = reason
+                self.occurredAt = occurredAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case fromState
+                case toState
+                case actor
+                case reason
+                case occurredAt
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectLifecycle`.
+        public struct ObjectLifecycle: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/objectType`.
+            public var objectType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/objectId`.
+            public var objectId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/currentState`.
+            public var currentState: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/legalHold`.
+            public var legalHold: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/retentionUntil`.
+            public var retentionUntil: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/createdAt`.
+            public var createdAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/updatedAt`.
+            public var updatedAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/ObjectLifecycle/transitions`.
+            public var transitions: [Components.Schemas.ObjectLifecycleTransition]
+            /// Creates a new `ObjectLifecycle`.
+            ///
+            /// - Parameters:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - currentState:
+            ///   - legalHold:
+            ///   - retentionUntil:
+            ///   - createdAt:
+            ///   - updatedAt:
+            ///   - transitions:
+            public init(
+                objectType: Swift.String,
+                objectId: Swift.String,
+                currentState: Swift.String,
+                legalHold: Swift.Bool,
+                retentionUntil: Swift.String? = nil,
+                createdAt: Foundation.Date,
+                updatedAt: Foundation.Date,
+                transitions: [Components.Schemas.ObjectLifecycleTransition]
+            ) {
+                self.objectType = objectType
+                self.objectId = objectId
+                self.currentState = currentState
+                self.legalHold = legalHold
+                self.retentionUntil = retentionUntil
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+                self.transitions = transitions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case objectType
+                case objectId
+                case currentState
+                case legalHold
+                case retentionUntil
+                case createdAt
+                case updatedAt
+                case transitions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TransitionLifecycleRequest`.
+        public struct TransitionLifecycleRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TransitionLifecycleRequest/toState`.
+            public var toState: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TransitionLifecycleRequest/reason`.
+            public var reason: Swift.String
+            /// Creates a new `TransitionLifecycleRequest`.
+            ///
+            /// - Parameters:
+            ///   - toState:
+            ///   - reason:
+            public init(
+                toState: Swift.String,
+                reason: Swift.String
+            ) {
+                self.toState = toState
+                self.reason = reason
+            }
+            public enum CodingKeys: String, CodingKey {
+                case toState
+                case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SetLifecycleHoldRequest`.
+        public struct SetLifecycleHoldRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SetLifecycleHoldRequest/legalHold`.
+            public var legalHold: Swift.Bool
+            /// ISO date; omit or null to clear the retention deadline.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SetLifecycleHoldRequest/retentionUntil`.
+            public var retentionUntil: Swift.String?
+            /// Creates a new `SetLifecycleHoldRequest`.
+            ///
+            /// - Parameters:
+            ///   - legalHold:
+            ///   - retentionUntil: ISO date; omit or null to clear the retention deadline.
+            public init(
+                legalHold: Swift.Bool,
+                retentionUntil: Swift.String? = nil
+            ) {
+                self.legalHold = legalHold
+                self.retentionUntil = retentionUntil
+            }
+            public enum CodingKeys: String, CodingKey {
+                case legalHold
+                case retentionUntil
+            }
+        }
     }
     /// Types generated from the `#/components/parameters` section of the OpenAPI document.
     public enum Parameters {
+        /// - Remark: Generated from `#/components/parameters/LifecycleObjectType`.
+        public typealias LifecycleObjectType = Swift.String
+        /// - Remark: Generated from `#/components/parameters/LifecycleObjectId`.
+        public typealias LifecycleObjectId = Swift.String
         /// - Remark: Generated from `#/components/parameters/WorkOrderId`.
         public typealias WorkOrderId = Swift.String
         /// - Remark: Generated from `#/components/parameters/PlanId`.
@@ -35593,6 +36173,504 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.DeleteEquipment.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the append-only version history of one equipment master row
+    ///
+    /// Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment detail read.
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}/versions`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)`.
+    public enum ListEquipmentVersions {
+        public static let id: Swift.String = "listEquipmentVersions"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/GET/path/id`.
+                public var id: Components.Parameters.EquipmentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Parameters.EquipmentId) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.ListEquipmentVersions.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipmentVersions.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipmentVersions.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListEquipmentVersions.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ListEquipmentVersions.Input.Path,
+                headers: Operations.ListEquipmentVersions.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EquipmentVersionList)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentVersionList {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListEquipmentVersions.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListEquipmentVersions.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Version history, newest first.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListEquipmentVersions.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListEquipmentVersions.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListEquipmentVersions.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/get(listEquipmentVersions)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListEquipmentVersions.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Roll one equipment master row back to a prior version
+    ///
+    /// Admin-gated (EquipmentManage), audited. Re-applies the target version's stored content through the normal update path and appends a NEW version (status ROLLBACK, sourceVersion = target); version history is never mutated.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment/{id}/versions/{version}/rollback`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)`.
+    public enum RollbackEquipmentVersion {
+        public static let id: Swift.String = "rollbackEquipmentVersion"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/{version}/rollback/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/{version}/rollback/POST/path/id`.
+                public var id: Components.Parameters.EquipmentId
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/{version}/rollback/POST/path/version`.
+                public var version: Swift.Int32
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                ///   - version:
+                public init(
+                    id: Components.Parameters.EquipmentId,
+                    version: Swift.Int32
+                ) {
+                    self.id = id
+                    self.version = version
+                }
+            }
+            public var path: Operations.RollbackEquipmentVersion.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/{version}/rollback/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RollbackEquipmentVersion.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RollbackEquipmentVersion.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RollbackEquipmentVersion.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.RollbackEquipmentVersion.Input.Path,
+                headers: Operations.RollbackEquipmentVersion.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/{version}/rollback/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/versions/{version}/rollback/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.EquipmentRollbackResult)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentRollbackResult {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RollbackEquipmentVersion.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RollbackEquipmentVersion.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Rollback landed as a new version.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.RollbackEquipmentVersion.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.RollbackEquipmentVersion.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.RollbackEquipmentVersion.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/versions/{version}/rollback/post(rollbackEquipmentVersion)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.RollbackEquipmentVersion.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):
@@ -75019,6 +76097,1555 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Components.Responses.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List payroll/accounting period locks
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are rows with no unlockedAt.
+    ///
+    /// - Remark: HTTP `GET /api/v1/period-locks`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)`.
+    public enum ListPeriodLocks {
+        public static let id: Swift.String = "listPeriodLocks"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/period-locks/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/GET/query/domain`.
+                @frozen public enum DomainPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case payroll = "payroll"
+                    case accounting = "accounting"
+                }
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/GET/query/domain`.
+                public var domain: Operations.ListPeriodLocks.Input.Query.DomainPayload?
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - domain:
+                ///   - limit:
+                public init(
+                    domain: Operations.ListPeriodLocks.Input.Query.DomainPayload? = nil,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.domain = domain
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListPeriodLocks.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/period-locks/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPeriodLocks.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPeriodLocks.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListPeriodLocks.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListPeriodLocks.Input.Query = .init(),
+                headers: Operations.ListPeriodLocks.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/period-locks/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PeriodLockList)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PeriodLockList {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPeriodLocks.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPeriodLocks.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Period locks, newest first.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListPeriodLocks.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListPeriodLocks.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListPeriodLocks.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/get(listPeriodLocks)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListPeriodLocks.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Lock a payroll/accounting period (freeze window)
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409. Overlapping an existing active lock in the same domain is refused.
+    ///
+    /// - Remark: HTTP `POST /api/v1/period-locks`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)`.
+    public enum CreatePeriodLock {
+        public static let id: Swift.String = "createPeriodLock"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/period-locks/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePeriodLock.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePeriodLock.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreatePeriodLock.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/period-locks/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreatePeriodLockRequest)
+            }
+            public var body: Operations.CreatePeriodLock.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreatePeriodLock.Input.Headers = .init(),
+                body: Operations.CreatePeriodLock.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/period-locks/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.PeriodLock)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PeriodLock {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreatePeriodLock.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreatePeriodLock.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Period locked.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreatePeriodLock.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreatePeriodLock.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreatePeriodLock.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/post(createPeriodLock)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreatePeriodLock.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Unlock a period lock (one-shot, reason required)
+    ///
+    /// Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking the same window appends a new lock row.
+    ///
+    /// - Remark: HTTP `POST /api/v1/period-locks/{lockId}/unlock`.
+    /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)`.
+    public enum UnlockPeriodLock {
+        public static let id: Swift.String = "unlockPeriodLock"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/period-locks/{lockId}/unlock/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/{lockId}/unlock/POST/path/lockId`.
+                public var lockId: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - lockId:
+                public init(lockId: Swift.String) {
+                    self.lockId = lockId
+                }
+            }
+            public var path: Operations.UnlockPeriodLock.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/period-locks/{lockId}/unlock/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UnlockPeriodLock.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UnlockPeriodLock.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UnlockPeriodLock.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/period-locks/{lockId}/unlock/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/{lockId}/unlock/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.UnlockPeriodLockRequest)
+            }
+            public var body: Operations.UnlockPeriodLock.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UnlockPeriodLock.Input.Path,
+                headers: Operations.UnlockPeriodLock.Input.Headers = .init(),
+                body: Operations.UnlockPeriodLock.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/period-locks/{lockId}/unlock/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/period-locks/{lockId}/unlock/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PeriodLock)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PeriodLock {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UnlockPeriodLock.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UnlockPeriodLock.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Period unlocked.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UnlockPeriodLock.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UnlockPeriodLock.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.UnlockPeriodLock.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/period-locks/{lockId}/unlock/post(unlockPeriodLock)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.UnlockPeriodLock.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read one object's lifecycle state and transition log
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold / retention flags, and the append-only transition history (newest first).
+    ///
+    /// - Remark: HTTP `GET /api/v1/lifecycles/{objectType}/{objectId}`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)`.
+    public enum GetObjectLifecycle {
+        public static let id: Swift.String = "getObjectLifecycle"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/GET/path/objectType`.
+                public var objectType: Components.Parameters.LifecycleObjectType
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/GET/path/objectId`.
+                public var objectId: Components.Parameters.LifecycleObjectId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - objectType:
+                ///   - objectId:
+                public init(
+                    objectType: Components.Parameters.LifecycleObjectType,
+                    objectId: Components.Parameters.LifecycleObjectId
+                ) {
+                    self.objectType = objectType
+                    self.objectId = objectId
+                }
+            }
+            public var path: Operations.GetObjectLifecycle.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetObjectLifecycle.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetObjectLifecycle.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetObjectLifecycle.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetObjectLifecycle.Input.Path,
+                headers: Operations.GetObjectLifecycle.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectLifecycle)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectLifecycle {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetObjectLifecycle.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetObjectLifecycle.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Lifecycle record.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetObjectLifecycle.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetObjectLifecycle.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetObjectLifecycle.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/get(getObjectLifecycle)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetObjectLifecycle.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Transition one object's lifecycle state
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed); an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object implicitly registers its lifecycle at draft.
+    ///
+    /// - Remark: HTTP `POST /api/v1/lifecycles/{objectType}/{objectId}/transition`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)`.
+    public enum TransitionObjectLifecycle {
+        public static let id: Swift.String = "transitionObjectLifecycle"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/path/objectType`.
+                public var objectType: Components.Parameters.LifecycleObjectType
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/path/objectId`.
+                public var objectId: Components.Parameters.LifecycleObjectId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - objectType:
+                ///   - objectId:
+                public init(
+                    objectType: Components.Parameters.LifecycleObjectType,
+                    objectId: Components.Parameters.LifecycleObjectId
+                ) {
+                    self.objectType = objectType
+                    self.objectId = objectId
+                }
+            }
+            public var path: Operations.TransitionObjectLifecycle.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.TransitionObjectLifecycle.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.TransitionObjectLifecycle.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.TransitionObjectLifecycle.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.TransitionLifecycleRequest)
+            }
+            public var body: Operations.TransitionObjectLifecycle.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.TransitionObjectLifecycle.Input.Path,
+                headers: Operations.TransitionObjectLifecycle.Input.Headers = .init(),
+                body: Operations.TransitionObjectLifecycle.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/transition/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectLifecycle)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectLifecycle {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.TransitionObjectLifecycle.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.TransitionObjectLifecycle.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Transition applied.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.TransitionObjectLifecycle.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.TransitionObjectLifecycle.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.TransitionObjectLifecycle.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/transition/post(transitionObjectLifecycle)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.TransitionObjectLifecycle.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Set or clear legal hold / retention on one object's lifecycle
+    ///
+    /// Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when absent so a hold can be placed before the object ever transitions.
+    ///
+    /// - Remark: HTTP `POST /api/v1/lifecycles/{objectType}/{objectId}/hold`.
+    /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)`.
+    public enum SetObjectLifecycleHold {
+        public static let id: Swift.String = "setObjectLifecycleHold"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/path/objectType`.
+                public var objectType: Components.Parameters.LifecycleObjectType
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/path/objectId`.
+                public var objectId: Components.Parameters.LifecycleObjectId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - objectType:
+                ///   - objectId:
+                public init(
+                    objectType: Components.Parameters.LifecycleObjectType,
+                    objectId: Components.Parameters.LifecycleObjectId
+                ) {
+                    self.objectType = objectType
+                    self.objectId = objectId
+                }
+            }
+            public var path: Operations.SetObjectLifecycleHold.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetObjectLifecycleHold.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetObjectLifecycleHold.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SetObjectLifecycleHold.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.SetLifecycleHoldRequest)
+            }
+            public var body: Operations.SetObjectLifecycleHold.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.SetObjectLifecycleHold.Input.Path,
+                headers: Operations.SetObjectLifecycleHold.Input.Headers = .init(),
+                body: Operations.SetObjectLifecycleHold.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/lifecycles/{objectType}/{objectId}/hold/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectLifecycle)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectLifecycle {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SetObjectLifecycleHold.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SetObjectLifecycleHold.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Hold updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SetObjectLifecycleHold.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SetObjectLifecycleHold.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.SetObjectLifecycleHold.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.SetObjectLifecycleHold.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

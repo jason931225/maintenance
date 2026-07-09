@@ -1976,6 +1976,66 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           description: JWT verification is not configured.
+  /api/v1/equipment/{id}/versions:
+    get:
+      operationId: listEquipmentVersions
+      summary: List the append-only version history of one equipment master row
+      description: 'Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content
+        as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment
+        detail read.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentId'
+      responses:
+        '200':
+          description: Version history, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentVersionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/equipment/{id}/versions/{version}/rollback:
+    post:
+      operationId: rollbackEquipmentVersion
+      summary: Roll one equipment master row back to a prior version
+      description: 'Admin-gated (EquipmentManage), audited. Re-applies the target version''s stored content through the
+        normal update path and appends a NEW version (status ROLLBACK, sourceVersion = target); version history is never
+        mutated.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentId'
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '201':
+          description: Rollback landed as a new version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentRollbackResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
   /api/v1/equipment/{id}/timeline-graph:
     get:
       operationId: getEquipmentTimelineGraph
@@ -7419,6 +7479,210 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/period-locks:
+    get:
+      operationId: listPeriodLocks
+      summary: List payroll/accounting period locks
+      description: Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are
+        rows with no unlockedAt.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: domain
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [payroll, accounting]
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+      responses:
+        '200':
+          description: Period locks, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodLockList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+    post:
+      operationId: createPeriodLock
+      summary: Lock a payroll/accounting period (freeze window)
+      description: 'Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every
+        date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409.
+        Overlapping an existing active lock in the same domain is refused.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePeriodLockRequest'
+      responses:
+        '201':
+          description: Period locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodLock'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/period-locks/{lockId}/unlock:
+    post:
+      operationId: unlockPeriodLock
+      summary: Unlock a period lock (one-shot, reason required)
+      description: Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking
+        the same window appends a new lock row.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: lockId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnlockPeriodLockRequest'
+      responses:
+        '200':
+          description: Period unlocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodLock'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/lifecycles/{objectType}/{objectId}:
+    get:
+      operationId: getObjectLifecycle
+      summary: Read one object's lifecycle state and transition log
+      description: Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold /
+        retention flags, and the append-only transition history (newest first).
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/LifecycleObjectType'
+      - $ref: '#/components/parameters/LifecycleObjectId'
+      responses:
+        '200':
+          description: Lifecycle record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectLifecycle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/lifecycles/{objectType}/{objectId}/transition:
+    post:
+      operationId: transitionObjectLifecycle
+      summary: Transition one object's lifecycle state
+      description: 'Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the
+        seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed);
+        an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is
+        under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object
+        implicitly registers its lifecycle at draft.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/LifecycleObjectType'
+      - $ref: '#/components/parameters/LifecycleObjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionLifecycleRequest'
+      responses:
+        '200':
+          description: Transition applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectLifecycle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/lifecycles/{objectType}/{objectId}/hold:
+    post:
+      operationId: setObjectLifecycleHold
+      summary: Set or clear legal hold / retention on one object's lifecycle
+      description: Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when
+        absent so a hold can be placed before the object ever transitions.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/LifecycleObjectType'
+      - $ref: '#/components/parameters/LifecycleObjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetLifecycleHoldRequest'
+      responses:
+        '200':
+          description: Hold updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectLifecycle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
 components:
   securitySchemes:
     bearerAuth:
@@ -7426,6 +7690,20 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    LifecycleObjectType:
+      name: objectType
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z][a-z0-9_]{1,63}$'
+    LifecycleObjectId:
+      name: objectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     WorkOrderId:
       name: workOrderId
       in: path
@@ -17019,3 +17297,197 @@ components:
         preferences:
           type: object
           additionalProperties: true
+    EquipmentVersion:
+      type: object
+      required:
+      - version
+      - status
+      - content
+      - createdAt
+      properties:
+        version:
+          type: integer
+          format: int32
+        status:
+          type: string
+          enum: [CAPTURED, ROLLBACK]
+        sourceVersion:
+          type: integer
+          format: int32
+        content:
+          type: object
+          additionalProperties: true
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+    EquipmentVersionList:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EquipmentVersion'
+    EquipmentRollbackResult:
+      type: object
+      required:
+      - version
+      properties:
+        version:
+          type: integer
+          format: int32
+    PeriodLock:
+      type: object
+      required:
+      - id
+      - domain
+      - periodStart
+      - periodEnd
+      - reason
+      - lockedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+          enum: [payroll, accounting]
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        reason:
+          type: string
+        lockedBy:
+          type: string
+          format: uuid
+        lockedAt:
+          type: string
+          format: date-time
+        unlockedBy:
+          type: string
+          format: uuid
+        unlockedAt:
+          type: string
+          format: date-time
+        unlockReason:
+          type: string
+    PeriodLockList:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PeriodLock'
+    CreatePeriodLockRequest:
+      type: object
+      required:
+      - domain
+      - periodStart
+      - periodEnd
+      - reason
+      properties:
+        domain:
+          type: string
+          enum: [payroll, accounting]
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        reason:
+          type: string
+          minLength: 1
+    UnlockPeriodLockRequest:
+      type: object
+      required:
+      - reason
+      properties:
+        reason:
+          type: string
+          minLength: 1
+    ObjectLifecycleTransition:
+      type: object
+      required:
+      - fromState
+      - toState
+      - reason
+      - occurredAt
+      properties:
+        fromState:
+          type: string
+        toState:
+          type: string
+        actor:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+    ObjectLifecycle:
+      type: object
+      required:
+      - objectType
+      - objectId
+      - currentState
+      - legalHold
+      - createdAt
+      - updatedAt
+      - transitions
+      properties:
+        objectType:
+          type: string
+        objectId:
+          type: string
+          format: uuid
+        currentState:
+          type: string
+        legalHold:
+          type: boolean
+        retentionUntil:
+          type: string
+          format: date
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        transitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObjectLifecycleTransition'
+    TransitionLifecycleRequest:
+      type: object
+      required:
+      - toState
+      - reason
+      properties:
+        toState:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          minLength: 1
+    SetLifecycleHoldRequest:
+      type: object
+      required:
+      - legalHold
+      properties:
+        legalHold:
+          type: boolean
+        retentionUntil:
+          type: string
+          format: date
+          description: ISO date; omit or null to clear the retention deadline.
