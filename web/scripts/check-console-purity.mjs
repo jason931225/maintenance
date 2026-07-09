@@ -16,7 +16,7 @@
  *     > web/src/console/__purity_probe.tsx && node scripts/check-console-purity.mjs
  * (expect exit 1), then delete the probe.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,24 +35,116 @@ const isTailwindToken = (t) => t.length > 0 && (PREFIXED.test(t) || BARE.test(t)
 /** Pull the string content out of each className attribute in a TS/TSX source. */
 function classNameValues(src) {
   const out = [];
+  const bindings = simpleStringBindings(src);
   const re = /className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\})/g;
   let m;
   while ((m = re.exec(src)) !== null) {
     const v = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5];
     if (v != null) out.push(v);
   }
+  for (const expr of attributeExpressions(src, "className")) {
+    out.push(...stringValuesFromExpression(expr, bindings));
+  }
   return out;
 }
 
 function importSpecifiers(src) {
+  const bindings = simpleStringBindings(src);
   const out = [];
   const re = /(?:import|export)[^'"]*from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]/g;
   let m;
   while ((m = re.exec(src)) !== null) out.push(m[1] ?? m[2]);
+  for (const expr of dynamicImportExpressions(src)) {
+    out.push(...stringValuesFromExpression(expr, bindings));
+  }
   return out;
 }
 
 const BANNED_IMPORT = /(?:^|\/)components\/(ui|shell)(?:\/|$)/;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const JS_KEYWORDS = new Set([
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "return",
+  "const",
+  "let",
+  "var",
+  "if",
+  "else",
+  "typeof",
+  "as",
+]);
+
+function simpleStringBindings(src) {
+  const bindings = new Map();
+  const re = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(["'`])([\s\S]*?)\2/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    if (m[2] === "`" && m[3].includes("${")) continue;
+    bindings.set(m[1], m[3]);
+  }
+  return bindings;
+}
+
+function balancedChunk(src, openIndex, open, close) {
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+  for (let i = openIndex; i < src.length; i += 1) {
+    const ch = src[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "\"" || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === open) depth += 1;
+    else if (ch === close) {
+      depth -= 1;
+      if (depth === 0) return src.slice(openIndex + 1, i);
+    }
+  }
+  return "";
+}
+
+function attributeExpressions(src, name) {
+  const out = [];
+  const re = new RegExp(`${name}\\s*=\\s*\\{`, "g");
+  while (re.exec(src) !== null) {
+    out.push(balancedChunk(src, re.lastIndex - 1, "{", "}"));
+  }
+  return out;
+}
+
+function dynamicImportExpressions(src) {
+  const out = [];
+  const re = /\bimport\s*\(/g;
+  while (re.exec(src) !== null) {
+    out.push(balancedChunk(src, re.lastIndex - 1, "(", ")"));
+  }
+  return out;
+}
+
+function stringValuesFromExpression(expr, bindings) {
+  const out = [];
+  const literalRe = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`]*)`/g;
+  let m;
+  while ((m = literalRe.exec(expr)) !== null) {
+    const raw = m[1] ?? m[2] ?? m[3] ?? "";
+    out.push(raw.replace(/\$\{[^}]*\}/g, ""));
+  }
+  for (const word of expr.match(/\b[A-Za-z_$][\w$]*\b/g) ?? []) {
+    if (JS_KEYWORDS.has(word) || word === "cn" || word === "clsx") continue;
+    if (IDENTIFIER.test(word) && bindings.has(word)) out.push(bindings.get(word));
+  }
+  return out;
+}
 
 function walk(dir) {
   const files = [];
@@ -65,13 +157,11 @@ function walk(dir) {
 }
 
 const violations = [];
-let files;
-try {
-  files = walk(consoleDir);
-} catch {
+if (!existsSync(consoleDir)) {
   // No console dir yet — nothing to guard.
   process.exit(0);
 }
+const files = walk(consoleDir);
 
 for (const file of files) {
   const rel = relative(webRoot, file);

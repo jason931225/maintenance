@@ -86,24 +86,39 @@
   --shadow-pop: 0 12px 32px rgba(20, 26, 33, 0.16); /* modals / pinned / popovers */
   --border-hairline: 1px solid var(--border);
 
+  /* Dark token value source of truth. Theme-selection rules below only map
+   * these shared values onto the public token names, so explicit `.t-dark` and
+   * automatic prefers-color-scheme dark cannot drift apart. */
+  --console-dark-canvas: #0e1319; --console-dark-surface: #161c24; --console-dark-muted: #1f2731; --console-dark-border: #2b3542; --console-dark-border-soft: #232c37;
+  --console-dark-ink: #e8edf4; --console-dark-steel: #9cabbc; --console-dark-faint: #61707f;
+  --console-dark-signal: #f6b521; --console-dark-signal-deep: #ffc93d; --console-dark-teal: #2dd4bf;
+  --console-dark-danger-bg: #3a1214; --console-dark-danger-bd: #7f2b2b; --console-dark-danger-tx: #fda4a4; --console-dark-danger-solid: #f87171;
+  --console-dark-warn-bg: #3a2606; --console-dark-warn-bd: #92610a; --console-dark-warn-tx: #fcd34d; --console-dark-warn-solid: #fbbf24;
+  --console-dark-ok-bg: #062e22; --console-dark-ok-bd: #0b6e51; --console-dark-ok-tx: #6ee7b7; --console-dark-ok-solid: #34d399;
+  --console-dark-info-bg: #14243f; --console-dark-info-bd: #2d5eb8; --console-dark-info-tx: #93c5fd;
+  --console-dark-accent-bg: #362605; --console-dark-accent-bd: #a97b06; --console-dark-accent-tx: #fcd34d;
+  --console-dark-purple-bg: #271449; --console-dark-purple-bd: #6d43c0; --console-dark-purple-tx: #c4b5fd;
+  --console-dark-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --console-dark-shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+
   color-scheme: light;
 }
 
 .console.t-dark {
   /* -- colors.css [data-theme="dark"] -- */
-  --canvas: #0e1319; --surface: #161c24; --muted: #1f2731; --border: #2b3542; --border-soft: #232c37;
-  --ink: #e8edf4; --steel: #9cabbc; --faint: #61707f;
-  --signal: #f6b521; --signal-deep: #ffc93d; --teal: #2dd4bf;
-  --danger-bg: #3a1214; --danger-bd: #7f2b2b; --danger-tx: #fda4a4; --danger-solid: #f87171;
-  --warn-bg: #3a2606; --warn-bd: #92610a; --warn-tx: #fcd34d; --warn-solid: #fbbf24;
-  --ok-bg: #062e22; --ok-bd: #0b6e51; --ok-tx: #6ee7b7; --ok-solid: #34d399;
-  --info-bg: #14243f; --info-bd: #2d5eb8; --info-tx: #93c5fd;
-  --accent-bg: #362605; --accent-bd: #a97b06; --accent-tx: #fcd34d;
-  --purple-bg: #271449; --purple-bd: #6d43c0; --purple-tx: #c4b5fd;
+  --canvas: var(--console-dark-canvas); --surface: var(--console-dark-surface); --muted: var(--console-dark-muted); --border: var(--console-dark-border); --border-soft: var(--console-dark-border-soft);
+  --ink: var(--console-dark-ink); --steel: var(--console-dark-steel); --faint: var(--console-dark-faint);
+  --signal: var(--console-dark-signal); --signal-deep: var(--console-dark-signal-deep); --teal: var(--console-dark-teal);
+  --danger-bg: var(--console-dark-danger-bg); --danger-bd: var(--console-dark-danger-bd); --danger-tx: var(--console-dark-danger-tx); --danger-solid: var(--console-dark-danger-solid);
+  --warn-bg: var(--console-dark-warn-bg); --warn-bd: var(--console-dark-warn-bd); --warn-tx: var(--console-dark-warn-tx); --warn-solid: var(--console-dark-warn-solid);
+  --ok-bg: var(--console-dark-ok-bg); --ok-bd: var(--console-dark-ok-bd); --ok-tx: var(--console-dark-ok-tx); --ok-solid: var(--console-dark-ok-solid);
+  --info-bg: var(--console-dark-info-bg); --info-bd: var(--console-dark-info-bd); --info-tx: var(--console-dark-info-tx);
+  --accent-bg: var(--console-dark-accent-bg); --accent-bd: var(--console-dark-accent-bd); --accent-tx: var(--console-dark-accent-tx);
+  --purple-bg: var(--console-dark-purple-bg); --purple-bd: var(--console-dark-purple-bd); --purple-tx: var(--console-dark-purple-tx);
 
   /* -- elevation.css [data-theme="dark"] -- */
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow: var(--console-dark-shadow);
+  --shadow-pop: var(--console-dark-shadow-pop);
 
   color-scheme: dark;
 }
@@ -111,19 +126,19 @@
 @media (prefers-color-scheme: dark) {
   .console:not(.t-light) {
     /* -- colors.css [data-theme="dark"] -- */
-    --canvas: #0e1319; --surface: #161c24; --muted: #1f2731; --border: #2b3542; --border-soft: #232c37;
-    --ink: #e8edf4; --steel: #9cabbc; --faint: #61707f;
-    --signal: #f6b521; --signal-deep: #ffc93d; --teal: #2dd4bf;
-    --danger-bg: #3a1214; --danger-bd: #7f2b2b; --danger-tx: #fda4a4; --danger-solid: #f87171;
-    --warn-bg: #3a2606; --warn-bd: #92610a; --warn-tx: #fcd34d; --warn-solid: #fbbf24;
-    --ok-bg: #062e22; --ok-bd: #0b6e51; --ok-tx: #6ee7b7; --ok-solid: #34d399;
-    --info-bg: #14243f; --info-bd: #2d5eb8; --info-tx: #93c5fd;
-    --accent-bg: #362605; --accent-bd: #a97b06; --accent-tx: #fcd34d;
-    --purple-bg: #271449; --purple-bd: #6d43c0; --purple-tx: #c4b5fd;
+    --canvas: var(--console-dark-canvas); --surface: var(--console-dark-surface); --muted: var(--console-dark-muted); --border: var(--console-dark-border); --border-soft: var(--console-dark-border-soft);
+    --ink: var(--console-dark-ink); --steel: var(--console-dark-steel); --faint: var(--console-dark-faint);
+    --signal: var(--console-dark-signal); --signal-deep: var(--console-dark-signal-deep); --teal: var(--console-dark-teal);
+    --danger-bg: var(--console-dark-danger-bg); --danger-bd: var(--console-dark-danger-bd); --danger-tx: var(--console-dark-danger-tx); --danger-solid: var(--console-dark-danger-solid);
+    --warn-bg: var(--console-dark-warn-bg); --warn-bd: var(--console-dark-warn-bd); --warn-tx: var(--console-dark-warn-tx); --warn-solid: var(--console-dark-warn-solid);
+    --ok-bg: var(--console-dark-ok-bg); --ok-bd: var(--console-dark-ok-bd); --ok-tx: var(--console-dark-ok-tx); --ok-solid: var(--console-dark-ok-solid);
+    --info-bg: var(--console-dark-info-bg); --info-bd: var(--console-dark-info-bd); --info-tx: var(--console-dark-info-tx);
+    --accent-bg: var(--console-dark-accent-bg); --accent-bd: var(--console-dark-accent-bd); --accent-tx: var(--console-dark-accent-tx);
+    --purple-bg: var(--console-dark-purple-bg); --purple-bd: var(--console-dark-purple-bd); --purple-tx: var(--console-dark-purple-tx);
 
     /* -- elevation.css [data-theme="dark"] -- */
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+    --shadow: var(--console-dark-shadow);
+    --shadow-pop: var(--console-dark-shadow-pop);
 
     color-scheme: dark;
   }

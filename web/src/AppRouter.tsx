@@ -343,16 +343,6 @@ export function AppRouter() {
             </RouteErrorBoundary>
           }
         />
-        <Route
-          path="/console"
-          element={
-            <RouteErrorBoundary>
-              <Suspense fallback={<PageSpinner />}>
-                <ConsoleApp />
-              </Suspense>
-            </RouteErrorBoundary>
-          }
-        />
 
         {/* UI-M3: /overview replaces /work-hub. Old links and bookmarks keep
             working via this redirect. */}

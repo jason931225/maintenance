@@ -106,65 +106,68 @@ async function sampleBg(page, selector) {
 async function main() {
   if (serve) await startPreview();
 
-  const browser = await chromium.launch();
-  const context = await browser.newContext({
-    viewport: { width, height },
-    deviceScaleFactor: 1,
-    colorScheme: "light", // deterministic pair: both sides render the light theme
-    reducedMotion: "reduce",
-  });
+  let browser;
+  try {
+    browser = await chromium.launch();
+    const context = await browser.newContext({
+      viewport: { width, height },
+      deviceScaleFactor: 1,
+      colorScheme: "light", // deterministic pair: both sides render the light theme
+      reducedMotion: "reduce",
+    });
 
-  const manifest = {
-    screen,
-    viewport: { width, height },
-    capturedAt: new Date().toISOString(),
-    reference: {},
-    build: {},
-  };
+    const manifest = {
+      screen,
+      viewport: { width, height },
+      capturedAt: new Date().toISOString(),
+      reference: {},
+      build: {},
+    };
 
-  // (a) REFERENCE — the prototype.
-  const ref = await context.newPage();
-  await ref.goto(`file://${dcPath}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
-  await ref.waitForSelector(".console", { timeout: 120_000 });
-  await ref.waitForTimeout(2000); // fonts + layout settle (generous, per charter)
-  const refPng = join(outDir, `${screen}.reference.png`);
-  await ref.screenshot({ path: refPng, fullPage: false });
-  manifest.reference = {
-    png: `e2e/.artifacts/fidelity/${screen}.reference.png`,
-    source: "docs/design/oyatie-console/Oyatie Console.dc.html",
-    consoleBg: await sampleBg(ref, ".console"),
-  };
-  await ref.close();
+    // (a) REFERENCE — the prototype.
+    const ref = await context.newPage();
+    await ref.goto(`file://${dcPath}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+    await ref.waitForSelector(".console", { timeout: 120_000 });
+    await ref.waitForTimeout(2000); // fonts + layout settle (generous, per charter)
+    const refPng = join(outDir, `${screen}.reference.png`);
+    await ref.screenshot({ path: refPng, fullPage: false });
+    manifest.reference = {
+      png: `e2e/.artifacts/fidelity/${screen}.reference.png`,
+      source: "docs/design/oyatie-console/Oyatie Console.dc.html",
+      consoleBg: await sampleBg(ref, ".console"),
+    };
+    await ref.close();
 
-  // (b) BUILD — the built /console behind a stubbed boot session.
-  const build = await context.newPage();
-  await build.route("**/api/v1/auth/token/refresh", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ access_token: FAKE_JWT, requires_passkey_setup: false }),
-    }),
-  );
-  await build.goto(`${baseUrl}/console`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-  await build.waitForSelector("[data-console-root]", { timeout: 60_000 });
-  await build.waitForTimeout(500);
-  const buildPng = join(outDir, `${screen}.build.png`);
-  await build.screenshot({ path: buildPng, fullPage: false });
-  manifest.build = {
-    png: `e2e/.artifacts/fidelity/${screen}.build.png`,
-    url: `${baseUrl}/console`,
-    consoleBg: await sampleBg(build, "[data-console-root]"),
-  };
-  await build.close();
+    // (b) BUILD — the built /console behind a stubbed boot session.
+    const build = await context.newPage();
+    await build.route("**/api/v1/auth/token/refresh", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ access_token: FAKE_JWT, requires_passkey_setup: false }),
+      }),
+    );
+    await build.goto(`${baseUrl}/console`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await build.waitForSelector("[data-console-root]", { timeout: 60_000 });
+    await build.waitForTimeout(500);
+    const buildPng = join(outDir, `${screen}.build.png`);
+    await build.screenshot({ path: buildPng, fullPage: false });
+    manifest.build = {
+      png: `e2e/.artifacts/fidelity/${screen}.build.png`,
+      url: `${baseUrl}/console`,
+      consoleBg: await sampleBg(build, "[data-console-root]"),
+    };
+    await build.close();
 
-  await browser.close();
-
-  const manifestPath = join(outDir, "manifest.json");
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-  console.log(`fidelity rig OK — screen "${screen}"`);
-  console.log(`  reference: ${manifest.reference.png} (console bg ${manifest.reference.consoleBg})`);
-  console.log(`  build:     ${manifest.build.png} (console bg ${manifest.build.consoleBg})`);
-  console.log(`  manifest:  e2e/.artifacts/fidelity/manifest.json`);
+    const manifestPath = join(outDir, "manifest.json");
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    console.log(`fidelity rig OK — screen "${screen}"`);
+    console.log(`  reference: ${manifest.reference.png} (console bg ${manifest.reference.consoleBg})`);
+    console.log(`  build:     ${manifest.build.png} (console bg ${manifest.build.consoleBg})`);
+    console.log(`  manifest:  e2e/.artifacts/fidelity/manifest.json`);
+  } finally {
+    if (browser) await browser.close();
+  }
 }
 
 main()
