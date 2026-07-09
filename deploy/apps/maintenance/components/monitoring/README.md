@@ -1,14 +1,20 @@
 # monitoring component (opt-in)
 
 Kustomize [component](https://kubectl.docs.kubernetes.io/guides/config_management/components/)
-that adds Prometheus Operator resources for the `mnt-app` API:
+that adds Prometheus Operator resources for the `mnt-app` API and dark mox mail
+stack:
 
 - `servicemonitor.yaml` — scrapes the `mnt-app` Service on the named `http`
-  port (8080) at path `/metrics`, every 30s.
+  port (8080) and the `mnt-mox` Service on the named `metrics` port (8010) at
+  path `/metrics`, every 30s.
 - `prometheusrule.yaml` — SLO-burn alerts derived from
   `backend/app/slos/*.openslo.yaml`:
   - **MntApiAvailabilityBurn** — 5xx ratio burning the 99.5% availability budget.
   - **MntApiLatencyP99High** — p99 HTTP latency above 500ms.
+  - **MntMoxDown** — the internal mox metrics target is not scrapeable.
+  - **MntMoxWebhookFailures** — mox webhook delivery attempts are failing.
+  - **MntMoxQueueBacklog** — held mail is accumulating.
+  - **MntMoxPvcSaturation** — `/mox-data` PVC usage is above 85%.
 
 ## Requirements
 

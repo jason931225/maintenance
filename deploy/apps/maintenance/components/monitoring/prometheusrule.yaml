@@ -48,3 +48,58 @@ spec:
             description: >-
               The p99 HTTP request duration for service_name='mnt-app-api' has
               exceeded the 0.5s latency objective for over 10m.
+
+    - name: mnt-mox.rules
+      rules:
+        - alert: MntMoxDown
+          expr: up{job=~".*mnt-mox.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            service: mnt-mox
+          annotations:
+            summary: "mnt-mox metrics target is down"
+            description: >-
+              Prometheus has not been able to scrape the internal mox metrics
+              endpoint for 5m. Check the StatefulSet, PVC mount, and NetworkPolicy.
+
+        - alert: MntMoxWebhookFailures
+          expr: increase(mox_logging_level_error_total[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            service: mnt-mox
+          annotations:
+            summary: "mox delivery webhook failures detected"
+            description: >-
+              mox reported failed webhook delivery attempts. Verify the internal
+              mnt-app webhook health and the shared MNT_MAIL_MOX_WEBHOOK_SECRET.
+
+        - alert: MntMoxQueueBacklog
+          expr: mox_queue_hold > 0
+          for: 15m
+          labels:
+            severity: warning
+            service: mnt-mox
+          annotations:
+            summary: "mox queue hold backlog is non-empty"
+            description: >-
+              mox has messages held in its queue. Inspect `mox queue list` and
+              keep public MX disabled until the backlog cause is understood.
+
+        - alert: MntMoxPvcSaturation
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{namespace="maintenance",persistentvolumeclaim=~"mox-data-mnt-mox-.*"}
+              /
+              kubelet_volume_stats_capacity_bytes{namespace="maintenance",persistentvolumeclaim=~"mox-data-mnt-mox-.*"}
+            ) > 0.85
+          for: 15m
+          labels:
+            severity: warning
+            service: mnt-mox
+          annotations:
+            summary: "mox PVC above 85% capacity"
+            description: >-
+              The /mox-data PVC is nearing capacity. Review retention, export old
+              mail safely, and run a backup before expanding the volume.

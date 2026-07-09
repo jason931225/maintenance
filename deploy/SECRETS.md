@@ -19,6 +19,7 @@ Consumed by `mnt-app` / `mnt-worker` via `envFrom`. Required keys:
 | `MNT_S3_ACCESS_KEY_ID` | OCI Customer Secret Key — access key (evidence bucket) |
 | `MNT_S3_SECRET_ACCESS_KEY` | OCI Customer Secret Key — secret |
 | `MNT_MAIL_MASTER_KEY` | Base64-encoded 32-byte webmail credential KEK from OCI Vault |
+| `MNT_MAIL_MOX_WEBHOOK_SECRET` | Hex/base64url shared secret mox uses as `Authorization: Bearer ...` for the internal delivery webhook |
 
 Optional (enable when the integrations go live — operator-blocked on KCC 신고 /
 Kakao / FCM credentials): `MNT_FCM_*`, `MNT_SOLAPI_*`.
@@ -44,7 +45,45 @@ commit, log, paste into tickets, or reuse this key across environments. With
 return 503; once it is present, the IMAP sync worker can run when object storage
 is also configured.
 
+`MNT_MAIL_MOX_WEBHOOK_SECRET` is a separate mox→app webhook bearer secret. It is
+not the `MNT_MAIL_MASTER_KEY`, not a mox account password, and not an admin
+credential. Generate it as a log-safe single-line random value (for example
+`openssl rand -hex 32`), store it in **OCI Vault**, project it into
+`mnt-secrets`, and rotate it by updating `mnt-secrets` plus restarting
+`statefulset/mnt-mox`, `rollout/mnt-app`, and `deployment/mnt-worker` so both
+sides reload the same credential. The committed mox bootstrap template only
+contains a placeholder; the StatefulSet renders the real value on first boot and
+refreshes only the existing `domains.conf` webhook `Authorization: Bearer ...`
+line on later starts, without logging the secret or overwriting other
+PVC-resident mox config.
+
+Dark mox account/bootstrap credentials are also OCI Vault material, but they are
+not committed to Kubernetes manifests:
+
+| Secret name in OCI Vault | What | Used by |
+|---|---|---|
+| `mnt-mox-postmaster-password` | Initial `postmaster@knllogistic.com`/mox webapi account password | Operator pipes it to `mox setaccountpassword postmaster` after `mnt-mox` is Ready; tenants can then store mox account credentials through the app's sealed webmail credential flow |
+| `mnt-mox-admin-password` | Reserved break-glass mox admin password | Keep in Vault only; the dark deployment disables the mox admin interface by default. If an operator intentionally enables admin later, expose it only over an internal port-forward/VPN and record the change. |
+| `mnt-mox-dkim-private-keys` | Future DKIM selector private keys if public MX/outbound deliverability is approved | Do not mount or generate for the dark lane. Public MX/DKIM is a separate operator/founder gate. |
+
+Set the initial postmaster password without echoing it into history:
+
 ```sh
+set -euo pipefail
+set +x
+# Retrieve from OCI Vault/Secrets Manager without printing or logging the value.
+MOX_PASS_SECRET_OCID="${MOX_PASS_SECRET_OCID:?set to the mnt-mox-postmaster-password OCI Vault secret OCID}"
+MOX_PASS="$(oci secrets secret-bundle get --secret-id "$MOX_PASS_SECRET_OCID" \
+  --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
+test -n "$MOX_PASS"
+printf '%s' "$MOX_PASS" | kubectl exec -i -n maintenance statefulset/mnt-mox -- \
+  /bin/mox -config /mox-data/config/mox.conf setaccountpassword postmaster
+unset MOX_PASS MOX_PASS_SECRET_OCID
+```
+
+```sh
+set -euo pipefail
+set +x
 # Generate a fresh ES256 keypair (do NOT reuse ops/.dev-secrets — those are dev-only).
 # The private key MUST be PKCS#8 PEM: jsonwebtoken's
 # from_ec_pem rejects the legacy SEC1 EC-private-key PEM format that
@@ -53,13 +92,35 @@ is also configured.
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out jwt-private.pem
 openssl pkey -in jwt-private.pem -pubout -out jwt-public.pem
 
+umask 077
+SECRET_TMP="$(mktemp -d "${TMPDIR:-/tmp}/mnt-secrets.XXXXXX")"
+trap 'rm -rf "$SECRET_TMP" jwt-private.pem jwt-public.pem' EXIT
+MNT_S3_ACCESS_KEY_ID_OCID="${MNT_S3_ACCESS_KEY_ID_OCID:?set to the OCI access-key secret OCID}"
+MNT_S3_SECRET_ACCESS_KEY_OCID="${MNT_S3_SECRET_ACCESS_KEY_OCID:?set to the OCI secret-key secret OCID}"
+MNT_MAIL_MASTER_KEY_OCID="${MNT_MAIL_MASTER_KEY_OCID:?set to the mail master-key OCI Vault secret OCID}"
+MNT_MAIL_MOX_WEBHOOK_SECRET_OCID="${MNT_MAIL_MOX_WEBHOOK_SECRET_OCID:?set to the mox webhook-secret OCI Vault secret OCID}"
+for spec in \
+  "MNT_S3_ACCESS_KEY_ID:$MNT_S3_ACCESS_KEY_ID_OCID" \
+  "MNT_S3_SECRET_ACCESS_KEY:$MNT_S3_SECRET_ACCESS_KEY_OCID" \
+  "MNT_MAIL_MASTER_KEY:$MNT_MAIL_MASTER_KEY_OCID" \
+  "MNT_MAIL_MOX_WEBHOOK_SECRET:$MNT_MAIL_MOX_WEBHOOK_SECRET_OCID"; do
+  key="${spec%%:*}"
+  ocid="${spec#*:}"
+  oci secrets secret-bundle get --secret-id "$ocid" \
+    --query 'data."secret-bundle-content".content' --raw-output | base64 -d > "$SECRET_TMP/$key"
+  test -s "$SECRET_TMP/$key"
+  chmod 600 "$SECRET_TMP/$key"
+done
+
 kubectl create secret generic mnt-secrets -n maintenance \
   --from-file=MNT_JWT_PRIVATE_KEY_PEM=jwt-private.pem \
   --from-file=MNT_JWT_PUBLIC_KEY_PEM=jwt-public.pem \
-  --from-literal=MNT_S3_ACCESS_KEY_ID=<oci-access-key> \
-  --from-literal=MNT_S3_SECRET_ACCESS_KEY=<oci-secret-key> \
-  --from-literal=MNT_MAIL_MASTER_KEY=<base64-32-byte-key-from-oci-vault>
-rm -f jwt-private.pem jwt-public.pem
+  --from-file=MNT_S3_ACCESS_KEY_ID="$SECRET_TMP/MNT_S3_ACCESS_KEY_ID" \
+  --from-file=MNT_S3_SECRET_ACCESS_KEY="$SECRET_TMP/MNT_S3_SECRET_ACCESS_KEY" \
+  --from-file=MNT_MAIL_MASTER_KEY="$SECRET_TMP/MNT_MAIL_MASTER_KEY" \
+  --from-file=MNT_MAIL_MOX_WEBHOOK_SECRET="$SECRET_TMP/MNT_MAIL_MOX_WEBHOOK_SECRET"
+rm -rf "$SECRET_TMP" jwt-private.pem jwt-public.pem
+trap - EXIT
 
 # Example local generator for the value that must be stored in OCI Vault first:
 python3 - <<'PY'
@@ -75,9 +136,26 @@ Customer Secret Key** (Identity → your user → Customer Secret Keys), which i
 S3-compatible access/secret pair. Can be the same pair as the evidence keys.
 
 ```sh
+set -euo pipefail
+set +x
+OBJSTORE_SECRET_TMP="$(mktemp -d "${TMPDIR:-/tmp}/oci-objectstore-creds.XXXXXX")"
+trap 'rm -rf "$OBJSTORE_SECRET_TMP"' EXIT
+OCI_OBJECTSTORE_ACCESS_KEY_ID_OCID="${OCI_OBJECTSTORE_ACCESS_KEY_ID_OCID:?set to the OCI object-store access-key secret OCID}"
+OCI_OBJECTSTORE_SECRET_KEY_OCID="${OCI_OBJECTSTORE_SECRET_KEY_OCID:?set to the OCI object-store secret-key secret OCID}"
+oci secrets secret-bundle get --secret-id "$OCI_OBJECTSTORE_ACCESS_KEY_ID_OCID" \
+  --query 'data."secret-bundle-content".content' --raw-output | base64 -d \
+  > "$OBJSTORE_SECRET_TMP/ACCESS_KEY_ID"
+oci secrets secret-bundle get --secret-id "$OCI_OBJECTSTORE_SECRET_KEY_OCID" \
+  --query 'data."secret-bundle-content".content' --raw-output | base64 -d \
+  > "$OBJSTORE_SECRET_TMP/ACCESS_SECRET_KEY"
+test -s "$OBJSTORE_SECRET_TMP/ACCESS_KEY_ID"
+test -s "$OBJSTORE_SECRET_TMP/ACCESS_SECRET_KEY"
+chmod 600 "$OBJSTORE_SECRET_TMP"/*
 kubectl create secret generic oci-objectstore-creds -n maintenance \
-  --from-literal=ACCESS_KEY_ID=<oci-access-key> \
-  --from-literal=ACCESS_SECRET_KEY=<oci-secret-key>
+  --from-file=ACCESS_KEY_ID="$OBJSTORE_SECRET_TMP/ACCESS_KEY_ID" \
+  --from-file=ACCESS_SECRET_KEY="$OBJSTORE_SECRET_TMP/ACCESS_SECRET_KEY"
+rm -rf "$OBJSTORE_SECRET_TMP"
+trap - EXIT
 ```
 
 ## Database connections — owner vs. runtime split
@@ -120,15 +198,24 @@ the role with LOGIN. The app/worker read `DATABASE_URL` from its `uri` key.
 Create it **before** the `maintenance` app first syncs so CNPG can bind the role:
 
 ```sh
+set -euo pipefail
+set +x
 # Pick a strong password; it must match what CNPG attaches to mnt_rt.
 RT_PASSWORD="$(openssl rand -base64 24)"
 # host = the CNPG read/write service for the cluster; db = maintenance.
-RT_URI="postgresql://mnt_rt:${RT_PASSWORD}@mnt-db-rw.maintenance.svc:5432/maintenance"
+RT_URI="postgresql://mnt_rt:***@mnt-db-rw.maintenance.svc:5432/maintenance"
+RT_SECRET_TMP="$(mktemp -d "${TMPDIR:-/tmp}/mnt-db-rt.XXXXXX")"
+trap 'rm -rf "$RT_SECRET_TMP"' EXIT
+printf '%s' "$RT_PASSWORD" > "$RT_SECRET_TMP/password"
+printf '%s' "$RT_URI" > "$RT_SECRET_TMP/uri"
+chmod 600 "$RT_SECRET_TMP"/*
 
 kubectl create secret generic mnt-db-rt -n maintenance \
   --from-literal=username=mnt_rt \
-  --from-literal=password="${RT_PASSWORD}" \
-  --from-literal=uri="${RT_URI}"
+  --from-file=password="$RT_SECRET_TMP/password" \
+  --from-file=uri="$RT_SECRET_TMP/uri"
+rm -rf "$RT_SECRET_TMP"
+trap - EXIT
 unset RT_PASSWORD RT_URI
 ```
 

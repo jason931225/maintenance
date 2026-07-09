@@ -20,6 +20,18 @@
 // account's IncomingWebhook {URL, Authorization}. Run `npm run dev` (or
 // scripts/dev-up.mjs up) first.
 //
+// Dark cluster smoke (no public MX required): port-forward the internal services
+// in two terminals, then run this script with explicit URLs and the webhook
+// secret from OCI Vault/mnt-secrets. Do not print the secret.
+//   kubectl -n maintenance port-forward svc/mnt-mox 1080:1080
+//   kubectl -n maintenance port-forward svc/mnt-app 8090:8080
+//   MNT_MOX_WEBAPI_URL=http://127.0.0.1:1080 \
+//   MNT_DEV_BACKEND_URL=http://127.0.0.1:8090 \
+//   MNT_MOX_USER=postmaster@knllogistic.com \
+//   MNT_MOX_PASS=<from OCI Vault, not logged> \
+//   MNT_MAIL_MOX_WEBHOOK_SECRET=<from mnt-secrets, not logged> \
+//   node scripts/mox-e2e.mjs
+//
 // Usage: node scripts/mox-e2e.mjs
 
 const MOX = process.env.MNT_MOX_WEBAPI_URL ?? "http://127.0.0.1:1080";

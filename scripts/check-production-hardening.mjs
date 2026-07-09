@@ -136,6 +136,27 @@ for (const needle of ["/metrics", "MntApiAvailabilityBurn", "MntApiLatencyP99Hig
   const file = needle === "/metrics" ? "deploy/apps/maintenance/components/monitoring/servicemonitor.yaml" : needle === "Prometheus Operator" ? "deploy/apps/maintenance/components/monitoring/README.md" : "deploy/apps/maintenance/components/monitoring/prometheusrule.yaml";
   requireIncludes(file, needle, `monitoring contract: ${needle}`);
 }
+for (const needle of ["kind: StatefulSet", "name: mnt-mox", "r.xmox.nl/mox@sha256", "WebAPIHTTP", "MetricsHTTP", "volumeClaimTemplates"]) {
+  requireIncludes("deploy/apps/maintenance/base/mox.yaml", needle, `mox dark stack: ${needle}`);
+}
+for (const needle of ["MNT_MAIL_MOX_BASE_URL", "http://mnt-mox.maintenance.svc:1080"]) {
+  requireIncludes("deploy/apps/maintenance/base/configmap.yaml", needle, `mox app wiring: ${needle}`);
+}
+for (const needle of ["allow-app-egress-mox", "allow-mox-ingress-internal", "default-deny-egress-mox", "allow-mox-egress-app-webhook"]) {
+  requireIncludes("deploy/apps/maintenance/base/networkpolicy.yaml", needle, `mox network policy: ${needle}`);
+}
+for (const needle of ["name: mnt-mox", "port: metrics", "MntMoxDown", "MntMoxWebhookFailures", "MntMoxQueueBacklog", "MntMoxPvcSaturation"]) {
+  const file = needle === "port: metrics" || needle === "name: mnt-mox" ? "deploy/apps/maintenance/components/monitoring/servicemonitor.yaml" : "deploy/apps/maintenance/components/monitoring/prometheusrule.yaml";
+  requireIncludes(file, needle, `mox observability: ${needle}`);
+}
+for (const forbidden of ["NodePort", "LoadBalancer", "port: 25", "AdminHTTP", "Submission:", "Submissions:"]) {
+  const moxManifest = read("deploy/apps/maintenance/base/mox.yaml");
+  if (moxManifest.includes(forbidden)) {
+    failures.push(`mox dark stack must not expose public mail/admin surface: found ${forbidden}`);
+  } else {
+    passes.push(`mox dark stack excludes ${forbidden}`);
+  }
+}
 
 // Secrets, backup/restore, object store lifecycle, and no false HA claims.
 for (const needle of ["OCI Vault", "Sealed Secrets", "Never", "MNT_MAIL_MASTER_KEY"]) {
