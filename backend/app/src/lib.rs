@@ -45,7 +45,9 @@ use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
 use mnt_notifications_adapter_postgres::PgNotificationStore;
 use mnt_notifications_rest::NotificationRestState;
-use mnt_platform_audit_chain::{ChainReport, InMemoryEd25519Signer, SealConfig, verify_org_chain};
+use mnt_platform_audit_chain::{
+    ChainReport, InMemoryEd25519Signer, SealConfig, SealSigner, verify_org_chain,
+};
 use mnt_platform_auth::{
     AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
     JwtVerifier, PasskeyService, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH,
@@ -847,6 +849,11 @@ pub struct AppState {
     /// (no KEK / no storage / `MNT_MAIL_ENABLED` unset). Held so its lifetime is
     /// tied to the running `AppState` and it stops on shutdown.
     mail_sync_handle: Option<Arc<mail_sync::MailSyncHandle>>,
+    /// Shared dev/test verifier used by the read-only audit-chain attestation
+    /// endpoint. `InMemoryEd25519Signer::verify` reconstructs the public key
+    /// from each seal's stored `key_ref`, so this throwaway signer is not a
+    /// trust root; it just avoids generating a fresh keypair on every poll.
+    audit_attestation_signer: Arc<dyn SealSigner>,
 }
 
 impl AppState {
@@ -881,6 +888,10 @@ impl AppState {
             },
             DatabaseDependency::NotConfigured => None,
         };
+        let audit_attestation_signer: Arc<dyn SealSigner> =
+            Arc::new(InMemoryEd25519Signer::generate().map_err(|err| {
+                AppError::Internal(format!("audit-chain attestation signer init failed: {err}"))
+            })?);
         let realtime_hub = realtime_hub_from_database(&database);
         Ok(Self {
             config,
@@ -898,6 +909,7 @@ impl AppState {
             realtime_bridge: None,
             mail_cipher: None,
             mail_sync_handle: None,
+            audit_attestation_signer,
         })
     }
 
@@ -1737,15 +1749,18 @@ async fn audit_log(
 /// charter §5.3) and returns the verdict — never mutates. Unlike `/api/audit`,
 /// which can safely branch-filter rows for a branch-scoped ADMIN, this endpoint
 /// verifies the whole tenant chain. Require org-wide `AuditLogRead` so the
-/// attestation surface cannot widen branch-scoped audit visibility.
+/// attestation surface cannot widen branch-scoped audit visibility. For
+/// `AuditLogRead` today, built-in org-wide authority is SUPER_ADMIN; a
+/// branch-scoped or branch-omitted ADMIN token must not pass this gate.
 ///
 /// Cost note: `verify_org_chain` re-derives every seal's batch from its full
 /// `audit_events` range — a FULL-CHAIN re-verify, not an incremental one, so
 /// wall time scales with the org's total sealed audit history. Bounded today
-/// by (a) ADMIN/SUPER_ADMIN-only, so callers are trusted and infrequent, and
-/// (b) mnt_rt's 30s `statement_timeout` (migration 0112) capping any single
-/// pass. A head-N-seals or cached-verdict endpoint variant for orgs with a
-/// long history is a PR-3 item (charter F1 anchor), not built here.
+/// by (a) org-wide built-in callers (SUPER_ADMIN for `AuditLogRead`), so
+/// callers are trusted and infrequent, (b) the app-wide request timeout, and
+/// (c) mnt_rt's 30s `statement_timeout` (migration 0112) capping any single DB
+/// pass. A head-N-seals or cached-verdict endpoint variant for orgs with a long
+/// history is a PR-3 item (charter F1 anchor), not built here.
 async fn audit_attestation(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1768,17 +1783,12 @@ async fn audit_attestation(
     let principal = principal_from_claims(claims)?;
     authorize_audit_attestation(&principal)?;
 
-    // A throwaway signer is correct here: `InMemoryEd25519Signer::verify`
-    // reconstructs the public key from each seal's OWN stored `key_ref`, never
-    // from its own keypair (crate lib.rs `public_key_from_ref`), so which
-    // instance calls `verify` is immaterial — same dark-signer shape the PR-1
-    // worker already uses (`run_dispatch_worker`). PR-3's `OciVaultSigner`
-    // will verify the same way (key material keyed off the stored `key_ref`).
-    let signer: Arc<dyn mnt_platform_audit_chain::SealSigner> =
-        Arc::new(InMemoryEd25519Signer::generate().map_err(|err| {
-            tracing::error!(error = %err, "audit-chain attestation signer init failed");
-            ApiError::internal("attestation signer initialization failed")
-        })?);
+    // Shared throwaway signer is correct here: `verify` reconstructs the
+    // public key from each seal's OWN stored `key_ref`; this object is not the
+    // trust root, just the implementation that performs verification. PR-3's
+    // `OciVaultSigner` will verify the same way (key material keyed off the
+    // stored `key_ref`).
+    let signer = state.audit_attestation_signer.clone();
 
     let report = verify_org_chain(
         pool,
@@ -1863,6 +1873,13 @@ fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {
 }
 
 fn authorize_audit_attestation(principal: &Principal) -> Result<(), ApiError> {
+    // Whole-tenant attestation is intentionally stricter than branch-filtered
+    // `/api/audit`: built-in ADMIN is operational/branch authority, not an
+    // org-wide evidentiary attestation authority. `authorize_org_wide` first
+    // requires all-branch scope, then applies the feature matrix; for
+    // `AuditLogRead` that means built-in SUPER_ADMIN today, while still
+    // preserving the custom-grant path for future policy-managed org-wide
+    // AuditLogRead.
     authorize_org_wide(principal, Action::new(Feature::AuditLogRead)).map_err(ApiError::from_kernel)
 }
 
@@ -2634,6 +2651,49 @@ impl From<DbError> for AppError {
             DbError::Serialize(err) => Self::Internal(err.to_string()),
             DbError::CodeIssuance(err) => Self::Internal(err),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod audit_attestation_auth_tests {
+    use std::collections::BTreeSet;
+
+    use mnt_kernel_core::{BranchId, BranchScope, OrgId, UserId};
+    use mnt_platform_authz::{Principal, Role};
+
+    use super::authorize_audit_attestation;
+
+    fn principal(role: Role, branch_scope: BranchScope) -> Principal {
+        Principal::new(
+            UserId::new(),
+            OrgId::knl(),
+            BTreeSet::from([role]),
+            branch_scope,
+        )
+    }
+
+    #[test]
+    fn audit_attestation_builtin_gate_allows_only_super_admin_for_audit_read() {
+        assert!(
+            authorize_audit_attestation(&principal(Role::Admin, BranchScope::All)).is_err(),
+            "built-in ADMIN is not org-wide attestation authority even with all-branch scope"
+        );
+        assert!(
+            authorize_audit_attestation(&principal(
+                Role::Admin,
+                BranchScope::single(BranchId::new())
+            ))
+            .is_err(),
+            "branch-scoped ADMIN must not access a whole-tenant attestation"
+        );
+        assert!(
+            authorize_audit_attestation(&principal(Role::SuperAdmin, BranchScope::All)).is_ok()
+        );
+        assert!(
+            authorize_audit_attestation(&principal(Role::Executive, BranchScope::All)).is_err(),
+            "EXECUTIVE has org-wide scope semantics, but not AuditLogRead matrix permission"
+        );
     }
 }
 

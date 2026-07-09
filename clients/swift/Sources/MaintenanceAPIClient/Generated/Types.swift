@@ -153,7 +153,7 @@ public protocol APIProtocol: Sendable {
     func getOpsSummary(_ input: Operations.GetOpsSummary.Input) async throws -> Operations.GetOpsSummary.Output
     /// L20 tamper-evident audit-chain attestation for the caller's tenant
     ///
-    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority. Never mutates.
+    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority; built-in access for this feature is SUPER_ADMIN, not ADMIN. Never mutates.
     ///
     /// - Remark: HTTP `GET /api/v1/audit/attestation`.
     /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)`.
@@ -1977,7 +1977,7 @@ extension APIProtocol {
     }
     /// L20 tamper-evident audit-chain attestation for the caller's tenant
     ///
-    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority. Never mutates.
+    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority; built-in access for this feature is SUPER_ADMIN, not ADMIN. Never mutates.
     ///
     /// - Remark: HTTP `GET /api/v1/audit/attestation`.
     /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)`.
@@ -27986,7 +27986,7 @@ public enum Operations {
     }
     /// L20 tamper-evident audit-chain attestation for the caller's tenant
     ///
-    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority. Never mutates.
+    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority; built-in access for this feature is SUPER_ADMIN, not ADMIN. Never mutates.
     ///
     /// - Remark: HTTP `GET /api/v1/audit/attestation`.
     /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)`.
@@ -28139,7 +28139,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// The attestation signer failed to initialize, or verify_org_chain hit a genuine DB/infra error while recomputing the chain (never on a tamper finding, which is a 200 with ok=false).
+            /// verify_org_chain hit a genuine DB/infra error while recomputing the chain (never on a tamper finding, which is a 200 with ok=false).
             ///
             /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)/responses/500`.
             ///
