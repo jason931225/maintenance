@@ -1,4 +1,4 @@
--- 0130_comms_account_by_address.sql
+-- 0121_comms_account_by_address.sql
 -- mox integration (slice 1): the mox delivery WEBHOOK ingests an incoming message
 -- pushed by our own mail server. That request carries NO tenant principal — the
 -- only tenant selector is the recipient address on the delivery. The runtime role
