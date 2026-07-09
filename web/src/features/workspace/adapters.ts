@@ -17,6 +17,9 @@ export interface HubRow {
   dueLabel?: string;
   badge?: string;
   href: string;
+  /** Backend id for the live-detail fetch (work order / support ticket) — the
+   * snapshot below is the instant skeleton the fetch then enriches. */
+  refId?: string;
 }
 
 export function hubRowToPin(row: HubRow): PinnedObject {
@@ -26,7 +29,7 @@ export function hubRowToPin(row: HubRow): PinnedObject {
   ];
   if (row.dueLabel) fields.push({ label: ko.console.workspace.field.due, value: row.dueLabel });
   if (row.badge) fields.push({ label: ko.console.workspace.field.status, value: row.badge });
-  return { kind: row.kind, code: row.code, title: row.title, fields, href: row.href };
+  return { kind: row.kind, code: row.code, title: row.title, fields, href: row.href, refId: row.refId };
 }
 
 export interface AttendanceRow {

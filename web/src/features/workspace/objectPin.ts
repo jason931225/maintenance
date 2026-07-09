@@ -15,10 +15,9 @@ import type { PinKind, PinnedObject } from "./types";
  * (`/api/messenger/members/{user_id}`), which records a `person.view` audit
  * event for a non-self view (열람 — 기록 남음) server-side. The fetch itself is
  * therefore the audit trigger — the client makes no audit call of its own.
- *
- * ponytail: work-order/support/org live-pin bodies are follow-ons — their chips
- * already resolve and route via the object registry (AC1/AC5); only the pinned
- * detail body for those kinds is deferred. Add a case here per kind.
+ * work-order, support, and org-unit read their own detail endpoints; any other
+ * `PinKind` (approval/dailyPlan/conversation/attendance) has no M2a detail
+ * fetch yet and renders from its pinned snapshot.
  */
 export async function fetchPinnedObject(
   api: ConsoleApiClient,

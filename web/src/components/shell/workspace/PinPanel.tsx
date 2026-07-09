@@ -7,6 +7,7 @@ import {
 
 import { chipPrefix } from "../../../features/workspace/format";
 import type { PinKind, PinnedObject } from "../../../features/workspace/types";
+import { usePinDetail } from "../../../features/workspace/usePinDetail";
 import { ko } from "../../../i18n/ko";
 import { cn } from "../../../lib/utils";
 import { consoleIcons } from "../../console/icons";
@@ -43,13 +44,17 @@ export interface PinPanelProps {
  * arrive in UI-M2a; this is the fallback body for every kind today.
  */
 export function PinPanel({
-  object,
+  object: snapshot,
   floating = false,
   onMinimize,
   onPopout,
   onClose,
   onHeaderPointerDown,
 }: PinPanelProps) {
+  // Live-detail fetch on mount (UI-M2a): the pinned snapshot renders instantly,
+  // then the real object body replaces it. A standalone render (no auth) keeps
+  // the snapshot.
+  const { object, status } = usePinDetail(snapshot);
   // Move focus into the panel header when it opens (pin / popout / restore) so
   // keyboard and SR users land on the new panel. ponytail: also fires on a
   // remount from screen switch (panels for the inactive screen unmount) — focus
@@ -120,6 +125,16 @@ export function PinPanel({
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-auto p-3">
+        {status === "loading" ? (
+          <p role="status" className="mb-2 text-[11px] font-semibold text-console-steel">
+            {ko.page.loading}
+          </p>
+        ) : null}
+        {status === "error" ? (
+          <p role="alert" className="mb-2 text-[11px] font-semibold text-console-warn-tx">
+            {ko.page.loadFailed}
+          </p>
+        ) : null}
         <dl className="grid gap-2">
           {object.fields.map((field) => (
             <div key={field.label} className="grid grid-cols-[6rem_1fr] gap-2">

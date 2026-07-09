@@ -55,6 +55,10 @@ export interface PinnedObject {
   title: string;
   fields: PinField[];
   href?: string;
+  /** Backend row id (UUID / ticket id) for the live-detail fetch when the panel
+   * mounts (UI-M2a). Absent → the panel renders only its pinned snapshot (kinds
+   * with no detail endpoint, or a pin created without an id). */
+  refId?: string;
 }
 
 export type PanelMode = "pinned" | "float" | "minimized";
