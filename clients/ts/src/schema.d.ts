@@ -7393,7 +7393,10 @@ export interface components {
              * @description The engine AP- run, when the submittable definition exists.
              */
             ap_run_id?: string;
-            /** @description submitted when a run was started, else pending_engine_definition. */
+            /**
+             * @description submitted when a run was started, else pending_engine_definition.
+             * @enum {string}
+             */
             ap_submission: "submitted" | "pending_engine_definition";
         };
         /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */

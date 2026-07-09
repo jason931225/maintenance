@@ -78,9 +78,8 @@ data class LeaveStatutoryPushView (
         @SerialName(value = "promotion") PROMOTION("promotion"),
         @SerialName(value = "refusal") REFUSAL("refusal");
     }
-
     /**
-     *
+     * submitted when a run was started, else pending_engine_definition.
      *
      * Values: SUBMITTED,PENDING_ENGINE_DEFINITION
      */
