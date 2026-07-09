@@ -35,7 +35,8 @@ function rowEl(container: HTMLElement, id: string): HTMLElement {
 describe("ModuleScreen — list grammar", () => {
   it("navigates rows with J/K and opens the selected row with Enter", () => {
     const { container } = renderSupport();
-    const grid = screen.getByRole("grid");
+    const grid = container.querySelector<HTMLElement>('[data-fidelity="module-list"]');
+    if (!grid) throw new Error("module list not found");
 
     fireEvent.keyDown(grid, { key: "j" }); // select first
     expect(rowEl(container, demoTickets[0].id).getAttribute("aria-selected")).toBe("true");
@@ -47,12 +48,13 @@ describe("ModuleScreen — list grammar", () => {
     expect(rowEl(container, demoTickets[0].id).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.keyDown(grid, { key: "Enter" }); // open detail
-    expect(screen.getByLabelText(demoTickets[0].title)).toBeInTheDocument();
+    expect(container.querySelector('[data-fidelity="module-detail"]')).toHaveAttribute("aria-label", demoTickets[0].title);
   });
 
   it("clamps J at the last row and K at the first", () => {
     const { container } = renderSupport();
-    const grid = screen.getByRole("grid");
+    const grid = container.querySelector<HTMLElement>('[data-fidelity="module-list"]');
+    if (!grid) throw new Error("module list not found");
     for (let i = 0; i < demoTickets.length + 3; i += 1) fireEvent.keyDown(grid, { key: "j" });
     expect(rowEl(container, demoTickets[demoTickets.length - 1].id).getAttribute("aria-selected")).toBe("true");
     for (let i = 0; i < demoTickets.length + 3; i += 1) fireEvent.keyDown(grid, { key: "k" });
@@ -95,6 +97,21 @@ describe("ModuleScreen — config-driven rendering (one component, two domains)"
     // lanes come from the config's `field.lanes` derivation
     expect(within(board).getByText(ko.console.module.workOrder.lane.unassigned)).toBeInTheDocument();
     expect(within(board).getByText(ko.console.module.workOrder.lane.review)).toBeInTheDocument();
+  });
+
+  it("derives kanban lanes once and reuses them for nav and board rendering", () => {
+    const field = workOrderModuleConfig.field;
+    if (field?.kind !== "lanes") throw new Error("work-order config must use lanes");
+    const lanes = vi.fn(field.lanes);
+    const config = { ...workOrderModuleConfig, field: { kind: "lanes" as const, lanes } };
+
+    render(
+      <PolicyGateProvider decide={() => true}>
+        <ModuleScreen config={config} rows={demoWorkOrders} loadState="idle" />
+      </PolicyGateProvider>,
+    );
+
+    expect(lanes).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -188,6 +205,31 @@ describe("ModuleScreen — load states", () => {
 });
 
 describe("ModuleScreen — action and drag cleanup", () => {
+  it("remounts detail actions when the open row changes so pending state does not bleed", () => {
+    const api = {
+      POST: vi.fn(() => new Promise(() => undefined)),
+    } as unknown as ConsoleApiClient;
+    const { container } = render(
+      <PolicyGateProvider decide={() => true}>
+        <ModuleScreen
+          config={supportTicketModuleConfig}
+          rows={demoTickets}
+          loadState="idle"
+          api={api}
+          initialOpenId={demoTickets[0].id}
+        />
+      </PolicyGateProvider>,
+    );
+
+    const firstAction = screen.getByRole("button", { name: SP.resolve });
+    fireEvent.click(firstAction);
+    expect(firstAction).toBeDisabled();
+
+    fireEvent.click(rowEl(container, demoTickets[1].id));
+    expect(screen.getByLabelText(demoTickets[1].title)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: SP.resolve })).not.toBeDisabled();
+  });
+
   it("includes the mutation error detail in the failure toast", async () => {
     const onToast = vi.fn();
     const api = {

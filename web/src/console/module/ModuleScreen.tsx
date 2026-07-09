@@ -18,6 +18,7 @@ import {
   type ModuleAction,
   type ModuleCell,
   type ModuleConfig,
+  type ModuleLane,
   type ModuleLink,
 } from "./config";
 
@@ -378,17 +379,14 @@ function ListTable<Row>({ config, rows, selectedId, onSelect, onOpen, onKeyNav }
 
 interface KanbanProps<Row> {
   config: ModuleConfig<Row>;
-  rows: Row[];
+  lanes: ModuleLane[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onOpen: (id: string) => void;
   onKeyNav: (e: KeyboardEvent<HTMLDivElement>) => void;
 }
 
-function Kanban<Row>({ config, rows, selectedId, onSelect, onOpen, onKeyNav }: KanbanProps<Row>) {
-  const field = config.field;
-  if (field?.kind !== "lanes") return null;
-  const lanes = field.lanes(rows);
+function Kanban<Row>({ config, lanes, selectedId, onSelect, onOpen, onKeyNav }: KanbanProps<Row>) {
   return (
     <div
       role="grid"
@@ -558,13 +556,15 @@ export function ModuleScreen<Row>({ config, rows, loadState, api, onRetry, onOpe
     [rows, needle, config],
   );
 
+  const lanes = useMemo(() => (field?.kind === "lanes" ? field.lanes(filtered) : null), [field, filtered]);
+
   // Flattened nav order — table order, or lane-by-lane for a kanban body.
   const navIds = useMemo(() => {
-    if (field?.kind === "lanes") {
-      return field.lanes(filtered).flatMap((lane) => lane.cards.map((c) => c.id));
+    if (lanes) {
+      return lanes.flatMap((lane) => lane.cards.map((c) => c.id));
     }
     return filtered.map((row) => config.rowId(row));
-  }, [field, filtered, config]);
+  }, [lanes, filtered, config]);
 
   // A stale selection/open id (row filtered out by search) is harmless: the
   // keynav index lookup returns -1 and restarts, and a missing openId resolves
@@ -642,14 +642,15 @@ export function ModuleScreen<Row>({ config, rows, loadState, api, onRetry, onOpe
               </button>
             ) : null}
           </div>
-        ) : field?.kind === "lanes" ? (
-          <Kanban key={config.key} config={config} rows={filtered} selectedId={selectedId} onSelect={setSelectedId} onOpen={setOpenId} onKeyNav={onKeyNav} />
+        ) : lanes ? (
+          <Kanban key={config.key} config={config} lanes={lanes} selectedId={selectedId} onSelect={setSelectedId} onOpen={setOpenId} onKeyNav={onKeyNav} />
         ) : (
           <ListTable key={config.key} config={config} rows={filtered} selectedId={selectedId} onSelect={setSelectedId} onOpen={setOpenId} onKeyNav={onKeyNav} />
         )}
 
         {openRow ? (
           <DetailPanel
+            key={`${config.key}:${config.rowId(openRow)}`}
             config={config}
             row={openRow}
             api={api}

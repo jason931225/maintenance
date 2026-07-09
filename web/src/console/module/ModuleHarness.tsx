@@ -93,6 +93,14 @@ export function ModuleHarness() {
     }, 3000);
   }, []);
 
+  const onPrimaryAction = useCallback((key: string) => {
+    onToast(`${config.title} · ${key}`);
+  }, [config.title, onToast]);
+
+  const onOpenObject = useCallback((code: string) => {
+    onToast(code);
+  }, [onToast]);
+
   return (
     <div style={frameStyle}>
       <PolicyGateProvider decide={decide}>
@@ -102,7 +110,9 @@ export function ModuleHarness() {
           loadState={loadState}
           api={api}
           onRetry={onRetry}
+          onOpenObject={onOpenObject}
           onToast={onToast}
+          onPrimaryAction={onPrimaryAction}
         />
       </PolicyGateProvider>
       {toast ? (

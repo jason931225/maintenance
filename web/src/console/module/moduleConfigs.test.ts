@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
+import { ko } from "../../i18n/ko";
 import { demoTickets, demoWorkOrders } from "../../test/module-fixtures";
 import { supportTicketModuleConfig, workOrderModuleConfig, type Ticket } from "./moduleConfigs";
 
@@ -63,6 +64,11 @@ describe("supportTicketModuleConfig — live binding", () => {
     expect(rows).toHaveLength(demoTickets.length);
   });
 
+  it("throws when the ticket read fails (never a silent empty list)", async () => {
+    const { api } = makeApi({ get: () => ({ error: { code: "x" }, response: { ok: false } }) });
+    await expect(supportTicketModuleConfig.load(api)).rejects.toThrow();
+  });
+
   it("resolve action transitions the ticket to RESOLVED", async () => {
     const row = demoTickets[0];
     const { api, POST } = makeApi({ post: () => ({ data: {}, response: { ok: true } }) });
@@ -79,10 +85,27 @@ describe("supportTicketModuleConfig — live binding", () => {
     expect(supportTicketModuleConfig.detail.links(demoTickets[0])).toEqual([]);
   });
 
-  it("search is null-safe for optional requester names", () => {
-    const row: Ticket = { ...demoTickets[0], requester_name: null as Ticket["requester_name"] };
+  it("search is null-safe for missing ticket fields and enum lookups", () => {
+    const row = {
+      ...demoTickets[0],
+      title: null,
+      requester_name: null,
+      category: "UNKNOWN",
+      status: "UNKNOWN",
+    } as unknown as Ticket;
     expect(() => supportTicketModuleConfig.search(row)).not.toThrow();
-    expect(supportTicketModuleConfig.search(row)).toContain(demoTickets[0].title.toLowerCase());
+    expect(supportTicketModuleConfig.search(row)).not.toContain("undefined");
+  });
+});
+
+describe("module enum labels", () => {
+  it("reuses the canonical work-order and support enum translations", () => {
+    expect(ko.console.module.workOrder.status).toBe(ko.status);
+    expect(ko.console.module.workOrder.priority).toBe(ko.priority);
+    expect(ko.console.module.support.status).toBe(ko.support.ticketStatus);
+    expect(ko.console.module.support.priority).toBe(ko.support.ticketPriority);
+    expect(ko.console.module.support.category).toBe(ko.support.ticketCategory);
+    expect(ko.console.module.support.origin).toBe(ko.support.ticketOrigin);
   });
 });
 
