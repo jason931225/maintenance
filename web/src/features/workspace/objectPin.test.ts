@@ -100,3 +100,29 @@ describe("fetchPinnedObject — work order (#21)", () => {
     ).toBeNull();
   });
 });
+
+describe("fetchPinnedObject — support ticket (#21)", () => {
+  it("fetches the ticket detail and builds a title + Korean status pin", async () => {
+    const ticketId = "33333333-3333-4333-8333-333333333333";
+    server.use(
+      http.get("*/api/v1/support/tickets/:id", () =>
+        HttpResponse.json({ ticket: { id: ticketId, title: "출고 지연 문의", status: "OPEN" }, comments: [] }),
+      ),
+    );
+    const api = createConsoleApiClient("test-token");
+
+    const pin = await fetchPinnedObject(api, "support", { id: ticketId, code: `CS-${ticketId}`, branchId });
+
+    expect(pin).toMatchObject({ kind: "support", code: `CS-${ticketId}`, title: "출고 지연 문의" });
+    expect(pin?.fields[0].value).toBe(ko.support.ticketStatus.OPEN);
+  });
+
+  it("returns null (no pin) when the ticket is not found", async () => {
+    server.use(
+      http.get("*/api/v1/support/tickets/:id", () => HttpResponse.json({ error: "nf" }, { status: 404 })),
+    );
+    const api = createConsoleApiClient("test-token");
+
+    expect(await fetchPinnedObject(api, "support", { id: "x", code: "CS-x", branchId })).toBeNull();
+  });
+});

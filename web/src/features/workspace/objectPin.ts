@@ -2,6 +2,7 @@ import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
 import { objectRegistry, workOrderCode } from "../../lib/objectRegistry";
 import { priorityLabel, safeLabel } from "../../lib/utils";
+import { statusLabel as supportStatusLabel } from "../support/support-format";
 import type { PinKind, PinnedObject } from "./types";
 
 /**
@@ -26,7 +27,34 @@ export async function fetchPinnedObject(
 ): Promise<PinnedObject | null> {
   if (kind === "person") return fetchPersonPin(api, args.id, args.branchId);
   if (kind === "workOrder") return fetchWorkOrderPin(api, args.id);
+  if (kind === "support") return fetchSupportPin(api, args.id);
   return null;
+}
+
+async function fetchSupportPin(
+  api: ConsoleApiClient,
+  ticketId: string,
+): Promise<PinnedObject | null> {
+  let detail;
+  try {
+    const response = await api.GET("/api/v1/support/tickets/{id}", {
+      params: { path: { id: ticketId } },
+    });
+    detail = response.data;
+  } catch {
+    return null;
+  }
+  const ticket = detail?.ticket;
+  if (!ticket) return null;
+
+  const code = `CS-${ticketId}`;
+  return {
+    kind: "support",
+    code,
+    title: safeLabel(ticket.title),
+    fields: [{ label: ko.console.workspace.field.status, value: supportStatusLabel(ticket.status) }],
+    href: objectRegistry.support.route({ id: ticketId, code }),
+  };
 }
 
 async function fetchWorkOrderPin(
