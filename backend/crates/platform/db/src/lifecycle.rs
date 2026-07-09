@@ -2,7 +2,7 @@
 //! `(object_type, object_id)` with an append-only transition log.
 //!
 //! State sets and legal transitions live in the global seeded
-//! `lifecycle_transition_rules` table (migration 0100 seeds the `document`
+//! `lifecycle_transition_rules` table (migration 0107 seeds the `document`
 //! chain: draft → submitted → approved → active → revised → archived →
 //! disposed). A transition is refused unless a matching rule row exists, and
 //! the terminal `disposed` transition is additionally gated on legal hold and

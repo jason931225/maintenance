@@ -3144,7 +3144,7 @@ fn master_list_row_from_create(command: &CreateEquipmentCommand) -> MasterListEq
 }
 
 /// Append-only version history for equipment master rows (generalized 0069
-/// pattern; table provisioned in migration 0100).
+/// pattern; table provisioned in migration 0107).
 const EQUIPMENT_VERSIONS: ObjectVersions = ObjectVersions::new("registry_equipment_versions");
 
 /// Rebuild an [`UpdateEquipmentFields`] patch from a stored version's content

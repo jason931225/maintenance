@@ -4,7 +4,7 @@
 //!
 //! # Adopting a domain
 //! 1. **One migration** — copy the `registry_equipment_versions` block from
-//!    migration 0100, substituting your base table name:
+//!    migration 0107, substituting your base table name:
 //!
 //!    ```sql
 //!    -- mnt-gate: audited-table <base>_versions

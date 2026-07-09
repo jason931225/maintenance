@@ -18,7 +18,7 @@ use time::Date;
 use crate::error::DbError;
 
 /// Business domains a period lock can freeze. Matches the `period_locks.domain`
-/// CHECK constraint (migration 0100).
+/// CHECK constraint (migration 0107).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeriodLockDomain {
     Payroll,
