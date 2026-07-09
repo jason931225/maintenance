@@ -53,6 +53,13 @@ const ConsoleShell = lazy(() =>
 const ConsoleApp = lazy(() =>
   import("./console/ConsoleApp").then((m) => ({ default: m.ConsoleApp })),
 );
+// Dev-only capture harness for the carbon-copy window/pin engine (P0.2). Behind
+// the auth guard like /console; carries no product nav, exists so the fidelity
+// rig can screenshot the four window states in isolation before the engine is
+// integrated into the shell in a later slice.
+const WindowEngineHarness = lazy(() =>
+  import("./console/window/harness").then((m) => ({ default: m.WindowEngineHarness })),
+);
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
@@ -339,6 +346,18 @@ export function AppRouter() {
             <RouteErrorBoundary>
               <Suspense fallback={<PageSpinner />}>
                 <ConsoleApp />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+        {/* Dev-only window-engine capture harness (P0.2). Shell-less like
+            /console; own error boundary so a crash is contained. */}
+        <Route
+          path="/console-dev/window"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <WindowEngineHarness />
               </Suspense>
             </RouteErrorBoundary>
           }
