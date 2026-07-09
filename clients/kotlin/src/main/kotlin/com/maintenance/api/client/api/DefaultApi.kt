@@ -101,6 +101,7 @@ import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.DecideOwnershipTransferRequest
 import com.maintenance.api.client.model.DecideWorkflowTaskRequest
 import com.maintenance.api.client.model.DecideWorkflowTaskResponse
+import com.maintenance.api.client.model.DefinitionsByObjectKindResponse
 import com.maintenance.api.client.model.DeviceLoginApproveRequest
 import com.maintenance.api.client.model.DeviceLoginApproveSessionRequest
 import com.maintenance.api.client.model.DeviceLoginPollRequest
@@ -2218,6 +2219,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/approve".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve
+     * Approve a staged pending revision (four-eyes application)
+     * Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+     * @param id
+     * @param rev The pending revision (version number) being approved.
+     * @param workflowStepUpRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun approveWorkflowDefinitionRevision(id: java.util.UUID, rev: kotlin.Int, workflowStepUpRequest: WorkflowStepUpRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = approveWorkflowDefinitionRevisionWithHttpInfo(id = id, rev = rev, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve
+     * Approve a staged pending revision (four-eyes application)
+     * Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+     * @param id
+     * @param rev The pending revision (version number) being approved.
+     * @param workflowStepUpRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun approveWorkflowDefinitionRevisionWithHttpInfo(id: java.util.UUID, rev: kotlin.Int, workflowStepUpRequest: WorkflowStepUpRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approveWorkflowDefinitionRevisionRequestConfig(id = id, rev = rev, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext request<WorkflowStepUpRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation approveWorkflowDefinitionRevision
+     *
+     * @param id
+     * @param rev The pending revision (version number) being approved.
+     * @param workflowStepUpRequest
+     * @return RequestConfig
+     */
+    fun approveWorkflowDefinitionRevisionRequestConfig(id: java.util.UUID, rev: kotlin.Int, workflowStepUpRequest: WorkflowStepUpRequest) : RequestConfig<WorkflowStepUpRequest> {
+        val localVariableBody = workflowStepUpRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"rev"+"}", encodeURIComponent(rev.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -14928,6 +15009,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/workflow-studio/definitions/by-object-kind/{kind}
+     * Automation rules acting on an object kind (dynamics↔ontology)
+     * The explore screen&#39;s \&quot;작용 자동화\&quot; panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+     * @param kind
+     * @return DefinitionsByObjectKindResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowDefinitionsByObjectKind(kind: kotlin.String) : DefinitionsByObjectKindResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowDefinitionsByObjectKindWithHttpInfo(kind = kind)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DefinitionsByObjectKindResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/definitions/by-object-kind/{kind}
+     * Automation rules acting on an object kind (dynamics↔ontology)
+     * The explore screen&#39;s \&quot;작용 자동화\&quot; panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+     * @param kind
+     * @return ApiResponse<DefinitionsByObjectKindResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowDefinitionsByObjectKindWithHttpInfo(kind: kotlin.String) : ApiResponse<DefinitionsByObjectKindResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowDefinitionsByObjectKindRequestConfig(kind = kind)
+
+        return@withContext request<Unit, DefinitionsByObjectKindResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowDefinitionsByObjectKind
+     *
+     * @param kind
+     * @return RequestConfig
+     */
+    fun listWorkflowDefinitionsByObjectKindRequestConfig(kind: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/definitions/by-object-kind/{kind}".replace("{"+"kind"+"}", encodeURIComponent(kind.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/workflow-runs
      * Org-wide admin run list, incl. dead-letter (workflow-manage)
      * Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
@@ -16524,8 +16678,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/workflow-studio/definitions/{id}/publish
-     * Publish a workflow definition version
-     * Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+     * Publish a workflow definition version (direct for new, staged for active)
+     * Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response&#39;s pending_version signals a staged (not-yet-applied) revision.
      * @param id
      * @param workflowStepUpRequest
      * @return WorkflowDefinitionResponse
@@ -16557,8 +16711,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/workflow-studio/definitions/{id}/publish
-     * Publish a workflow definition version
-     * Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+     * Publish a workflow definition version (direct for new, staged for active)
+     * Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response&#39;s pending_version signals a staged (not-yet-applied) revision.
      * @param id
      * @param workflowStepUpRequest
      * @return ApiResponse<WorkflowDefinitionResponse?>
@@ -21701,6 +21855,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/location-consent/withdraw",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw
+     * Withdraw (discard) a staged pending revision
+     * Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+     * @param id
+     * @param rev The pending revision (version number) being withdrawn.
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun withdrawWorkflowDefinitionRevision(id: java.util.UUID, rev: kotlin.Int) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = withdrawWorkflowDefinitionRevisionWithHttpInfo(id = id, rev = rev)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw
+     * Withdraw (discard) a staged pending revision
+     * Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+     * @param id
+     * @param rev The pending revision (version number) being withdrawn.
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun withdrawWorkflowDefinitionRevisionWithHttpInfo(id: java.util.UUID, rev: kotlin.Int) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = withdrawWorkflowDefinitionRevisionRequestConfig(id = id, rev = rev)
+
+        return@withContext request<Unit, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation withdrawWorkflowDefinitionRevision
+     *
+     * @param id
+     * @param rev The pending revision (version number) being withdrawn.
+     * @return RequestConfig
+     */
+    fun withdrawWorkflowDefinitionRevisionRequestConfig(id: java.util.UUID, rev: kotlin.Int) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"rev"+"}", encodeURIComponent(rev.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

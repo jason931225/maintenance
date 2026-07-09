@@ -37,6 +37,7 @@ import kotlinx.serialization.Contextual
  * @param paymentLine
  * @param notificationRules
  * @param actionAllowlist
+ * @param sampleContext Sample run context to exercise condition/branch nodes against (defaults to {}).
  */
 @Serializable
 
@@ -55,7 +56,11 @@ data class SimulateWorkflowDefinitionRequest (
     val notificationRules: kotlin.collections.List<@Contextual kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>? = null,
 
     @SerialName(value = "action_allowlist")
-    val actionAllowlist: kotlin.collections.List<WorkflowActionAllowlistEntry>? = null
+    val actionAllowlist: kotlin.collections.List<WorkflowActionAllowlistEntry>? = null,
+
+    /* Sample run context to exercise condition/branch nodes against (defaults to {}). */
+    @Contextual @SerialName(value = "sample_context")
+    val sampleContext: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>? = null
 
 ) {
 

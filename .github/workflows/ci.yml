@@ -839,6 +839,8 @@ jobs:
         # (api role, /readyz) -> playwright (builds + previews web on :5173, proxies
         # /api) -> teardown. Every user-story spec across all roles, real WebAuthn
         # via the CDP virtual authenticator.
+        env:
+          MNT_APP_BIN: ${{ github.workspace }}/backend/target/debug/mnt-app
         run: bash e2e/run.sh
 
       - name: Upload Playwright report + traces

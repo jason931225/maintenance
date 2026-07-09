@@ -35,6 +35,7 @@ import kotlinx.serialization.Contextual
  * @param definitionId
  * @param triggerType
  * @param eventKey
+ * @param subjectKind The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped.
  * @param enabled
  * @param createdAt
  * @param updatedAt
@@ -54,6 +55,10 @@ data class TriggerBindingResponse (
 
     @SerialName(value = "event_key")
     val eventKey: kotlin.String,
+
+    /* The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped. */
+    @SerialName(value = "subject_kind")
+    val subjectKind: kotlin.String?,
 
     @SerialName(value = "enabled")
     val enabled: kotlin.Boolean,

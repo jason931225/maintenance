@@ -22,6 +22,7 @@ pub mod engine;
 pub mod graph;
 pub mod idempotency;
 pub mod interpreter;
+pub mod predicate;
 pub mod trigger;
 
 pub use authz_guard::{
@@ -34,6 +35,7 @@ pub use completion::{
 pub use engine::{
     AuditContext, NodeStepOutcome, ProcessNodeRequest, StartRunRequest, process_node, start_run,
 };
-pub use graph::{DriveOutcome, ExecGraph, drive_from};
+pub use graph::{DriveOutcome, ExecGraph, drive_from, simulate_path};
 pub use interpreter::{HumanTaskSemantic, NodeKind, NodeOutcome, NodeSpec, interpret_node};
+pub use predicate::{CmpOp, Predicate};
 pub use trigger::{TriggeredStart, start_bound_run};

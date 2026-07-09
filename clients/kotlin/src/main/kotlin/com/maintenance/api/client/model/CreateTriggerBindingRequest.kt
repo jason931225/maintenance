@@ -34,6 +34,7 @@ import kotlinx.serialization.Contextual
  * @param definitionId
  * @param triggerType
  * @param eventKey
+ * @param subjectKind Optional ontology object kind the rule acts on; must be a registered object_types.kind.
  * @param enabled
  */
 @Serializable
@@ -48,6 +49,10 @@ data class CreateTriggerBindingRequest (
 
     @SerialName(value = "event_key")
     val eventKey: kotlin.String,
+
+    /* Optional ontology object kind the rule acts on; must be a registered object_types.kind. */
+    @SerialName(value = "subject_kind")
+    val subjectKind: kotlin.String? = null,
 
     @SerialName(value = "enabled")
     val enabled: kotlin.Boolean? = true
