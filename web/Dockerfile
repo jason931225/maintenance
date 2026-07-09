@@ -28,10 +28,11 @@ FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:de3e40ec8b7debd7194fc798d4
 
 # Stopgap until Renovate bumps the base digest: patch the OS libraries the pinned
 # base ships vulnerable so the Trivy HIGH/CRITICAL gate passes — CVE-2026-45447 in
-# libssl3/libcrypto3 (openssl 3.5.7-r0) and CVE-2026-45186 in libexpat (2.8.1-r0).
+# libssl3/libcrypto3 (openssl 3.5.7-r0), CVE-2026-45186 in libexpat (2.8.1-r0),
+# and CVE-2026-33630 in c-ares (1.34.8-r0).
 # apk needs root; the image otherwise runs rootless as uid 101, restored below.
 USER root
-RUN apk upgrade --no-cache libssl3 libcrypto3 libexpat
+RUN apk upgrade --no-cache libssl3 libcrypto3 libexpat c-ares
 USER 101
 
 # Rootless image already runs as uid 101 and listens on 8080.
