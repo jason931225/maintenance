@@ -242,6 +242,7 @@ import com.maintenance.api.client.model.SalesListingPage
 import com.maintenance.api.client.model.SalesListingView
 import com.maintenance.api.client.model.SavePurchasePreferencesRequest
 import com.maintenance.api.client.model.ScheduleRunListResponse
+import com.maintenance.api.client.model.SearchResponse
 import com.maintenance.api.client.model.SendMailRequest
 import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
@@ -255,6 +256,7 @@ import com.maintenance.api.client.model.StartWorkflowRunRequest
 import com.maintenance.api.client.model.StartWorkflowRunResponse
 import com.maintenance.api.client.model.SubmitInquiryRequest
 import com.maintenance.api.client.model.SubmitReportRequest
+import com.maintenance.api.client.model.SubmittableDefinitionListResponse
 import com.maintenance.api.client.model.SubstituteAssignment
 import com.maintenance.api.client.model.SubstituteCandidatePage
 import com.maintenance.api.client.model.SupportIntakeAck
@@ -13698,6 +13700,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/workflow-studio/submittable-definitions
+     * List workflow definitions the caller may start (기안 template gallery)
+     * All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node&#39;s required_policy; absent &#x3D; self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+     * @return SubmittableDefinitionListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listSubmittableWorkflowDefinitions() : SubmittableDefinitionListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listSubmittableWorkflowDefinitionsWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SubmittableDefinitionListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/submittable-definitions
+     * List workflow definitions the caller may start (기안 template gallery)
+     * All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node&#39;s required_policy; absent &#x3D; self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+     * @return ApiResponse<SubmittableDefinitionListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listSubmittableWorkflowDefinitionsWithHttpInfo() : ApiResponse<SubmittableDefinitionListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listSubmittableWorkflowDefinitionsRequestConfig()
+
+        return@withContext request<Unit, SubmittableDefinitionListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listSubmittableWorkflowDefinitions
+     *
+     * @return RequestConfig
+     */
+    fun listSubmittableWorkflowDefinitionsRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/submittable-definitions",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/support/tickets
      * List branch-scoped support tickets with optional filters
      *
@@ -17514,6 +17586,88 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/messenger/search",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/search
+     * Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+     * Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+     * @param q Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits).
+     * @param limit Max hits per object kind, clamped 1-50 (default 20). (optional)
+     * @return SearchResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun searchObjects(q: kotlin.String, limit: kotlin.Long? = null) : SearchResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = searchObjectsWithHttpInfo(q = q, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SearchResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/search
+     * Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+     * Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+     * @param q Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits).
+     * @param limit Max hits per object kind, clamped 1-50 (default 20). (optional)
+     * @return ApiResponse<SearchResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun searchObjectsWithHttpInfo(q: kotlin.String, limit: kotlin.Long?) : ApiResponse<SearchResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = searchObjectsRequestConfig(q = q, limit = limit)
+
+        return@withContext request<Unit, SearchResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation searchObjects
+     *
+     * @param q Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits).
+     * @param limit Max hits per object kind, clamped 1-50 (default 20). (optional)
+     * @return RequestConfig
+     */
+    fun searchObjectsRequestConfig(q: kotlin.String, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("q", listOf(q.toString()))
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/search",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

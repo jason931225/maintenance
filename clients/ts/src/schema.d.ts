@@ -3939,6 +3939,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-studio/submittable-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workflow definitions the caller may start (기안 template gallery)
+         * @description All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node's required_policy; absent = self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+         */
+        get: operations["listSubmittableWorkflowDefinitions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow-studio/definitions/{id}": {
         parameters: {
             query?: never;
@@ -4477,6 +4497,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+         * @description Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+         */
+        get: operations["searchObjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/objects/{kind}/{id}": {
         parameters: {
             query?: never;
@@ -4744,6 +4784,10 @@ export interface components {
             edges: components["schemas"]["ObjectLinkResponse"][];
             /** @description True if the node cap was hit before the walk exhausted the requested depth. */
             truncated: boolean;
+        };
+        /** @description Global search hits, each an ObjectHead scoped identically to resolveObject (a hit the caller could not resolve never appears). Grouped by kind; exists is always true for a hit. */
+        SearchResponse: {
+            results: components["schemas"]["ObjectHead"][];
         };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
@@ -5342,6 +5386,20 @@ export interface components {
         };
         WorkflowDefinitionListResponse: {
             items: components["schemas"]["WorkflowDefinitionResponse"][];
+        };
+        SubmittableDefinitionListResponse: {
+            items: components["schemas"]["SubmittableDefinitionResponse"][];
+        };
+        /** @description An ACTIVE workflow definition the caller may start from the 기안 template gallery. Carries only the metadata definitions actually hold; active_version is the version a start binds to. */
+        SubmittableDefinitionResponse: {
+            id: components["schemas"]["Uuid"];
+            workflow_key: string;
+            display_name: string;
+            object_type: string;
+            /** Format: int32 */
+            active_version: number;
+            required_approval_line: boolean;
+            required_payment_line: boolean;
         };
         WorkflowDefinitionResponse: {
             id: components["schemas"]["Uuid"];
@@ -14824,6 +14882,28 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listSubmittableWorkflowDefinitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Startable ACTIVE definitions for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmittableDefinitionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     archiveWorkflowDefinition: {
         parameters: {
             query?: never;
@@ -15819,6 +15899,34 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    searchObjects: {
+        parameters: {
+            query: {
+                /** @description Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits). */
+                q: string;
+                /** @description Max hits per object kind, clamped 1-50 (default 20). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Caller-visible hits across kinds and the person directory. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     resolveObject: {

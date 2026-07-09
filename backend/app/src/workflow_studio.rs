@@ -7,7 +7,10 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
 };
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
-use mnt_platform_authz::{Action, AuthorizationAuditEvent, Feature, Principal, authorize_org_wide};
+use mnt_platform_authz::{
+    Action, AuthorizationAuditEvent, Feature, PermissionLevel, Principal, authorize_org_wide,
+    permission_for,
+};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_workflow_domain::{
     FinalizeWaitingTaskCommand, PostFinalizationRejectionCommand, RunStatus, TriggerType,
@@ -31,6 +34,8 @@ use uuid::Uuid;
 
 pub const WORKFLOW_STUDIO_CATALOG_PATH: &str = "/api/v1/workflow-studio/catalog";
 pub const WORKFLOW_STUDIO_DEFINITIONS_PATH: &str = "/api/v1/workflow-studio/definitions";
+pub const WORKFLOW_STUDIO_SUBMITTABLE_DEFINITIONS_PATH: &str =
+    "/api/v1/workflow-studio/submittable-definitions";
 pub const WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}";
 pub const WORKFLOW_STUDIO_DEFINITION_HISTORY_PATH_TEMPLATE: &str =
@@ -261,6 +266,10 @@ pub fn router(state: WorkflowStudioState) -> Router {
         .route(
             WORKFLOW_STUDIO_DEFINITIONS_PATH,
             get(list_definitions).post(create_definition),
+        )
+        .route(
+            WORKFLOW_STUDIO_SUBMITTABLE_DEFINITIONS_PATH,
+            get(list_submittable_definitions),
         )
         .route(
             WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE,
@@ -2195,6 +2204,215 @@ async fn list_definitions(
     .await?;
     record_workflow_studio_request("definitions", "success");
     Ok(Json(WorkflowDefinitionListResponse { items }))
+}
+
+#[derive(Debug, Serialize)]
+struct SubmittableDefinitionListResponse {
+    items: Vec<SubmittableDefinitionResponse>,
+}
+
+/// A workflow definition the caller may START from the 기안 template gallery.
+/// Carries only the metadata definitions actually hold — no invented
+/// icon/desc/tone (those are frontend presentation keyed off `workflow_key` /
+/// `object_type`). `active_version` is the version a `POST /workflow-runs` start
+/// binds to.
+#[derive(Debug, Serialize)]
+struct SubmittableDefinitionResponse {
+    id: Uuid,
+    workflow_key: String,
+    display_name: String,
+    object_type: String,
+    active_version: i32,
+    required_approval_line: bool,
+    required_payment_line: bool,
+}
+
+/// Raw ACTIVE-definition row + its active-version graph, before the start-authority
+/// filter is applied in Rust.
+struct SubmittableCandidate {
+    id: Uuid,
+    workflow_key: String,
+    display_name: String,
+    object_type: String,
+    active_version: i32,
+    definition: Value,
+    required_approval_line: bool,
+    required_payment_line: bool,
+}
+
+impl From<SubmittableCandidate> for SubmittableDefinitionResponse {
+    fn from(c: SubmittableCandidate) -> Self {
+        Self {
+            id: c.id,
+            workflow_key: c.workflow_key,
+            display_name: c.display_name,
+            object_type: c.object_type,
+            active_version: c.active_version,
+            required_approval_line: c.required_approval_line,
+            required_payment_line: c.required_payment_line,
+        }
+    }
+}
+
+/// `GET /api/v1/workflow-studio/submittable-definitions` — the all-employee 기안
+/// template gallery source. Unlike every other workflow-studio catalog endpoint
+/// (which is `authorize_workflow_manage` admin-only), this is member-gated
+/// (Feature::Login), because starting an approval is self-service per DESIGN §4.8.
+///
+/// Deny-by-omission: a definition is listed ONLY when it is ACTIVE AND the caller
+/// could actually START it — the identical start authority `start_workflow_run`
+/// enforces (top-level `start_policy`, else the entry node's `required_policy`;
+/// absent = self-service). The catalog must never advertise a definition the
+/// caller would get a 403 starting (no affordance-then-403).
+async fn list_submittable_definitions(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<SubmittableDefinitionListResponse>, WorkflowStudioError> {
+    authorize_workflow_member(&principal)?;
+    let org = principal.org_id;
+    let branch = guard_branch(&principal);
+    let candidates = with_org_conn::<_, Vec<SubmittableCandidate>, WorkflowStudioError>(
+        &state.pool,
+        org,
+        |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT
+                        d.id,
+                        d.workflow_key,
+                        d.display_name,
+                        d.object_type,
+                        d.active_version,
+                        v.definition,
+                        COALESCE(v.required_approval_line, false) AS required_approval_line,
+                        COALESCE(v.required_payment_line, false) AS required_payment_line
+                    FROM workflow_definitions d
+                    JOIN workflow_definition_versions v
+                        ON v.definition_id = d.id
+                       AND v.org_id = d.org_id
+                       AND v.version = d.active_version
+                    WHERE d.status = 'ACTIVE' AND d.active_version IS NOT NULL
+                    ORDER BY d.display_name ASC, d.id ASC
+                    "#,
+                )
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        Ok(SubmittableCandidate {
+                            id: row.try_get("id")?,
+                            workflow_key: row.try_get("workflow_key")?,
+                            display_name: row.try_get("display_name")?,
+                            object_type: row.try_get("object_type")?,
+                            active_version: row.try_get("active_version")?,
+                            definition: row.try_get("definition")?,
+                            required_approval_line: row.try_get("required_approval_line")?,
+                            required_payment_line: row.try_get("required_payment_line")?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, WorkflowStudioError>>()
+            })
+        },
+    )
+    .await?;
+
+    let items = candidates
+        .into_iter()
+        .filter(|c| caller_can_start(&principal, org, branch, c.id, &c.definition))
+        .map(SubmittableDefinitionResponse::from)
+        .collect();
+    record_workflow_studio_request("submittable_definitions", "success");
+    Ok(Json(SubmittableDefinitionListResponse { items }))
+}
+
+/// Read-only mirror of `start_workflow_run`'s start authority (no shadow-audit
+/// side effect — this is a catalog read, not a start). Returns whether the
+/// principal could initiate this definition:
+/// - a definition whose graph fails to parse / has no entry is NOT startable
+///   (a start would 422) → omit;
+/// - `start_policy` = top-level `start_policy`, else the entry node's
+///   `required_policy`; absent = self-service (any member) → include;
+/// - otherwise the SAME legacy guard the start path enforces
+///   (`guard_policy` → `build_guard_request` → `workflow_coexistence_entry` →
+///   `guard`); denied → omit.
+///
+/// The guard resource mirrors the start path's no-object fallback
+/// (`workflow_run` / definition id): start policies gate a capability, not a
+/// per-object grant, so this is the same decision a target-less start makes.
+fn caller_can_start(
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    definition_id: Uuid,
+    definition: &Value,
+) -> bool {
+    let Ok(graph) = ExecGraph::parse(definition) else {
+        return false;
+    };
+    let Ok(entry) = graph.entry_node_key() else {
+        return false;
+    };
+    let entry_policy = match graph.node_spec(entry).map(|spec| &spec.kind) {
+        Some(NodeKind::HumanTask {
+            required_policy, ..
+        }) => required_policy.clone(),
+        _ => None,
+    };
+    let start_policy = definition
+        .get("start_policy")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or(entry_policy);
+    let Some(policy) = start_policy else {
+        return true; // self-service: all-employee 기안/상신 (DESIGN §4.8)
+    };
+    let Some(feature_key) = guard_policy(&policy) else {
+        return false;
+    };
+    let Ok(feature) = Feature::from_str(&feature_key) else {
+        return false;
+    };
+    let Ok(request) = build_guard_request(
+        principal,
+        &feature_key,
+        org,
+        branch,
+        "workflow_run",
+        &definition_id.to_string(),
+        WAITING_COMPLETION_DOMAIN,
+    ) else {
+        return false;
+    };
+    let entry = workflow_coexistence_entry(
+        "workflow.run.start",
+        WAITING_COMPLETION_DOMAIN,
+        feature,
+        "workflow_run".to_owned(),
+    );
+    guard(&request, &entry).is_allowed()
+}
+
+/// All-employee gate for the submittable-templates catalog (Feature::Login),
+/// mirroring `objects::authorize_object_member` — every authenticated tenant
+/// member may browse the 기안 gallery (the per-row start-authority filter is what
+/// scopes what they actually see).
+fn authorize_workflow_member(principal: &Principal) -> Result<(), WorkflowStudioError> {
+    let allowed_by_role = principal
+        .roles
+        .iter()
+        .any(|role| permission_for(*role, Feature::Login) == PermissionLevel::Allow);
+    let allowed_by_grant = principal
+        .effective_feature_grants
+        .iter()
+        .any(|grant| grant.feature == Feature::Login && grant.permission == PermissionLevel::Allow);
+    if allowed_by_role || allowed_by_grant {
+        Ok(())
+    } else {
+        Err(WorkflowStudioError::from(KernelError::forbidden(
+            "submittable definitions require an authenticated tenant member",
+        )))
+    }
 }
 
 async fn create_definition(

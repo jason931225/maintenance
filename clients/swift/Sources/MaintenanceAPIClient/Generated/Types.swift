@@ -1358,6 +1358,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/post(createWorkflowDefinition)`.
     func createWorkflowDefinition(_ input: Operations.CreateWorkflowDefinition.Input) async throws -> Operations.CreateWorkflowDefinition.Output
+    /// List workflow definitions the caller may start (기안 template gallery)
+    ///
+    /// All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node's required_policy; absent = self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/submittable-definitions`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/submittable-definitions/get(listSubmittableWorkflowDefinitions)`.
+    func listSubmittableWorkflowDefinitions(_ input: Operations.ListSubmittableWorkflowDefinitions.Input) async throws -> Operations.ListSubmittableWorkflowDefinitions.Output
     /// Update a draft workflow definition
     ///
     /// Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
@@ -1576,6 +1583,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/v1/object-links/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)`.
     func deleteObjectLink(_ input: Operations.DeleteObjectLink.Input) async throws -> Operations.DeleteObjectLink.Output
+    /// Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+    ///
+    /// Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+    ///
+    /// - Remark: HTTP `GET /api/v1/search`.
+    /// - Remark: Generated from `#/paths//api/v1/search/get(searchObjects)`.
+    func searchObjects(_ input: Operations.SearchObjects.Input) async throws -> Operations.SearchObjects.Output
     /// Resolve any object to a compact head (code, title, status)
     ///
     /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry's responsibility; this endpoint never returns a route/URL.
@@ -4652,6 +4666,15 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// List workflow definitions the caller may start (기안 template gallery)
+    ///
+    /// All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node's required_policy; absent = self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/submittable-definitions`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/submittable-definitions/get(listSubmittableWorkflowDefinitions)`.
+    public func listSubmittableWorkflowDefinitions(headers: Operations.ListSubmittableWorkflowDefinitions.Input.Headers = .init()) async throws -> Operations.ListSubmittableWorkflowDefinitions.Output {
+        try await listSubmittableWorkflowDefinitions(Operations.ListSubmittableWorkflowDefinitions.Input(headers: headers))
+    }
     /// Update a draft workflow definition
     ///
     /// Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
@@ -5156,6 +5179,21 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+    ///
+    /// Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+    ///
+    /// - Remark: HTTP `GET /api/v1/search`.
+    /// - Remark: Generated from `#/paths//api/v1/search/get(searchObjects)`.
+    public func searchObjects(
+        query: Operations.SearchObjects.Input.Query,
+        headers: Operations.SearchObjects.Input.Headers = .init()
+    ) async throws -> Operations.SearchObjects.Output {
+        try await searchObjects(Operations.SearchObjects.Input(
+            query: query,
+            headers: headers
+        ))
+    }
     /// Resolve any object to a compact head (code, title, status)
     ///
     /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry's responsibility; this endpoint never returns a route/URL.
@@ -5583,6 +5621,23 @@ public enum Components {
                 case nodes
                 case edges
                 case truncated
+            }
+        }
+        /// Global search hits, each an ObjectHead scoped identically to resolveObject (a hit the caller could not resolve never appears). Grouped by kind; exists is always true for a hit.
+        ///
+        /// - Remark: Generated from `#/components/schemas/SearchResponse`.
+        public struct SearchResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SearchResponse/results`.
+            public var results: [Components.Schemas.ObjectHead]
+            /// Creates a new `SearchResponse`.
+            ///
+            /// - Parameters:
+            ///   - results:
+            public init(results: [Components.Schemas.ObjectHead]) {
+                self.results = results
+            }
+            public enum CodingKeys: String, CodingKey {
+                case results
             }
         }
         /// - Remark: Generated from `#/components/schemas/CollaborationScopeType`.
@@ -8489,6 +8544,76 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionListResponse`.
+        public struct SubmittableDefinitionListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionListResponse/items`.
+            public var items: [Components.Schemas.SubmittableDefinitionResponse]
+            /// Creates a new `SubmittableDefinitionListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.SubmittableDefinitionResponse]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// An ACTIVE workflow definition the caller may start from the 기안 template gallery. Carries only the metadata definitions actually hold; active_version is the version a start binds to.
+        ///
+        /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse`.
+        public struct SubmittableDefinitionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse/workflow_key`.
+            public var workflowKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse/object_type`.
+            public var objectType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse/active_version`.
+            public var activeVersion: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse/required_approval_line`.
+            public var requiredApprovalLine: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/SubmittableDefinitionResponse/required_payment_line`.
+            public var requiredPaymentLine: Swift.Bool
+            /// Creates a new `SubmittableDefinitionResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - workflowKey:
+            ///   - displayName:
+            ///   - objectType:
+            ///   - activeVersion:
+            ///   - requiredApprovalLine:
+            ///   - requiredPaymentLine:
+            public init(
+                id: Components.Schemas.Uuid,
+                workflowKey: Swift.String,
+                displayName: Swift.String,
+                objectType: Swift.String,
+                activeVersion: Swift.Int32,
+                requiredApprovalLine: Swift.Bool,
+                requiredPaymentLine: Swift.Bool
+            ) {
+                self.id = id
+                self.workflowKey = workflowKey
+                self.displayName = displayName
+                self.objectType = objectType
+                self.activeVersion = activeVersion
+                self.requiredApprovalLine = requiredApprovalLine
+                self.requiredPaymentLine = requiredPaymentLine
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case workflowKey = "workflow_key"
+                case displayName = "display_name"
+                case objectType = "object_type"
+                case activeVersion = "active_version"
+                case requiredApprovalLine = "required_approval_line"
+                case requiredPaymentLine = "required_payment_line"
             }
         }
         /// - Remark: Generated from `#/components/schemas/WorkflowDefinitionResponse`.
@@ -70959,6 +71084,164 @@ public enum Operations {
             }
         }
     }
+    /// List workflow definitions the caller may start (기안 template gallery)
+    ///
+    /// All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node's required_policy; absent = self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/submittable-definitions`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/submittable-definitions/get(listSubmittableWorkflowDefinitions)`.
+    public enum ListSubmittableWorkflowDefinitions {
+        public static let id: Swift.String = "listSubmittableWorkflowDefinitions"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/submittable-definitions/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListSubmittableWorkflowDefinitions.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListSubmittableWorkflowDefinitions.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListSubmittableWorkflowDefinitions.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListSubmittableWorkflowDefinitions.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/submittable-definitions/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/submittable-definitions/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.SubmittableDefinitionListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SubmittableDefinitionListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListSubmittableWorkflowDefinitions.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListSubmittableWorkflowDefinitions.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Startable ACTIVE definitions for the caller.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/submittable-definitions/get(listSubmittableWorkflowDefinitions)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListSubmittableWorkflowDefinitions.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListSubmittableWorkflowDefinitions.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/submittable-definitions/get(listSubmittableWorkflowDefinitions)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/submittable-definitions/get(listSubmittableWorkflowDefinitions)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// Update a draft workflow definition
     ///
     /// Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
@@ -78528,6 +78811,216 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+    ///
+    /// Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+    ///
+    /// - Remark: HTTP `GET /api/v1/search`.
+    /// - Remark: Generated from `#/paths//api/v1/search/get(searchObjects)`.
+    public enum SearchObjects {
+        public static let id: Swift.String = "searchObjects"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/search/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/search/GET/query/q`.
+                public var q: Swift.String
+                /// Max hits per object kind, clamped 1-50 (default 20).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/search/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - q: Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits).
+                ///   - limit: Max hits per object kind, clamped 1-50 (default 20).
+                public init(
+                    q: Swift.String,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.q = q
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.SearchObjects.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/search/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SearchObjects.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SearchObjects.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SearchObjects.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.SearchObjects.Input.Query,
+                headers: Operations.SearchObjects.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/search/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/search/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.SearchResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SearchResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SearchObjects.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SearchObjects.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Caller-visible hits across kinds and the person directory.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/search/get(searchObjects)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SearchObjects.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SearchObjects.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/search/get(searchObjects)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/search/get(searchObjects)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/search/get(searchObjects)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
                             response: self
                         )
                     }
