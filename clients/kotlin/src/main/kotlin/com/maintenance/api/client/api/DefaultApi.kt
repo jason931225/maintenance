@@ -167,6 +167,7 @@ import com.maintenance.api.client.model.NotificationReadAllResponse
 import com.maintenance.api.client.model.NotificationSummary
 import com.maintenance.api.client.model.ObjectActionCatalogResponse
 import com.maintenance.api.client.model.ObjectActionExecutionResponse
+import com.maintenance.api.client.model.ObjectHead
 import com.maintenance.api.client.model.ObjectLinkResponse
 import com.maintenance.api.client.model.ObjectLinksListResponse
 import com.maintenance.api.client.model.OpsSummary
@@ -14825,6 +14826,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/target-change-requests".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/objects/{kind}/{id}
+     * Resolve any object to a compact head (code, title, status, route hint)
+     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+     * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+     * @param id
+     * @return ObjectHead
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun resolveObject(kind: kotlin.String, id: kotlin.String) : ObjectHead = withContext(Dispatchers.IO) {
+        val localVarResponse = resolveObjectWithHttpInfo(kind = kind, id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectHead
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/objects/{kind}/{id}
+     * Resolve any object to a compact head (code, title, status, route hint)
+     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+     * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+     * @param id
+     * @return ApiResponse<ObjectHead?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun resolveObjectWithHttpInfo(kind: kotlin.String, id: kotlin.String) : ApiResponse<ObjectHead?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = resolveObjectRequestConfig(kind = kind, id = id)
+
+        return@withContext request<Unit, ObjectHead>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation resolveObject
+     *
+     * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+     * @param id
+     * @return RequestConfig
+     */
+    fun resolveObjectRequestConfig(kind: kotlin.String, id: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/objects/{kind}/{id}".replace("{"+"kind"+"}", encodeURIComponent(kind.toString())).replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

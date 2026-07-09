@@ -7017,6 +7017,42 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/objects/{kind}/{id}:
+    get:
+      operationId: resolveObject
+      summary: Resolve any object to a compact head (code, title, status, route hint)
+      description: 'Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated.
+        Reuses each domain''s tenant + branch scoping: an object outside the caller''s org/branch scope resolves identically
+        to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: path
+        required: true
+        description: Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The resolved object head (exists=false when not visible/absent).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectHead'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/financial/purchase-requests/preferences:
     get:
       operationId: getPurchaseRequestPreferences
@@ -7297,6 +7333,37 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    ObjectHead:
+      type: object
+      description: Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the
+        caller's scope (indistinguishable, by design).
+      required:
+      - kind
+      - id
+      - url_path
+      - exists
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        code:
+          type: string
+          nullable: true
+          description: Canonical issued code if the kind has one (e.g. work-order request_no); absent otherwise.
+        title:
+          type: string
+          nullable: true
+          description: Human display label if available.
+        status:
+          type: string
+          nullable: true
+          description: Domain status string if available.
+        url_path:
+          type: string
+          description: Frontend route hint for navigating to the object.
+        exists:
+          type: boolean
     CreateObjectLinkRequest:
       type: object
       description: Request to create a directed link between two known objects.

@@ -254,6 +254,7 @@ src/main/kotlin/com/maintenance/api/client/model/ObjectActionDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionExecutionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionFieldDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionFieldOption.kt
+src/main/kotlin/com/maintenance/api/client/model/ObjectHead.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectLinkResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectLinksListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsEquipmentStatus.kt

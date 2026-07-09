@@ -14,7 +14,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
 use axum::{Extension, Json, Router};
-use mnt_kernel_core::{AuditAction, AuditEvent, ErrorKind, KernelError, TraceContext};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext,
+};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Feature, PermissionLevel, Principal, permission_for};
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
@@ -26,8 +28,25 @@ use uuid::Uuid;
 
 pub const OBJECT_LINKS_PATH: &str = "/api/v1/object-links";
 pub const OBJECT_LINK_BY_ID_PATH_TEMPLATE: &str = "/api/v1/object-links/{id}";
+pub const OBJECT_RESOLVE_PATH_TEMPLATE: &str = "/api/objects/{kind}/{id}";
 
-pub const OBJECT_ROUTE_PATHS: &[&str] = &[OBJECT_LINKS_PATH, OBJECT_LINK_BY_ID_PATH_TEMPLATE];
+pub const OBJECT_ROUTE_PATHS: &[&str] = &[
+    OBJECT_LINKS_PATH,
+    OBJECT_LINK_BY_ID_PATH_TEMPLATE,
+    OBJECT_RESOLVE_PATH_TEMPLATE,
+];
+
+/// Object kinds the resolve endpoint can dereference today (single-table
+/// lookups reusing the domain's tenant + branch scoping). Other seeded kinds
+/// resolve as unknown (404) until their resolver ships.
+const RESOLVABLE_KINDS: &[&str] = &[
+    "work_order",
+    "equipment",
+    "support_ticket",
+    "org_unit",
+    "person",
+    "approval_run",
+];
 
 const ID_MAX: usize = 200;
 
@@ -53,6 +72,7 @@ pub fn router(state: ObjectState) -> Router {
             get(list_object_links).post(create_object_link),
         )
         .route(OBJECT_LINK_BY_ID_PATH_TEMPLATE, delete(delete_object_link))
+        .route(OBJECT_RESOLVE_PATH_TEMPLATE, get(resolve_object))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -281,6 +301,270 @@ async fn list_object_links(
     })
     .await?;
     Ok(Json(response))
+}
+
+// ---------------------------------------------------------------------------
+// Resolve: GET /api/objects/{kind}/{id} -> compact ObjectHead.
+// ---------------------------------------------------------------------------
+
+/// Compact, kind-agnostic head for any object. `exists` is the deny-by-omission
+/// signal: an object outside the caller's org/branch scope resolves the SAME as
+/// a genuinely-absent id (`exists: false`), so the caller can never distinguish
+/// "not yours" from "not there". A well-formed but unregistered kind is 404.
+#[derive(Debug, Serialize)]
+struct ObjectHead {
+    kind: String,
+    id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<String>,
+    url_path: String,
+    exists: bool,
+}
+
+#[derive(Debug, Default)]
+struct ResolvedHead {
+    code: Option<String>,
+    title: Option<String>,
+    status: Option<String>,
+}
+
+async fn resolve_object(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Path((kind, id)): Path<(String, String)>,
+) -> Result<Json<ObjectHead>, ObjectError> {
+    authorize_object_member(&principal)?;
+    // A malformed slug is a client error; a well-formed unknown kind is 404.
+    let kind = normalize_kind(&kind, "kind")?;
+    if !RESOLVABLE_KINDS.contains(&kind.as_str()) {
+        return Err(ObjectError::not_found("unknown object kind"));
+    }
+    let url_path = url_path_for(&kind, &id);
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+    let caller = *principal.user_id.as_uuid();
+
+    // Every resolver reads under the caller's armed org (RLS) and, for
+    // branch-scoped kinds, drops rows outside the caller's branch scope — so an
+    // out-of-scope object is indistinguishable from a missing one.
+    let resolved = with_org_conn::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
+        let kind = kind.clone();
+        let id = id.clone();
+        move |tx| {
+            Box::pin(async move {
+                match kind.as_str() {
+                    "work_order" => resolve_work_order(tx, &scope, &id).await,
+                    "equipment" => resolve_equipment(tx, &scope, &id).await,
+                    "support_ticket" => resolve_support_ticket(tx, &scope, &id).await,
+                    "org_unit" => resolve_org_unit(tx, &scope, &id).await,
+                    "person" => resolve_person(tx, &id).await,
+                    "approval_run" => resolve_approval_run(tx, caller, &id).await,
+                    // RESOLVABLE_KINDS gates this match; unreachable otherwise.
+                    _ => Ok(None),
+                }
+            })
+        }
+    })
+    .await?;
+
+    let head = match resolved {
+        Some(fields) => ObjectHead {
+            kind,
+            id,
+            code: fields.code,
+            title: fields.title,
+            status: fields.status,
+            url_path,
+            exists: true,
+        },
+        None => ObjectHead {
+            kind,
+            id,
+            code: None,
+            title: None,
+            status: None,
+            url_path,
+            exists: false,
+        },
+    };
+    Ok(Json(head))
+}
+
+async fn resolve_work_order(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row = sqlx::query("SELECT request_no, status, branch_id FROM work_orders WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(tx.as_mut())
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    let branch_id: Uuid = row.try_get("branch_id")?;
+    if !branch_visible(scope, Some(branch_id)) {
+        return Ok(None);
+    }
+    Ok(Some(ResolvedHead {
+        code: Some(row.try_get("request_no")?),
+        title: None,
+        status: Some(row.try_get("status")?),
+    }))
+}
+
+async fn resolve_equipment(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row =
+        sqlx::query("SELECT manager_name, status, branch_id FROM registry_equipment WHERE id = $1")
+            .bind(uuid)
+            .fetch_optional(tx.as_mut())
+            .await?;
+    let Some(row) = row else { return Ok(None) };
+    let branch_id: Uuid = row.try_get("branch_id")?;
+    if !branch_visible(scope, Some(branch_id)) {
+        return Ok(None);
+    }
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: row.try_get("manager_name")?,
+        status: Some(row.try_get("status")?),
+    }))
+}
+
+async fn resolve_support_ticket(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row = sqlx::query("SELECT title, status, branch_id FROM support_tickets WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(tx.as_mut())
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    // branch_id is nullable: a NULL (org-wide) ticket is visible to any member.
+    let branch_id: Option<Uuid> = row.try_get("branch_id")?;
+    if !branch_visible(scope, branch_id) {
+        return Ok(None);
+    }
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: Some(row.try_get("title")?),
+        status: Some(row.try_get("status")?),
+    }))
+}
+
+async fn resolve_org_unit(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    // The org unit IS a branch: it is visible only if in the caller's scope.
+    if !branch_visible(scope, Some(uuid)) {
+        return Ok(None);
+    }
+    let row = sqlx::query("SELECT name FROM branches WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(tx.as_mut())
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: Some(row.try_get("name")?),
+        status: None,
+    }))
+}
+
+async fn resolve_person(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    // Users are org-scoped (RLS), not branch-scoped; display_name is already
+    // exposed on the messenger member surface, so no extra PII is revealed.
+    let row = sqlx::query("SELECT display_name, is_active FROM users WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(tx.as_mut())
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    let active: bool = row.try_get("is_active")?;
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: Some(row.try_get("display_name")?),
+        status: Some(if active { "active" } else { "inactive" }.to_owned()),
+    }))
+}
+
+async fn resolve_approval_run(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    caller: Uuid,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row = sqlx::query("SELECT status, initiated_by FROM workflow_runs WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(tx.as_mut())
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    // The only run-read surface today is initiator-scoped (list_runs_for_initiator);
+    // match it fail-closed — a non-initiator resolves as not-found.
+    let initiated_by: Option<Uuid> = row.try_get("initiated_by")?;
+    if initiated_by != Some(caller) {
+        return Ok(None);
+    }
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: None,
+        status: Some(row.try_get("status")?),
+    }))
+}
+
+fn url_path_for(kind: &str, id: &str) -> String {
+    match kind {
+        "work_order" => format!("/work-orders/{id}"),
+        "support_ticket" => format!("/support?ticket={id}"),
+        "org_unit" => format!("/settings/org?unit={id}"),
+        "person" => format!("/settings/employees?person={id}"),
+        "equipment" => format!("/registry/equipment/{id}"),
+        "approval_run" => format!("/approvals?run={id}"),
+        _ => format!("/objects/{kind}/{id}"),
+    }
+}
+
+fn parse_uuid(id: &str) -> Option<Uuid> {
+    Uuid::parse_str(id.trim()).ok()
+}
+
+/// Branch-scope visibility. `All` sees everything; a bounded scope sees a row
+/// only when its branch is in scope. A NULL branch (org-wide row) is visible to
+/// any org member.
+fn branch_visible(scope: &BranchScope, branch_id: Option<Uuid>) -> bool {
+    match (scope, branch_id) {
+        (BranchScope::All, _) => true,
+        (BranchScope::Branches(_), None) => true,
+        (BranchScope::Branches(set), Some(branch)) => set.contains(&BranchId::from_uuid(branch)),
+    }
 }
 
 // ---------------------------------------------------------------------------

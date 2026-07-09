@@ -1431,6 +1431,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/v1/object-links/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)`.
     func deleteObjectLink(_ input: Operations.DeleteObjectLink.Input) async throws -> Operations.DeleteObjectLink.Output
+    /// Resolve any object to a compact head (code, title, status, route hint)
+    ///
+    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+    ///
+    /// - Remark: HTTP `GET /api/objects/{kind}/{id}`.
+    /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)`.
+    func resolveObject(_ input: Operations.ResolveObject.Input) async throws -> Operations.ResolveObject.Output
     /// Fetch the current user's purchase request workspace preferences
     ///
     /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/preferences`.
@@ -4664,6 +4671,21 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// Resolve any object to a compact head (code, title, status, route hint)
+    ///
+    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+    ///
+    /// - Remark: HTTP `GET /api/objects/{kind}/{id}`.
+    /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)`.
+    public func resolveObject(
+        path: Operations.ResolveObject.Input.Path,
+        headers: Operations.ResolveObject.Input.Headers = .init()
+    ) async throws -> Operations.ResolveObject.Output {
+        try await resolveObject(Operations.ResolveObject.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// Fetch the current user's purchase request workspace preferences
     ///
     /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/preferences`.
@@ -4732,6 +4754,69 @@ public enum Servers {}
 public enum Components {
     /// Types generated from the `#/components/schemas` section of the OpenAPI document.
     public enum Schemas {
+        /// Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design).
+        ///
+        /// - Remark: Generated from `#/components/schemas/ObjectHead`.
+        public struct ObjectHead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectHead/kind`.
+            public var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectHead/id`.
+            public var id: Swift.String
+            /// Canonical issued code if the kind has one (e.g. work-order request_no); absent otherwise.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectHead/code`.
+            public var code: Swift.String?
+            /// Human display label if available.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectHead/title`.
+            public var title: Swift.String?
+            /// Domain status string if available.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectHead/status`.
+            public var status: Swift.String?
+            /// Frontend route hint for navigating to the object.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectHead/url_path`.
+            public var urlPath: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectHead/exists`.
+            public var exists: Swift.Bool
+            /// Creates a new `ObjectHead`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - id:
+            ///   - code: Canonical issued code if the kind has one (e.g. work-order request_no); absent otherwise.
+            ///   - title: Human display label if available.
+            ///   - status: Domain status string if available.
+            ///   - urlPath: Frontend route hint for navigating to the object.
+            ///   - exists:
+            public init(
+                kind: Swift.String,
+                id: Swift.String,
+                code: Swift.String? = nil,
+                title: Swift.String? = nil,
+                status: Swift.String? = nil,
+                urlPath: Swift.String,
+                exists: Swift.Bool
+            ) {
+                self.kind = kind
+                self.id = id
+                self.code = code
+                self.title = title
+                self.status = status
+                self.urlPath = urlPath
+                self.exists = exists
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case id
+                case code
+                case title
+                case status
+                case urlPath = "url_path"
+                case exists
+            }
+        }
         /// Request to create a directed link between two known objects.
         ///
         /// - Remark: Generated from `#/components/schemas/CreateObjectLinkRequest`.
@@ -71190,6 +71275,237 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Resolve any object to a compact head (code, title, status, route hint)
+    ///
+    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+    ///
+    /// - Remark: HTTP `GET /api/objects/{kind}/{id}`.
+    /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)`.
+    public enum ResolveObject {
+        public static let id: Swift.String = "resolveObject"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+                ///
+                /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/GET/path/kind`.
+                public var kind: Swift.String
+                /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/GET/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - kind: Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+                ///   - id:
+                public init(
+                    kind: Swift.String,
+                    id: Swift.String
+                ) {
+                    self.kind = kind
+                    self.id = id
+                }
+            }
+            public var path: Operations.ResolveObject.Input.Path
+            /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ResolveObject.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ResolveObject.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ResolveObject.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ResolveObject.Input.Path,
+                headers: Operations.ResolveObject.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectHead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectHead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ResolveObject.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ResolveObject.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The resolved object head (exists=false when not visible/absent).
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ResolveObject.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ResolveObject.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
                             response: self
                         )
                     }
