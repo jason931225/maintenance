@@ -43,7 +43,7 @@ import {
   messengerReducer,
   resumeCursor,
 } from "./messenger-state";
-import { connectMessengerRealtime } from "./realtime";
+import { realtimeHub } from "../comms/realtimeHub";
 
 interface MessengerPanelProps {
   api: ConsoleApiClient;
@@ -222,53 +222,34 @@ export function MessengerPanel({
     if (!accessToken) {
       return undefined;
     }
-
-    let closed = false;
-    let connection: { close: () => void } | undefined;
-    let reconnectTimer: number | undefined;
-
-    function open() {
-      connection = connectMessengerRealtime({
-        baseUrl: apiBaseUrl,
-        accessToken,
-        lastMessageId: cursorRef.current,
-        onEvent: (event) => {
-          const selectedThreadId = selectedThreadIdRef.current;
-          dispatch({
-            type: "realtimeEventReceived",
-            event,
-            selectedThreadId,
-            currentUserId,
-          });
-          if (event.message.thread_id === selectedThreadId) {
-            void markRead(event.message.thread_id, event.message.id)
-              .then(() => {
-                dispatch({ type: "threadRead", threadId: event.message.thread_id });
-              })
-              .catch(() => {
-                // Read receipts are best-effort; never let a realtime ack failure
-                // become an unhandled promise rejection.
-              });
-          }
-        },
-        onDisconnect: () => {
-          if (closed) {
-            return;
-          }
-          reconnectTimer = window.setTimeout(open, 1_000);
-        },
-      });
-    }
-
-    open();
-
-    return () => {
-      closed = true;
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
-      }
-      connection?.close();
-    };
+    // One shared /api/v1/ws connection (the hub) fans out to both the rail and
+    // this panel; reconnect + resume-cursor are handled inside the hub.
+    return realtimeHub.subscribe(
+      { baseUrl: apiBaseUrl, accessToken },
+      (event) => {
+        if (event.type !== "message_posted") {
+          return;
+        }
+        const selectedThreadId = selectedThreadIdRef.current;
+        dispatch({
+          type: "realtimeEventReceived",
+          event,
+          selectedThreadId,
+          currentUserId,
+        });
+        if (event.message.thread_id === selectedThreadId) {
+          void markRead(event.message.thread_id, event.message.id)
+            .then(() => {
+              dispatch({ type: "threadRead", threadId: event.message.thread_id });
+            })
+            .catch(() => {
+              // Read receipts are best-effort; never let a realtime ack failure
+              // become an unhandled promise rejection.
+            });
+        }
+      },
+      cursorRef.current,
+    );
   }, [accessToken, apiBaseUrl, currentUserId, markRead]);
 
   async function handleSearch() {
