@@ -7,8 +7,8 @@
 //! If the closure returns `Err`, the transaction is rolled back and NEITHER
 //! the mutation nor the audit row persists — atomicity is the hard contract.
 
-use mnt_kernel_core::{AuditEvent, OrgId};
-use sqlx::{PgPool, Postgres, Transaction};
+use mnt_kernel_core::{AuditEvent, OrgId, UserId};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use crate::error::DbError;
 
@@ -238,6 +238,83 @@ where
             Ok(value)
         }
     }
+}
+
+/// DB-current subject-authorization freshness for a specific `(org, user)`.
+///
+/// The named fields mirror the access-token freshness claims
+/// (`authz_policy_version`, `authz_subject_version`, `session_generation`) so a
+/// mint site that stamps this onto a token cannot transpose them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SubjectAuthzFreshness {
+    pub policy_version: u64,
+    pub subject_version: u64,
+    pub session_generation: u64,
+}
+
+/// Read the DB-current subject-authorization freshness for an EXPLICIT
+/// `(org, user)` under that org's armed `app.current_org` GUC (RLS-scoped, via
+/// [`with_org_conn`]).
+///
+/// This is the read the non-login access-token mint paths — the platform
+/// view-as / tenant-context tokens and the group-admin tenant-context token —
+/// use to stamp REAL freshness instead of the zero baseline (Cedar/PBAC
+/// activation, ADR-0021). The Cedar shadow/enforcing guard re-reads the SAME
+/// `(org, user)` from the SAME tables at guard time, so a token minted with this
+/// snapshot matches the guard read and is not falsely denied as stale/missing.
+/// It is keyed by an EXPLICIT `(org, user)` — not the ambient request org —
+/// because these mints cross the tenant boundary (the token's org is the TARGET
+/// tenant and the subject is the operator/actor).
+///
+/// Absent rows read as 0 — the same "no bump yet" baseline the login path
+/// (`load_user_auth_context_tx`) uses: no `policy_versions` row (no custom policy
+/// write) ⇒ `policy_version = 0`; no `subject_authz_versions` row (no subject
+/// bump — e.g. a platform operator with no `users` row in the target tenant) ⇒
+/// `subject_version = session_generation = 0`.
+pub async fn read_subject_authz_freshness(
+    pool: &PgPool,
+    org: OrgId,
+    user: UserId,
+) -> Result<SubjectAuthzFreshness, DbError> {
+    let org_uuid = *org.as_uuid();
+    let user_uuid = *user.as_uuid();
+    with_org_conn::<_, _, DbError>(pool, org, move |tx| {
+        Box::pin(async move {
+            // Per-org policy revision (keyed by org_id alone; version 0 == no
+            // custom-policy write yet). Same query the login path uses.
+            let policy_version: i64 =
+                sqlx::query_scalar("SELECT version FROM policy_versions WHERE org_id = $1")
+                    .bind(org_uuid)
+                    .fetch_optional(tx.as_mut())
+                    .await
+                    .map_err(DbError::Sqlx)?
+                    .unwrap_or(0);
+
+            // Per-(org,user) subject counters; RLS narrows to the armed org, so
+            // the `user_id` predicate alone is org-scoped. Absent ⇒ (0, 0).
+            let subject_row = sqlx::query(
+                "SELECT version, session_generation FROM subject_authz_versions WHERE user_id = $1",
+            )
+            .bind(user_uuid)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            let (subject_version, session_generation): (i64, i64) = match subject_row {
+                Some(row) => (
+                    row.try_get("version").map_err(DbError::Sqlx)?,
+                    row.try_get("session_generation").map_err(DbError::Sqlx)?,
+                ),
+                None => (0, 0),
+            };
+
+            Ok(SubjectAuthzFreshness {
+                policy_version: u64::try_from(policy_version).unwrap_or(0),
+                subject_version: u64::try_from(subject_version).unwrap_or(0),
+                session_generation: u64::try_from(session_generation).unwrap_or(0),
+            })
+        })
+    })
+    .await
 }
 
 #[cfg(test)]
