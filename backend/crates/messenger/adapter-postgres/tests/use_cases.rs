@@ -57,27 +57,28 @@ async fn message_send_persists_audit_before_post_commit_notify(pool: PgPool) {
                 message_id: message.id,
                 thread_id: thread.id,
                 branch_id: seeded.branch,
-                mentioned_user_ids: Vec::new(),
             }]
         );
     })
     .await;
 }
 
-// AC (UI-M2a): in a messenger input an `@`-mention notifies its target via the
-// message-posted fan-out + recipient unread; a `#` object-link does not
-// (DESIGN §4.7-7). Deny-by-omission: mentioning a non-member notifies no one.
+// AC (UI-M2a): in a messenger input an `@`-mention creates a notification-center
+// row for its target; a `#` object-link does not (DESIGN §4.7-7). Deny-by-
+// omission: mentioning a non-member notifies no one. Wires the real #198
+// NotificationSink, so the assertion is on actual rows, not a discarded field.
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn at_mention_notifies_thread_member_object_link_and_nonmember_do_not(pool: PgPool) {
+async fn at_mention_emits_notification_for_thread_member_only(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
         let seeded = seed_context(&pool).await;
-        let notifier = Arc::new(RecordingNotifier::new(pool.clone()));
-        let store = PgMessengerStore::new(pool.clone()).with_notifier(notifier.clone());
+        let sink =
+            Arc::new(mnt_notifications_adapter_postgres::PgNotificationStore::new(pool.clone()));
+        let store = PgMessengerStore::new(pool.clone()).with_notification_sink(sink);
         // Thread members: sender + recipient. receptionist is NOT a member.
         let thread = create_team_thread(&store, &seeded).await;
         let t0 = OffsetDateTime::now_utc();
 
-        // 1. `@`-mention of a thread member → that member is a notified recipient.
+        // 1. `@`-mention of a thread member → one notification row for that member.
         send_at(
             &store,
             &seeded,
@@ -86,7 +87,7 @@ async fn at_mention_notifies_thread_member_object_link_and_nonmember_do_not(pool
             t0,
         )
         .await;
-        // 2. `#` object-link only (no mention) → no mention recipients.
+        // 2. `#` object-link only (no mention) → no mention notification.
         send_at(
             &store,
             &seeded,
@@ -95,7 +96,7 @@ async fn at_mention_notifies_thread_member_object_link_and_nonmember_do_not(pool
             t0 + Duration::seconds(1),
         )
         .await;
-        // 3. `@`-mention of a NON-member → deny-by-omission, no recipient.
+        // 3. `@`-mention of a NON-member → deny-by-omission, no notification.
         send_at(
             &store,
             &seeded,
@@ -105,23 +106,35 @@ async fn at_mention_notifies_thread_member_object_link_and_nonmember_do_not(pool
         )
         .await;
 
-        let calls = notifier.calls.lock().unwrap().clone();
-        assert_eq!(calls.len(), 3);
         assert_eq!(
-            calls[0].mentioned_user_ids,
-            vec![seeded.recipient],
-            "@-mention of a thread member must resolve to that recipient",
+            notification_count(&pool, seeded.recipient).await,
+            1,
+            "@-mention of a thread member emits exactly one notification",
         );
-        assert!(
-            calls[1].mentioned_user_ids.is_empty(),
-            "a #-object-link must not notify anyone",
+        assert_eq!(
+            notification_count(&pool, seeded.receptionist).await,
+            0,
+            "a non-member mention emits nothing (deny-by-omission)",
         );
-        assert!(
-            calls[2].mentioned_user_ids.is_empty(),
-            "mentioning a non-member must resolve to no recipient (deny-by-omission)",
+        assert_eq!(
+            notification_count(&pool, seeded.sender).await,
+            0,
+            "the sender never notifies itself",
         );
 
-        // The recipient's unread reflects the delivered fan-out (all 3 posts).
+        // Stable dedup key `msg-mention:{message_id}:{recipient}` for at-most-once.
+        let key: String =
+            sqlx::query_scalar("SELECT dedup_key FROM notifications WHERE recipient_user_id = $1")
+                .bind(*seeded.recipient.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            key.starts_with("msg-mention:") && key.ends_with(&format!(":{}", seeded.recipient)),
+            "unexpected dedup key {key}",
+        );
+
+        // Thread unread still reflects the ordinary fan-out (all 3 posts).
         let threads = store
             .list_threads(ListThreadsQuery {
                 actor: seeded.recipient,
@@ -130,13 +143,24 @@ async fn at_mention_notifies_thread_member_object_link_and_nonmember_do_not(pool
             })
             .await
             .unwrap();
-        let summary = threads
-            .iter()
-            .find(|t| t.id == thread.id)
-            .expect("recipient sees the thread");
-        assert_eq!(summary.unread_count, 3);
+        assert_eq!(
+            threads
+                .iter()
+                .find(|t| t.id == thread.id)
+                .expect("recipient sees the thread")
+                .unread_count,
+            3,
+        );
     })
     .await;
+}
+
+async fn notification_count(pool: &PgPool, recipient: UserId) -> i64 {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM notifications WHERE recipient_user_id = $1")
+        .bind(*recipient.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 // AC (UI-M2a): opening a person chip pins a summary from a real branch-scoped

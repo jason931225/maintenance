@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, UserId,
-    WorkOrderId,
+    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, TraceContext,
+    UserId, WorkOrderId,
 };
 use mnt_messenger_application::{
     CreateThreadCommand, EnsureWorkOrderThreadCommand, ListMembersQuery, ListThreadsQuery,
@@ -14,6 +14,8 @@ use mnt_messenger_application::{
     SearchMessagesQuery, SendMessageCommand, ThreadSummary, messenger_audit_event,
 };
 use mnt_messenger_domain::{MessageBody, ThreadKind, extract_mention_user_ids};
+use mnt_notifications_application::{EmitNotificationCommand, NotificationSink};
+use mnt_notifications_domain::NotificationLink;
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
@@ -56,6 +58,7 @@ impl From<sqlx::Error> for PgMessengerError {
 pub struct PgMessengerStore {
     pool: PgPool,
     notifier: Option<Arc<dyn MessageNotifier>>,
+    notification_sink: Option<Arc<dyn NotificationSink>>,
 }
 
 impl std::fmt::Debug for PgMessengerStore {
@@ -63,6 +66,7 @@ impl std::fmt::Debug for PgMessengerStore {
         f.debug_struct("PgMessengerStore")
             .field("pool", &self.pool)
             .field("has_notifier", &self.notifier.is_some())
+            .field("has_notification_sink", &self.notification_sink.is_some())
             .finish()
     }
 }
@@ -73,12 +77,21 @@ impl PgMessengerStore {
         Self {
             pool,
             notifier: None,
+            notification_sink: None,
         }
     }
 
     #[must_use]
     pub fn with_notifier(mut self, notifier: Arc<dyn MessageNotifier>) -> Self {
         self.notifier = Some(notifier);
+        self
+    }
+
+    /// Wire the notification-center write port so an `@`-mention creates a
+    /// recipient notification row (post-commit, best-effort).
+    #[must_use]
+    pub fn with_notification_sink(mut self, sink: Arc<dyn NotificationSink>) -> Self {
+        self.notification_sink = Some(sink);
         self
     }
 
@@ -285,25 +298,52 @@ impl PgMessengerStore {
         .await?;
 
         if let Some(notifier) = &self.notifier {
-            // DESIGN §4.7-7: `@` mentions notify their target, `#`/`!` links do
-            // not. Resolve the body's `@<uuid>` tokens to real recipients
-            // (thread members, minus the sender) and hand them to the notifier
-            // on top of the ordinary thread fan-out.
-            let mentioned_user_ids = resolve_mention_recipients(
+            notifier
+                .message_posted(MessagePostedNotification {
+                    message_id: summary.id,
+                    thread_id: summary.thread_id,
+                    branch_id: summary.branch_id,
+                })
+                .await;
+        }
+
+        // DESIGN §4.7-7: an `@`-mention notifies its target; `#`/`!` links do
+        // not. Resolve the body's `@<uuid>` tokens to real thread members (minus
+        // the sender) and emit one notification-center row per recipient — ids /
+        // refs only, no message body (no PII on the wire). Best-effort: the
+        // message is already committed, so a failed emit is logged, not fatal.
+        // The stable dedup key makes a retried emit a no-op.
+        if let Some(sink) = &self.notification_sink {
+            let recipients = resolve_mention_recipients(
                 &self.pool,
                 summary.thread_id,
                 command.actor,
                 summary.body.as_str(),
             )
             .await?;
-            notifier
-                .message_posted(MessagePostedNotification {
-                    message_id: summary.id,
-                    thread_id: summary.thread_id,
-                    branch_id: summary.branch_id,
-                    mentioned_user_ids,
-                })
-                .await;
+            for recipient in recipients {
+                let emit = EmitNotificationCommand {
+                    actor: Some(command.actor),
+                    recipient,
+                    category: "메신저".to_owned(),
+                    text: "메신저에서 회원님을 멘션했습니다".to_owned(),
+                    link: NotificationLink::Object {
+                        kind: "messenger_thread".to_owned(),
+                        id: summary.thread_id.to_string(),
+                    },
+                    dedup_key: Some(format!("msg-mention:{}:{}", summary.id, recipient)),
+                    trace: TraceContext::generate(),
+                    occurred_at: time::OffsetDateTime::now_utc(),
+                };
+                if let Err(err) = sink.emit(emit).await {
+                    tracing::warn!(
+                        message_id = %summary.id,
+                        %recipient,
+                        error = %err,
+                        "messenger mention notification emit failed"
+                    );
+                }
+            }
         }
 
         Ok(summary)

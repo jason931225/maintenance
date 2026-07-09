@@ -13,11 +13,10 @@ fn message_notify_payload_serializes_ids_only_under_postgres_ceiling() {
         message_id: MessageId::new(),
         thread_id: ThreadId::new(),
         branch_id: BranchId::new(),
-        mentioned_user_ids: Vec::new(),
     };
     let org_id = OrgId::knl();
 
-    let bytes = MessageNotifyPayload::from_notification(notification.clone(), org_id)
+    let bytes = MessageNotifyPayload::from_notification(notification, org_id)
         .to_json_bytes()
         .unwrap();
     assert!(

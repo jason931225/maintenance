@@ -11,6 +11,8 @@ publish.workspace = true
 mnt-kernel-core = { workspace = true }
 mnt-messenger-application = { workspace = true }
 mnt-messenger-domain = { workspace = true }
+mnt-notifications-application = { workspace = true }
+mnt-notifications-domain = { workspace = true }
 mnt-platform-db = { workspace = true }
 mnt-platform-request-context = { workspace = true }
 mnt-workorder-application = { workspace = true }
@@ -18,9 +20,11 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+mnt-notifications-adapter-postgres = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
