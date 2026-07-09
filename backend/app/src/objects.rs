@@ -541,19 +541,68 @@ async fn resolve_object(
         crate::workflow_studio::guard_branch(&principal),
     );
 
+    // B1: a DIRECT top-level resolve of a person card is a "who looked up whom"
+    // event, so it mirrors GET /api/messenger/members/{id}'s person.view audit —
+    // but ONLY for a NON-SELF subject that actually resolves. A self-view or an
+    // out-of-scope/absent subject (which resolves to None) emits nothing, exactly
+    // like get_member. A person reached incidentally by an object_graph WALK is
+    // NOT a card view and emits nothing — object_graph calls resolve_head
+    // directly and never this path.
+    let audit_subject: Option<Uuid> = if kind == "person" {
+        parse_uuid(&id).filter(|subject| *subject != caller)
+    } else {
+        None
+    };
+    let actor = principal.user_id;
+
     // Every resolver reads under the caller's armed org (RLS) and, for
     // branch-scoped kinds, drops rows outside the caller's branch scope — so an
     // out-of-scope object is indistinguishable from a missing one.
-    let resolved = with_org_conn::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
-        let kind = kind.clone();
-        let id = id.clone();
-        move |tx| {
-            Box::pin(async move {
-                resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id).await
-            })
-        }
-    })
-    .await?;
+    let resolved = if let Some(subject) = audit_subject {
+        // Audit-in-read-tx: the person.view row and the read commit (or roll
+        // back) together — the same guarantee messenger's audited member_profile
+        // gives — using with_audits so the event is emitted conditionally on the
+        // person actually resolving.
+        with_audits::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
+            let kind = kind.clone();
+            let id = id.clone();
+            move |tx| {
+                Box::pin(async move {
+                    let head =
+                        resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id)
+                            .await?;
+                    let events = if head.is_some() {
+                        vec![
+                            AuditEvent::new(
+                                Some(actor),
+                                AuditAction::new("person.view")?,
+                                "person",
+                                subject.to_string(),
+                                TraceContext::generate(),
+                                OffsetDateTime::now_utc(),
+                            )
+                            .with_org(org),
+                        ]
+                    } else {
+                        Vec::new()
+                    };
+                    Ok((head, events))
+                })
+            }
+        })
+        .await?
+    } else {
+        with_org_conn::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
+            let kind = kind.clone();
+            let id = id.clone();
+            move |tx| {
+                Box::pin(async move {
+                    resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id).await
+                })
+            }
+        })
+        .await?
+    };
 
     Ok(Json(object_head_from_resolved(kind, id, resolved)))
 }
