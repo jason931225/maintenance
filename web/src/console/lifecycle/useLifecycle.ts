@@ -27,16 +27,20 @@ export function useLifecycle(objectType: string, objectId: string): UseLifecycle
 
   const reload = useCallback(async () => {
     setStatus("loading");
-    const { data, response } = await api.GET(PATH, {
-      params: { path: { objectType, objectId } },
-    });
-    if (data) {
-      setRecord(data);
-      setStatus("ready");
-    } else if (response.status === 404) {
-      // No lifecycle row yet — the object exists but has never transitioned.
-      setStatus("absent");
-    } else {
+    try {
+      const { data, response } = await api.GET(PATH, {
+        params: { path: { objectType, objectId } },
+      });
+      if (data) {
+        setRecord(data);
+        setStatus("ready");
+      } else if (response.status === 404) {
+        // No lifecycle row yet — the object exists but has never transitioned.
+        setStatus("absent");
+      } else {
+        setStatus("error");
+      }
+    } catch {
       setStatus("error");
     }
   }, [api, objectType, objectId]);

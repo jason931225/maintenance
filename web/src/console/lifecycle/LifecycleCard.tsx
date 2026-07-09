@@ -5,7 +5,7 @@
 // LifecycleManage authority server-side; the local gate mirrors that from the
 // JWT role hint until the shared /me/authz gate (cc-policy lane) lands.
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
@@ -30,6 +30,8 @@ export interface LifecycleCardProps {
 export function LifecycleCard({ objectType, objectId, title, mode = "live", asOfDate }: LifecycleCardProps) {
   const { session } = useAuth();
   const { record, status, transition, setHold } = useLifecycle(objectType, objectId);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
   // ponytail: coarse JWT-hint gate. Real authority is org-wide LifecycleManage
   // resolved by the shared /me/authz gate the sibling cc-policy lane builds;
@@ -40,6 +42,30 @@ export function LifecycleCard({ objectType, objectId, title, mode = "live", asOf
   }, [session]);
 
   const chain = chainFor(objectType);
+
+  async function guardedTransition(toState: string, reason: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await transition(toState, reason);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function guardedSetHold(legalHold: boolean, retentionUntil?: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await setHold(legalHold, retentionUntil);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
 
   if (!chain) return <Notice text={t.absent} />;
   if (status === "loading") return <Notice text={t.loading} />;
@@ -54,8 +80,9 @@ export function LifecycleCard({ objectType, objectId, title, mode = "live", asOf
         title={title}
         mode={mode}
         asOfDate={asOfDate}
-        onTransition={mode === "asOf" ? undefined : (to, reason) => void transition(to, reason)}
-        onSetHold={mode === "asOf" ? undefined : (hold, until) => void setHold(hold, until)}
+        busy={busy}
+        onTransition={mode === "asOf" ? undefined : (to, reason) => void guardedTransition(to, reason)}
+        onSetHold={mode === "asOf" ? undefined : (hold, until) => void guardedSetHold(hold, until)}
       />
     </PolicyProvider>
   );

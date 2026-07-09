@@ -201,6 +201,7 @@ export function LifecycleCardView({
                       disabled={!canSubmit || disposeGated}
                       aria-disabled={!canSubmit || disposeGated}
                       onClick={() => {
+                        if (!canSubmit || disposeGated) return;
                         onTransition?.(to, reason.trim());
                         setReason("");
                       }}
@@ -274,6 +275,7 @@ export function LifecycleCardView({
             data-hold-apply
             disabled={readOnly || busy}
             onClick={() => {
+              if (readOnly || busy) return;
               onSetHold?.(legalHold, retentionUntil || undefined);
             }}
             style={{

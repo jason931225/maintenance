@@ -71,6 +71,15 @@ describe("LifecycleCard (wired to the real BE-LC REST surface)", () => {
     });
   });
 
+
+  it("shows the error state when the lifecycle reload throws", async () => {
+    server.use(
+      http.get(`*/api/v1/lifecycles/document/${OBJECT_ID}`, () => HttpResponse.error()),
+    );
+    renderCard(session(["ADMIN"]));
+    expect(await screen.findByText("생애주기를 불러오지 못했습니다")).toBeInTheDocument();
+  });
+
   it("fires the real transition mutation with the typed body and reflects the new state", async () => {
     const bodies: unknown[] = [];
     server.use(
@@ -90,6 +99,25 @@ describe("LifecycleCard (wired to the real BE-LC REST surface)", () => {
     await waitFor(() => {
       expect(container.querySelector('[data-step="active"]')).toHaveAttribute("data-step-status", "current");
     });
+  });
+
+
+  it("keeps only one transition in flight while a mutation is pending", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.get(`*/api/v1/lifecycles/document/${OBJECT_ID}`, () => HttpResponse.json(stepperFixture)),
+      http.post(`*/api/v1/lifecycles/document/${OBJECT_ID}/transition`, async ({ request }) => {
+        bodies.push(await request.json());
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return HttpResponse.json(activeRecord);
+      }),
+    );
+    const user = userEvent.setup();
+    renderCard(session(["ADMIN"]));
+    await screen.findByRole("button", { name: "활성" });
+    await user.type(screen.getByPlaceholderText(/사유/), "효력 발생 처리");
+    await user.dblClick(screen.getByRole("button", { name: "활성" }));
+    await waitFor(() => { expect(bodies).toHaveLength(1); });
   });
 
   it("fires the real hold mutation with the legal-hold and retention body", async () => {
