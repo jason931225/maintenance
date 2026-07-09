@@ -58,11 +58,11 @@ A four-part audit established the exact shape of the problem:
 7. **`mail_sync` HA fix** (above).
 8. **Self-hosted observability** — OTel + VictoriaMetrics/LGTM + Grafana; supersede `log-persistence.md` Direction A; adopt the wide-event/matched-template-label discipline.
 9. **Anti-regression gates** — lift `oya-check-iac-tier-discipline` as `mnt-gate-iac-tier`; add a vendor phase-out registry gate.
-10. **Doc/ADR de-OCI** — supersede ADR-0005 (WORM replica → separate site), ADR-0015 (DR → multi-node/multi-site), and the OCI assumptions in OPS-RUNBOOK.md / ENTERPRISE-READINESS.md / GO-LIVE-CHECKLIST.md; write a bare-metal operator runbook.
+10. **Doc/ADR portability alignment** — supersede ADR-0005 (WORM replica → separate site), ADR-0015 (DR → multi-node/multi-site), and single-substrate assumptions in OPS-RUNBOOK.md / ENTERPRISE-READINESS.md / GO-LIVE-CHECKLIST.md; write a bare-metal operator runbook while keeping OCI documented as a supported substrate.
 
-## Adopted from oyatie (full-license reuse; paths under `/Users/jasonlee/Developer/oyatie/`)
+## Adopted from oyatie (full-license reuse; repo-relative symbols)
 
-Lift-and-reuse: `infra/external-secrets/*` + `infra/kms/openbao.k8s.yaml` (secrets); `libs/oya-check-iac-tier-discipline/src/lib.rs` (CI gate, pure std); `infra/observability/observability.k8s.yaml` (OTel→VictoriaMetrics→Grafana); `infra/seaweedfs/seaweedfs.k8s.yaml`; `infra/gitops/{root-app.yaml,values.yaml}` (app-of-apps + sync-waves). Pattern-to-replicate: the 5-context OpenTofu layout (ADR-0339); Talos-media + CAPI + per-cell ArgoCD (ADR-0375); ApplicationSet multi-cell federation (ADR-0171); OpenBao/HSM per cell (ADR-0043); autosharding (ADR-0348); wide-event observability middleware (`oya-http-wide-event-middleware-infrastructure`, ADR-0536); vendor phase-out registry + gate (ADR-0173). Value objects worth porting: `oya-secrets-domain` `SecretReference`/lease/`ZeroizingSecret`. **Do not** adopt `cloud/cloud-kernel` (an unrelated OS microkernel).
+Lift-and-reuse from the sibling oyatie repository: `infra/external-secrets/*` + `infra/kms/openbao.k8s.yaml` (secrets); `libs/oya-check-iac-tier-discipline/src/lib.rs` (CI gate, pure std); `infra/observability/observability.k8s.yaml` (OTel→VictoriaMetrics→Grafana); `infra/seaweedfs/seaweedfs.k8s.yaml`; `infra/gitops/{root-app.yaml,values.yaml}` (app-of-apps + sync-waves). Pattern-to-replicate: the 5-context OpenTofu layout (ADR-0339); Talos-media + CAPI + per-cell ArgoCD (ADR-0375); ApplicationSet multi-cell federation (ADR-0171); OpenBao/HSM per cell (ADR-0043); autosharding (ADR-0348); wide-event observability middleware (`oya-http-wide-event-middleware-infrastructure`, ADR-0536); vendor phase-out registry + gate (ADR-0173). Value objects worth porting: `oya-secrets-domain` `SecretReference`/lease/`ZeroizingSecret`. **Do not** adopt `cloud/cloud-kernel` (an unrelated OS microkernel).
 
 ## Consequences
 
