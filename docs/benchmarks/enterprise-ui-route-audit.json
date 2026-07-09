@@ -1357,6 +1357,52 @@
       "denialScopeTest": "Employee data cannot map to machinery/site schemas; PII/payroll/location fields require domain permissions and masking",
       "screenshotTraceEvidence": "Pending G003/G008 import/catalog screenshot and trace; raw-cell preservation proof required for data claims",
       "groupScopeStory": "Group data admin can standardize schemas across subsidiaries while apply permissions remain domain/org scoped"
+    },
+    {
+      "rawPath": "/console",
+      "canonicalPath": "/console",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "sales-admin",
+        "data-steward",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "Carbon-copy console entry (charter D1/P0.0): mounted behind ProtectedRoute like every authenticated route; scaffold-only empty themed viewport, screens land in later slices (P0.1+)",
+      "accessibilityEvidence": "P0.0 scaffold renders no interactive chrome yet; axe/keyboard coverage is asserted per screen from P0.1 onward via e2e/fixtures/ux.ts assertNoAxeViolations",
+      "ownerLane": "feat/console-cc P0.0 scaffold lane — verbatim tokens (web/src/console/tokens.css) + zero-visual-inheritance guard (web/scripts/check-console-purity.mjs)",
+      "dataClass": "none in P0.0 — the scaffold renders an empty themed viewport and makes no backend reads; per-screen data classes are declared as each screen slice binds its real API",
+      "sourceObject": "none in P0.0 — no object is resolved yet; the state.screen-driven navigation and object substrate arrive with the P0.1 shell and later screen slices",
+      "lifecycleStates": "P0.0 scaffold has a single state (empty themed viewport); window/pin engine states (grid/pin-split/popout/tray) arrive in P0.2",
+      "e2eSpec": "Required browser story: fidelity dual-capture rig (e2e/fidelity/capture.mjs) renders the dc.html reference + built /console at 1440px and asserts the .console canvas background matches; per-screen persona browser stories arrive with each screen slice",
+      "denialScopeTest": "ProtectedRoute + hasGrantedConsoleAccess gate /console like all authenticated routes; PBAC deny-by-omission scope tests arrive with the P0.1 nav filter and per-screen slices",
+      "screenshotTraceEvidence": "Fidelity rig manifest (e2e/.artifacts/fidelity/manifest.json) captures the reference/build screenshot pair; both sample the identical .console canvas background #f2f4f7",
+      "groupScopeStory": "Scope switcher (그룹 전체 = union of authorized 법인) arrives in P0.1; P0.0 only establishes the authenticated viewport shell with no cross-org surface yet"
+    },
+    {
+      "rawPath": "/console/*",
+      "canonicalPath": "/console",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "sales-admin",
+        "data-steward",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "Catch-all under /console so prototype-style state.screen navigation lives in one route (charter D1); same ConsoleApp/ProtectedRoute gate as /console, scaffold-only in P0.0",
+      "accessibilityEvidence": "P0.0 scaffold renders no interactive chrome yet; axe/keyboard coverage is asserted per screen from P0.1 onward via e2e/fixtures/ux.ts assertNoAxeViolations",
+      "ownerLane": "feat/console-cc P0.0 scaffold lane — verbatim tokens (web/src/console/tokens.css) + zero-visual-inheritance guard (web/scripts/check-console-purity.mjs)",
+      "dataClass": "none in P0.0 — the scaffold renders an empty themed viewport and makes no backend reads; per-screen data classes are declared as each screen slice binds its real API",
+      "sourceObject": "none in P0.0 — no object is resolved yet; the state.screen-driven navigation and object substrate arrive with the P0.1 shell and later screen slices",
+      "lifecycleStates": "P0.0 scaffold has a single state (empty themed viewport); window/pin engine states (grid/pin-split/popout/tray) arrive in P0.2",
+      "e2eSpec": "Required browser story: fidelity dual-capture rig (e2e/fidelity/capture.mjs) renders the dc.html reference + built /console at 1440px and asserts the .console canvas background matches; per-screen persona browser stories arrive with each screen slice",
+      "denialScopeTest": "ProtectedRoute + hasGrantedConsoleAccess gate /console/* like all authenticated routes; PBAC deny-by-omission scope tests arrive with the P0.1 nav filter and per-screen slices",
+      "screenshotTraceEvidence": "Fidelity rig manifest (e2e/.artifacts/fidelity/manifest.json) captures the reference/build screenshot pair; both sample the identical .console canvas background #f2f4f7",
+      "groupScopeStory": "Scope switcher (그룹 전체 = union of authorized 법인) arrives in P0.1; P0.0 only establishes the authenticated viewport shell with no cross-org surface yet"
     }
   ],
   "epEvidence": [

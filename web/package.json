@@ -7,7 +7,7 @@
     "dev": "vite --host localhost",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --max-warnings 0 && node scripts/check-ui-strings.mjs",
+    "lint": "eslint . --max-warnings 0 && node scripts/check-ui-strings.mjs && node scripts/check-console-purity.mjs",
     "test": "vitest run"
   },
   "dependencies": {
