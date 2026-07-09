@@ -148,13 +148,15 @@ async fn runtime_flag_enabled_cached(
         flag: flag_key,
     };
     let now = Instant::now();
-    if let Some((enabled, cached_at)) = RUNTIME_FLAG_CACHE
-        .get_or_init(|| Mutex::new(BTreeMap::new()))
-        .lock()
-        .expect("runtime flag cache mutex poisoned")
-        .get(&key)
-        .copied()
-        .filter(|(_, cached_at)| now.duration_since(*cached_at) < RUNTIME_FLAG_CACHE_TTL)
+    let cached = {
+        let cache = RUNTIME_FLAG_CACHE
+            .get_or_init(|| Mutex::new(BTreeMap::new()))
+            .lock()
+            .map_err(|_err| "runtime flag cache mutex poisoned".to_string())?;
+        cache.get(&key).copied()
+    };
+    if let Some((enabled, _cached_at)) =
+        cached.filter(|(_, cached_at)| now.duration_since(*cached_at) < RUNTIME_FLAG_CACHE_TTL)
     {
         return Ok(enabled);
     }
@@ -166,7 +168,7 @@ async fn runtime_flag_enabled_cached(
     RUNTIME_FLAG_CACHE
         .get_or_init(|| Mutex::new(BTreeMap::new()))
         .lock()
-        .expect("runtime flag cache mutex poisoned")
+        .map_err(|_err| "runtime flag cache mutex poisoned".to_string())?
         .insert(key, (enabled, now));
     Ok(enabled)
 }
