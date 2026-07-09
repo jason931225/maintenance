@@ -4945,6 +4945,145 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/inbox-docs:
+    get:
+      operationId: listMyInboxDocs
+      summary: List the authenticated user's statutory-notice vault (개인 수신함)
+      description: >-
+        Metadata only — a locked legal notice's body never appears in the list.
+        The recipient is bound from the JWT; a non-recipient sees nothing.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: filter
+        in: query
+        required: false
+        description: >-
+          확인 필요 (`action`) = legal notices awaiting receipt; 급여명세 (`pay`) =
+          payslips; 완료 (`done`) = confirmed; 전체 (`all`, default).
+        schema:
+          type: string
+          enum: [action, pay, done, all]
+      - name: before
+        in: query
+        required: false
+        description: Keyset cursor; return documents strictly older than this id.
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        description: Page size (clamped server-side to 1..=200; default 50).
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: A page of the caller's inbox documents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxDocPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Unknown filter value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/inbox-docs/{id}:
+    get:
+      operationId: getMyInboxDoc
+      summary: Read one of the authenticated user's inbox documents
+      description: >-
+        Reading a LOCKED legal notice returns its metadata with `payload`
+        omitted and does NOT auto-confirm receipt. A payslip (and an
+        already-confirmed legal notice) returns its `payload`.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The document (body withheld while locked).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxDocDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/inbox-docs/{id}/confirm-receipt:
+    post:
+      operationId: confirmMyInboxDocReceipt
+      summary: Confirm receipt of a legal notice (the legal receipt evidence)
+      description: >-
+        Requires a FRESH passkey step-up: confirmation IS the legally
+        significant act of receipt (열람 = 법적 수령), audited with receipt
+        semantics. Idempotent — a second confirm returns the existing stamp.
+        Only a legal notice can be confirmed; a payslip is a frictionless
+        self-view (422). Another user's / unknown document is 404.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboxDocConfirmReceiptRequest'
+      responses:
+        '200':
+          description: The confirmed document, unlocked and stamped.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxDocSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: The document is a payslip and cannot be receipt-confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '428':
+          description: A fresh passkey step-up is required to confirm receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: JWT verification or passkey step-up is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/todos:
     get:
       operationId: listMyTodos
@@ -6612,6 +6751,29 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/submittable-definitions:
+    get:
+      operationId: listSubmittableWorkflowDefinitions
+      summary: List workflow definitions the caller may start (기안 template gallery)
+      description: 'All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the
+        caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the
+        caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy,
+        else the entry node''s required_policy; absent = self-service all-employee). The catalog never advertises a
+        definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented
+        icon/desc/tone — those are frontend presentation).'
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Startable ACTIVE definitions for the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmittableDefinitionListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/workflow-studio/definitions/{id}:
     patch:
       operationId: updateWorkflowDefinition
@@ -7835,6 +7997,45 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/search:
+    get:
+      operationId: searchObjects
+      summary: Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+      description: 'Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order,
+        equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared
+        branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for
+        work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for
+        every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS.
+        Deny-by-omission: never a 403 for an out-of-scope kind, just absence.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        description: Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits).
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        description: Max hits per object kind, clamped 1-50 (default 20).
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Caller-visible hits across kinds and the person directory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/objects/{kind}/{id}:
     get:
       operationId: resolveObject
@@ -8534,6 +8735,17 @@ components:
         truncated:
           type: boolean
           description: True if the node cap was hit before the walk exhausted the requested depth.
+    SearchResponse:
+      type: object
+      description: Global search hits, each an ObjectHead scoped identically to resolveObject (a hit the caller could
+        not resolve never appears). Grouped by kind; exists is always true for a hit.
+      required:
+      - results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObjectHead'
     CollaborationScopeType:
       type: string
       enum:
@@ -10262,6 +10474,43 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WorkflowDefinitionResponse'
+    SubmittableDefinitionListResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubmittableDefinitionResponse'
+    SubmittableDefinitionResponse:
+      type: object
+      description: An ACTIVE workflow definition the caller may start from the 기안 template gallery. Carries only the
+        metadata definitions actually hold; active_version is the version a start binds to.
+      required:
+      - id
+      - workflow_key
+      - display_name
+      - object_type
+      - active_version
+      - required_approval_line
+      - required_payment_line
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        workflow_key:
+          type: string
+        display_name:
+          type: string
+        object_type:
+          type: string
+        active_version:
+          type: integer
+          format: int32
+        required_approval_line:
+          type: boolean
+        required_payment_line:
+          type: boolean
     WorkflowDefinitionResponse:
       type: object
       required:
@@ -14319,6 +14568,97 @@ components:
           type: integer
           format: int64
           description: The number of the caller's unread notifications.
+    InboxDocSummary:
+      type: object
+      description: >-
+        A list-row / confirmation view of one inbox document. Never carries the
+        body `payload` — that is only ever on InboxDocDetail, and only once
+        readable.
+      required:
+      - id
+      - recipient_user_id
+      - kind
+      - title
+      - locked
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        recipient_user_id:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [payslip, legal_notice]
+        notice_type:
+          type: string
+          description: Statutory subtype for a legal notice (근로계약/취업규칙/연차촉진/노무수령거부).
+        title:
+          type: string
+        legal_basis:
+          type: string
+          description: Statutory basis surfaced in the passkey gate (e.g. 근로기준법 §61).
+        source_kind:
+          type: string
+          description: Producing-object kind (e.g. workflow_run, payroll_run).
+        source_id:
+          type: string
+          description: Producing-object id (e.g. the AP- run code).
+        locked:
+          type: boolean
+          description: >-
+            True while a legal notice awaits receipt confirmation — its body is
+            withheld until confirmed. Always false for payslips.
+        confirmed_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: The recipient who confirmed receipt; null until confirmed.
+        confirmed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When receipt was confirmed (the legal receipt timestamp); null until then.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    InboxDocDetail:
+      type: object
+      description: >-
+        A single inbox document. Extends InboxDocSummary with the body
+        `payload`, present only when readable (a payslip, or an already-confirmed
+        legal notice) and omitted while a legal notice is locked.
+      allOf:
+      - $ref: '#/components/schemas/InboxDocSummary'
+      - type: object
+        properties:
+          payload:
+            type: object
+            additionalProperties: true
+            description: Rendered document payload (legal prose paragraphs, or payslip figures).
+    InboxDocPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxDocSummary'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+    InboxDocConfirmReceiptRequest:
+      type: object
+      description: >-
+        The fresh passkey assertion proving present possession of an
+        authenticator. Its absence yields 428 (precondition required).
+      properties:
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
     TodoRef:
       type: object
       description: >-

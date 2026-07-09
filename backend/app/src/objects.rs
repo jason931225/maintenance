@@ -32,13 +32,22 @@ pub const OBJECT_LINKS_PATH: &str = "/api/v1/object-links";
 pub const OBJECT_LINK_BY_ID_PATH_TEMPLATE: &str = "/api/v1/object-links/{id}";
 pub const OBJECT_RESOLVE_PATH_TEMPLATE: &str = "/api/objects/{kind}/{id}";
 pub const OBJECT_GRAPH_PATH_TEMPLATE: &str = "/api/objects/{kind}/{id}/graph";
+pub const SEARCH_PATH: &str = "/api/v1/search";
 
 pub const OBJECT_ROUTE_PATHS: &[&str] = &[
     OBJECT_LINKS_PATH,
     OBJECT_LINK_BY_ID_PATH_TEMPLATE,
     OBJECT_RESOLVE_PATH_TEMPLATE,
     OBJECT_GRAPH_PATH_TEMPLATE,
+    SEARCH_PATH,
 ];
+
+/// Max hits returned per object kind (the palette groups by kind). A single
+/// bounded, ordered, `LIMIT`ed query runs per kind, so the total is bounded by
+/// `SEARCHABLE kinds × limit`.
+const SEARCH_LIMIT_DEFAULT: i64 = 20;
+const SEARCH_LIMIT_MAX: i64 = 50;
+const SEARCH_QUERY_MAX_LEN: usize = 200;
 
 /// Bounds on the graph walk: depth is clamped into `1..=GRAPH_MAX_DEPTH`, and
 /// the returned node set is capped at `GRAPH_MAX_NODES` (a maintenance
@@ -153,6 +162,7 @@ pub fn router(state: ObjectState) -> Router {
         .route(OBJECT_LINK_BY_ID_PATH_TEMPLATE, delete(delete_object_link))
         .route(OBJECT_RESOLVE_PATH_TEMPLATE, get(resolve_object))
         .route(OBJECT_GRAPH_PATH_TEMPLATE, get(object_graph))
+        .route(SEARCH_PATH, get(search_objects))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -755,6 +765,250 @@ async fn object_graph(
         edges,
         truncated,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Search: GET /api/v1/search?q=&limit= -> cross-kind + person-directory hits.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct SearchQuery {
+    q: String,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchResponse {
+    /// Caller-visible hits grouped by kind (person first, then work items). Each
+    /// hit is an ObjectHead identical in scoping to what `resolveObject` returns
+    /// for that (kind, id) — a hit the caller could not resolve never appears.
+    results: Vec<ObjectHead>,
+}
+
+/// `GET /api/v1/search?q=` — global object + person search backing the ⌘K
+/// palette, compose target picker, explore search, and token-grammar dropdowns.
+///
+/// Searches the same object kinds `resolveObject` serves that have a
+/// human-searchable name/code (work_order, equipment, support_ticket, org_unit)
+/// plus the person directory (messenger member semantics: active + shared
+/// branch). Every hit is produced under the EXACT per-kind visibility guard
+/// `resolve_head` uses — the WorkOrderReadAll feature gate for
+/// work_order/equipment (a caller lacking it gets zero hits of those kinds:
+/// unauthorized-kind omission), and the `branch_visible` branch predicate for
+/// every branch-scoped kind — applied inside the SQL so the `LIMIT` counts only
+/// visible rows. Org isolation is FORCE-RLS via `with_org_conn`'s armed
+/// `app.current_org`. Deny-by-omission throughout: no 403 for a kind the caller
+/// cannot see, just absence.
+async fn search_objects(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<SearchResponse>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let raw = query.q.trim();
+    if raw.is_empty() {
+        // An empty query has no matches; return an empty page rather than 422 so
+        // the palette can call it eagerly without special-casing.
+        return Ok(Json(SearchResponse { results: vec![] }));
+    }
+    if raw.chars().count() > SEARCH_QUERY_MAX_LEN {
+        return Err(ObjectError::validation(format!(
+            "q must be {SEARCH_QUERY_MAX_LEN} characters or less"
+        )));
+    }
+    let limit = query
+        .limit
+        .unwrap_or(SEARCH_LIMIT_DEFAULT)
+        .clamp(1, SEARCH_LIMIT_MAX);
+    // Case-insensitive substring match with LIKE metacharacters escaped so a `%`
+    // or `_` in user input is a literal, not a wildcard.
+    let pattern = format!("%{}%", escape_like(raw));
+
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+    // Same feature gate `resolve_head` applies to work_order/equipment. When the
+    // caller lacks it those kinds are not queried at all (unauthorized-kind
+    // omission) — never a 403 for the whole search.
+    let can_read_work_order =
+        authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
+    let (scope_all, branch_ids) = branch_scope_params(&scope);
+
+    let results = with_org_conn::<_, Vec<ObjectHead>, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let mut hits: Vec<ObjectHead> = Vec::new();
+            // person directory (messenger member semantics: active + shared branch).
+            hits.extend(search_persons(tx, scope_all, &branch_ids, &pattern, limit).await?);
+            if can_read_work_order {
+                hits.extend(
+                    search_branch_kind(
+                        tx,
+                        "work_order",
+                        "SELECT id, request_no AS code, NULL::text AS title, status \
+                         FROM work_orders \
+                         WHERE request_no ILIKE $1 \
+                           AND ($2 OR branch_id = ANY($3) OR branch_id IS NULL) \
+                         ORDER BY request_no ASC LIMIT $4",
+                        scope_all,
+                        &branch_ids,
+                        &pattern,
+                        limit,
+                    )
+                    .await?,
+                );
+                hits.extend(
+                    search_branch_kind(
+                        tx,
+                        "equipment",
+                        "SELECT id, equipment_no AS code, manager_name AS title, status \
+                         FROM registry_equipment \
+                         WHERE (equipment_no ILIKE $1 OR model ILIKE $1 OR manager_name ILIKE $1) \
+                           AND ($2 OR branch_id = ANY($3) OR branch_id IS NULL) \
+                         ORDER BY equipment_no ASC LIMIT $4",
+                        scope_all,
+                        &branch_ids,
+                        &pattern,
+                        limit,
+                    )
+                    .await?,
+                );
+            }
+            hits.extend(
+                search_branch_kind(
+                    tx,
+                    "support_ticket",
+                    "SELECT id, NULL::text AS code, title, status \
+                     FROM support_tickets \
+                     WHERE title ILIKE $1 \
+                       AND ($2 OR branch_id = ANY($3) OR branch_id IS NULL) \
+                     ORDER BY created_at DESC LIMIT $4",
+                    scope_all,
+                    &branch_ids,
+                    &pattern,
+                    limit,
+                )
+                .await?,
+            );
+            hits.extend(
+                search_branch_kind(
+                    tx,
+                    "org_unit",
+                    // org_unit IS a branch: its own id is the branch-scope key
+                    // (never NULL), so the predicate has no IS NULL arm.
+                    "SELECT id, NULL::text AS code, name AS title, NULL::text AS status \
+                     FROM branches \
+                     WHERE name ILIKE $1 AND ($2 OR id = ANY($3)) \
+                     ORDER BY name ASC LIMIT $4",
+                    scope_all,
+                    &branch_ids,
+                    &pattern,
+                    limit,
+                )
+                .await?,
+            );
+            Ok(hits)
+        })
+    })
+    .await?;
+
+    Ok(Json(SearchResponse { results }))
+}
+
+/// Escape SQL-LIKE metacharacters so caller input matches literally.
+fn escape_like(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// `(scope_all, branch_ids)` for the SQL branch predicate, mirroring
+/// [`branch_visible`]: `All` → `(true, [])` (predicate always passes), a bounded
+/// scope → `(false, [branches])`.
+fn branch_scope_params(scope: &BranchScope) -> (bool, Vec<Uuid>) {
+    match scope {
+        BranchScope::All => (true, Vec::new()),
+        BranchScope::Branches(set) => (false, set.iter().map(|b| *b.as_uuid()).collect()),
+    }
+}
+
+/// Person-directory search: EXACTLY `resolve_person`'s guard (is_active = true
+/// AND shares a branch with the caller's scope), applied to a name prefix/
+/// substring match. A cross-branch or inactive user produces no row — no
+/// cross-branch PII/existence leak.
+async fn search_persons(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope_all: bool,
+    branch_ids: &[Uuid],
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<ObjectHead>, ObjectError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT u.id, u.display_name
+        FROM users u
+        LEFT JOIN user_branches ub ON ub.user_id = u.id
+        WHERE u.is_active
+          AND u.display_name ILIKE $1
+          AND ($2 OR ub.branch_id = ANY($3))
+        ORDER BY u.display_name ASC
+        LIMIT $4
+        "#,
+    )
+    .bind(pattern)
+    .bind(scope_all)
+    .bind(branch_ids)
+    .bind(limit)
+    .fetch_all(tx.as_mut())
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let id: Uuid = row.try_get("id")?;
+            Ok(ObjectHead {
+                kind: "person".to_owned(),
+                id: id.to_string(),
+                code: None,
+                title: row.try_get("display_name")?,
+                status: None,
+                exists: true,
+            })
+        })
+        .collect()
+}
+
+/// Branch-scoped domain-kind search. The SQL supplied by the caller MUST select
+/// `id`, `code`, `title`, `status` and apply the `($2 OR branch_id = ANY($3) …)`
+/// branch predicate — the exact `branch_visible` guard, in SQL, so the `LIMIT`
+/// counts only rows the caller may actually resolve.
+async fn search_branch_kind(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    kind: &str,
+    sql: &'static str,
+    scope_all: bool,
+    branch_ids: &[Uuid],
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<ObjectHead>, ObjectError> {
+    let rows = sqlx::query(sql)
+        .bind(pattern)
+        .bind(scope_all)
+        .bind(branch_ids)
+        .bind(limit)
+        .fetch_all(tx.as_mut())
+        .await?;
+    rows.iter()
+        .map(|row| {
+            let id: Uuid = row.try_get("id")?;
+            Ok(ObjectHead {
+                kind: kind.to_owned(),
+                id: id.to_string(),
+                code: row.try_get("code")?,
+                title: row.try_get("title")?,
+                status: row.try_get("status")?,
+                exists: true,
+            })
+        })
+        .collect()
 }
 
 async fn resolve_work_order(
