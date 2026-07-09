@@ -88,6 +88,36 @@ describe("CommandPalette (UI-M2a)", () => {
     expect(screen.getAllByText(/WO-/).length).toBeGreaterThan(0);
   });
 
+  it("shows the loading row in the work/people sections while the open-fetch is pending, then replaces it with results", async () => {
+    let releaseWorkOrders!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseWorkOrders = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/work-orders", async () => {
+        await gate;
+        return HttpResponse.json({
+          items: workOrderListItems,
+          limit: 100,
+          offset: 0,
+          total: workOrderListItems.length,
+        });
+      }),
+      http.get("*/api/messenger/members", () => HttpResponse.json({ items: [] })),
+    );
+
+    renderPalette();
+
+    // Both async sections show the loading row while the combined fetch (work
+    // gated above + people, which resolves fast) is still in flight.
+    expect(await screen.findAllByText(ko.shell.commandPalette.loading)).toHaveLength(2);
+
+    releaseWorkOrders();
+
+    expect(await screen.findByText(/케이앤엘/)).toBeInTheDocument();
+    expect(screen.queryByText(ko.shell.commandPalette.loading)).not.toBeInTheDocument();
+  });
+
   it("fetches both pages once on open, then narrows client-side as the query changes (no refetch)", async () => {
     let workRequests = 0;
     let memberRequests = 0;

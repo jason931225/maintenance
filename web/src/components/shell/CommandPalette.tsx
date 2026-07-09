@@ -65,6 +65,9 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   // Raw fetched pages (fetched once on open); filtered client-side below.
   const [work, setWork] = useState<ObjectCandidate[]>([]);
   const [people, setPeople] = useState<ObjectCandidate[]>([]);
+  // True only for the one open-fetch below (both pages share it, since they
+  // fetch together) — not touched by query changes, which just re-filter.
+  const [objectsLoading, setObjectsLoading] = useState(true);
 
   const commands = useMemo<ScreenCommand[]>(() => {
     return visibleNavItemsForRoles(
@@ -105,6 +108,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   useEffect(() => {
     const guard = { live: true };
     void (async () => {
+      setObjectsLoading(true);
       const [workResult, peopleResult] = await Promise.all([
         workProvider(),
         personProvider ? personProvider() : Promise.resolve(null),
@@ -112,6 +116,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
       if (!guard.live) return;
       setWork(workResult.status === "ok" ? workResult.candidates : []);
       setPeople(peopleResult && peopleResult.status === "ok" ? peopleResult.candidates : []);
+      setObjectsLoading(false);
     })();
     return () => {
       guard.live = false;
@@ -300,8 +305,11 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
             <PaletteSection
               labelId={`${sectionId}-work`}
               label={ko.shell.commandPalette.sections.work}
-              hasRows={filteredWork.length > 0}
+              hasRows={filteredWork.length > 0 || objectsLoading}
             >
+              {objectsLoading && filteredWork.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-steel">{ko.shell.commandPalette.loading}</li>
+              ) : null}
               {filteredWork.map((candidate, i) => (
                 <ObjectRowButton
                   key={`work:${candidate.code}`}
@@ -320,8 +328,11 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
             <PaletteSection
               labelId={`${sectionId}-people`}
               label={ko.shell.commandPalette.sections.people}
-              hasRows={filteredPeople.length > 0}
+              hasRows={filteredPeople.length > 0 || objectsLoading}
             >
+              {objectsLoading && filteredPeople.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-steel">{ko.shell.commandPalette.loading}</li>
+              ) : null}
               {filteredPeople.map((candidate, i) => (
                 <ObjectRowButton
                   key={`person:${candidate.code}`}

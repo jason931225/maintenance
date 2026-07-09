@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
+import type { MessengerMessageSummary } from "../../api/types";
 import type { AuthSession } from "../../context/auth";
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import { ko } from "../../i18n/ko";
@@ -31,9 +32,9 @@ function LocationProbe() {
   return <div data-testid="pathname">{location.pathname}</div>;
 }
 
-function renderRail(path = "/dispatch") {
+function renderRail(path = "/dispatch", api: ConsoleApiClient = stubApi()) {
   return render(
-    <AuthTestProvider session={session} overrides={{ api: stubApi() }}>
+    <AuthTestProvider session={session} overrides={{ api }}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="*" element={<LocationProbe />} />
@@ -173,6 +174,50 @@ describe("CommsRail", () => {
     });
     expect(second.defaultPrevented).toBe(true);
     expect(useCommsStore.getState().collapsedPref).toBe(true);
+  });
+
+  it("swaps the send button's accessible label to 'sending' while a message is in flight", async () => {
+    setViewport(1400);
+    let resolvePost!: (value: { data: MessengerMessageSummary; response: Response }) => void;
+    const postPromise = new Promise<{ data: MessengerMessageSummary; response: Response }>((resolve) => {
+      resolvePost = resolve;
+    });
+    const api = stubApi();
+    vi.mocked(api.POST).mockReturnValue(postPromise);
+
+    renderRail("/dispatch", api);
+    act(() => {
+      useCommsStore.setState({ collapsedPref: false, subview: { kind: "thread", threadId: "t1" } });
+    });
+
+    fireEvent.change(screen.getByLabelText(ko.shell.commsRail.composer), {
+      target: { value: "안녕하세요" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: ko.shell.commsRail.send }));
+
+    expect(await screen.findByRole("button", { name: ko.shell.commsRail.sending })).toBeInTheDocument();
+
+    await act(async () => {
+      resolvePost({
+        data: {
+          id: "m1",
+          thread_id: "t1",
+          branch_id: "b1",
+          sender_id: "u1",
+          sender_name: "테스터",
+          body: "안녕하세요",
+          attachment_evidence_ids: [],
+          read_count: 0,
+          read_target_count: 1,
+          sent_at: "2026-07-08T00:00:00Z",
+          created_at: "2026-07-08T00:00:00Z",
+        },
+        response: new Response(),
+      });
+      await postPromise;
+    });
+
+    expect(await screen.findByRole("button", { name: ko.shell.commsRail.send })).toBeInTheDocument();
   });
 
   it("is hidden entirely below the mobile breakpoint", () => {
