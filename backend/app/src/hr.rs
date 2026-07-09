@@ -963,8 +963,21 @@ async fn list_my_attendance_records(
 
     let page = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
         Box::pin(async move {
-            let linked = load_linked_employee_for_user(tx, org, user_id, false).await?;
-            list_attendance_records_for_employee(tx, linked.employee_id, limit, offset).await
+            // Self-scoped read, no role gate: an authenticated user with no
+            // linked employee — an ADMIN/system account — has zero personal
+            // records, so return an empty page rather than a 403. (Writes still
+            // require a link via `load_linked_employee_for_user`.)
+            match load_optional_linked_employee_id(tx, org, user_id).await? {
+                Some(employee_id) => {
+                    list_attendance_records_for_employee(tx, employee_id, limit, offset).await
+                }
+                None => Ok(EmployeeAttendanceRecordPage {
+                    items: Vec::new(),
+                    total: 0,
+                    limit,
+                    offset,
+                }),
+            }
         })
     })
     .await?;
@@ -6737,6 +6750,25 @@ async fn load_linked_employee_for_user(
         employee_id,
         display_name,
     })
+}
+
+/// Employee id linked to `user_id`, or `None` when the account has no employee
+/// link. Self-service *reads* use this so an unlinked user (an ADMIN/system
+/// account) sees an empty page instead of the 403 `load_linked_employee_for_user`
+/// raises for the write path.
+async fn load_optional_linked_employee_id(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org: OrgId,
+    user_id: UserId,
+) -> Result<Option<Uuid>, HrError> {
+    let employee_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT employee_id FROM users WHERE id = $1 AND org_id = $2")
+            .bind(*user_id.as_uuid())
+            .bind(*org.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?
+            .flatten();
+    Ok(employee_id)
 }
 
 async fn list_attendance_records_for_employee(
