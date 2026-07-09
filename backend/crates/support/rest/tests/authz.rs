@@ -9,6 +9,7 @@ use http::{Request, StatusCode, header};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_test_support::runtime_role_pool;
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_application::CreateInternalTicketCommand;
 use mnt_support_domain::{TicketCategory, TicketPriority};
@@ -75,7 +76,11 @@ async fn list_tickets_resolves_branch_scope_from_db_not_token_claim(pool: PgPool
             public_key_pem.as_bytes(),
         )
         .unwrap();
-        let service = router(SupportRestState::new(store, Some(verifier), None));
+        let service = router(SupportRestState::new(
+            PgSupportStore::new(runtime_role_pool(&pool).await),
+            Some(verifier),
+            None,
+        ));
 
         let response = get_json(service, "/api/v1/support/tickets", &token).await;
         assert_eq!(response.0, StatusCode::OK, "{:?}", response.1);

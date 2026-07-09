@@ -11,6 +11,7 @@ use mnt_messenger_domain::ThreadKind;
 use mnt_messenger_rest::{MessengerRestState, router};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_test_support::runtime_role_pool;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -76,7 +77,10 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
             public_key_pem.as_bytes(),
         )
         .unwrap();
-        let service = router(MessengerRestState::new(store, Some(verifier)));
+        let service = router(MessengerRestState::new(
+            PgMessengerStore::new(runtime_role_pool(&pool).await),
+            Some(verifier),
+        ));
 
         let members = get_json(
             service.clone(),

@@ -223,6 +223,7 @@ mnt-platform-storage = { path = "crates/platform/storage" }
 mnt-platform-jobs = { path = "crates/platform/jobs" }
 mnt-platform-push = { path = "crates/platform/push" }
 mnt-platform-email = { path = "crates/platform/email" }
+mnt-platform-test-support = { path = "crates/platform/test-support" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
