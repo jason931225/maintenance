@@ -44,6 +44,8 @@ import com.maintenance.api.client.model.AssetLifecycleCostSummary
 import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
+import com.maintenance.api.client.model.AttachInstanceAck
+import com.maintenance.api.client.model.AttachInstanceRequest
 import com.maintenance.api.client.model.AttendanceImportApplyReport
 import com.maintenance.api.client.model.AttendanceImportDryRunSummary
 import com.maintenance.api.client.model.AttendanceImportPreviewResponse
@@ -85,6 +87,7 @@ import com.maintenance.api.client.model.CreatePollRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
 import com.maintenance.api.client.model.CreateRegionRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
+import com.maintenance.api.client.model.CreateSeriesRequest
 import com.maintenance.api.client.model.CreateSiteRequest
 import com.maintenance.api.client.model.CreateTodoRequest
 import com.maintenance.api.client.model.CreateTriggerBindingRequest
@@ -162,6 +165,7 @@ import com.maintenance.api.client.model.LeaveRequestPage
 import com.maintenance.api.client.model.LeaveRequestView
 import com.maintenance.api.client.model.LeaveRosterPage
 import com.maintenance.api.client.model.LeaveStatutoryPushView
+import com.maintenance.api.client.model.LinkTypeResponse
 import com.maintenance.api.client.model.ListOfficeDocumentVersions200Response
 import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
@@ -199,6 +203,7 @@ import com.maintenance.api.client.model.ObjectHead
 import com.maintenance.api.client.model.ObjectLifecycle
 import com.maintenance.api.client.model.ObjectLinkResponse
 import com.maintenance.api.client.model.ObjectLinksListResponse
+import com.maintenance.api.client.model.ObjectTypeResponse
 import com.maintenance.api.client.model.OfficeCallback200Response
 import com.maintenance.api.client.model.OfficeCallbackRequest
 import com.maintenance.api.client.model.OpsSummary
@@ -264,6 +269,8 @@ import com.maintenance.api.client.model.SearchResponse
 import com.maintenance.api.client.model.SendMailRequest
 import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
+import com.maintenance.api.client.model.SeriesByInstanceResponse
+import com.maintenance.api.client.model.SeriesDetailResponse
 import com.maintenance.api.client.model.SetLifecycleHoldRequest
 import com.maintenance.api.client.model.SetTodoDoneRequest
 import com.maintenance.api.client.model.SignupRequest
@@ -2604,6 +2611,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PUT,
             path = "/api/work-orders/{workOrderId}/assignments".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/series/{id}/instances
+     * Attach an instance to an existing series
+     * Attaches a (kind, id) instance to the series. The series must exist for the caller and the instance must resolve for the caller (both deny-by-omission -&gt; 404). An object already in a series is rejected with 409 (the not-yet-in-a-series promotion invariant). Audited.
+     * @param id
+     * @param attachInstanceRequest
+     * @return AttachInstanceAck
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun attachSeriesInstance(id: java.util.UUID, attachInstanceRequest: AttachInstanceRequest) : AttachInstanceAck = withContext(Dispatchers.IO) {
+        val localVarResponse = attachSeriesInstanceWithHttpInfo(id = id, attachInstanceRequest = attachInstanceRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttachInstanceAck
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/series/{id}/instances
+     * Attach an instance to an existing series
+     * Attaches a (kind, id) instance to the series. The series must exist for the caller and the instance must resolve for the caller (both deny-by-omission -&gt; 404). An object already in a series is rejected with 409 (the not-yet-in-a-series promotion invariant). Audited.
+     * @param id
+     * @param attachInstanceRequest
+     * @return ApiResponse<AttachInstanceAck?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun attachSeriesInstanceWithHttpInfo(id: java.util.UUID, attachInstanceRequest: AttachInstanceRequest) : ApiResponse<AttachInstanceAck?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = attachSeriesInstanceRequestConfig(id = id, attachInstanceRequest = attachInstanceRequest)
+
+        return@withContext request<AttachInstanceRequest, AttachInstanceAck>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation attachSeriesInstance
+     *
+     * @param id
+     * @param attachInstanceRequest
+     * @return RequestConfig
+     */
+    fun attachSeriesInstanceRequestConfig(id: java.util.UUID, attachInstanceRequest: AttachInstanceRequest) : RequestConfig<AttachInstanceRequest> {
+        val localVariableBody = attachInstanceRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/series/{id}/instances".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -5150,6 +5234,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/financial/rental-quotes",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/series
+     * Create an SR- series and attach its first instance
+     * Creates an org-scoped series with a canonical SR- code and attaches the first instance. The instance must resolve for the caller (deny-by-omission): you cannot found a series on an object you cannot see. Audited.
+     * @param createSeriesRequest
+     * @return SeriesDetailResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createSeries(createSeriesRequest: CreateSeriesRequest) : SeriesDetailResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createSeriesWithHttpInfo(createSeriesRequest = createSeriesRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SeriesDetailResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/series
+     * Create an SR- series and attach its first instance
+     * Creates an org-scoped series with a canonical SR- code and attaches the first instance. The instance must resolve for the caller (deny-by-omission): you cannot found a series on an object you cannot see. Audited.
+     * @param createSeriesRequest
+     * @return ApiResponse<SeriesDetailResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createSeriesWithHttpInfo(createSeriesRequest: CreateSeriesRequest) : ApiResponse<SeriesDetailResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createSeriesRequestConfig(createSeriesRequest = createSeriesRequest)
+
+        return@withContext request<CreateSeriesRequest, SeriesDetailResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createSeries
+     *
+     * @param createSeriesRequest
+     * @return RequestConfig
+     */
+    fun createSeriesRequestConfig(createSeriesRequest: CreateSeriesRequest) : RequestConfig<CreateSeriesRequest> {
+        val localVariableBody = createSeriesRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/series",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -9337,6 +9495,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/object-types/{kind}
+     * Fetch one object type with its caller-visible instance count
+     * Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count as listObjectTypes.
+     * @param kind Object kind slug.
+     * @return ObjectTypeResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getObjectType(kind: kotlin.String) : ObjectTypeResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getObjectTypeWithHttpInfo(kind = kind)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectTypeResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/object-types/{kind}
+     * Fetch one object type with its caller-visible instance count
+     * Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count as listObjectTypes.
+     * @param kind Object kind slug.
+     * @return ApiResponse<ObjectTypeResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getObjectTypeWithHttpInfo(kind: kotlin.String) : ApiResponse<ObjectTypeResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getObjectTypeRequestConfig(kind = kind)
+
+        return@withContext request<Unit, ObjectTypeResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getObjectType
+     *
+     * @param kind Object kind slug.
+     * @return RequestConfig
+     */
+    fun getObjectTypeRequestConfig(kind: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/object-types/{kind}".replace("{"+"kind"+"}", encodeURIComponent(kind.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/ops/summary
      * Per-tenant operational dashboard rollup
      * Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
@@ -9688,6 +9919,159 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/financial/rental-quotes/{quoteId}".replace("{"+"quoteId"+"}", encodeURIComponent(quoteId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/series/{id}
+     * Read a series and its ordered, caller-visible instances
+     * Returns the series head and its instances resolved to ObjectHeads, ordered by attach time. Instances that no longer resolve for the caller are omitted (deny-by-omission). Current/next derivation is left to the client. An unknown id or another tenant&#39;s series is 404.
+     * @param id
+     * @return SeriesDetailResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getSeries(id: java.util.UUID) : SeriesDetailResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getSeriesWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SeriesDetailResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/series/{id}
+     * Read a series and its ordered, caller-visible instances
+     * Returns the series head and its instances resolved to ObjectHeads, ordered by attach time. Instances that no longer resolve for the caller are omitted (deny-by-omission). Current/next derivation is left to the client. An unknown id or another tenant&#39;s series is 404.
+     * @param id
+     * @return ApiResponse<SeriesDetailResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getSeriesWithHttpInfo(id: java.util.UUID) : ApiResponse<SeriesDetailResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getSeriesRequestConfig(id = id)
+
+        return@withContext request<Unit, SeriesDetailResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getSeries
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getSeriesRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/series/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/series/by-instance
+     * Find which series an object belongs to
+     * Returns the series a given (kind, id) instance belongs to, or null. Membership is revealed only when the caller can resolve the instance, so series membership is never an existence oracle for out-of-scope objects.
+     * @param kind Instance object kind slug.
+     * @param id Instance object id/reference.
+     * @return SeriesByInstanceResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getSeriesByInstance(kind: kotlin.String, id: kotlin.String) : SeriesByInstanceResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getSeriesByInstanceWithHttpInfo(kind = kind, id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SeriesByInstanceResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/series/by-instance
+     * Find which series an object belongs to
+     * Returns the series a given (kind, id) instance belongs to, or null. Membership is revealed only when the caller can resolve the instance, so series membership is never an existence oracle for out-of-scope objects.
+     * @param kind Instance object kind slug.
+     * @param id Instance object id/reference.
+     * @return ApiResponse<SeriesByInstanceResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getSeriesByInstanceWithHttpInfo(kind: kotlin.String, id: kotlin.String) : ApiResponse<SeriesByInstanceResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getSeriesByInstanceRequestConfig(kind = kind, id = id)
+
+        return@withContext request<Unit, SeriesByInstanceResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getSeriesByInstance
+     *
+     * @param kind Instance object kind slug.
+     * @param id Instance object id/reference.
+     * @return RequestConfig
+     */
+    fun getSeriesByInstanceRequestConfig(kind: kotlin.String, id: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("kind", listOf(kind.toString()))
+                put("id", listOf(id.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/series/by-instance",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -12584,6 +12968,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/link-types
+     * List the edge-type registry (object-link relationship vocabulary)
+     * Returns the seeded, platform-wide set of relationship labels an object_link may use. createObjectLink validates link_type against this registry.
+     * @return kotlin.collections.List<LinkTypeResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listLinkTypes() : kotlin.collections.List<LinkTypeResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listLinkTypesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<LinkTypeResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/link-types
+     * List the edge-type registry (object-link relationship vocabulary)
+     * Returns the seeded, platform-wide set of relationship labels an object_link may use. createObjectLink validates link_type against this registry.
+     * @return ApiResponse<kotlin.collections.List<LinkTypeResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listLinkTypesWithHttpInfo() : ApiResponse<kotlin.collections.List<LinkTypeResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listLinkTypesRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<LinkTypeResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listLinkTypes
+     *
+     * @return RequestConfig
+     */
+    fun listLinkTypesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/link-types",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/location-consents/ledger
      * Read the consent lifecycle ledger
      *
@@ -13768,6 +14222,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/object-links",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/object-types
+     * List the object-type registry with caller-visible instance counts
+     * Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count — the number of instances of that kind visible to the caller. The count respects the SAME per-kind visibility as resolveObject: org via forced RLS (no cross-org counting), narrowed by the caller&#39;s branch scope and the domain feature gate; a kind the caller cannot read counts 0. Type proposal/transition flows are out of scope for this slice (read surface + status only).
+     * @return kotlin.collections.List<ObjectTypeResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listObjectTypes() : kotlin.collections.List<ObjectTypeResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listObjectTypesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<ObjectTypeResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/object-types
+     * List the object-type registry with caller-visible instance counts
+     * Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count — the number of instances of that kind visible to the caller. The count respects the SAME per-kind visibility as resolveObject: org via forced RLS (no cross-org counting), narrowed by the caller&#39;s branch scope and the domain feature gate; a kind the caller cannot read counts 0. Type proposal/transition flows are out of scope for this slice (read surface + status only).
+     * @return ApiResponse<kotlin.collections.List<ObjectTypeResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listObjectTypesWithHttpInfo() : ApiResponse<kotlin.collections.List<ObjectTypeResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listObjectTypesRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<ObjectTypeResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listObjectTypes
+     *
+     * @return RequestConfig
+     */
+    fun listObjectTypesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/object-types",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use axum::{Extension, Json, Router};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
@@ -36,6 +36,13 @@ pub const OBJECT_LINK_BY_ID_PATH_TEMPLATE: &str = "/api/v1/object-links/{id}";
 pub const OBJECT_RESOLVE_PATH_TEMPLATE: &str = "/api/objects/{kind}/{id}";
 pub const OBJECT_GRAPH_PATH_TEMPLATE: &str = "/api/objects/{kind}/{id}/graph";
 pub const SEARCH_PATH: &str = "/api/v1/search";
+pub const OBJECT_TYPES_PATH: &str = "/api/v1/object-types";
+pub const OBJECT_TYPE_BY_KIND_PATH_TEMPLATE: &str = "/api/v1/object-types/{kind}";
+pub const LINK_TYPES_PATH: &str = "/api/v1/link-types";
+pub const SERIES_PATH: &str = "/api/v1/series";
+pub const SERIES_BY_ID_PATH_TEMPLATE: &str = "/api/v1/series/{id}";
+pub const SERIES_INSTANCES_PATH_TEMPLATE: &str = "/api/v1/series/{id}/instances";
+pub const SERIES_BY_INSTANCE_PATH: &str = "/api/v1/series/by-instance";
 
 pub const OBJECT_ROUTE_PATHS: &[&str] = &[
     OBJECT_LINKS_PATH,
@@ -43,6 +50,13 @@ pub const OBJECT_ROUTE_PATHS: &[&str] = &[
     OBJECT_RESOLVE_PATH_TEMPLATE,
     OBJECT_GRAPH_PATH_TEMPLATE,
     SEARCH_PATH,
+    OBJECT_TYPES_PATH,
+    OBJECT_TYPE_BY_KIND_PATH_TEMPLATE,
+    LINK_TYPES_PATH,
+    SERIES_PATH,
+    SERIES_BY_ID_PATH_TEMPLATE,
+    SERIES_INSTANCES_PATH_TEMPLATE,
+    SERIES_BY_INSTANCE_PATH,
 ];
 
 /// Max hits returned per object kind (the palette groups by kind). A single
@@ -120,6 +134,7 @@ const RESOLVABLE_KIND_AUTH: &[(&str, RequiredAuth)] = &[
     ("approval_run", RequiredAuth::MembershipOnly),
     ("passkey", RequiredAuth::SelfScoped),
     ("consent", RequiredAuth::SelfScoped),
+    ("series", RequiredAuth::MembershipOnly),
 ];
 
 /// The declared auth for `kind`, or `None` if the kind is not resolvable at all.
@@ -183,6 +198,13 @@ pub fn router(state: ObjectState) -> Router {
         .route(OBJECT_RESOLVE_PATH_TEMPLATE, get(resolve_object))
         .route(OBJECT_GRAPH_PATH_TEMPLATE, get(object_graph))
         .route(SEARCH_PATH, get(search_objects))
+        .route(OBJECT_TYPES_PATH, get(list_object_types))
+        .route(OBJECT_TYPE_BY_KIND_PATH_TEMPLATE, get(get_object_type))
+        .route(LINK_TYPES_PATH, get(list_link_types))
+        .route(SERIES_PATH, post(create_series))
+        .route(SERIES_BY_INSTANCE_PATH, get(series_by_instance))
+        .route(SERIES_BY_ID_PATH_TEMPLATE, get(get_series))
+        .route(SERIES_INSTANCES_PATH_TEMPLATE, post(attach_series_instance))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -286,6 +308,10 @@ async fn create_object_link(
         Box::pin(async move {
             // Both kinds must be known (clean 422 rather than a raw FK 500).
             ensure_kinds_exist(tx, &link.src_kind, &link.dst_kind).await?;
+            // link_type must be a registered edge type (edge-type registry,
+            // slice 3): a clean validation error rather than the raw FK 500 the
+            // object_links_link_type_fkey would otherwise produce.
+            ensure_link_type_exists(tx, &link.link_type).await?;
             // B3: both endpoints must resolve for the caller — an edge can only
             // connect objects it can actually see. Same tx as the insert, so the
             // check and the write are atomic.
@@ -687,6 +713,10 @@ async fn resolve_head(
         "account" => resolve_account(tx, scope, id).await,
         "passkey" => resolve_passkey(tx, caller, id).await,
         "consent" => resolve_consent(tx, caller, id).await,
+        // series is org-scoped (not branch-scoped: no branch_id column), so
+        // membership + the armed RLS org scope are the whole gate — same
+        // shape as support_ticket/org_unit/person/approval_run above.
+        "series" => resolve_series(tx, id).await,
         // A kind declared in RESOLVABLE_KIND_AUTH but with no arm here (or vice
         // versa) resolves as invisible — deny by default. The tests assert the
         // two stay in sync.
@@ -1466,6 +1496,774 @@ async fn resolve_approval_run(
     }))
 }
 
+/// series has no branch_id (org-scoped, not branch-scoped — see the `series`
+/// table): the armed RLS org scope on `tx` is the entire visibility gate,
+/// matching what `get_series`/`create_series`/`attach_series_instance` already
+/// enforce (membership only, no extra feature).
+async fn resolve_series(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row = sqlx::query("SELECT code, label FROM series WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(tx.as_mut())
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    Ok(Some(ResolvedHead {
+        code: Some(row.try_get("code")?),
+        title: Some(row.try_get("label")?),
+        status: None,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Type registry: GET /api/v1/object-types [+ /{kind}].
+// ---------------------------------------------------------------------------
+
+/// A row from the seeded object-type registry, plus the caller-visible active
+/// instance count. The count respects the SAME per-kind visibility as
+/// `resolve_object`: it is computed under the caller's armed org (RLS drops
+/// cross-org rows, so there is no cross-org counting), further narrowed by the
+/// caller's branch scope and the domain feature gate. A kind the caller cannot
+/// read at all (e.g. `work_order` without `WorkOrderReadAll`) counts 0, exactly
+/// as resolve would deny every instance; a kind with no resolver counts 0.
+#[derive(Debug, Serialize)]
+struct ObjectTypeResponse {
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code_prefix: Option<String>,
+    description: String,
+    status: String,
+    active_count: i64,
+}
+
+#[derive(Debug)]
+struct ObjectTypeRow {
+    kind: String,
+    code_prefix: Option<String>,
+    description: String,
+    status: String,
+}
+
+fn object_type_row_from(row: &sqlx::postgres::PgRow) -> Result<ObjectTypeRow, ObjectError> {
+    Ok(ObjectTypeRow {
+        kind: row.try_get("kind")?,
+        code_prefix: row.try_get("code_prefix")?,
+        description: row.try_get("description")?,
+        status: row.try_get("status")?,
+    })
+}
+
+async fn list_object_types(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Vec<ObjectTypeResponse>>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+    let caller = *principal.user_id.as_uuid();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
+
+    let types = with_org_conn::<_, _, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let rows = sqlx::query(
+                "SELECT kind, code_prefix, description, status FROM object_types ORDER BY kind",
+            )
+            .fetch_all(tx.as_mut())
+            .await?;
+            let mut out = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let t = object_type_row_from(row)?;
+                let active_count =
+                    count_kind(tx, &scope, caller, &held_role_keys, &satisfied, &t.kind).await?;
+                out.push(ObjectTypeResponse {
+                    kind: t.kind,
+                    code_prefix: t.code_prefix,
+                    description: t.description,
+                    status: t.status,
+                    active_count,
+                });
+            }
+            Ok(out)
+        })
+    })
+    .await?;
+    Ok(Json(types))
+}
+
+async fn get_object_type(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Path(kind): Path<String>,
+) -> Result<Json<ObjectTypeResponse>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let kind = normalize_kind(&kind, "kind")?;
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+    let caller = *principal.user_id.as_uuid();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
+
+    let response = with_org_conn::<_, Option<ObjectTypeResponse>, ObjectError>(
+        &state.pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT kind, code_prefix, description, status FROM object_types WHERE kind = $1",
+                )
+                .bind(&kind)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let Some(row) = row else { return Ok(None) };
+                let t = object_type_row_from(&row)?;
+                let active_count =
+                    count_kind(tx, &scope, caller, &held_role_keys, &satisfied, &t.kind).await?;
+                Ok(Some(ObjectTypeResponse {
+                    kind: t.kind,
+                    code_prefix: t.code_prefix,
+                    description: t.description,
+                    status: t.status,
+                    active_count,
+                }))
+            })
+        },
+    )
+    .await?;
+    response
+        .map(Json)
+        .ok_or_else(|| ObjectError::not_found("unknown object type"))
+}
+
+/// Branch ids the caller is scoped to, or `None` for an unbounded (`All`) scope.
+fn scope_branch_ids(scope: &BranchScope) -> Option<Vec<Uuid>> {
+    match scope {
+        BranchScope::All => None,
+        BranchScope::Branches(set) => Some(set.iter().map(|b| *b.as_uuid()).collect()),
+    }
+}
+
+/// Count the instances of `kind` visible to the caller, mirroring the
+/// `resolve_head` visibility rules where the kind has a resolvable endpoint
+/// (org via armed RLS, branch scope, and the domain feature gate). Any
+/// non-resolvable registry kind counts 0; resolvable kinds that are missing a
+/// count arm fail closed with an internal error so dispatch drift cannot
+/// silently undercount.
+async fn count_kind(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    caller: Uuid,
+    held_role_keys: &[String],
+    satisfied_features: &[Feature],
+    kind: &str,
+) -> Result<i64, ObjectError> {
+    // The feature gate uses the SAME declared source of truth as resolve_head:
+    // a caller who cannot resolve the kind's declared Feature counts 0 of it.
+    let can_read_work_order = satisfied_features.contains(&Feature::WorkOrderReadAll);
+    let can_manage_users = satisfied_features.contains(&Feature::UserManage);
+    let branch_ids = scope_branch_ids(scope);
+    let all = branch_ids.is_none();
+    let ids = branch_ids.unwrap_or_default();
+    let count: i64 = match kind {
+        "work_order" if can_read_work_order => {
+            sqlx::query_scalar("SELECT count(*) FROM work_orders WHERE ($1 OR branch_id = ANY($2))")
+                .bind(all)
+                .bind(&ids)
+                .fetch_one(tx.as_mut())
+                .await?
+        }
+        "equipment" if can_read_work_order => {
+            sqlx::query_scalar(
+                "SELECT count(*) FROM registry_equipment WHERE ($1 OR branch_id = ANY($2))",
+            )
+            .bind(all)
+            .bind(&ids)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+        "support_ticket" => {
+            sqlx::query_scalar(
+                "SELECT count(*) FROM support_tickets \
+             WHERE ($1 OR branch_id = ANY($2) OR branch_id IS NULL)",
+            )
+            .bind(all)
+            .bind(&ids)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+        "org_unit" => {
+            sqlx::query_scalar("SELECT count(*) FROM branches WHERE ($1 OR id = ANY($2))")
+                .bind(all)
+                .bind(&ids)
+                .fetch_one(tx.as_mut())
+                .await?
+        }
+        "person" if all => {
+            sqlx::query_scalar("SELECT count(*) FROM users WHERE is_active = true")
+                .fetch_one(tx.as_mut())
+                .await?
+        }
+        "person" => {
+            sqlx::query_scalar(
+                "SELECT count(DISTINCT u.id) FROM users u \
+             JOIN user_branches ub ON ub.user_id = u.id AND ub.branch_id = ANY($1) \
+             WHERE u.is_active = true",
+            )
+            .bind(&ids)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+        "account" if can_manage_users && all => {
+            sqlx::query_scalar("SELECT count(*) FROM users")
+                .fetch_one(tx.as_mut())
+                .await?
+        }
+        "account" if can_manage_users => {
+            sqlx::query_scalar(
+                "SELECT count(DISTINCT u.id) FROM users u \
+             JOIN user_branches ub ON ub.user_id = u.id AND ub.branch_id = ANY($1)",
+            )
+            .bind(&ids)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+        "approval_run" => {
+            sqlx::query_scalar(
+                r#"
+            SELECT count(*) FROM workflow_runs r
+            WHERE (
+                r.initiated_by = $1
+                OR EXISTS (
+                    SELECT 1 FROM workflow_waiting_tasks t
+                    WHERE t.run_id = r.id AND t.org_id = r.org_id
+                      AND t.status IN ('OPEN', 'CLAIMED')
+                      AND (t.claimed_by = $1 OR t.assignee_role_key = ANY($2))
+                )
+            )
+            "#,
+            )
+            .bind(caller)
+            .bind(held_role_keys)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+        "passkey" => {
+            sqlx::query_scalar("SELECT count(*) FROM auth_webauthn_credentials WHERE user_id = $1")
+                .bind(caller)
+                .fetch_one(tx.as_mut())
+                .await?
+        }
+        "consent" => {
+            sqlx::query_scalar(
+                "SELECT count(DISTINCT target_id) FROM audit_events \
+             WHERE actor = $1 AND action = 'privacy.required_accept' \
+               AND target_type = 'privacy_terms'",
+            )
+            .bind(caller)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+        "series" => {
+            sqlx::query_scalar("SELECT count(*) FROM series")
+                .fetch_one(tx.as_mut())
+                .await?
+        }
+        // Feature-gated resolvable kinds without their required feature: nothing
+        // this caller can resolve -> 0.
+        "work_order" | "equipment" | "account" => 0,
+        kind if required_auth_for_kind(kind).is_some() => {
+            return Err(ObjectError::internal(format!(
+                "count_kind missing dispatch for resolvable kind `{kind}`"
+            )));
+        }
+        // Non-resolvable registry kinds (document/voucher/...) have no endpoint
+        // visibility to mirror, so they do not contribute active counts.
+        _ => 0,
+    };
+    Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// Edge-type registry: GET /api/v1/link-types.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct LinkTypeResponse {
+    link_type: String,
+    description: String,
+    status: String,
+}
+
+async fn list_link_types(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Vec<LinkTypeResponse>>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let org = principal.org_id;
+    let response = with_org_conn::<_, _, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let rows = sqlx::query(
+                "SELECT link_type, description, status FROM link_types ORDER BY link_type",
+            )
+            .fetch_all(tx.as_mut())
+            .await?;
+            rows.iter()
+                .map(|row| {
+                    Ok(LinkTypeResponse {
+                        link_type: row.try_get("link_type")?,
+                        description: row.try_get("description")?,
+                        status: row.try_get("status")?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ObjectError>>()
+        })
+    })
+    .await?;
+    Ok(Json(response))
+}
+
+// ---------------------------------------------------------------------------
+// SR- series: create (+ first instance), attach, read, by-instance lookup.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct CreateSeriesRequest {
+    label: String,
+    /// The first instance to seed the series with (kind + id).
+    kind: String,
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AttachInstanceRequest {
+    kind: String,
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeriesByInstanceQuery {
+    kind: String,
+    id: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct SeriesHead {
+    id: Uuid,
+    code: String,
+    label: String,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+}
+
+/// A series with its members resolved to ObjectHeads, ordered by attach time.
+/// Members that no longer resolve for the caller are OMITTED (deny-by-omission,
+/// exactly like the object graph) — membership never becomes a back-door read
+/// of an object the caller cannot otherwise see.
+#[derive(Debug, Serialize)]
+struct SeriesDetailResponse {
+    #[serde(flatten)]
+    head: SeriesHead,
+    instances: Vec<ObjectHead>,
+}
+
+#[derive(Debug, Serialize)]
+struct SeriesByInstanceResponse {
+    series: Option<SeriesHead>,
+}
+
+fn series_head_from_row(row: &sqlx::postgres::PgRow) -> Result<SeriesHead, ObjectError> {
+    Ok(SeriesHead {
+        id: row.try_get("id")?,
+        code: row.try_get("code")?,
+        label: row.try_get("label")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn normalize_label(raw: &str) -> Result<String, ObjectError> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err(ObjectError::validation("label is required"));
+    }
+    if value.chars().count() > 200 {
+        return Err(ObjectError::validation(
+            "label must be 200 characters or less",
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+async fn create_series(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<CreateSeriesRequest>,
+) -> Result<Json<SeriesDetailResponse>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let label = normalize_label(&body.label)?;
+    let member_kind = normalize_kind(&body.kind, "kind")?;
+    let member_id = normalize_object_id(&body.id, "id")?;
+    let org = principal.org_id;
+    let actor = principal.user_id;
+    let caller = *actor.as_uuid();
+    let scope = principal.branch_scope.clone();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
+    let now = OffsetDateTime::now_utc();
+    let series_id = Uuid::new_v4();
+
+    let detail = with_audits::<_, SeriesDetailResponse, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            // The first instance must resolve for the caller (deny-by-omission):
+            // you cannot found a series on an object you cannot see.
+            let resolved = resolve_head(
+                tx,
+                &scope,
+                caller,
+                &held_role_keys,
+                &satisfied,
+                &member_kind,
+                &member_id,
+            )
+            .await?;
+            let Some(fields) = resolved else {
+                return Err(ObjectError::not_found(
+                    "first instance is not resolvable for the caller",
+                ));
+            };
+
+            let code = mnt_platform_db::issue_code(tx, org, "series")
+                .await
+                .map_err(ObjectError::from)?;
+
+            let series_row = sqlx::query(
+                r#"
+                INSERT INTO series (id, org_id, code, label, created_by)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id, code, label, created_at
+                "#,
+            )
+            .bind(series_id)
+            .bind(*org.as_uuid())
+            .bind(&code)
+            .bind(&label)
+            .bind(caller)
+            .fetch_one(tx.as_mut())
+            .await?;
+            let head = series_head_from_row(&series_row)?;
+
+            attach_instance_row(tx, org, series_id, caller, &member_kind, &member_id).await?;
+
+            let create_event = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("series.create")?,
+                "series",
+                series_id.to_string(),
+                TraceContext::generate(),
+                now,
+            )
+            .with_org(org)
+            .with_snapshots(None, Some(json!({ "code": code, "label": label })));
+            let attach_event = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("series.attach")?,
+                "series",
+                series_id.to_string(),
+                TraceContext::generate(),
+                now,
+            )
+            .with_org(org)
+            .with_snapshots(
+                None,
+                Some(json!({ "member_kind": member_kind, "member_id": member_id })),
+            );
+
+            let instances = vec![object_head_from_resolved(
+                member_kind,
+                member_id,
+                Some(fields),
+            )];
+            Ok((
+                SeriesDetailResponse { head, instances },
+                vec![create_event, attach_event],
+            ))
+        })
+    })
+    .await?;
+    Ok(Json(detail))
+}
+
+async fn attach_series_instance(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Path(series_id): Path<Uuid>,
+    Json(body): Json<AttachInstanceRequest>,
+) -> Result<Json<ObjectLinkAttachAck>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let member_kind = normalize_kind(&body.kind, "kind")?;
+    let member_id = normalize_object_id(&body.id, "id")?;
+    let org = principal.org_id;
+    let actor = principal.user_id;
+    let caller = *actor.as_uuid();
+    let scope = principal.branch_scope.clone();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
+    let now = OffsetDateTime::now_utc();
+
+    with_audits::<_, (), ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            // Series must exist for the caller (RLS-scoped): an unknown id or
+            // another tenant's series is 404 (deny-by-omission).
+            let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM series WHERE id = $1")
+                .bind(series_id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+            if exists.is_none() {
+                return Err(ObjectError::not_found("series not found"));
+            }
+            // The instance must resolve for the caller.
+            let resolved = resolve_head(
+                tx,
+                &scope,
+                caller,
+                &held_role_keys,
+                &satisfied,
+                &member_kind,
+                &member_id,
+            )
+            .await?;
+            if resolved.is_none() {
+                return Err(ObjectError::not_found(
+                    "instance is not resolvable for the caller",
+                ));
+            }
+            attach_instance_row(tx, org, series_id, caller, &member_kind, &member_id).await?;
+            let event = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("series.attach")?,
+                "series",
+                series_id.to_string(),
+                TraceContext::generate(),
+                now,
+            )
+            .with_org(org)
+            .with_snapshots(
+                None,
+                Some(json!({ "member_kind": member_kind, "member_id": member_id })),
+            );
+            Ok(((), vec![event]))
+        })
+    })
+    .await?;
+    Ok(Json(ObjectLinkAttachAck { attached: true }))
+}
+
+#[derive(Debug, Serialize)]
+struct ObjectLinkAttachAck {
+    attached: bool,
+}
+
+/// Insert one membership row, mapping the UNIQUE(org, member_kind, member_id)
+/// violation to a clean 409 (the instance is already in a series — the
+/// "not-yet-in-a-series" promotion invariant).
+async fn attach_instance_row(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org: mnt_kernel_core::OrgId,
+    series_id: Uuid,
+    caller: Uuid,
+    member_kind: &str,
+    member_id: &str,
+) -> Result<(), ObjectError> {
+    let insert = sqlx::query(
+        r#"
+        INSERT INTO series_instances (org_id, series_id, member_kind, member_id, added_by)
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(*org.as_uuid())
+    .bind(series_id)
+    .bind(member_kind)
+    .bind(member_id)
+    .bind(caller)
+    .execute(tx.as_mut())
+    .await;
+    match insert {
+        Ok(_) => Ok(()),
+        Err(err) if is_unique_violation(&err) => Err(ObjectError::conflict(
+            "this object already belongs to a series",
+        )),
+        Err(err) => Err(ObjectError::from(err)),
+    }
+}
+
+async fn get_series(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Path(series_id): Path<Uuid>,
+) -> Result<Json<SeriesDetailResponse>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+    let caller = *principal.user_id.as_uuid();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
+
+    let detail = with_org_conn::<_, Option<SeriesDetailResponse>, ObjectError>(
+        &state.pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let Some(series_row) =
+                    sqlx::query("SELECT id, code, label, created_at FROM series WHERE id = $1")
+                        .bind(series_id)
+                        .fetch_optional(tx.as_mut())
+                        .await?
+                else {
+                    return Ok(None);
+                };
+                let head = series_head_from_row(&series_row)?;
+                let member_rows = sqlx::query(
+                    "SELECT member_kind, member_id FROM series_instances \
+                     WHERE series_id = $1 ORDER BY added_at, id",
+                )
+                .bind(series_id)
+                .fetch_all(tx.as_mut())
+                .await?;
+                let mut instances = Vec::new();
+                for row in &member_rows {
+                    let member_kind: String = row.try_get("member_kind")?;
+                    let member_id: String = row.try_get("member_id")?;
+                    // Resolve each member under the caller's visibility; omit
+                    // any that no longer resolve (deny-by-omission).
+                    if let Some(fields) = resolve_head(
+                        tx,
+                        &scope,
+                        caller,
+                        &held_role_keys,
+                        &satisfied,
+                        &member_kind,
+                        &member_id,
+                    )
+                    .await?
+                    {
+                        instances.push(object_head_from_resolved(
+                            member_kind,
+                            member_id,
+                            Some(fields),
+                        ));
+                    }
+                }
+                Ok(Some(SeriesDetailResponse { head, instances }))
+            })
+        },
+    )
+    .await?;
+    detail
+        .map(Json)
+        .ok_or_else(|| ObjectError::not_found("series not found"))
+}
+
+async fn series_by_instance(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<SeriesByInstanceQuery>,
+) -> Result<Json<SeriesByInstanceResponse>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let member_kind = normalize_kind(&query.kind, "kind")?;
+    let member_id = normalize_object_id(&query.id, "id")?;
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+    let caller = *principal.user_id.as_uuid();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
+
+    let series = with_org_conn::<_, Option<SeriesHead>, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            // Reveal the membership only if the caller can actually resolve the
+            // instance — otherwise series membership would be an existence
+            // oracle for objects outside the caller's scope.
+            let resolved = resolve_head(
+                tx,
+                &scope,
+                caller,
+                &held_role_keys,
+                &satisfied,
+                &member_kind,
+                &member_id,
+            )
+            .await?;
+            if resolved.is_none() {
+                return Ok(None);
+            }
+            let row = sqlx::query(
+                r#"
+                SELECT s.id, s.code, s.label, s.created_at
+                FROM series_instances si
+                JOIN series s ON s.id = si.series_id
+                WHERE si.member_kind = $1 AND si.member_id = $2
+                "#,
+            )
+            .bind(&member_kind)
+            .bind(&member_id)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            match row {
+                Some(row) => Ok(Some(series_head_from_row(&row)?)),
+                None => Ok(None),
+            }
+        })
+    })
+    .await?;
+    Ok(Json(SeriesByInstanceResponse { series }))
+}
+
+/// Confirm `link_type` is a registered edge type, inside the write tx so the
+/// check and the insert are atomic. Turns the raw FK violation into a clean
+/// validation error.
+async fn ensure_link_type_exists(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    link_type: &str,
+) -> Result<(), ObjectError> {
+    let found: i64 = sqlx::query_scalar("SELECT count(*) FROM link_types WHERE link_type = $1")
+        .bind(link_type)
+        .fetch_one(tx.as_mut())
+        .await?;
+    if found == 1 {
+        Ok(())
+    } else {
+        Err(ObjectError::validation(
+            "link_type must be a registered edge type",
+        ))
+    }
+}
+
 fn parse_uuid(id: &str) -> Option<Uuid> {
     Uuid::parse_str(id.trim()).ok()
 }
@@ -1781,6 +2579,7 @@ mod tests {
             "account",
             "passkey",
             "consent",
+            "series",
         ];
         for kind in DISPATCHED_KINDS {
             assert!(
@@ -1792,6 +2591,38 @@ mod tests {
             assert!(
                 DISPATCHED_KINDS.contains(kind),
                 "RESOLVABLE_KIND_AUTH declares `{kind}` but resolve_head has no arm"
+            );
+        }
+    }
+
+    #[test]
+    fn count_kind_and_resolvable_kinds_stay_in_sync() {
+        // Mirror of count_kind's resolvable match arms. Non-resolvable registry
+        // kinds are intentionally absent because they count 0, but every
+        // resolve_head-dispatchable kind must have a count arm (even when the arm
+        // returns 0 for a caller lacking the required feature).
+        const COUNTED_RESOLVABLE_KINDS: &[&str] = &[
+            "work_order",
+            "equipment",
+            "support_ticket",
+            "org_unit",
+            "person",
+            "account",
+            "approval_run",
+            "passkey",
+            "consent",
+            "series",
+        ];
+        for (kind, _) in RESOLVABLE_KIND_AUTH {
+            assert!(
+                COUNTED_RESOLVABLE_KINDS.contains(kind),
+                "RESOLVABLE_KIND_AUTH declares `{kind}` but count_kind has no arm"
+            );
+        }
+        for kind in COUNTED_RESOLVABLE_KINDS {
+            assert!(
+                required_auth_for_kind(kind).is_some(),
+                "count_kind has an arm for `{kind}` but resolve_head cannot dispatch it"
             );
         }
     }

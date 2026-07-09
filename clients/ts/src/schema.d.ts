@@ -4777,6 +4777,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/object-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the object-type registry with caller-visible instance counts
+         * @description Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count — the number of instances of that kind visible to the caller. The count respects the SAME per-kind visibility as resolveObject: org via forced RLS (no cross-org counting), narrowed by the caller's branch scope and the domain feature gate; a kind the caller cannot read counts 0. Type proposal/transition flows are out of scope for this slice (read surface + status only).
+         */
+        get: operations["listObjectTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-types/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch one object type with its caller-visible instance count
+         * @description Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count as listObjectTypes.
+         */
+        get: operations["getObjectType"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/link-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the edge-type registry (object-link relationship vocabulary)
+         * @description Returns the seeded, platform-wide set of relationship labels an object_link may use. createObjectLink validates link_type against this registry.
+         */
+        get: operations["listLinkTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an SR- series and attach its first instance
+         * @description Creates an org-scoped series with a canonical SR- code and attaches the first instance. The instance must resolve for the caller (deny-by-omission): you cannot found a series on an object you cannot see. Audited.
+         */
+        post: operations["createSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/by-instance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find which series an object belongs to
+         * @description Returns the series a given (kind, id) instance belongs to, or null. Membership is revealed only when the caller can resolve the instance, so series membership is never an existence oracle for out-of-scope objects.
+         */
+        get: operations["getSeriesByInstance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a series and its ordered, caller-visible instances
+         * @description Returns the series head and its instances resolved to ObjectHeads, ordered by attach time. Instances that no longer resolve for the caller are omitted (deny-by-omission). Current/next derivation is left to the client. An unknown id or another tenant's series is 404.
+         */
+        get: operations["getSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/{id}/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach an instance to an existing series
+         * @description Attaches a (kind, id) instance to the series. The series must exist for the caller and the instance must resolve for the caller (both deny-by-omission -> 404). An object already in a series is rejected with 409 (the not-yet-in-a-series promotion invariant). Audited.
+         */
+        post: operations["attachSeriesInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/purchase-requests/preferences": {
         parameters: {
             query?: never;
@@ -5085,6 +5225,72 @@ export interface components {
         /** @description Global search hits, each an ObjectHead scoped identically to resolveObject (a hit the caller could not resolve never appears). Grouped by kind; exists is always true for a hit. */
         SearchResponse: {
             results: components["schemas"]["ObjectHead"][];
+        };
+        /** @description An object-type registry row plus the caller-visible active instance count. */
+        ObjectTypeResponse: {
+            kind: string;
+            /** @description Canonical per-kind code prefix (e.g. AP-, CS-); absent for id/name-referenced kinds. */
+            code_prefix?: string | null;
+            description: string;
+            /**
+             * @description Type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
+            /**
+             * Format: int64
+             * @description Instances of this kind visible to the caller (same per-kind visibility as resolveObject).
+             */
+            active_count: number;
+        };
+        /** @description A registered edge type (object-link relationship label). */
+        LinkTypeResponse: {
+            link_type: string;
+            description: string;
+            /**
+             * @description Edge-type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
+        };
+        /** @description Create a series and attach its first instance. */
+        CreateSeriesRequest: {
+            /** @description Human label for the series (1-200 chars). */
+            label: string;
+            /** @description First instance object kind slug. */
+            kind: string;
+            /** @description First instance object id/reference (≤200 chars). */
+            id: string;
+        };
+        /** @description Attach an instance (kind, id) to a series. */
+        AttachInstanceRequest: {
+            /** @description Instance object kind slug. */
+            kind: string;
+            /** @description Instance object id/reference (≤200 chars). */
+            id: string;
+        };
+        AttachInstanceAck: {
+            attached: boolean;
+        };
+        SeriesHead: {
+            id: components["schemas"]["Uuid"];
+            /** @description Canonical SR- code. */
+            code: string;
+            label: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description A series head plus its instances resolved to ObjectHeads, ordered by attach time. Instances not resolvable for the caller are omitted (deny-by-omission). */
+        SeriesDetailResponse: {
+            id: components["schemas"]["Uuid"];
+            /** @description Canonical SR- code. */
+            code: string;
+            label: string;
+            created_at: components["schemas"]["Timestamp"];
+            instances: components["schemas"]["ObjectHead"][];
+        };
+        /** @description The series an instance belongs to, or null. */
+        SeriesByInstanceResponse: {
+            series: components["schemas"]["SeriesHead"] | null;
         };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
@@ -16883,6 +17089,190 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listObjectTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object-type registry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectTypeResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getObjectType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Object kind slug. */
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectTypeResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listLinkTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The edge-type registry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkTypeResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSeriesRequest"];
+            };
+        };
+        responses: {
+            /** @description The created series with its first resolved instance. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSeriesByInstance: {
+        parameters: {
+            query: {
+                /** @description Instance object kind slug. */
+                kind: string;
+                /** @description Instance object id/reference. */
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series the instance belongs to (series=null when none / not resolvable). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesByInstanceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series with its ordered, resolved instances. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    attachSeriesInstance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachInstanceRequest"];
+            };
+        };
+        responses: {
+            /** @description The instance was attached. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachInstanceAck"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getPurchaseRequestPreferences: {
