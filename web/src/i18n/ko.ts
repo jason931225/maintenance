@@ -455,7 +455,7 @@ export const ko = {
     dispatch: "배차",
     "dispatch-map": "배차 지도",
     intake: "접수",
-    approvals: "전자결제",
+    approvals: "전자결제시스템",
     "leave-management": "연차관리",
     "insurance-assist": "보험신고 지원",
     "daily-plan": "계획업무",
@@ -1142,7 +1142,7 @@ export const ko = {
     mainNav: "메인 내비게이션",
     navBadgeCount: "{label} {count}건",
     navBadges: {
-      pendingApprovals: "{label} 결재할 문서 {count}건",
+      pendingApprovals: "{label} 결재 대기 {count}건",
       unreadMessages: "{label} 읽지 않은 메시지 {count}건",
       unreadMail: "{label} 읽지 않은 메일 {count}건",
       supportSummary: "읽지 않은 문의 {unread}건, 열린 티켓 {open}건",
@@ -1426,7 +1426,7 @@ export const ko = {
     actions: {
       overview: "통합 개요",
       org: "조직 관리",
-      approvals: "승인",
+      approvals: "전자결제시스템",
       dailyPlan: "계획업무",
     },
     columns: {
@@ -2845,7 +2845,7 @@ export const ko = {
   overview: {
     title: "통합 개요",
     description:
-      "결재·출동·지원·근태 액션과 오늘의 할 일을 한 화면에서 처리합니다.",
+      "전자결제시스템·출동·지원·근태 액션과 오늘의 할 일을 한 화면에서 처리합니다.",
     liveBadge: "실시간 집계",
     refreshHint: "새로 고침",
     sections: {
@@ -2855,7 +2855,7 @@ export const ko = {
     emptyInbox: "현재 처리할 항목이 없습니다.",
     listLabel: "처리 대기 항목 목록",
     sources: {
-      approvals: "결재",
+      approvals: "전자결제시스템",
       dispatch: "긴급 출동",
       support: "고객지원",
       attendance: "근태 예외",
@@ -2869,7 +2869,7 @@ export const ko = {
       chip: "{label} {count}건",
     },
     kinds: {
-      approval: "결재",
+      approval: "전자결제시스템",
       dispatch: "출동",
       support: "지원",
       attendance: "근태 예외",
@@ -2885,7 +2885,7 @@ export const ko = {
       open: "열기",
     },
     toasts: {
-      claimed: "결재 항목을 담당했습니다.",
+      claimed: "전자결제시스템 항목을 담당했습니다.",
       approved: "승인했습니다.",
       accepted: "출동 요청을 수락했습니다.",
       ticketStarted: "티켓을 접수했습니다.",
@@ -3205,10 +3205,10 @@ export const ko = {
     },
   },
   approvals: {
-    title: "전자결제 대기",
+    title: "전자결제시스템 대기",
     description:
-      "보고가 제출된 작업지시와 운영 전자결제 흐름을 검토하고 승인 또는 반려합니다.",
-    partialFailure: "일부 승인 원천을 불러오지 못했습니다: {sources}",
+      "보고가 제출된 작업지시와 운영 전자결제시스템 흐름을 검토하고 승인 또는 반려합니다.",
+    partialFailure: "일부 전자결제시스템 원천을 불러오지 못했습니다: {sources}",
     sources: {
       workOrders: "작업 보고",
       dailyPlans: "계획업무",
@@ -3228,18 +3228,18 @@ export const ko = {
       BRANCH: "지점 범위",
     },
     commandCenter: {
-      title: "승인 액션 큐",
+      title: "전자결제시스템 액션 큐",
       auditBadge: "정책: 서버 재검사",
       none: "없음",
       summary: {
-        payable: "결재할 전자결제",
-        submittedDocuments: "상신 전자문서",
-        completed: "결재완료",
+        payable: "전자결제시스템 결재 대기",
+        submittedDocuments: "전자결제시스템 상신문서",
+        completed: "전자결제시스템 결재완료",
         other: "기타",
       },
       nextDecisionsTitle: "다음 결정",
-      nextDecisionsLabel: "승인 우선순위 결정 목록",
-      empty: "승인 대기 건이 없습니다.",
+      nextDecisionsLabel: "전자결제시스템 우선순위 결정 목록",
+      empty: "전자결제시스템 대기 건이 없습니다.",
       decide: "결정하기",
       dueAt: "마감",
       noDueAt: "마감 없음",
@@ -3249,15 +3249,15 @@ export const ko = {
       sources: {
         workReports: {
           title: "작업 보고 승인",
-          action: "작업 승인 큐로 이동",
+          action: "전자결제시스템 작업 큐로 이동",
         },
         dailyPlans: {
           title: "계획업무 검토",
-          action: "계획업무 검토 열기",
+          action: "전자결제시스템 계획업무 검토 열기",
         },
         targetChange: {
           title: "일정 변경 검토",
-          action: "일정 변경 검토로 이동",
+          action: "전자결제시스템 일정 변경 검토로 이동",
         },
       },
       dailyPlans: {
@@ -3283,11 +3283,11 @@ export const ko = {
     rejected: "반려를 처리했습니다.",
     actionFailed: "처리하지 못했습니다. 다시 시도하세요.",
     requiredRejectMemo: "반려 메모를 입력하세요.",
-    empty: "승인 대기 건이 없습니다.",
-    focusedDeepLink: "통합 개요에서 연결된 승인 건을 강조했습니다.",
+    empty: "전자결제시스템 대기 건이 없습니다.",
+    focusedDeepLink: "통합 개요에서 연결된 전자결제시스템 건을 강조했습니다.",
     focusedMissing:
-      "연결된 승인 건이 현재 승인 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
-    focusedItemLabel: "연결된 승인 건",
+      "연결된 전자결제시스템 건이 현재 전자결제시스템 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+    focusedItemLabel: "연결된 전자결제시스템 건",
     // Per-row report reveal. The approver must read the diagnosis / action /
     // result / evidence before deciding, so each queue item lazily fetches its
     // full work-order detail (GET /api/v1/work-orders/{id}) on demand.
@@ -3306,8 +3306,8 @@ export const ko = {
     targetChange: {
       title: "일정 변경 요청 검토",
       description:
-        "배차에서 요청된 일정(목표 완료) 변경 건을 승인 대기 목록에서 확인하고 승인 또는 반려합니다.",
-      listLabel: "일정 변경 승인 대기 목록",
+        "배차에서 요청된 일정(목표 완료) 변경 건을 전자결제시스템 대기 목록에서 확인하고 승인 또는 반려합니다.",
+      listLabel: "일정 변경 전자결제시스템 대기 목록",
       empty: "검토 대기 중인 일정 변경 요청이 없습니다.",
       workOrderLabel: "연결 작업지시",
       requestedTargetDueAt: "요청 목표 완료",
@@ -4305,7 +4305,7 @@ export const ko = {
       scope: "그룹·조직 범위는 계정 정책과 보기 범위를 따릅니다.",
       title: "구매, 임대료, 원가, 자산경제성을 한 흐름에서 처리합니다.",
       links: {
-        approvals: "승인센터",
+        approvals: "전자결제시스템",
         workflows: "워크플로",
         assets: "장비 조회",
       },
