@@ -103,6 +103,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
+pub mod action_inbox;
 mod collaboration;
 mod hr;
 pub mod lifecycle;
@@ -1436,6 +1437,10 @@ pub fn build_router(state: AppState) -> Router {
                         state.jwt_verifier.clone(),
                     ),
                 ))
+                .merge(action_inbox::router(action_inbox::ActionInboxState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(objects::router(objects::ObjectState::new(
                     pool.clone(),
                     state.jwt_verifier.clone(),

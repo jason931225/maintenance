@@ -1669,6 +1669,36 @@ async fn list_workflow_tasks(
     Ok(Json(WorkflowTaskListResponse { items }))
 }
 
+/// The caller's actionable approval/workflow tasks for the unified action inbox
+/// (`GET /api/v1/me/action-inbox`): their personal-inbox OPEN + CLAIMED waiting
+/// tasks, scoped and visibility-filtered EXACTLY as `GET /api/v1/workflow-tasks?
+/// assignee=me` — same `list_waiting_tasks` predicate + `task_visible` gate, so
+/// the aggregate can never widen visibility beyond the source list endpoint.
+pub(crate) async fn my_action_inbox_tasks(
+    pool: &PgPool,
+    principal: &Principal,
+) -> Result<Vec<WaitingTaskListItem>, KernelError> {
+    let org = principal.org_id;
+    let branch = guard_branch(principal);
+    let store = PgWorkflowRuntimeStore::new(pool.clone());
+    let items = store
+        .list_waiting_tasks(
+            org,
+            principal.user_id,
+            WaitingTaskListFilter {
+                role_key: None,
+                assignee_me: true,
+                authority_role_keys: held_authority_role_keys(principal, org, branch),
+                statuses: vec![WaitingTaskStatus::Open, WaitingTaskStatus::Claimed],
+            },
+        )
+        .await?;
+    Ok(items
+        .into_iter()
+        .filter(|item| task_visible(principal, org, branch, item))
+        .collect())
+}
+
 async fn list_my_workflow_runs(
     State(state): State<WorkflowStudioState>,
     Extension(principal): Extension<Principal>,

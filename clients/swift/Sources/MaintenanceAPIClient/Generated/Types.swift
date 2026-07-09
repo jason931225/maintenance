@@ -1035,6 +1035,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/me/dispatch-offers`.
     /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)`.
     func listMyDispatchOffers(_ input: Operations.ListMyDispatchOffers.Input) async throws -> Operations.ListMyDispatchOffers.Output
+    /// Unified action inbox for the authenticated principal
+    ///
+    /// One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/action-inbox`.
+    /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)`.
+    func listMyActionInbox(_ input: Operations.ListMyActionInbox.Input) async throws -> Operations.ListMyActionInbox.Output
     /// Get the authenticated user's own profile
     ///
     /// - Remark: HTTP `GET /api/v1/users/me`.
@@ -3993,6 +4000,15 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)`.
     public func listMyDispatchOffers(headers: Operations.ListMyDispatchOffers.Input.Headers = .init()) async throws -> Operations.ListMyDispatchOffers.Output {
         try await listMyDispatchOffers(Operations.ListMyDispatchOffers.Input(headers: headers))
+    }
+    /// Unified action inbox for the authenticated principal
+    ///
+    /// One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/action-inbox`.
+    /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)`.
+    public func listMyActionInbox(headers: Operations.ListMyActionInbox.Input.Headers = .init()) async throws -> Operations.ListMyActionInbox.Output {
+        try await listMyActionInbox(Operations.ListMyActionInbox.Input(headers: headers))
     }
     /// Get the authenticated user's own profile
     ///
@@ -17264,6 +17280,170 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case items
+            }
+        }
+        /// A bounded cross-object reference for an action-inbox item.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ActionInboxLink`.
+        public struct ActionInboxLink: Codable, Hashable, Sendable {
+            /// Object type label (e.g. work_order, workflow_run).
+            ///
+            /// - Remark: Generated from `#/components/schemas/ActionInboxLink/kind`.
+            public var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ActionInboxLink/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ActionInboxLink/label`.
+            public var label: Swift.String?
+            /// Creates a new `ActionInboxLink`.
+            ///
+            /// - Parameters:
+            ///   - kind: Object type label (e.g. work_order, workflow_run).
+            ///   - id:
+            ///   - label:
+            public init(
+                kind: Swift.String,
+                id: Swift.String,
+                label: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.id = id
+                self.label = label
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case id
+                case label
+            }
+        }
+        /// One unified actionable item. Field names mirror the overview prototype's items[] shape. Source-partial fields (site/who/due/submitted) are absent when the originating source does not carry them.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ActionInboxItem`.
+        public struct ActionInboxItem: Codable, Hashable, Sendable {
+            /// "{kind}:{uuid}" — source-namespaced so ids never collide.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case approval = "approval"
+                case dispatch = "dispatch"
+                case work = "work"
+                case support = "support"
+            }
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/kind`.
+            public var kind: Components.Schemas.ActionInboxItem.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/urg`.
+            @frozen public enum UrgPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case now = "now"
+                case today = "today"
+                case wait = "wait"
+            }
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/urg`.
+            public var urg: Components.Schemas.ActionInboxItem.UrgPayload
+            /// Source reference (work order request_no, ticket id, or the workflow run/object id). Not a canonical AP-/CS- object code.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/ref`.
+            public var ref: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/site`.
+            public var site: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/who`.
+            public var who: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/due`.
+            public var due: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/dueTone`.
+            @frozen public enum DueTonePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case danger = "danger"
+                case warn = "warn"
+                case neutral = "neutral"
+            }
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/dueTone`.
+            public var dueTone: Components.Schemas.ActionInboxItem.DueTonePayload
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/submitted`.
+            public var submitted: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/links`.
+            public var links: [Components.Schemas.ActionInboxLink]
+            /// - Remark: Generated from `#/components/schemas/ActionInboxItem/done`.
+            public var done: Swift.Bool
+            /// Creates a new `ActionInboxItem`.
+            ///
+            /// - Parameters:
+            ///   - id: "{kind}:{uuid}" — source-namespaced so ids never collide.
+            ///   - kind:
+            ///   - urg:
+            ///   - ref: Source reference (work order request_no, ticket id, or the workflow run/object id). Not a canonical AP-/CS- object code.
+            ///   - title:
+            ///   - site:
+            ///   - who:
+            ///   - due:
+            ///   - dueTone:
+            ///   - submitted:
+            ///   - links:
+            ///   - done:
+            public init(
+                id: Swift.String,
+                kind: Components.Schemas.ActionInboxItem.KindPayload,
+                urg: Components.Schemas.ActionInboxItem.UrgPayload,
+                ref: Swift.String,
+                title: Swift.String,
+                site: Swift.String? = nil,
+                who: Swift.String? = nil,
+                due: Components.Schemas.Timestamp? = nil,
+                dueTone: Components.Schemas.ActionInboxItem.DueTonePayload,
+                submitted: Components.Schemas.Timestamp? = nil,
+                links: [Components.Schemas.ActionInboxLink],
+                done: Swift.Bool
+            ) {
+                self.id = id
+                self.kind = kind
+                self.urg = urg
+                self.ref = ref
+                self.title = title
+                self.site = site
+                self.who = who
+                self.due = due
+                self.dueTone = dueTone
+                self.submitted = submitted
+                self.links = links
+                self.done = done
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case kind
+                case urg
+                case ref
+                case title
+                case site
+                case who
+                case due
+                case dueTone
+                case submitted
+                case links
+                case done
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ActionInboxResponse`.
+        public struct ActionInboxResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ActionInboxResponse/items`.
+            public var items: [Components.Schemas.ActionInboxItem]
+            /// - Remark: Generated from `#/components/schemas/ActionInboxResponse/total`.
+            public var total: Swift.Int
+            /// Creates a new `ActionInboxResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.ActionInboxItem],
+                total: Swift.Int
+            ) {
+                self.items = items
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
             }
         }
         /// - Remark: Generated from `#/components/schemas/EquipmentStatus`.
@@ -60306,6 +60486,192 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.ListMyDispatchOffers.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Unified action inbox for the authenticated principal
+    ///
+    /// One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/action-inbox`.
+    /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)`.
+    public enum ListMyActionInbox {
+        public static let id: Swift.String = "listMyActionInbox"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/action-inbox/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyActionInbox.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyActionInbox.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyActionInbox.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListMyActionInbox.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/action-inbox/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/action-inbox/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ActionInboxResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ActionInboxResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyActionInbox.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyActionInbox.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The caller's actionable items, most urgent first.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyActionInbox.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyActionInbox.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/action-inbox/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/action-inbox/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyActionInbox.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyActionInbox.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListMyActionInbox.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListMyActionInbox.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):
