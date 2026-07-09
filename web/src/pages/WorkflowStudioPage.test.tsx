@@ -18,6 +18,11 @@ import { AppRouter } from "../AppRouter";
 import { createConsoleApiClient } from "../api/client";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
+import {
+  createEmptyWorkflowDefinition,
+  createWorkflowNode,
+} from "../features/workflow-canvas/model";
+import type { WorkflowDefinitionV1 } from "../features/workflow-canvas/model";
 
 const mockStepUpAssertion = {
   ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -217,19 +222,23 @@ describe("WorkflowStudioPage", () => {
     renderApp();
 
     expect(
-      await screen.findByRole("heading", { name: "워크플로 스튜디오" }),
+      await screen.findByRole(
+        "heading",
+        { name: "워크플로 스튜디오" },
+        { timeout: 5000 },
+      ),
     ).toBeInTheDocument();
     expect(await screen.findByText("작업 완료 승인")).toBeInTheDocument();
     expect(screen.getByText("승인센터")).toBeInTheDocument();
     expect(screen.getByText("request_approval")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "초안 작성" }),
+      screen.getByRole("heading", { name: "워크플로 캔버스" }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("초안 생성").length).toBeGreaterThan(0);
     expect(screen.queryByText("Workflow + Approval")).not.toBeInTheDocument();
-  });
+  }, 15000);
 
-  it("creates a draft from the authoring form with typed JSON mapping", async () => {
+  it("creates a draft from the no-code canvas with a canonical workflow definition", async () => {
     installBaseHandlers();
     server.use(
       http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
@@ -241,6 +250,7 @@ describe("WorkflowStudioPage", () => {
           workflow_key: (body as { workflow_key: string }).workflow_key,
           display_name: (body as { display_name: string }).display_name,
           object_type: (body as { object_type: string }).object_type,
+          definition: (body as { definition: unknown }).definition,
           required_approval_line: true,
           approval_line: [
             { step_key: "manager", approver_role: "MANAGER", required: true },
@@ -257,39 +267,125 @@ describe("WorkflowStudioPage", () => {
 
     renderApp();
 
+    expect(await screen.findByRole("heading", { name: "워크플로 캔버스" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "정의 JSON" }),
+    ).not.toBeInTheDocument();
+
     await userEvent.click(
-      await screen.findByRole("button", { name: "정비 완료 승인" }),
+      screen.getByRole("button", { name: "휴가 신청 승인 템플릿 사용" }),
+    );
+    const fallbackInput = await screen.findByLabelText("승인 대체 역할");
+    await userEvent.clear(fallbackInput);
+    await userEvent.type(fallbackInput, "people.ops.manager");
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    await waitFor(() => {
+      expect(createRequests).toHaveLength(1);
+    });
+    const request = createRequests[0] as {
+      workflow_key: string;
+      display_name: string;
+      object_type: string;
+      required_approval_line: boolean;
+      required_payment_line: boolean;
+      definition: WorkflowDefinitionV1;
+      action_allowlist: unknown[];
+    };
+    expect(request).toMatchObject({
+      workflow_key: "leave_request.approval",
+      display_name: "휴가 신청 승인",
+      object_type: "leave_request",
+      required_approval_line: true,
+      required_payment_line: false,
+      definition: {
+        schema_version: "workflow.definition.v1",
+        metadata: { object_type: "leave_request" },
+        validation: { last_result: "valid" },
+      },
+    });
+    expect(request.definition.graph.nodes.map((node) => node.type)).toEqual(
+      expect.arrayContaining([
+        "trigger.form_submission",
+        "form.input",
+        "task.approval",
+        "condition.branch",
+        "action.object_update",
+        "action.notification",
+        "action.audit_append",
+        "end.state",
+      ]),
+    );
+    expect(
+      request.definition.graph.nodes.find((node) => node.type === "task.approval")
+        ?.config,
+    ).toMatchObject({
+      assignee_rule: { fallback_role: "people.ops.manager" },
+    });
+    expect(request.definition.graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from_node_id: "node-condition",
+          from_port: "approved",
+          to_node_id: "node-approved-update",
+        }),
+      ]),
+    );
+    expect(request.action_allowlist).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ connector_key: "internal.approvals" }),
+        expect.objectContaining({ connector_key: "internal.notifications" }),
+      ]),
+    );
+    expect(
+      await screen.findByText("워크플로 초안을 생성했습니다."),
+    ).toBeInTheDocument();
+  }, 15000);
+
+  it("keeps draft create success when the post-create history refresh fails", async () => {
+    installBaseHandlers();
+    const createdId = "77777777-7777-4777-8777-777777777777";
+    server.use(
+      http.get("*/api/v1/workflow-studio/definitions/:id/history", ({ params }) => {
+        if (params.id === createdId) {
+          return HttpResponse.json({ message: "history unavailable" }, { status: 500 });
+        }
+        return HttpResponse.json(historyResponse);
+      }),
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        const body = await request.json();
+        createRequests.push(body);
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: createdId,
+          workflow_key: (body as { workflow_key: string }).workflow_key,
+          display_name: (body as { display_name: string }).display_name,
+          object_type: (body as { object_type: string }).object_type,
+          definition: (body as { definition: unknown }).definition,
+        });
+      }),
+    );
+
+    renderApp();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "휴가 신청 승인 템플릿 사용" }),
     );
     await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
 
     await waitFor(() => {
       expect(createRequests).toHaveLength(1);
     });
-    expect(createRequests[0]).toMatchObject({
-      workflow_key: "work_order.maintenance_completion_approval",
-      display_name: "정비 완료 승인",
-      object_type: "work_order",
-      required_approval_line: true,
-      required_payment_line: false,
-      definition: {
-        schema_version: "workflow.definition.v1",
-        template_key: "maintenance_completion_approval",
-        object_type: "work_order",
-        trigger: "work_order.maintenance_completion_approval",
-        steps: [{ key: "review", type: "approval", source: "approval_line" }],
-      },
-    });
-    expect(
-      (createRequests[0] as { action_allowlist: unknown[] }).action_allowlist,
-    ).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ connector_key: "internal.approvals" }),
-      ]),
-    );
     expect(
       await screen.findByText("워크플로 초안을 생성했습니다."),
     ).toBeInTheDocument();
-  });
+    expect(
+      screen.queryByText("초안 생성에 실패했습니다. 캔버스 설정과 허용 커넥터를 확인하세요."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("워크플로 스튜디오를 불러오지 못했습니다."),
+    ).not.toBeInTheDocument();
+  }, 15000);
 
   it("creates a fixed no-code policy decision draft from the equipment location template", async () => {
     installBaseHandlers();
@@ -374,9 +470,15 @@ describe("WorkflowStudioPage", () => {
       ],
       notification_rules: [],
     });
+    expect(
+      await screen.findByText("워크플로 초안을 생성했습니다."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("초안 생성에 실패했습니다. 캔버스 설정과 허용 커넥터를 확인하세요."),
+    ).not.toBeInTheDocument();
   });
 
-  it("resets policy fields when switching back to a standard template", async () => {
+  it("resets policy fields when switching back to a standard catalog template", async () => {
     installBaseHandlers();
     server.use(
       http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
@@ -436,7 +538,7 @@ describe("WorkflowStudioPage", () => {
     ).not.toHaveProperty("policy_decision");
   });
 
-  it("updates a draft from the authoring form", async () => {
+  it("updates a draft from the canvas authoring form", async () => {
     installBaseHandlers();
     server.use(
       http.patch(
@@ -480,7 +582,7 @@ describe("WorkflowStudioPage", () => {
     expect(
       await screen.findByText("워크플로 초안을 저장했습니다."),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("이름")).toHaveValue("작업 완료 승인");
+    expect(screen.getByLabelText("이름")).toHaveValue("작업 완료 승인 수정");
     expect(
       screen.queryByRole("button", { name: "편집 취소" }),
     ).not.toBeInTheDocument();
@@ -546,6 +648,150 @@ describe("WorkflowStudioPage", () => {
     expect(historyRequests).toContain(secondaryDefinition.id);
 
     confirmSpy.mockRestore();
+  });
+
+  it("blocks saving when edited draft metadata would make the canonical graph inconsistent", async () => {
+    installBaseHandlers();
+    server.use(
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        createRequests.push(await request.json());
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: "33333333-3333-4333-8333-333333333333",
+        });
+      }),
+    );
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "워크플로 캔버스" })).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "휴가 신청 승인 템플릿 사용" }),
+    );
+    const objectTypeInput = await screen.findByLabelText("업무 객체");
+    await userEvent.clear(objectTypeInput);
+    await userEvent.type(objectTypeInput, "work_order");
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    expect(
+      await screen.findByText("캔버스 검증 오류를 해결하면 저장할 수 있습니다."),
+    ).toBeInTheDocument();
+    expect(createRequests).toHaveLength(0);
+  }, 15000);
+
+  it("flags invalid edge attempts and disables save for invalid canvas drafts", async () => {
+    installBaseHandlers();
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "워크플로 캔버스" })).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "노드 추가: Form submission trigger" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "노드 추가: End state" }),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("연결 시작 노드"),
+      "node-end",
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("연결 대상 노드"),
+      "node-trigger",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "연결 추가" }));
+
+    expect(
+      await screen.findByText(
+        "Select compatible source and target ports before connecting.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "초안 생성" })).toBeDisabled();
+    expect(
+      screen.getByText("Leave request submitted requires a Submitted connection."),
+    ).toBeInTheDocument();
+  });
+
+  it("lets users choose branch ports when connecting a blank no-code canvas", async () => {
+    installBaseHandlers();
+
+    renderApp();
+
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "워크플로 스튜디오" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "워크플로 캔버스" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "빈 캔버스 시작" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "노드 추가: Approval result condition" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "노드 추가: End state" }));
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("연결 시작 노드"),
+      "node-condition",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("연결 시작 포트"), "rejected");
+    await userEvent.selectOptions(
+      screen.getByLabelText("연결 대상 노드"),
+      "node-end",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("연결 대상 포트"), "in");
+    await userEvent.click(screen.getByRole("button", { name: "연결 추가" }));
+
+    expect(
+      await screen.findByText("node-condition:rejected → node-end:in"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("node-condition:approved → node-end:in")).not.toBeInTheDocument();
+  }, 15000);
+
+  it("blocks publishing invalid canonical graphs before passkey step-up", async () => {
+    const invalidDefinition = createEmptyWorkflowDefinition({
+      name: "Invalid workflow",
+      objectType: "leave_request",
+    });
+    invalidDefinition.graph.nodes.push(createWorkflowNode("trigger.form_submission"));
+    server.use(
+      http.get("*/api/v1/workflow-studio/catalog", () =>
+        HttpResponse.json(catalogResponse),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions", () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...baseDefinition,
+              definition: invalidDefinition,
+              required_approval_line: true,
+              approval_line: [
+                { step_key: "admin", approver_role: "ADMIN", required: true },
+              ],
+            },
+          ],
+        }),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions/:id/history", () =>
+        HttpResponse.json(historyResponse),
+      ),
+      http.post("*/api/v1/workflow-studio/definitions/:id/publish", async ({ request }) => {
+        publishRequests.push(await request.json());
+        return HttpResponse.json({}, { status: 500 });
+      }),
+    );
+
+    renderApp();
+
+    const row = await screen.findByRole("row", { name: /작업 완료 승인/ });
+    await userEvent.click(within(row).getByRole("button", { name: "게시" }));
+
+    expect(
+      await screen.findByText("캔버스 검증 오류를 해결해야 게시할 수 있습니다."),
+    ).toBeInTheDocument();
+    expect(mockAssertPasskeyStepUp).not.toHaveBeenCalled();
+    expect(publishRequests).toHaveLength(0);
   });
 
   it("blocks publish without approval and payment lines before passkey step-up", async () => {
