@@ -125,6 +125,15 @@ pub enum ReportingExportError {
     Workbook(String),
 }
 
+impl From<KpiQueryError> for ReportingExportError {
+    fn from(error: KpiQueryError) -> Self {
+        match error {
+            KpiQueryError::Kernel(error) => Self::Kernel(error),
+            KpiQueryError::Database(message) => Self::Database(message),
+        }
+    }
+}
+
 pub trait ReportingExportPort {
     fn export_daily_status(
         &self,

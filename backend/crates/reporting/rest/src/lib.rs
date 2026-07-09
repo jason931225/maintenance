@@ -292,6 +292,15 @@ async fn get_kpi_export(
     let principal = principal_from_headers(&state, &headers).await?;
     let period = parse_period(&params.period)?;
     let scope = parse_scope(params.scope.as_deref())?;
+    // KPI export exposes the same KpiRead-gated data as GET /api/v1/kpi, so it
+    // requires the KPI read contract (feature + scope) in addition to the
+    // Excel-download capability the sibling exports need.
+    authorize(
+        &principal,
+        Action::new(Feature::KpiRead),
+        authorization_branch(&principal, scope)?,
+    )
+    .map_err(RestError::from_kernel)?;
     authorize_reporting_feature(&principal, Feature::ExcelDownload)?;
     let workbook = state
         .repository

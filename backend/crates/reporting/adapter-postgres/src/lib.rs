@@ -510,14 +510,21 @@ impl PgKpiRepository {
                 scope: query.scope,
                 branch_scope: query.branch_scope.clone(),
             })
-            .await
-            .map_err(export_error_from_kpi_query)?;
+            .await?;
         let bytes = render_kpi(&report)?;
         let file_name = format!(
             "kpi-{}-to-{}.xlsx",
             iso_date(period.start.date()),
             iso_date(period.end.date())
         );
+        let source_notes: Vec<ExportSourceNote> = report
+            .unavailable_metrics
+            .iter()
+            .map(|metric| ExportSourceNote {
+                source_domain: metric.source_domain.clone(),
+                reason: metric.reason.clone(),
+            })
+            .collect();
         // Audited exactly like the sibling daily-status / work-diary exports:
         // one excel_export_logs row + one audit_events row, under RLS as mnt_rt.
         self.record_export_log(ExportLogCommand {
@@ -527,7 +534,7 @@ impl PgKpiRepository {
             branch_scope: query.branch_scope,
             export_date: period.start.date(),
             file_name: &file_name,
-            source_notes: &[] as &[ExportSourceNote],
+            source_notes: &source_notes,
             trace: query.trace,
             occurred_at: query.occurred_at,
         })
@@ -1640,13 +1647,6 @@ fn render_daily_status(report: &DailyStatusReport) -> Result<Vec<u8>, PgReportin
         ],
     )
     .map_err(|error| PgReportingError::Workbook(error.to_string()))
-}
-
-fn export_error_from_kpi_query(error: KpiQueryError) -> ReportingExportError {
-    match error {
-        KpiQueryError::Kernel(error) => ReportingExportError::Kernel(error),
-        KpiQueryError::Database(message) => ReportingExportError::Database(message),
-    }
 }
 
 /// Render the KPI rollups into a fresh single-sheet workbook. The KPI report has
