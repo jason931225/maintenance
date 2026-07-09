@@ -497,6 +497,72 @@ async fn graph_omits_account_node_for_member_without_user_manage(owner_pool: PgP
     );
 }
 
+/// The per-level `GRAPH_MAX_LINKS_PER_LEVEL` clip must mark the response
+/// `truncated` — otherwise a level with more links than the cap silently drops
+/// edges (including cross-edges between two nodes both in the result) while
+/// truncated stays false. Seed > the cap outgoing links from the root and
+/// assert truncated even though the node cap is never hit (dst nodes are
+/// non-resolvable, so no extra nodes are added).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn link_limit_clip_marks_truncated(owner_pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let branch_x = seed_branch(&owner_pool, "Region L", "Branch L").await;
+    let caller = UserId::new();
+    seed_user_in_branch(&owner_pool, caller, "ADMIN", branch_x).await;
+    let token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        caller,
+        vec![branch_x],
+    );
+
+    let root = branch_x.as_uuid().to_string();
+    // ponytail: 1001 == GRAPH_MAX_LINKS_PER_LEVEL (1000, private in objects.rs) + 1.
+    // Bump if that const rises. dst kind `document` is non-resolvable, so these
+    // never become nodes — truncated must come purely from the link-limit clip.
+    sqlx::query(
+        "INSERT INTO object_links (org_id, src_kind, src_id, dst_kind, dst_id, link_type) \
+         SELECT $1, 'org_unit', $2, 'document', 'doc-' || g, 'relates_to' \
+         FROM generate_series(1, 1001) g",
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(&root)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let res = graph(
+        &rt_pool,
+        &public_key_pem,
+        &token,
+        "org_unit",
+        &root,
+        Some(1),
+    )
+    .await;
+    assert_eq!(res.0, StatusCode::OK, "body: {}", res.1);
+    assert_eq!(
+        res.1["truncated"], true,
+        "a clipped link level must mark truncated: {}",
+        res.1
+    );
+    // Only the root resolves (document dsts are omitted), so the node cap is
+    // never the cause — this isolates the link-limit clip as the trigger.
+    assert_eq!(
+        res.1["nodes"].as_array().unwrap().len(),
+        1,
+        "only the root node resolves: {}",
+        res.1["nodes"]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------

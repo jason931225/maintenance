@@ -10,7 +10,7 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{OrgId, UserId};
+use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -38,7 +38,11 @@ async fn create_list_delete_roundtrip_and_audit_events(pool: PgPool) {
     seed_user(&pool, user_id, "ADMIN").await;
     let token = issue_token(private_pem.as_bytes(), public_key_pem.as_bytes(), user_id);
 
-    // Create: work_order wo-1 --authorized_by--> approval_run ar-1.
+    // Create: document doc-1 --authorized_by--> voucher vou-1. Both are
+    // registered-but-non-resolvable kinds (pure link targets), so this contract
+    // test exercises create/list/delete/audit without the B3 endpoint-visibility
+    // gate (which only applies to resolvable kinds); that gate is proven
+    // separately in `create_link_requires_visible_endpoints`.
     let created = request(
         &pool,
         &public_key_pem,
@@ -49,10 +53,10 @@ async fn create_list_delete_roundtrip_and_audit_events(pool: PgPool) {
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
                 json!({
-                    "src_kind": "work_order",
-                    "src_id": "wo-1",
-                    "dst_kind": "approval_run",
-                    "dst_id": "ar-1",
+                    "src_kind": "document",
+                    "src_id": "doc-1",
+                    "dst_kind": "voucher",
+                    "dst_id": "vou-1",
                     "link_type": "authorized_by"
                 })
                 .to_string(),
@@ -67,7 +71,7 @@ async fn create_list_delete_roundtrip_and_audit_events(pool: PgPool) {
     let src_list = request(
         &pool,
         &public_key_pem,
-        get("/api/v1/object-links?kind=work_order&id=wo-1", &token),
+        get("/api/v1/object-links?kind=document&id=doc-1", &token),
     )
     .await;
     assert_eq!(src_list.0, StatusCode::OK);
@@ -78,7 +82,7 @@ async fn create_list_delete_roundtrip_and_audit_events(pool: PgPool) {
     let dst_list = request(
         &pool,
         &public_key_pem,
-        get("/api/v1/object-links?kind=approval_run&id=ar-1", &token),
+        get("/api/v1/object-links?kind=voucher&id=vou-1", &token),
     )
     .await;
     assert_eq!(dst_list.1["incoming"].as_array().unwrap().len(), 1);
@@ -96,8 +100,8 @@ async fn create_list_delete_roundtrip_and_audit_events(pool: PgPool) {
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
                 json!({
-                    "src_kind": "work_order", "src_id": "wo-1",
-                    "dst_kind": "approval_run", "dst_id": "ar-1",
+                    "src_kind": "document", "src_id": "doc-1",
+                    "dst_kind": "voucher", "dst_id": "vou-1",
                     "link_type": "authorized_by"
                 })
                 .to_string(),
@@ -118,7 +122,7 @@ async fn create_list_delete_roundtrip_and_audit_events(pool: PgPool) {
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
                 json!({
-                    "src_kind": "work_order", "src_id": "wo-1",
+                    "src_kind": "document", "src_id": "doc-1",
                     "dst_kind": "not_a_real_kind", "dst_id": "x-1",
                     "link_type": "relates_to"
                 })
@@ -146,7 +150,7 @@ async fn create_list_delete_roundtrip_and_audit_events(pool: PgPool) {
     let after = request(
         &pool,
         &public_key_pem,
-        get("/api/v1/object-links?kind=work_order&id=wo-1", &token),
+        get("/api/v1/object-links?kind=document&id=doc-1", &token),
     )
     .await;
     assert_eq!(after.1["outgoing"].as_array().unwrap().len(), 0);
@@ -240,8 +244,8 @@ async fn delete_link_denied_for_non_creator_non_manager(pool: PgPool) {
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
                 json!({
-                    "src_kind": "work_order", "src_id": "wo-1",
-                    "dst_kind": "equipment", "dst_id": "eq-1",
+                    "src_kind": "document", "src_id": "doc-1",
+                    "dst_kind": "voucher", "dst_id": "vou-1",
                     "link_type": "uses"
                 })
                 .to_string(),
@@ -295,9 +299,216 @@ async fn delete_link_denied_for_non_creator_non_manager(pool: PgPool) {
     assert_eq!(by_creator.0, StatusCode::NO_CONTENT);
 }
 
+/// B3: an object_link may only connect endpoints the caller can actually
+/// resolve. A link to a resolvable object that is absent OR out of the caller's
+/// branch scope is rejected (422, deny-by-omission — one message, no
+/// absent-vs-invisible oracle); a link between two visible objects is created.
+/// Endpoints of non-resolvable kinds still pass through (no visibility surface)
+/// — proven by the roundtrip test's document->voucher link.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn create_link_requires_visible_endpoints(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let caller = UserId::new();
+    let branch_x = seed_branch(&pool, "Region X", "Branch X").await;
+    let branch_y = seed_branch(&pool, "Region Y", "Branch Y").await;
+    seed_user_in_branch(&pool, caller, "ADMIN", branch_x).await;
+    // Caller's branch scope is exactly {branch_x}.
+    let token = issue_token_in_branches(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        caller,
+        vec![branch_x],
+    );
+
+    // Two persons the caller can see (active, in branch_x).
+    let subject_a = UserId::new();
+    let subject_b = UserId::new();
+    seed_user_in_branch(&pool, subject_a, "MECHANIC", branch_x).await;
+    seed_user_in_branch(&pool, subject_b, "MECHANIC", branch_x).await;
+    // A person only in branch_y — outside the caller's scope.
+    let branch_y_user = UserId::new();
+    seed_user_in_branch(&pool, branch_y_user, "MECHANIC", branch_y).await;
+
+    let person = |u: &UserId| u.as_uuid().to_string();
+
+    // Both endpoints visible -> created.
+    let ok = post_link(
+        &pool,
+        &public_key_pem,
+        &token,
+        json!({
+            "src_kind": "person", "src_id": person(&subject_a),
+            "dst_kind": "person", "dst_id": person(&subject_b),
+            "link_type": "relates_to"
+        }),
+    )
+    .await;
+    assert_eq!(ok.0, StatusCode::OK, "both-visible link body: {}", ok.1);
+
+    // dst absent (random id) -> rejected.
+    let absent = post_link(
+        &pool,
+        &public_key_pem,
+        &token,
+        json!({
+            "src_kind": "person", "src_id": person(&subject_a),
+            "dst_kind": "person", "dst_id": Uuid::new_v4().to_string(),
+            "link_type": "relates_to"
+        }),
+    )
+    .await;
+    assert_eq!(
+        absent.0,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "link to absent object must be rejected: {}",
+        absent.1
+    );
+
+    // dst out of the caller's branch scope -> rejected, byte-identical to absent.
+    let out_of_scope = post_link(
+        &pool,
+        &public_key_pem,
+        &token,
+        json!({
+            "src_kind": "person", "src_id": person(&subject_a),
+            "dst_kind": "person", "dst_id": person(&branch_y_user),
+            "link_type": "relates_to"
+        }),
+    )
+    .await;
+    assert_eq!(
+        out_of_scope.0,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "link to out-of-scope object must be denied by omission: {}",
+        out_of_scope.1
+    );
+    assert_eq!(
+        out_of_scope.1["error"]["message"], absent.1["error"]["message"],
+        "absent and out-of-scope must share one message (no existence oracle)"
+    );
+
+    // src invisible (out of scope) with a visible dst -> also rejected.
+    let bad_src = post_link(
+        &pool,
+        &public_key_pem,
+        &token,
+        json!({
+            "src_kind": "person", "src_id": person(&branch_y_user),
+            "dst_kind": "person", "dst_id": person(&subject_b),
+            "link_type": "relates_to"
+        }),
+    )
+    .await;
+    assert_eq!(
+        bad_src.0,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "link from an invisible src must be rejected: {}",
+        bad_src.1
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
+
+async fn post_link(
+    pool: &PgPool,
+    public_key_pem: &str,
+    token: &str,
+    body: Value,
+) -> (StatusCode, Value) {
+    request(
+        pool,
+        public_key_pem,
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/object-links")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await
+}
+
+async fn seed_branch(pool: &PgPool, region: &str, branch: &str) -> BranchId {
+    let region_id: Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
+            .bind(region)
+            .bind(*OrgId::knl().as_uuid())
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let branch_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(branch)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    BranchId::from_uuid(branch_id)
+}
+
+async fn seed_user_in_branch(pool: &PgPool, user_id: UserId, role: &str, branch: BranchId) {
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
+        .bind(*user_id.as_uuid())
+        .bind(format!("User {role} {}", Uuid::new_v4()))
+        .bind(Vec::from([role]))
+        .bind(*OrgId::knl().as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(*user_id.as_uuid())
+        .bind(*branch.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+fn issue_token_in_branches(
+    private_key_pem: &[u8],
+    public_key_pem: &[u8],
+    user_id: UserId,
+    branches: Vec<BranchId>,
+) -> String {
+    let issuer = JwtIssuer::from_es256_pem(
+        JwtSettings {
+            issuer: TEST_ISSUER.to_owned(),
+            audience: TEST_AUDIENCE.to_owned(),
+            access_token_ttl: Duration::minutes(15),
+        },
+        private_key_pem,
+        public_key_pem,
+    )
+    .unwrap();
+    issuer
+        .issue_access_token(AccessTokenInput {
+            subject: user_id,
+            org_id: OrgId::knl(),
+            roles: vec!["ADMIN".to_owned()],
+            branches,
+            platform: false,
+            view_as: false,
+            read_only: false,
+            display_name: None,
+            feature_grants: Vec::new(),
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
+            issued_at: OffsetDateTime::now_utc(),
+        })
+        .unwrap()
+}
 
 fn get(uri: &str, token: &str) -> Request<Body> {
     Request::builder()
