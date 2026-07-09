@@ -87,6 +87,12 @@ enum RequiredAuth {
 /// Login until caught, because the guard was a hand-maintained special case,
 /// not a declared property of the kind.) Both the 404-for-unknown-kind check
 /// and the per-call feature gates derive from this table.
+///
+/// SECURITY (B3 interaction): adding a currently-NON-resolvable kind here makes
+/// pre-existing `object_links` to objects of that kind — created under B3's
+/// "non-resolvable kinds skip the endpoint-visibility gate" pass-through —
+/// RETROACTIVELY resolvable, with NO backfill re-check. Auditing existing links
+/// of the kind is part of adding it.
 const RESOLVABLE_KIND_AUTH: &[(&str, RequiredAuth)] = &[
     (
         "work_order",
@@ -777,8 +783,14 @@ async fn object_graph(
                 .bind(GRAPH_MAX_LINKS_PER_LEVEL)
                 .fetch_all(tx.as_mut())
                 .await?;
-                // A clipped level dropped edges (including cross-edges between
-                // two nodes already in the result) — the graph is partial.
+                // NOTE: this LIMIT clips RAW links — before resolve_head
+                // visibility filtering AND before seen-dedup — so the graph is a
+                // best-effort BOUNDED view: truncated=true means "incomplete",
+                // NOT "the complete visible set minus N". A clipped level can
+                // drop any edge, including a cross-edge between two nodes both in
+                // the result. Completeness under adversarial edge-flooding (an
+                // actor crowding a shared frontier node to bury a victim's edge)
+                // is a SEPARATE follow-up, not solved here.
                 if link_rows.len() as i64 >= GRAPH_MAX_LINKS_PER_LEVEL {
                     truncated = true;
                 }
