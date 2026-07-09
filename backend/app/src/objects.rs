@@ -134,6 +134,7 @@ const RESOLVABLE_KIND_AUTH: &[(&str, RequiredAuth)] = &[
     ("approval_run", RequiredAuth::MembershipOnly),
     ("passkey", RequiredAuth::SelfScoped),
     ("consent", RequiredAuth::SelfScoped),
+    ("series", RequiredAuth::MembershipOnly),
 ];
 
 /// The declared auth for `kind`, or `None` if the kind is not resolvable at all.
@@ -712,6 +713,10 @@ async fn resolve_head(
         "account" => resolve_account(tx, scope, id).await,
         "passkey" => resolve_passkey(tx, caller, id).await,
         "consent" => resolve_consent(tx, caller, id).await,
+        // series is org-scoped (not branch-scoped: no branch_id column), so
+        // membership + the armed RLS org scope are the whole gate — same
+        // shape as support_ticket/org_unit/person/approval_run above.
+        "series" => resolve_series(tx, id).await,
         // A kind declared in RESOLVABLE_KIND_AUTH but with no arm here (or vice
         // versa) resolves as invisible — deny by default. The tests assert the
         // two stay in sync.
@@ -1488,6 +1493,29 @@ async fn resolve_approval_run(
         code: None,
         title: None,
         status: Some(row.try_get("status")?),
+    }))
+}
+
+/// series has no branch_id (org-scoped, not branch-scoped — see the `series`
+/// table): the armed RLS org scope on `tx` is the entire visibility gate,
+/// matching what `get_series`/`create_series`/`attach_series_instance` already
+/// enforce (membership only, no extra feature).
+async fn resolve_series(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row = sqlx::query("SELECT code, label FROM series WHERE id = $1")
+        .bind(uuid)
+        .fetch_optional(tx.as_mut())
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    Ok(Some(ResolvedHead {
+        code: Some(row.try_get("code")?),
+        title: Some(row.try_get("label")?),
+        status: None,
     }))
 }
 
@@ -2542,6 +2570,7 @@ mod tests {
             "account",
             "passkey",
             "consent",
+            "series",
         ];
         for kind in DISPATCHED_KINDS {
             assert!(
