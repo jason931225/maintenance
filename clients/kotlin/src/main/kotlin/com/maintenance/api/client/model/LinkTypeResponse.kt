@@ -47,9 +47,20 @@ data class LinkTypeResponse (
 
     /* Edge-type lifecycle state (draft, active, archived). */
     @SerialName(value = "status")
-    val status: kotlin.String
+    val status: LinkTypeResponse.Status
 
 ) {
 
+    /**
+     * Edge-type lifecycle state (draft, active, archived).
+     *
+     * Values: DRAFT,ACTIVE,ARCHIVED
+     */
+    @Serializable
+    enum class Status(val value: kotlin.String) {
+        @SerialName(value = "draft") DRAFT("draft"),
+        @SerialName(value = "active") ACTIVE("active"),
+        @SerialName(value = "archived") ARCHIVED("archived");
+    }
 
 }

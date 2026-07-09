@@ -29,7 +29,10 @@ CREATE TABLE series (
     label       TEXT        NOT NULL CHECK (char_length(btrim(label)) BETWEEN 1 AND 200),
     created_by  UUID        REFERENCES users(id) ON DELETE RESTRICT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (org_id, code)
+    UNIQUE (org_id, code),
+    -- Supports the series_instances composite FK so a membership row cannot
+    -- point at a series in another tenant while carrying its own org_id.
+    CONSTRAINT series_id_org_uk UNIQUE (id, org_id)
 );
 
 ALTER TABLE series ENABLE ROW LEVEL SECURITY;
@@ -50,7 +53,7 @@ GRANT SELECT, INSERT ON series TO mnt_rt;
 CREATE TABLE series_instances (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id      UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
-    series_id   UUID        NOT NULL REFERENCES series(id) ON DELETE RESTRICT,
+    series_id   UUID        NOT NULL,
     -- The member object as a generic (kind, id) reference, mirroring
     -- object_links: member_kind FKs the seeded registry; member_id is the
     -- domain id/code string.
@@ -60,7 +63,8 @@ CREATE TABLE series_instances (
     added_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- An instance belongs to at most ONE series per tenant (the "not-yet-in-a-
     -- series" promotion model): a second attach of the same object is rejected.
-    UNIQUE (org_id, member_kind, member_id)
+    UNIQUE (org_id, member_kind, member_id),
+    FOREIGN KEY (series_id, org_id) REFERENCES series (id, org_id) ON DELETE RESTRICT
 );
 
 -- List-by-series (ordered timeline) is the primary read.

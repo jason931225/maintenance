@@ -49,7 +49,7 @@ data class ObjectTypeResponse (
 
     /* Type lifecycle state (draft, active, archived). */
     @SerialName(value = "status")
-    val status: kotlin.String,
+    val status: ObjectTypeResponse.Status,
 
     /* Instances of this kind visible to the caller (same per-kind visibility as resolveObject). */
     @SerialName(value = "active_count")
@@ -61,5 +61,16 @@ data class ObjectTypeResponse (
 
 ) {
 
+    /**
+     * Type lifecycle state (draft, active, archived).
+     *
+     * Values: DRAFT,ACTIVE,ARCHIVED
+     */
+    @Serializable
+    enum class Status(val value: kotlin.String) {
+        @SerialName(value = "draft") DRAFT("draft"),
+        @SerialName(value = "active") ACTIVE("active"),
+        @SerialName(value = "archived") ARCHIVED("archived");
+    }
 
 }

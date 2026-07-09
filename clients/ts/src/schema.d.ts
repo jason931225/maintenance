@@ -5232,8 +5232,11 @@ export interface components {
             /** @description Canonical per-kind code prefix (e.g. AP-, CS-); absent for id/name-referenced kinds. */
             code_prefix?: string | null;
             description: string;
-            /** @description Type lifecycle state (draft, active, archived). */
-            status: string;
+            /**
+             * @description Type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
             /**
              * Format: int64
              * @description Instances of this kind visible to the caller (same per-kind visibility as resolveObject).
@@ -5244,8 +5247,11 @@ export interface components {
         LinkTypeResponse: {
             link_type: string;
             description: string;
-            /** @description Edge-type lifecycle state (draft, active, archived). */
-            status: string;
+            /**
+             * @description Edge-type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
         };
         /** @description Create a series and attach its first instance. */
         CreateSeriesRequest: {

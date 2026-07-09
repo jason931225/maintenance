@@ -9336,6 +9336,10 @@ components:
         status:
           type: string
           description: Type lifecycle state (draft, active, archived).
+          enum:
+          - draft
+          - active
+          - archived
         active_count:
           type: integer
           format: int64
@@ -9355,6 +9359,10 @@ components:
         status:
           type: string
           description: Edge-type lifecycle state (draft, active, archived).
+          enum:
+          - draft
+          - active
+          - archived
     CreateSeriesRequest:
       type: object
       description: Create a series and attach its first instance.
@@ -9365,12 +9373,15 @@ components:
       properties:
         label:
           type: string
+          minLength: 1
+          maxLength: 200
           description: Human label for the series (1-200 chars).
         kind:
           type: string
           description: First instance object kind slug.
         id:
           type: string
+          maxLength: 200
           description: First instance object id/reference (≤200 chars).
     AttachInstanceRequest:
       type: object
@@ -9384,6 +9395,7 @@ components:
           description: Instance object kind slug.
         id:
           type: string
+          maxLength: 200
           description: Instance object id/reference (≤200 chars).
     AttachInstanceAck:
       type: object

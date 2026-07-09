@@ -370,15 +370,17 @@ async fn link_types_registry_and_link_validation(owner_pool: PgPool) {
     assert!(names.contains(&"authorized_by"));
     assert_eq!(types[0]["status"], "active");
 
-    // A registered link_type is accepted.
+    // A registered link_type is accepted. Use pure link-target kinds here so
+    // this test isolates the edge-type registry; resolvable endpoint visibility
+    // is covered by object_links_api::create_link_requires_visible_endpoints.
     let ok = post(
         &rt,
         &public_pem,
         "/api/v1/object-links",
         &token,
         json!({
-            "src_kind": "work_order", "src_id": "wo-1",
-            "dst_kind": "approval_run", "dst_id": "ar-1",
+            "src_kind": "document", "src_id": "doc-1",
+            "dst_kind": "voucher", "dst_id": "vou-1",
             "link_type": "relates_to"
         }),
     )
@@ -397,8 +399,8 @@ async fn link_types_registry_and_link_validation(owner_pool: PgPool) {
         "/api/v1/object-links",
         &token,
         json!({
-            "src_kind": "work_order", "src_id": "wo-2",
-            "dst_kind": "approval_run", "dst_id": "ar-2",
+            "src_kind": "document", "src_id": "doc-2",
+            "dst_kind": "voucher", "dst_id": "vou-2",
             "link_type": "totally_made_up"
         }),
     )

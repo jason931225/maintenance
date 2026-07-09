@@ -1655,10 +1655,12 @@ fn scope_branch_ids(scope: &BranchScope) -> Option<Vec<Uuid>> {
     }
 }
 
-/// Count the instances of `kind` visible to the caller, mirroring exactly what
-/// `resolve_head` would let them resolve (org via armed RLS, branch scope, and
-/// the domain feature gate). Any kind without a resolver — or one the caller
-/// lacks the gating feature for — counts 0.
+/// Count the instances of `kind` visible to the caller, mirroring the
+/// `resolve_head` visibility rules where the kind has a resolvable endpoint
+/// (org via armed RLS, branch scope, and the domain feature gate). Any
+/// non-resolvable registry kind counts 0; resolvable kinds that are missing a
+/// count arm fail closed with an internal error so dispatch drift cannot
+/// silently undercount.
 async fn count_kind(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     scope: &BranchScope,
@@ -1778,9 +1780,16 @@ async fn count_kind(
                 .fetch_one(tx.as_mut())
                 .await?
         }
-        // work_order/equipment without WorkOrderReadAll, account without
-        // UserManage, and any kind with no resolver: nothing this caller can
-        // resolve -> 0.
+        // Feature-gated resolvable kinds without their required feature: nothing
+        // this caller can resolve -> 0.
+        "work_order" | "equipment" | "account" => 0,
+        kind if required_auth_for_kind(kind).is_some() => {
+            return Err(ObjectError::internal(format!(
+                "count_kind missing dispatch for resolvable kind `{kind}`"
+            )));
+        }
+        // Non-resolvable registry kinds (document/voucher/...) have no endpoint
+        // visibility to mirror, so they do not contribute active counts.
         _ => 0,
     };
     Ok(count)
@@ -2582,6 +2591,38 @@ mod tests {
             assert!(
                 DISPATCHED_KINDS.contains(kind),
                 "RESOLVABLE_KIND_AUTH declares `{kind}` but resolve_head has no arm"
+            );
+        }
+    }
+
+    #[test]
+    fn count_kind_and_resolvable_kinds_stay_in_sync() {
+        // Mirror of count_kind's resolvable match arms. Non-resolvable registry
+        // kinds are intentionally absent because they count 0, but every
+        // resolve_head-dispatchable kind must have a count arm (even when the arm
+        // returns 0 for a caller lacking the required feature).
+        const COUNTED_RESOLVABLE_KINDS: &[&str] = &[
+            "work_order",
+            "equipment",
+            "support_ticket",
+            "org_unit",
+            "person",
+            "account",
+            "approval_run",
+            "passkey",
+            "consent",
+            "series",
+        ];
+        for (kind, _) in RESOLVABLE_KIND_AUTH {
+            assert!(
+                COUNTED_RESOLVABLE_KINDS.contains(kind),
+                "RESOLVABLE_KIND_AUTH declares `{kind}` but count_kind has no arm"
+            );
+        }
+        for kind in COUNTED_RESOLVABLE_KINDS {
+            assert!(
+                required_auth_for_kind(kind).is_some(),
+                "count_kind has an arm for `{kind}` but resolve_head cannot dispatch it"
             );
         }
     }

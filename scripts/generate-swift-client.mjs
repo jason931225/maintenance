@@ -58,6 +58,11 @@ function patchKnownGeneratorGaps(stagingDir) {
   if (text.includes(emptySeriesByInstance)) {
     text = text.replace(emptySeriesByInstance, patchedSeriesByInstance);
     writeFileSync(typesFile, text, "utf8");
+  } else if (!text.includes(patchedSeriesByInstance)) {
+    throw new Error(
+      "patchKnownGeneratorGaps: expected generated SeriesByInstanceResponse shape not found; " +
+        "swift-openapi-generator output may have changed, update the patch."
+    );
   }
 }
 
