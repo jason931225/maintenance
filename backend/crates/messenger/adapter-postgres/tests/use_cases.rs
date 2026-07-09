@@ -105,6 +105,15 @@ async fn at_mention_emits_notification_for_thread_member_only(pool: PgPool) {
             t0 + Duration::seconds(2),
         )
         .await;
+        // 4. `@`-mention of self → self-filter, no notification.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            &format!("@{} 자기 점검 기록입니다", seeded.sender),
+            t0 + Duration::seconds(3),
+        )
+        .await;
 
         assert_eq!(
             notification_count(&pool, seeded.recipient).await,
@@ -134,7 +143,7 @@ async fn at_mention_emits_notification_for_thread_member_only(pool: PgPool) {
             "unexpected dedup key {key}",
         );
 
-        // Thread unread still reflects the ordinary fan-out (all 3 posts).
+        // Thread unread still reflects the ordinary fan-out (all 4 posts).
         let threads = store
             .list_threads(ListThreadsQuery {
                 actor: seeded.recipient,
@@ -149,7 +158,7 @@ async fn at_mention_emits_notification_for_thread_member_only(pool: PgPool) {
                 .find(|t| t.id == thread.id)
                 .expect("recipient sees the thread")
                 .unread_count,
-            3,
+            4,
         );
     })
     .await;

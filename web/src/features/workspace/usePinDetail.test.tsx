@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -87,6 +87,50 @@ describe("PinPanel live detail (usePinDetail, #21 wiring)", () => {
     renderPanel(woPin(workOrderListItems[0].id), true);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(ko.page.loadFailed);
+  });
+
+  it("keeps the snapshot without an error banner when the detail is forbidden or missing", async () => {
+    let requested = false;
+    server.use(
+      http.get("*/api/v1/work-orders/:id", () => {
+        requested = true;
+        return HttpResponse.json({ error: "forbidden" }, { status: 403 });
+      }),
+    );
+
+    renderPanel(woPin(workOrderListItems[0].id), true);
+
+    expect(screen.getByText("스냅샷 제목")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(requested).toBe(true);
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("resyncs snapshot-only pins when the pinned object changes without a live detail fetch", () => {
+    const first: PinnedObject = {
+      kind: "approval",
+      code: "APP-1",
+      title: "첫 승인",
+      fields: [],
+    };
+    const second: PinnedObject = {
+      kind: "approval",
+      code: "APP-2",
+      title: "둘째 승인",
+      fields: [],
+    };
+    const view = renderPanel(first, true);
+
+    expect(screen.getByText("첫 승인")).toBeInTheDocument();
+    view.rerender(
+      <AuthContext.Provider value={authValue()}>
+        <PinPanel object={second} onMinimize={noop} onPopout={noop} onClose={noop} />
+      </AuthContext.Provider>,
+    );
+
+    expect(screen.getByText("둘째 승인")).toBeInTheDocument();
+    expect(screen.queryByText("첫 승인")).not.toBeInTheDocument();
   });
 
   it("a person pin (from a palette candidate) fetches members/{id} on mount — the view-audit trigger", async () => {

@@ -2980,8 +2980,8 @@ async fn list_branches(
 
 // Get-one for an org-unit (branch) pin panel (UI-M2a). Same non-sensitive read
 // gate as the list; org-RLS scopes it to the caller's org. No audit — this is
-// org-structure metadata, not PII. ponytail: filters the branch list rather
-// than adding a get-one store method — branch counts are small.
+// org-structure metadata, not PII. It filters the branch list rather than
+// adding a get-one store method because branch counts are small.
 async fn get_branch(
     State(state): State<IdentityRestState>,
     headers: HeaderMap,

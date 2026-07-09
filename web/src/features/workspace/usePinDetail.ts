@@ -18,6 +18,12 @@ export interface PinDetail {
   status: PinDetailStatus;
 }
 
+interface LivePinDetail {
+  object?: PinnedObject;
+  status: PinDetailStatus;
+  key: string;
+}
+
 /**
  * Enrich a pinned panel with live detail on mount (UI-M2a): the pinned snapshot
  * renders instantly, then `fetchPinnedObject` replaces it with the real body
@@ -29,29 +35,42 @@ export interface PinDetail {
  */
 export function usePinDetail(snapshot: PinnedObject): PinDetail {
   const auth = useContext(AuthContext);
-  const [detail, setDetail] = useState<PinDetail>({ object: snapshot, status: "idle" });
+  const [liveDetail, setLiveDetail] = useState<LivePinDetail>({
+    key: "",
+    status: "idle",
+  });
 
   const api = auth?.api;
   const branchId = auth?.session?.branches?.[0];
   const { refId, kind, code } = snapshot;
+  const detailKey = `${branchId ?? ""}:${kind}:${refId ?? ""}:${code}`;
 
   useEffect(() => {
     if (!api || !refId || !FETCHABLE.has(kind)) return undefined;
     const guard = { live: true };
     void (async () => {
-      setDetail((d) => ({ object: d.object, status: "loading" }));
-      const fetched = await fetchPinnedObject(api, kind, { id: refId, code, branchId });
-      if (!guard.live) return;
-      if (!fetched) {
-        setDetail((d) => ({ object: d.object, status: "error" }));
-        return;
+      setLiveDetail({ key: detailKey, status: "loading" });
+      try {
+        const fetched = await fetchPinnedObject(api, kind, { id: refId, code, branchId });
+        if (!guard.live) return;
+        if (!fetched) {
+          setLiveDetail({ key: detailKey, status: "idle" });
+          return;
+        }
+        setLiveDetail({ key: detailKey, object: { ...fetched, refId }, status: "idle" });
+      } catch {
+        if (!guard.live) return;
+        setLiveDetail({ key: detailKey, status: "error" });
       }
-      setDetail({ object: { ...fetched, refId }, status: "idle" });
     })();
     return () => {
       guard.live = false;
     };
-  }, [api, branchId, refId, kind, code]);
+  }, [api, branchId, refId, kind, code, detailKey]);
 
-  return detail;
+  const currentLiveDetail = liveDetail.key === detailKey ? liveDetail : undefined;
+  return {
+    object: currentLiveDetail?.object ?? snapshot,
+    status: currentLiveDetail?.status ?? "idle",
+  };
 }

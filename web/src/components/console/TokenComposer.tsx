@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import type { CandidateProvider, ObjectCandidate } from "../../lib/objectCandidates";
-import { readDraggedObject, tokenForDraggedObject } from "../../lib/objectDrag";
+import { OBJECT_DND_MIME, readDraggedObject, tokenForDraggedObject } from "../../lib/objectDrag";
 import { objectRegistry, type ObjectKind, type ObjectRef } from "../../lib/objectRegistry";
 import {
   useTokenGrammarInput,
@@ -193,7 +193,7 @@ export function TokenComposer({
         // focus never leaves the textarea and confirm still fires.
         onBlur={cancel}
         onDragOver={(event) => {
-          if (readDraggedObject(event.dataTransfer) || event.dataTransfer.types.includes("application/x-oyatie-object")) {
+          if (readDraggedObject(event.dataTransfer) || event.dataTransfer.types.includes(OBJECT_DND_MIME)) {
             event.preventDefault();
             setDragOver(true);
           }

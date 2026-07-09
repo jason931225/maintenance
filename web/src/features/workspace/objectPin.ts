@@ -31,6 +31,37 @@ export async function fetchPinnedObject(
   return null;
 }
 
+type ApiResult<T> = { data?: T; response: Response };
+
+function isNoPinStatus(status: number): boolean {
+  return status === 403 || status === 404;
+}
+
+function statusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  if ("status" in error && typeof error.status === "number") return error.status;
+  if ("response" in error) {
+    const response = error.response;
+    if (response instanceof Response) return response.status;
+    if (response && typeof response === "object" && "status" in response && typeof response.status === "number") {
+      return response.status;
+    }
+  }
+  return undefined;
+}
+
+function dataOrNoPin<T>(result: ApiResult<T>): T | null {
+  if (result.data !== undefined) return result.data;
+  if (isNoPinStatus(result.response.status)) return null;
+  throw new Error(`Pinned object fetch failed with HTTP ${String(result.response.status)}`);
+}
+
+function rethrowUnlessNoPin(error: unknown): null {
+  const status = statusFromError(error);
+  if (status !== undefined && isNoPinStatus(status)) return null;
+  throw error;
+}
+
 async function fetchOrgPin(
   api: ConsoleApiClient,
   branchId: string,
@@ -40,9 +71,9 @@ async function fetchOrgPin(
     const response = await api.GET("/api/v1/branches/{id}", {
       params: { path: { id: branchId } },
     });
-    branch = response.data;
-  } catch {
-    return null;
+    branch = dataOrNoPin(response);
+  } catch (error) {
+    branch = rethrowUnlessNoPin(error);
   }
   if (!branch) return null;
 
@@ -64,9 +95,9 @@ async function fetchSupportPin(
     const response = await api.GET("/api/v1/support/tickets/{id}", {
       params: { path: { id: ticketId } },
     });
-    detail = response.data;
-  } catch {
-    return null;
+    detail = dataOrNoPin(response);
+  } catch (error) {
+    detail = rethrowUnlessNoPin(error);
   }
   const ticket = detail?.ticket;
   if (!ticket) return null;
@@ -90,9 +121,9 @@ async function fetchWorkOrderPin(
     const response = await api.GET("/api/v1/work-orders/{workOrderId}", {
       params: { path: { workOrderId } },
     });
-    wo = response.data;
-  } catch {
-    return null;
+    wo = dataOrNoPin(response);
+  } catch (error) {
+    wo = rethrowUnlessNoPin(error);
   }
   if (!wo) return null;
 
@@ -120,9 +151,9 @@ async function fetchPersonPin(
     const response = await api.GET("/api/messenger/members/{user_id}", {
       params: { path: { user_id: userId }, query: { branch_id: branchId } },
     });
-    member = response.data;
-  } catch {
-    return null;
+    member = dataOrNoPin(response);
+  } catch (error) {
+    member = rethrowUnlessNoPin(error);
   }
   // A forbidden/not-found target leaves `data` undefined → no pin
   // (deny-by-omission); the audit was rolled back server-side.

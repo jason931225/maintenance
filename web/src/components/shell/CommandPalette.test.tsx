@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
@@ -106,15 +106,27 @@ describe("CommandPalette (UI-M2a)", () => {
     ]);
   });
 
-  it("omits work/people rows when their APIs deny (deny-by-omission), keeping screens", () => {
+  it("omits work/people rows when their APIs deny (deny-by-omission), keeping screens", async () => {
+    let workOrdersRequested = false;
+    let membersRequested = false;
     server.use(
-      http.get("*/api/v1/work-orders", () => HttpResponse.json({ error: "forbidden" }, { status: 403 })),
-      http.get("*/api/messenger/members", () => HttpResponse.json({ error: "forbidden" }, { status: 403 })),
+      http.get("*/api/v1/work-orders", () => {
+        workOrdersRequested = true;
+        return HttpResponse.json({ error: "forbidden" }, { status: 403 });
+      }),
+      http.get("*/api/messenger/members", () => {
+        membersRequested = true;
+        return HttpResponse.json({ error: "forbidden" }, { status: 403 });
+      }),
     );
 
     renderPalette();
 
     expect(screen.getByText("배차")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(workOrdersRequested).toBe(true);
+      expect(membersRequested).toBe(true);
+    });
     // No object sections when both providers error.
     expect(screen.queryByText("대기 업무")).not.toBeInTheDocument();
     expect(screen.queryByText("사람")).not.toBeInTheDocument();
