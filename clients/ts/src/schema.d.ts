@@ -3115,6 +3115,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/leave/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the branch-scoped leave-request approval queue (연차 결재함)
+         * @description Pending-first, then newest. Requires `employee_directory_read`. The queue is confined to the caller's branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+         */
+        get: operations["listLeaveRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/requests/{id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve, return, or reject a pending leave request
+         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += days, remaining -= days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
+         */
+        post: operations["decideLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/balances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-employee annual-leave balance roster (직원별 연차 현황)
+         * @description Reads the existing employee leave ledger (grant/used/left) — the same source of truth as the balances aggregate; not a second store. Requires `employee_directory_read`. Org-scoped.
+         */
+        get: operations["listLeaveBalances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/promotions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Serve a §61 연차 사용 촉진 (round 1 or 2)
+         * @description Requires `employee_directory_manage` in the target `branch_id` (which is validated against the actor's scope). Delivers a receipt-gated 연차촉진 notice into the target's 개인 수신함 and records the push. The engine AP- run binds once the 연차촉진 submittable definition exists; until then the push carries `ap_submission: pending_engine_definition`. Idempotent per (target, round).
+         */
+        post: operations["pushLeavePromotion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/refusal-notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Serve a 노무수령거부 notice (after a round-2 promotion)
+         * @description Requires `employee_directory_manage` in the target `branch_id`. Delivers a receipt-gated 노무수령거부 notice into the target's 개인 수신함 and records the push. Same engine-binding semantics as promotions. Idempotent per target.
+         */
+        post: operations["pushLeaveRefusalNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/inbox-docs": {
         parameters: {
             query?: never;
@@ -7193,6 +7293,108 @@ export interface components {
         /** @description The fresh passkey assertion proving present possession of an authenticator. Its absence yields 428 (precondition required). */
         InboxDocConfirmReceiptRequest: {
             step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        /** @description One leave request in the approval queue (결재함 leave variant). */
+        LeaveRequestView: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            requester_user_id: components["schemas"]["Uuid"];
+            subject_employee_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            leave_type: "annual" | "half_day";
+            /** Format: double */
+            days: number;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "returned" | "rejected";
+            /** Format: uuid */
+            decided_by: string | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            /** @description Mandatory on return/reject; present only when set. */
+            decision_comment?: string;
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        LeaveRequestPage: {
+            items: components["schemas"]["LeaveRequestView"][];
+        };
+        LeaveDecideRequest: {
+            /** @enum {string} */
+            decision: "approve" | "return" | "reject";
+            /** @description Mandatory for return/reject; optional for approve. */
+            comment?: string;
+        };
+        /** @description One employee's annual-leave balance row (직원별 연차 현황). */
+        LeaveRosterEntry: {
+            employee_id: components["schemas"]["Uuid"];
+            name: string;
+            team: string | null;
+            /** Format: double */
+            grant: number;
+            /** Format: double */
+            used: number;
+            /** Format: double */
+            left: number;
+            /**
+             * @description Bar color / 촉진 bucket — one of ok, promote, low.
+             * @enum {string}
+             */
+            tone: "ok" | "promote" | "low";
+        };
+        LeaveRosterPage: {
+            items: components["schemas"]["LeaveRosterEntry"][];
+        };
+        /** @description A §61 연차 사용 촉진 push to a target employee. */
+        LeavePromotionRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            target_user_id: components["schemas"]["Uuid"];
+            target_employee_id: components["schemas"]["Uuid"];
+            target_name: string;
+            /**
+             * Format: int32
+             * @description §61 round — 1 (사용 촉구) or 2 (시기 지정).
+             */
+            round: number;
+            /**
+             * Format: double
+             * @description Unused annual-leave days motivating the push.
+             */
+            unused_days?: number;
+        };
+        /** @description A 노무수령거부 notice served after a round-2 promotion. */
+        LeaveRefusalRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            target_user_id: components["schemas"]["Uuid"];
+            target_employee_id: components["schemas"]["Uuid"];
+            target_name: string;
+            /** Format: double */
+            unused_days?: number;
+        };
+        /** @description The result of a §61 push — the delivered notice + engine state. */
+        LeaveStatutoryPushView: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "promotion" | "refusal";
+            /** Format: int32 */
+            round: number;
+            target_user_id: components["schemas"]["Uuid"];
+            inbox_doc_id: components["schemas"]["Uuid"];
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            /** @description submitted when a run was started, else pending_engine_definition. */
+            ap_submission: string;
         };
         /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
         TodoRef: {
@@ -13486,6 +13688,181 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listLeaveRequests: {
+        parameters: {
+            query?: {
+                /** @description Filter to one status; omitted returns all four. */
+                status?: "pending" | "approved" | "returned" | "rejected";
+                /** @description Page size (clamped server-side to 1..=200; default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A branch-scoped page of leave requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    decideLeaveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveDecideRequest"];
+            };
+        };
+        responses: {
+            /** @description The decided leave request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The request is not pending and cannot be decided again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing mandatory comment or unknown decision. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listLeaveBalances: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The leave-balance roster. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRosterPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pushLeavePromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeavePromotionRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded push, including the delivered notice id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveStatutoryPushView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Invalid round (§61 allows 1 or 2). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pushLeaveRefusalNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveRefusalRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded refusal push, including the delivered notice id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveStatutoryPushView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listMyInboxDocs: {

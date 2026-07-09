@@ -228,6 +228,14 @@ src/main/kotlin/com/maintenance/api/client/model/KpiScope.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalanceItem.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalancePage.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalanceSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveDecideRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeavePromotionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRefusalRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRequestPage.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRequestView.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRosterEntry.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRosterPage.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveStatutoryPushView.kt
 src/main/kotlin/com/maintenance/api/client/model/ListOfficeDocumentVersions200Response.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingCondition.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingKind.kt
