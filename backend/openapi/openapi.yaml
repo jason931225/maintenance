@@ -550,7 +550,8 @@ paths:
         the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows
         committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain.
         Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation
-        requires org-wide AuditLogRead authority. Never mutates.'
+        requires org-wide AuditLogRead authority; built-in org-wide access is limited to SUPER_ADMIN/EXECUTIVE,
+        not ADMIN. Never mutates.'
       security:
       - bearerAuth: []
       responses:
@@ -565,8 +566,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '500':
-          description: The attestation signer failed to initialize, or verify_org_chain hit a genuine DB/infra
-            error while recomputing the chain (never on a tamper finding, which is a 200 with ok=false).
+          description: verify_org_chain hit a genuine DB/infra error while recomputing the chain (never on
+            a tamper finding, which is a 200 with ok=false).
           content:
             application/json:
               schema:
