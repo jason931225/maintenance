@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 mnt-financial-application = { path = "../application" }
 mnt-financial-domain = { path = "../domain" }
+mnt-integrity.workspace = true
 mnt-kernel-core.workspace = true
 mnt-platform-db.workspace = true
 mnt-platform-request-context.workspace = true

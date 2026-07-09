@@ -4188,13 +4188,37 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Org-wide admin run list, incl. dead-letter (workflow-manage)
+         * @description Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
+         */
+        get: operations["listWorkflowRunsAdmin"];
         put?: never;
         /**
          * Start a workflow run (idempotent)
          * @description Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
          */
         post: operations["startWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read-only run detail — head, waiting tasks, node-step timeline
+         * @description Visibility mirrors the approval inbox exactly — the run's initiator, a claimer of one of its tasks, or a holder of an authority role a task is routed to — plus workflow-manage admins org-wide. Anyone else gets 404 (deny-by-omission), never a leak of another branch's/org's run.
+         */
+        get: operations["getWorkflowRun"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5398,6 +5422,53 @@ export interface components {
         };
         WorkflowRunListResponse: {
             items: components["schemas"]["WorkflowRunListItem"][];
+        };
+        AdminWorkflowRunListResponse: {
+            items: components["schemas"]["WorkflowRunListItem"][];
+            next_cursor?: components["schemas"]["Uuid"];
+        };
+        WorkflowRunDetailRun: {
+            id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            trigger_type: string;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            initiated_by?: components["schemas"]["Uuid"];
+            /** @description Failure reason for FAILED/DEAD_LETTERED runs (dead-letter visibility). */
+            error_payload?: {
+                [key: string]: unknown;
+            };
+            started_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            completed_at?: components["schemas"]["Timestamp"];
+            failed_at?: components["schemas"]["Timestamp"];
+        };
+        WorkflowRunTimelineStep: {
+            node_key: string;
+            node_type: string;
+            status: string;
+            /** Format: int32 */
+            attempt: number;
+            started_at?: components["schemas"]["Timestamp"];
+            finished_at?: components["schemas"]["Timestamp"];
+            /** @description The user who decided this node (decision nodes only). */
+            actor?: components["schemas"]["Uuid"];
+            /** @description The decision payload recorded on the node's waiting task, if any. */
+            outcome?: {
+                [key: string]: unknown;
+            };
+            /** @description The node's error payload for a FAILED node step. */
+            error?: {
+                [key: string]: unknown;
+            };
+        };
+        WorkflowRunDetailResponse: {
+            run: components["schemas"]["WorkflowRunDetailRun"];
+            waiting_tasks: components["schemas"]["WorkflowTaskSummary"][];
+            timeline: components["schemas"]["WorkflowRunTimelineStep"][];
         };
         ClaimWorkflowTaskRequest: {
             idempotency_key: string;
@@ -15055,6 +15126,36 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listWorkflowRunsAdmin: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated run statuses (e.g. FAILED,DEAD_LETTERED). Omitted returns all statuses. */
+                status?: string;
+                /** @description Keyset cursor — the run_id of the last row of the previous page. */
+                before?: components["schemas"]["Uuid"];
+                /** @description Page size, clamped to [1, 200]. Defaults to 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of org-wide runs, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminWorkflowRunListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     startWorkflowRun: {
         parameters: {
             query?: never;
@@ -15082,6 +15183,31 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run's head, current waiting task(s), and its full node-step timeline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listMyWorkflowRuns: {

@@ -1450,6 +1450,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-runs/{run_id}/post-finalization-rejection`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)`.
     func createWorkflowPostFinalizationRejection(_ input: Operations.CreateWorkflowPostFinalizationRejection.Input) async throws -> Operations.CreateWorkflowPostFinalizationRejection.Output
+    /// Org-wide admin run list, incl. dead-letter (workflow-manage)
+    ///
+    /// Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/get(listWorkflowRunsAdmin)`.
+    func listWorkflowRunsAdmin(_ input: Operations.ListWorkflowRunsAdmin.Input) async throws -> Operations.ListWorkflowRunsAdmin.Output
     /// Start a workflow run (idempotent)
     ///
     /// Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
@@ -1457,6 +1464,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-runs`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)`.
     func startWorkflowRun(_ input: Operations.StartWorkflowRun.Input) async throws -> Operations.StartWorkflowRun.Output
+    /// Read-only run detail — head, waiting tasks, node-step timeline
+    ///
+    /// Visibility mirrors the approval inbox exactly — the run's initiator, a claimer of one of its tasks, or a holder of an authority role a task is routed to — plus workflow-manage admins org-wide. Anyone else gets 404 (deny-by-omission), never a leak of another branch's/org's run.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs/{run_id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/get(getWorkflowRun)`.
+    func getWorkflowRun(_ input: Operations.GetWorkflowRun.Input) async throws -> Operations.GetWorkflowRun.Output
     /// List the runs the caller initiated (submission box)
     ///
     /// Returns runs where initiated_by is the caller, optionally filtered by status/object_type. Final-approved but not-yet-finalized runs are still WAITING (non-terminal) and remain visible.
@@ -4856,6 +4870,21 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// Org-wide admin run list, incl. dead-letter (workflow-manage)
+    ///
+    /// Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/get(listWorkflowRunsAdmin)`.
+    public func listWorkflowRunsAdmin(
+        query: Operations.ListWorkflowRunsAdmin.Input.Query = .init(),
+        headers: Operations.ListWorkflowRunsAdmin.Input.Headers = .init()
+    ) async throws -> Operations.ListWorkflowRunsAdmin.Output {
+        try await listWorkflowRunsAdmin(Operations.ListWorkflowRunsAdmin.Input(
+            query: query,
+            headers: headers
+        ))
+    }
     /// Start a workflow run (idempotent)
     ///
     /// Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
@@ -4869,6 +4898,21 @@ extension APIProtocol {
         try await startWorkflowRun(Operations.StartWorkflowRun.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// Read-only run detail — head, waiting tasks, node-step timeline
+    ///
+    /// Visibility mirrors the approval inbox exactly — the run's initiator, a claimer of one of its tasks, or a holder of an authority role a task is routed to — plus workflow-manage admins org-wide. Anyone else gets 404 (deny-by-omission), never a leak of another branch's/org's run.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs/{run_id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/get(getWorkflowRun)`.
+    public func getWorkflowRun(
+        path: Operations.GetWorkflowRun.Input.Path,
+        headers: Operations.GetWorkflowRun.Input.Headers = .init()
+    ) async throws -> Operations.GetWorkflowRun.Output {
+        try await getWorkflowRun(Operations.GetWorkflowRun.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// List the runs the caller initiated (submission box)
@@ -9365,6 +9409,280 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AdminWorkflowRunListResponse`.
+        public struct AdminWorkflowRunListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AdminWorkflowRunListResponse/items`.
+            public var items: [Components.Schemas.WorkflowRunListItem]
+            /// - Remark: Generated from `#/components/schemas/AdminWorkflowRunListResponse/next_cursor`.
+            public var nextCursor: Components.Schemas.Uuid?
+            /// Creates a new `AdminWorkflowRunListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - nextCursor:
+            public init(
+                items: [Components.Schemas.WorkflowRunListItem],
+                nextCursor: Components.Schemas.Uuid? = nil
+            ) {
+                self.items = items
+                self.nextCursor = nextCursor
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case nextCursor = "next_cursor"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun`.
+        public struct WorkflowRunDetailRun: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/definition_version`.
+            public var definitionVersion: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/trigger_type`.
+            public var triggerType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/object_type`.
+            public var objectType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/object_id`.
+            public var objectId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/initiated_by`.
+            public var initiatedBy: Components.Schemas.Uuid?
+            /// Failure reason for FAILED/DEAD_LETTERED runs (dead-letter visibility).
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/error_payload`.
+            public struct ErrorPayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ErrorPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// Failure reason for FAILED/DEAD_LETTERED runs (dead-letter visibility).
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/error_payload`.
+            public var errorPayload: Components.Schemas.WorkflowRunDetailRun.ErrorPayloadPayload?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/started_at`.
+            public var startedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/completed_at`.
+            public var completedAt: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailRun/failed_at`.
+            public var failedAt: Components.Schemas.Timestamp?
+            /// Creates a new `WorkflowRunDetailRun`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - status:
+            ///   - definitionId:
+            ///   - definitionVersion:
+            ///   - triggerType:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - initiatedBy:
+            ///   - errorPayload: Failure reason for FAILED/DEAD_LETTERED runs (dead-letter visibility).
+            ///   - startedAt:
+            ///   - updatedAt:
+            ///   - completedAt:
+            ///   - failedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                status: Swift.String,
+                definitionId: Components.Schemas.Uuid,
+                definitionVersion: Swift.Int32,
+                triggerType: Swift.String,
+                objectType: Swift.String? = nil,
+                objectId: Components.Schemas.Uuid? = nil,
+                initiatedBy: Components.Schemas.Uuid? = nil,
+                errorPayload: Components.Schemas.WorkflowRunDetailRun.ErrorPayloadPayload? = nil,
+                startedAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp,
+                completedAt: Components.Schemas.Timestamp? = nil,
+                failedAt: Components.Schemas.Timestamp? = nil
+            ) {
+                self.id = id
+                self.status = status
+                self.definitionId = definitionId
+                self.definitionVersion = definitionVersion
+                self.triggerType = triggerType
+                self.objectType = objectType
+                self.objectId = objectId
+                self.initiatedBy = initiatedBy
+                self.errorPayload = errorPayload
+                self.startedAt = startedAt
+                self.updatedAt = updatedAt
+                self.completedAt = completedAt
+                self.failedAt = failedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case status
+                case definitionId = "definition_id"
+                case definitionVersion = "definition_version"
+                case triggerType = "trigger_type"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case initiatedBy = "initiated_by"
+                case errorPayload = "error_payload"
+                case startedAt = "started_at"
+                case updatedAt = "updated_at"
+                case completedAt = "completed_at"
+                case failedAt = "failed_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep`.
+        public struct WorkflowRunTimelineStep: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/node_key`.
+            public var nodeKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/node_type`.
+            public var nodeType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/attempt`.
+            public var attempt: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/started_at`.
+            public var startedAt: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/finished_at`.
+            public var finishedAt: Components.Schemas.Timestamp?
+            /// The user who decided this node (decision nodes only).
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/actor`.
+            public var actor: Components.Schemas.Uuid?
+            /// The decision payload recorded on the node's waiting task, if any.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/outcome`.
+            public struct OutcomePayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `OutcomePayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// The decision payload recorded on the node's waiting task, if any.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/outcome`.
+            public var outcome: Components.Schemas.WorkflowRunTimelineStep.OutcomePayload?
+            /// The node's error payload for a FAILED node step.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/error`.
+            public struct _ErrorPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `_ErrorPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// The node's error payload for a FAILED node step.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunTimelineStep/error`.
+            public var error: Components.Schemas.WorkflowRunTimelineStep._ErrorPayload?
+            /// Creates a new `WorkflowRunTimelineStep`.
+            ///
+            /// - Parameters:
+            ///   - nodeKey:
+            ///   - nodeType:
+            ///   - status:
+            ///   - attempt:
+            ///   - startedAt:
+            ///   - finishedAt:
+            ///   - actor: The user who decided this node (decision nodes only).
+            ///   - outcome: The decision payload recorded on the node's waiting task, if any.
+            ///   - error: The node's error payload for a FAILED node step.
+            public init(
+                nodeKey: Swift.String,
+                nodeType: Swift.String,
+                status: Swift.String,
+                attempt: Swift.Int32,
+                startedAt: Components.Schemas.Timestamp? = nil,
+                finishedAt: Components.Schemas.Timestamp? = nil,
+                actor: Components.Schemas.Uuid? = nil,
+                outcome: Components.Schemas.WorkflowRunTimelineStep.OutcomePayload? = nil,
+                error: Components.Schemas.WorkflowRunTimelineStep._ErrorPayload? = nil
+            ) {
+                self.nodeKey = nodeKey
+                self.nodeType = nodeType
+                self.status = status
+                self.attempt = attempt
+                self.startedAt = startedAt
+                self.finishedAt = finishedAt
+                self.actor = actor
+                self.outcome = outcome
+                self.error = error
+            }
+            public enum CodingKeys: String, CodingKey {
+                case nodeKey = "node_key"
+                case nodeType = "node_type"
+                case status
+                case attempt
+                case startedAt = "started_at"
+                case finishedAt = "finished_at"
+                case actor
+                case outcome
+                case error
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailResponse`.
+        public struct WorkflowRunDetailResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailResponse/run`.
+            public var run: Components.Schemas.WorkflowRunDetailRun
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailResponse/waiting_tasks`.
+            public var waitingTasks: [Components.Schemas.WorkflowTaskSummary]
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunDetailResponse/timeline`.
+            public var timeline: [Components.Schemas.WorkflowRunTimelineStep]
+            /// Creates a new `WorkflowRunDetailResponse`.
+            ///
+            /// - Parameters:
+            ///   - run:
+            ///   - waitingTasks:
+            ///   - timeline:
+            public init(
+                run: Components.Schemas.WorkflowRunDetailRun,
+                waitingTasks: [Components.Schemas.WorkflowTaskSummary],
+                timeline: [Components.Schemas.WorkflowRunTimelineStep]
+            ) {
+                self.run = run
+                self.waitingTasks = waitingTasks
+                self.timeline = timeline
+            }
+            public enum CodingKeys: String, CodingKey {
+                case run
+                case waitingTasks = "waiting_tasks"
+                case timeline
             }
         }
         /// - Remark: Generated from `#/components/schemas/ClaimWorkflowTaskRequest`.
@@ -73882,6 +74200,223 @@ public enum Operations {
             }
         }
     }
+    /// Org-wide admin run list, incl. dead-letter (workflow-manage)
+    ///
+    /// Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/get(listWorkflowRunsAdmin)`.
+    public enum ListWorkflowRunsAdmin {
+        public static let id: Swift.String = "listWorkflowRunsAdmin"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Comma-separated run statuses (e.g. FAILED,DEAD_LETTERED). Omitted returns all statuses.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/GET/query/status`.
+                public var status: Swift.String?
+                /// Keyset cursor — the run_id of the last row of the previous page.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/GET/query/before`.
+                public var before: Components.Schemas.Uuid?
+                /// Page size, clamped to [1, 200]. Defaults to 50.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/GET/query/limit`.
+                public var limit: Swift.Int32?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - status: Comma-separated run statuses (e.g. FAILED,DEAD_LETTERED). Omitted returns all statuses.
+                ///   - before: Keyset cursor — the run_id of the last row of the previous page.
+                ///   - limit: Page size, clamped to [1, 200]. Defaults to 50.
+                public init(
+                    status: Swift.String? = nil,
+                    before: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int32? = nil
+                ) {
+                    self.status = status
+                    self.before = before
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListWorkflowRunsAdmin.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowRunsAdmin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowRunsAdmin.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListWorkflowRunsAdmin.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListWorkflowRunsAdmin.Input.Query = .init(),
+                headers: Operations.ListWorkflowRunsAdmin.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-runs/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AdminWorkflowRunListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AdminWorkflowRunListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListWorkflowRunsAdmin.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListWorkflowRunsAdmin.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// A page of org-wide runs, newest first.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/get(listWorkflowRunsAdmin)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListWorkflowRunsAdmin.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListWorkflowRunsAdmin.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/get(listWorkflowRunsAdmin)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/get(listWorkflowRunsAdmin)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/get(listWorkflowRunsAdmin)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// Start a workflow run (idempotent)
     ///
     /// Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
@@ -74084,6 +74619,205 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read-only run detail — head, waiting tasks, node-step timeline
+    ///
+    /// Visibility mirrors the approval inbox exactly — the run's initiator, a claimer of one of its tasks, or a holder of an authority role a task is routed to — plus workflow-manage admins org-wide. Anyone else gets 404 (deny-by-omission), never a leak of another branch's/org's run.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs/{run_id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/get(getWorkflowRun)`.
+    public enum GetWorkflowRun {
+        public static let id: Swift.String = "getWorkflowRun"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/GET/path/run_id`.
+                public var runId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - runId:
+                public init(runId: Components.Schemas.Uuid) {
+                    self.runId = runId
+                }
+            }
+            public var path: Operations.GetWorkflowRun.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkflowRun.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkflowRun.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetWorkflowRun.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetWorkflowRun.Input.Path,
+                headers: Operations.GetWorkflowRun.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowRunDetailResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowRunDetailResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetWorkflowRun.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetWorkflowRun.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The run's head, current waiting task(s), and its full node-step timeline.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/get(getWorkflowRun)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetWorkflowRun.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetWorkflowRun.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/get(getWorkflowRun)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/get(getWorkflowRun)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/get(getWorkflowRun)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }

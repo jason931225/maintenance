@@ -3100,6 +3100,7 @@ version = "0.0.0"
 dependencies = [
  "mnt-financial-application",
  "mnt-financial-domain",
+ "mnt-integrity",
  "mnt-kernel-core",
  "mnt-platform-db",
  "mnt-platform-request-context",
@@ -4087,6 +4088,7 @@ dependencies = [
 name = "mnt-workflow-runtime-adapter-postgres"
 version = "0.1.0"
 dependencies = [
+ "mnt-integrity",
  "mnt-kernel-core",
  "mnt-notifications-adapter-postgres",
  "mnt-notifications-application",

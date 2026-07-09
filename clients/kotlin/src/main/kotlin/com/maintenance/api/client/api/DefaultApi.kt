@@ -32,6 +32,7 @@ import com.maintenance.api.client.model.AdminCredentialResetRequest
 import com.maintenance.api.client.model.AdminCredentialResetResponse
 import com.maintenance.api.client.model.AdminIssueOtpRequest
 import com.maintenance.api.client.model.AdminIssueOtpResponse
+import com.maintenance.api.client.model.AdminWorkflowRunListResponse
 import com.maintenance.api.client.model.AndroidAssetLinkStatement
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AppleAppSiteAssociation
@@ -301,6 +302,7 @@ import com.maintenance.api.client.model.WorkOrderSummary
 import com.maintenance.api.client.model.WorkflowDefinitionHistoryResponse
 import com.maintenance.api.client.model.WorkflowDefinitionListResponse
 import com.maintenance.api.client.model.WorkflowDefinitionResponse
+import com.maintenance.api.client.model.WorkflowRunDetailResponse
 import com.maintenance.api.client.model.WorkflowRunListResponse
 import com.maintenance.api.client.model.WorkflowScheduleListResponse
 import com.maintenance.api.client.model.WorkflowScheduleResponse
@@ -9509,6 +9511,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/workflow-runs/{run_id}
+     * Read-only run detail — head, waiting tasks, node-step timeline
+     * Visibility mirrors the approval inbox exactly — the run&#39;s initiator, a claimer of one of its tasks, or a holder of an authority role a task is routed to — plus workflow-manage admins org-wide. Anyone else gets 404 (deny-by-omission), never a leak of another branch&#39;s/org&#39;s run.
+     * @param runId
+     * @return WorkflowRunDetailResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getWorkflowRun(runId: java.util.UUID) : WorkflowRunDetailResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getWorkflowRunWithHttpInfo(runId = runId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowRunDetailResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-runs/{run_id}
+     * Read-only run detail — head, waiting tasks, node-step timeline
+     * Visibility mirrors the approval inbox exactly — the run&#39;s initiator, a claimer of one of its tasks, or a holder of an authority role a task is routed to — plus workflow-manage admins org-wide. Anyone else gets 404 (deny-by-omission), never a leak of another branch&#39;s/org&#39;s run.
+     * @param runId
+     * @return ApiResponse<WorkflowRunDetailResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getWorkflowRunWithHttpInfo(runId: java.util.UUID) : ApiResponse<WorkflowRunDetailResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getWorkflowRunRequestConfig(runId = runId)
+
+        return@withContext request<Unit, WorkflowRunDetailResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getWorkflowRun
+     *
+     * @param runId
+     * @return RequestConfig
+     */
+    fun getWorkflowRunRequestConfig(runId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-runs/{run_id}".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/workflow-studio/catalog
      * List Workflow Studio connector allowlist and templates
      * Returns the server-owned connector/action allowlist and starter workflow templates. This is the safe no-code boundary: workflow authors can only compose allowed internal actions, and every request still requires tenant RLS plus RoleManage authorization.
@@ -13802,6 +13877,96 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/workflow-studio/definitions",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/workflow-runs
+     * Org-wide admin run list, incl. dead-letter (workflow-manage)
+     * Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
+     * @param status Comma-separated run statuses (e.g. FAILED,DEAD_LETTERED). Omitted returns all statuses. (optional)
+     * @param before Keyset cursor — the run_id of the last row of the previous page. (optional)
+     * @param limit Page size, clamped to [1, 200]. Defaults to 50. (optional)
+     * @return AdminWorkflowRunListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowRunsAdmin(status: kotlin.String? = null, before: java.util.UUID? = null, limit: kotlin.Int? = null) : AdminWorkflowRunListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowRunsAdminWithHttpInfo(status = status, before = before, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AdminWorkflowRunListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-runs
+     * Org-wide admin run list, incl. dead-letter (workflow-manage)
+     * Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
+     * @param status Comma-separated run statuses (e.g. FAILED,DEAD_LETTERED). Omitted returns all statuses. (optional)
+     * @param before Keyset cursor — the run_id of the last row of the previous page. (optional)
+     * @param limit Page size, clamped to [1, 200]. Defaults to 50. (optional)
+     * @return ApiResponse<AdminWorkflowRunListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowRunsAdminWithHttpInfo(status: kotlin.String?, before: java.util.UUID?, limit: kotlin.Int?) : ApiResponse<AdminWorkflowRunListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowRunsAdminRequestConfig(status = status, before = before, limit = limit)
+
+        return@withContext request<Unit, AdminWorkflowRunListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowRunsAdmin
+     *
+     * @param status Comma-separated run statuses (e.g. FAILED,DEAD_LETTERED). Omitted returns all statuses. (optional)
+     * @param before Keyset cursor — the run_id of the last row of the previous page. (optional)
+     * @param limit Page size, clamped to [1, 200]. Defaults to 50. (optional)
+     * @return RequestConfig
+     */
+    fun listWorkflowRunsAdminRequestConfig(status: kotlin.String?, before: java.util.UUID?, limit: kotlin.Int?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+                if (before != null) {
+                    put("before", listOf(before.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-runs",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

@@ -147,6 +147,19 @@ fn ilike_contains_pattern(raw: &str) -> String {
     escaped
 }
 
+/// Filter for the org-wide admin run list (`GET /api/v1/workflow-runs`).
+/// Keyset-paginated over `(updated_at DESC, id DESC)` like the notifications list.
+#[derive(Debug, Clone)]
+pub struct AdminRunListFilter {
+    /// Statuses to include; empty = all (incl. `FAILED`/`DEAD_LETTERED`).
+    pub statuses: Vec<RunStatus>,
+    /// Keyset cursor: return only rows strictly older than this run's
+    /// `(updated_at, id)`. `None` starts at the newest row.
+    pub before: Option<Uuid>,
+    /// Page size (the caller clamps to a sane bound).
+    pub limit: i64,
+}
+
 /// One submission-box row (a run the principal initiated).
 #[derive(Debug, Clone)]
 pub struct RunListItem {
@@ -1267,6 +1280,64 @@ impl PgWorkflowRuntimeStore {
         .map_err(KernelError::from)
     }
 
+    /// List runs org-wide for an admin (workflow-manage), newest first, filterable
+    /// by status (incl. `FAILED`/`DEAD_LETTERED` for dead-letter visibility) and
+    /// keyset-paginated on `(updated_at, id)`. Org isolation is enforced by RLS on
+    /// the armed connection; the caller is responsible for the manage-authz gate.
+    pub async fn list_runs_admin(
+        &self,
+        org: OrgId,
+        filter: AdminRunListFilter,
+    ) -> Result<Vec<RunListItem>, KernelError> {
+        let statuses: Vec<String> = filter
+            .statuses
+            .iter()
+            .map(|status| status.as_db_str().to_owned())
+            .collect();
+        let before = filter.before;
+        let limit = filter.limit.clamp(1, 200);
+        with_org_conn::<_, Vec<RunListItem>, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    "SELECT r.id AS run_id, r.status, r.definition_id, r.definition_version, \
+                            r.object_type, r.object_id, r.initiated_by, r.started_at, r.updated_at \
+                     FROM workflow_runs r \
+                     WHERE (cardinality($1::text[]) = 0 OR r.status = ANY($1)) \
+                       AND ($2::uuid IS NULL \
+                            OR (r.updated_at, r.id) < \
+                               (SELECT updated_at, id FROM workflow_runs WHERE id = $2)) \
+                     ORDER BY r.updated_at DESC, r.id DESC \
+                     LIMIT $3",
+                )
+                .bind(&statuses)
+                .bind(before)
+                .bind(limit)
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+
+                let mut items = Vec::with_capacity(rows.len());
+                for row in &rows {
+                    let status: String = row.try_get("status")?;
+                    items.push(RunListItem {
+                        run_id: row.try_get("run_id")?,
+                        status: RunStatus::from_db_str(&status)?,
+                        definition_id: row.try_get("definition_id")?,
+                        definition_version: row.try_get("definition_version")?,
+                        object_type: row.try_get("object_type")?,
+                        object_id: row.try_get("object_id")?,
+                        initiated_by: row.try_get("initiated_by")?,
+                        started_at: row.try_get("started_at")?,
+                        updated_at: row.try_get("updated_at")?,
+                    });
+                }
+                Ok(items)
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+
     /// Claim an OPEN waiting task (OPEN → CLAIMED). A same-user replay on an
     /// already-CLAIMED task is a 200 no-op; a task claimed by another user, or in any
     /// terminal/cancelled/expired state, is a 409. Audits `workflow_task.claim`.
@@ -1733,7 +1804,8 @@ async fn check_self_approval_tx(
         return Err(KernelError::forbidden("본인이 기안한 건은 승인할 수 없습니다").into());
     }
 
-    // Allowed exception: record a governance finding (idempotent upsert).
+    // Allowed exception: record a governance finding (idempotent upsert) via the
+    // shared helper owned by the integrity crate.
     let exemption_reason = if is_super_admin {
         "super_admin_exempt"
     } else {
@@ -1745,24 +1817,20 @@ async fn check_self_approval_tx(
         "approver": actor_uuid.to_string(),
         "exemption_reason": exemption_reason,
     });
-    let now = time::OffsetDateTime::now_utc();
-    sqlx::query(
-        "INSERT INTO governance_findings \
-             (id, org_id, detector_id, entity_type, entity_id, \
-              subject_user_id, score, severity, evidence, status, detected_at, created_at, updated_at) \
-         VALUES ($1, $2, 'anomaly.self_approval', 'workflow_run', $3, $4, 1.0, 'HIGH', $5, 'OPEN', $6, $6, $6) \
-         ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE \
-             SET score = EXCLUDED.score, severity = EXCLUDED.severity, \
-                 evidence = EXCLUDED.evidence, status = 'OPEN', \
-                 detected_at = EXCLUDED.detected_at, updated_at = EXCLUDED.updated_at",
+    let entity_id = run_id.to_string();
+    mnt_integrity::upsert_open_finding_tx(
+        tx,
+        org,
+        mnt_integrity::OpenFinding {
+            detector_id: "anomaly.self_approval",
+            entity_type: "workflow_run",
+            entity_id: &entity_id,
+            subject_user_id: Some(actor_uuid),
+            score: 1.0,
+            severity: "HIGH",
+            evidence,
+        },
     )
-    .bind(Uuid::new_v4())
-    .bind(*org.as_uuid())
-    .bind(run_id.to_string())
-    .bind(actor_uuid)
-    .bind(evidence)
-    .bind(now)
-    .execute(tx.as_mut())
     .await?;
 
     Ok(())

@@ -36,6 +36,7 @@ src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/AdminWorkflowRunListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AndroidAssetLinkStatement.kt
 src/main/kotlin/com/maintenance/api/client/model/AndroidAssetLinkStatementTarget.kt
 src/main/kotlin/com/maintenance/api/client/model/AppendManualCostLedgerRequest.kt
@@ -454,9 +455,12 @@ src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionEventResponse
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionHistoryResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowRunDetailResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowRunDetailRun.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowRunListItem.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowRunListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowRunSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowRunTimelineStep.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowScheduleListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowScheduleResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowSimulationFinding.kt

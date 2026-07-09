@@ -175,43 +175,104 @@ impl PgIntegrityStore {
         }
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
-        let now = OffsetDateTime::now_utc();
-        let finding_id = Uuid::new_v4();
 
         with_org_conn::<_, _, PgIntegrityError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                sqlx::query(
-                    r#"
-                    INSERT INTO governance_findings
-                        (id, org_id, detector_id, entity_type, entity_id,
-                         score, severity, evidence, status, detected_at, created_at, updated_at)
-                    VALUES
-                        ($1, $2, $3, $4, $5, $6, $7, $8, 'OPEN', $9, $9, $9)
-                    ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE
-                        SET score       = EXCLUDED.score,
-                            severity    = EXCLUDED.severity,
-                            evidence    = EXCLUDED.evidence,
-                            status      = 'OPEN',
-                            detected_at = EXCLUDED.detected_at,
-                            updated_at  = EXCLUDED.updated_at
-                    "#,
+                let PriceOutlierOutput {
+                    detector_id,
+                    entity_type,
+                    entity_id,
+                    score,
+                    severity,
+                    evidence,
+                    ..
+                } = output;
+                upsert_open_finding_tx(
+                    tx,
+                    OrgId::from_uuid(org_uuid),
+                    OpenFinding {
+                        detector_id,
+                        entity_type,
+                        entity_id: &entity_id,
+                        // Price-outlier findings are about a purchase, not a user.
+                        subject_user_id: None,
+                        score,
+                        severity: severity.as_db_str(),
+                        evidence,
+                    },
                 )
-                .bind(finding_id)
-                .bind(org_uuid)
-                .bind(output.detector_id)
-                .bind(output.entity_type)
-                .bind(&output.entity_id)
-                .bind(output.score)
-                .bind(output.severity.as_db_str())
-                .bind(sqlx::types::Json(&output.evidence))
-                .bind(now)
-                .execute(tx.as_mut())
                 .await?;
                 Ok(())
             })
         })
         .await
     }
+}
+
+// ---------------------------------------------------------------------------
+// Shared governance-finding upsert
+// ---------------------------------------------------------------------------
+
+/// Shape of an OPEN `governance_findings` row, upserted by
+/// [`upsert_open_finding_tx`]. The caller builds `evidence` (including any
+/// `exemption_reason`) and chooses `severity`/`score`/`subject_user_id`; this
+/// module owns only the row shape and the ON CONFLICT key.
+pub struct OpenFinding<'a> {
+    pub detector_id: &'a str,
+    pub entity_type: &'a str,
+    pub entity_id: &'a str,
+    /// The user the finding is about (self-approval detectors), or `None` for
+    /// object-scoped findings (price outlier).
+    pub subject_user_id: Option<Uuid>,
+    pub score: f64,
+    pub severity: &'a str,
+    pub evidence: serde_json::Value,
+}
+
+/// Idempotently upsert an OPEN governance finding inside the caller's
+/// transaction, keyed by `(org_id, detector_id, entity_type, entity_id)`. A
+/// re-detection re-opens the finding and refreshes score/severity/evidence.
+///
+/// This is the single owner of the `governance_findings` write shape, shared by
+/// every detector that records a finding as a side effect of its own audited
+/// write: financial + workflow self-approval SoD guards and the integrity
+/// price-outlier detector. Runs on the armed `tx` (RLS-scoped as `mnt_rt`); the
+/// caller commits.
+pub async fn upsert_open_finding_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org: OrgId,
+    finding: OpenFinding<'_>,
+) -> Result<(), sqlx::Error> {
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        r#"
+        INSERT INTO governance_findings
+            (id, org_id, detector_id, entity_type, entity_id,
+             subject_user_id, score, severity, evidence, status, detected_at, created_at, updated_at)
+        VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OPEN', $10, $10, $10)
+        ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE
+            SET score       = EXCLUDED.score,
+                severity    = EXCLUDED.severity,
+                evidence    = EXCLUDED.evidence,
+                status      = 'OPEN',
+                detected_at = EXCLUDED.detected_at,
+                updated_at  = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(*org.as_uuid())
+    .bind(finding.detector_id)
+    .bind(finding.entity_type)
+    .bind(finding.entity_id)
+    .bind(finding.subject_user_id)
+    .bind(finding.score)
+    .bind(finding.severity)
+    .bind(sqlx::types::Json(finding.evidence))
+    .bind(now)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
