@@ -109,6 +109,8 @@ interface HubItem {
   action: string;
   dueLabel?: string;
   badge?: string;
+  // Backend row id for the live pin-detail fetch (work orders + support only).
+  refId?: string;
   badgeClass?: string;
   tone: "neutral" | "urgent" | "approval" | "conversation" | "support";
   sortTime: number;
@@ -166,6 +168,7 @@ function buildWorkItems(workOrders: WorkOrderListItem[]): HubItem[] {
     const overdue = isOverdue(workOrder.target_due_at);
     return {
       id: `work-${workOrder.id}`,
+      refId: workOrder.id,
       code: workOrder.request_no,
       filter: "work",
       title: workOrderTitle(workOrder),
@@ -283,6 +286,7 @@ function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
     const overdue = ticket.status !== "RESOLVED" && ticket.status !== "CLOSED" && isOverdue(ticket.due_at);
     return {
       id: `support-${ticket.id}`,
+      refId: ticket.id,
       code: ticket.id,
       filter: "support",
       title: safeLabel(ticket.title),
@@ -900,6 +904,7 @@ function WorkHubItemCard({ item }: { item: HubItem }) {
             dueLabel: item.dueLabel,
             badge: item.badge,
             href: item.href,
+            refId: item.refId,
           })}
         />
         <Button asChild variant="secondary" size="sm">

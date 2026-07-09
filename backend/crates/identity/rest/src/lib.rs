@@ -199,7 +199,9 @@ pub fn router(state: IdentityRestState) -> Router {
         .route(BRANCHES_PATH, get(list_branches).post(create_branch))
         .route(
             BRANCH_PATH_TEMPLATE,
-            patch(update_branch).delete(deactivate_branch),
+            get(get_branch)
+                .patch(update_branch)
+                .delete(deactivate_branch),
         )
         .route(PASSKEYS_PATH, get(list_passkeys))
         .route(PASSKEY_PATH_TEMPLATE, delete(delete_passkey))
@@ -2974,6 +2976,28 @@ async fn list_branches(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(branches))
+}
+
+// Get-one for an org-unit (branch) pin panel (UI-M2a). Same non-sensitive read
+// gate as the list; org-RLS scopes it to the caller's org. No audit — this is
+// org-structure metadata, not PII. It filters the branch list rather than
+// adding a get-one store method because branch counts are small.
+async fn get_branch(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::Login)?;
+    let branch = state
+        .store
+        .list_branches()
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .find(|b| b.id.as_uuid() == &id)
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("branch was not found")))?;
+    Ok(Json(branch))
 }
 
 async fn create_branch(

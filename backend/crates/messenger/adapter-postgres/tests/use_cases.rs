@@ -8,8 +8,8 @@ use mnt_kernel_core::{
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_application::{
     CreateThreadCommand, EnsureWorkOrderThreadCommand, ListThreadsQuery, MarkThreadReadCommand,
-    MessageNotifier, MessageNotifyFuture, MessagePageQuery, MessagePostedNotification,
-    SearchMessagesQuery, SendMessageCommand,
+    MemberProfileQuery, MessageNotifier, MessageNotifyFuture, MessagePageQuery,
+    MessagePostedNotification, SearchMessagesQuery, SendMessageCommand,
 };
 use mnt_messenger_domain::ThreadKind;
 use sqlx::{PgPool, Row};
@@ -59,6 +59,175 @@ async fn message_send_persists_audit_before_post_commit_notify(pool: PgPool) {
                 branch_id: seeded.branch,
             }]
         );
+    })
+    .await;
+}
+
+// AC (UI-M2a): in a messenger input an `@`-mention creates a notification-center
+// row for its target; a `#` object-link does not (DESIGN §4.7-7). Deny-by-
+// omission: mentioning a non-member notifies no one. Wires the real #198
+// NotificationSink, so the assertion is on actual rows, not a discarded field.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn at_mention_emits_notification_for_thread_member_only(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let sink =
+            Arc::new(mnt_notifications_adapter_postgres::PgNotificationStore::new(pool.clone()));
+        let store = PgMessengerStore::new(pool.clone()).with_notification_sink(sink);
+        // Thread members: sender + recipient. receptionist is NOT a member.
+        let thread = create_team_thread(&store, &seeded).await;
+        let t0 = OffsetDateTime::now_utc();
+
+        // 1. `@`-mention of a thread member → one notification row for that member.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            &format!("@{} 지게차 점검 부탁드립니다", seeded.recipient),
+            t0,
+        )
+        .await;
+        // 2. `#` object-link only (no mention) → no mention notification.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "#WO-20260612-001 관련 자료 첨부합니다",
+            t0 + Duration::seconds(1),
+        )
+        .await;
+        // 3. `@`-mention of a NON-member → deny-by-omission, no notification.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            &format!("@{} 확인 바랍니다", seeded.receptionist),
+            t0 + Duration::seconds(2),
+        )
+        .await;
+        // 4. `@`-mention of self → self-filter, no notification.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            &format!("@{} 자기 점검 기록입니다", seeded.sender),
+            t0 + Duration::seconds(3),
+        )
+        .await;
+
+        assert_eq!(
+            notification_count(&pool, seeded.recipient).await,
+            1,
+            "@-mention of a thread member emits exactly one notification",
+        );
+        assert_eq!(
+            notification_count(&pool, seeded.receptionist).await,
+            0,
+            "a non-member mention emits nothing (deny-by-omission)",
+        );
+        assert_eq!(
+            notification_count(&pool, seeded.sender).await,
+            0,
+            "the sender never notifies itself",
+        );
+
+        // Stable dedup key `msg-mention:{message_id}:{recipient}` for at-most-once.
+        let key: String =
+            sqlx::query_scalar("SELECT dedup_key FROM notifications WHERE recipient_user_id = $1")
+                .bind(*seeded.recipient.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            key.starts_with("msg-mention:") && key.ends_with(&format!(":{}", seeded.recipient)),
+            "unexpected dedup key {key}",
+        );
+
+        // Thread unread still reflects the ordinary fan-out (all 4 posts).
+        let threads = store
+            .list_threads(ListThreadsQuery {
+                actor: seeded.recipient,
+                branch_scope: BranchScope::single(seeded.branch),
+                limit: 10,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            threads
+                .iter()
+                .find(|t| t.id == thread.id)
+                .expect("recipient sees the thread")
+                .unread_count,
+            4,
+        );
+    })
+    .await;
+}
+
+async fn notification_count(pool: &PgPool, recipient: UserId) -> i64 {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM notifications WHERE recipient_user_id = $1")
+        .bind(*recipient.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+// AC (UI-M2a): opening a person chip pins a summary from a real branch-scoped
+// API and records a `person.view` audit for a non-self view (DESIGN §4.7 "열람
+// — 기록 남음"); a self-view records none; a target outside the branch yields
+// not_found with no audit (deny-by-omission).
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn member_profile_records_person_view_audit_for_non_self_only(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let isolated_branch = seed_branch(&pool, "Isolated Branch").await;
+        let outsider = seed_user(&pool, "Outsider", "MECHANIC", isolated_branch).await;
+        let store = PgMessengerStore::new(pool.clone());
+
+        // Non-self view of a branch coworker → summary + one person.view audit.
+        let profile = store
+            .member_profile(MemberProfileQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                branch_id: seeded.branch,
+                user_id: seeded.recipient,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(profile.id, seeded.recipient);
+        assert_eq!(person_view_audit_count(&pool, seeded.recipient).await, 1);
+
+        // Self-view → summary, but NO audit event.
+        let own = store
+            .member_profile(MemberProfileQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                branch_id: seeded.branch,
+                user_id: seeded.sender,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(own.id, seeded.sender);
+        assert_eq!(person_view_audit_count(&pool, seeded.sender).await, 0);
+
+        // A target outside the actor's branch → not_found, no audit trail.
+        let denied = store
+            .member_profile(MemberProfileQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                branch_id: seeded.branch,
+                user_id: outsider,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(denied.kind(), ErrorKind::NotFound);
+        assert_eq!(person_view_audit_count(&pool, outsider).await, 0);
     })
     .await;
 }
@@ -606,6 +775,16 @@ async fn send_from(
         })
         .await
         .unwrap()
+}
+
+async fn person_view_audit_count(pool: &PgPool, target: UserId) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM audit_events WHERE action = 'person.view' AND target_id = $1",
+    )
+    .bind(target.to_string())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn seed_context(pool: &PgPool) -> SeededContext {

@@ -50,7 +50,10 @@ function sanitizeObject(value: unknown): PinnedObject | undefined {
   const kind = oneOf<PinKind>(value.kind, PIN_KINDS);
   const code = asString(value.code);
   if (!kind || !code) return undefined;
-  return { kind, code, title: code, fields: [] };
+  // Drop the persisted title/fields as untrusted (shown as the code), but keep
+  // refId so a restored pin re-fetches its live detail on mount (UI-M2a).
+  const refId = asString(value.refId);
+  return { kind, code, title: code, fields: [], ...(refId ? { refId } : {}) };
 }
 
 function clampNum(value: unknown, fallback: number): number {

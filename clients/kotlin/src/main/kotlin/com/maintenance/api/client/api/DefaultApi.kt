@@ -154,6 +154,7 @@ import com.maintenance.api.client.model.MailThreadReadStateRequest
 import com.maintenance.api.client.model.MailThreadView
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMemberListResponse
+import com.maintenance.api.client.model.MessengerMemberSummary
 import com.maintenance.api.client.model.MessengerMessageListResponse
 import com.maintenance.api.client.model.MessengerMessagePage
 import com.maintenance.api.client.model.MessengerMessageSummary
@@ -6515,6 +6516,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/branches/{id}
+     * Fetch one branch&#39;s summary for an org-unit pin panel
+     * Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller&#39;s org. No audit — org-structure metadata, not PII. A branch outside the caller&#39;s org returns 404.
+     * @param id
+     * @return BranchSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getBranch(id: java.util.UUID) : BranchSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getBranchWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as BranchSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/branches/{id}
+     * Fetch one branch&#39;s summary for an org-unit pin panel
+     * Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller&#39;s org. No audit — org-structure metadata, not PII. A branch outside the caller&#39;s org returns 404.
+     * @param id
+     * @return ApiResponse<BranchSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getBranchWithHttpInfo(id: java.util.UUID) : ApiResponse<BranchSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getBranchRequestConfig(id = id)
+
+        return@withContext request<Unit, BranchSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getBranch
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getBranchRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/branches/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/users/me
      * Get the authenticated user&#39;s own profile
      *
@@ -7534,6 +7608,85 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/mail/threads/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/messenger/members/{userId}
+     * Fetch one branch member&#39;s summary for a person pin panel
+     * Returns a single active branch member&#39;s summary using the same non-admin branch directory as the member list, so any employee can open a coworker&#39;s person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller&#39;s branch returns 404 with no audit trail (deny-by-omission).
+     * @param userId
+     * @param branchId
+     * @return MessengerMemberSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMessengerMember(userId: java.util.UUID, branchId: java.util.UUID) : MessengerMemberSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getMessengerMemberWithHttpInfo(userId = userId, branchId = branchId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerMemberSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/members/{userId}
+     * Fetch one branch member&#39;s summary for a person pin panel
+     * Returns a single active branch member&#39;s summary using the same non-admin branch directory as the member list, so any employee can open a coworker&#39;s person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller&#39;s branch returns 404 with no audit trail (deny-by-omission).
+     * @param userId
+     * @param branchId
+     * @return ApiResponse<MessengerMemberSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMessengerMemberWithHttpInfo(userId: java.util.UUID, branchId: java.util.UUID) : ApiResponse<MessengerMemberSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMessengerMemberRequestConfig(userId = userId, branchId = branchId)
+
+        return@withContext request<Unit, MessengerMemberSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMessengerMember
+     *
+     * @param userId
+     * @param branchId
+     * @return RequestConfig
+     */
+    fun getMessengerMemberRequestConfig(userId: java.util.UUID, branchId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("branch_id", listOf(branchId.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/members/{userId}".replace("{"+"userId"+"}", encodeURIComponent(userId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

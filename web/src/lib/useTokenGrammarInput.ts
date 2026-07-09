@@ -150,6 +150,11 @@ export interface UseTokenGrammarInputResult {
    * click handler in the dropdown UI — Tab is wired internally via
    * `handleKeyDown` against `highlightedCode`. */
   confirmToken: (code: string) => void;
+  /** Insert an already-formed token (trigger + code, e.g. `!WO-…` or `@<uuid>`)
+   * at the caret, with a leading space if needed so the token stays
+   * boundary-preceded and parses. Used for drag-drop, which has no active
+   * trigger to confirm against. */
+  insertToken: (raw: string) => void;
   /** Esc (or anything that should close the dropdown without changing text). */
   cancel: () => void;
   handleChange: (event: ChangeEvent<FieldElement>) => void;
@@ -237,6 +242,21 @@ export function useTokenGrammarInput(
     [activeTrigger, value, onChange],
   );
 
+  const insertToken = useCallback(
+    (raw: string) => {
+      if (composingRef.current) return;
+      const cursor = inputRef.current?.selectionStart ?? value.length;
+      const needsLeadingSpace = cursor > 0 && !/[\s([{]/u.test(value.charAt(cursor - 1));
+      const insert = `${needsLeadingSpace ? " " : ""}${raw} `;
+      const next = `${value.slice(0, cursor)}${insert}${value.slice(cursor)}`;
+      pendingCaretRef.current = cursor + insert.length;
+      setActiveTrigger(null);
+      setHighlightedCode(null);
+      onChange(next);
+    },
+    [value, onChange],
+  );
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<FieldElement>) => {
       if (event.key === "Escape") {
@@ -262,6 +282,7 @@ export function useTokenGrammarInput(
     highlightedCode,
     setHighlightedCode,
     confirmToken,
+    insertToken,
     cancel,
     handleChange,
     handleKeyDown,

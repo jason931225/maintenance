@@ -637,6 +637,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/messenger/members`.
     /// - Remark: Generated from `#/paths//api/messenger/members/get(listMessengerMembers)`.
     func listMessengerMembers(_ input: Operations.ListMessengerMembers.Input) async throws -> Operations.ListMessengerMembers.Output
+    /// Fetch one branch member's summary for a person pin panel
+    ///
+    /// Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/members/{userId}`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)`.
+    func getMessengerMember(_ input: Operations.GetMessengerMember.Input) async throws -> Operations.GetMessengerMember.Output
     /// List branch-scoped messenger threads for the authenticated member
     ///
     /// - Remark: HTTP `GET /api/messenger/threads`.
@@ -1032,6 +1040,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/branches`.
     /// - Remark: Generated from `#/paths//api/v1/branches/post(createBranch)`.
     func createBranch(_ input: Operations.CreateBranch.Input) async throws -> Operations.CreateBranch.Output
+    /// Fetch one branch's summary for an org-unit pin panel
+    ///
+    /// Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller's org. No audit — org-structure metadata, not PII. A branch outside the caller's org returns 404.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/branches/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/branches/{id}/get(getBranch)`.
+    func getBranch(_ input: Operations.GetBranch.Input) async throws -> Operations.GetBranch.Output
     /// Rename a branch or move it to another region
     ///
     /// - Remark: HTTP `PATCH /api/v1/branches/{id}`.
@@ -2831,6 +2847,24 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// Fetch one branch member's summary for a person pin panel
+    ///
+    /// Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/members/{userId}`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)`.
+    public func getMessengerMember(
+        path: Operations.GetMessengerMember.Input.Path,
+        query: Operations.GetMessengerMember.Input.Query,
+        headers: Operations.GetMessengerMember.Input.Headers = .init()
+    ) async throws -> Operations.GetMessengerMember.Output {
+        try await getMessengerMember(Operations.GetMessengerMember.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
     /// List branch-scoped messenger threads for the authenticated member
     ///
     /// - Remark: HTTP `GET /api/messenger/threads`.
@@ -3768,6 +3802,22 @@ extension APIProtocol {
         try await createBranch(Operations.CreateBranch.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// Fetch one branch's summary for an org-unit pin panel
+    ///
+    /// Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller's org. No audit — org-structure metadata, not PII. A branch outside the caller's org returns 404.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/branches/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/branches/{id}/get(getBranch)`.
+    public func getBranch(
+        path: Operations.GetBranch.Input.Path,
+        headers: Operations.GetBranch.Input.Headers = .init()
+    ) async throws -> Operations.GetBranch.Output {
+        try await getBranch(Operations.GetBranch.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Rename a branch or move it to another region
@@ -42218,6 +42268,222 @@ public enum Operations {
             }
         }
     }
+    /// Fetch one branch member's summary for a person pin panel
+    ///
+    /// Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/members/{userId}`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)`.
+    public enum GetMessengerMember {
+        public static let id: Swift.String = "getMessengerMember"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/path/userId`.
+                public var userId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - userId:
+                public init(userId: Components.Schemas.Uuid) {
+                    self.userId = userId
+                }
+            }
+            public var path: Operations.GetMessengerMember.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/query/branch_id`.
+                public var branchId: Components.Schemas.Uuid
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - branchId:
+                public init(branchId: Components.Schemas.Uuid) {
+                    self.branchId = branchId
+                }
+            }
+            public var query: Operations.GetMessengerMember.Input.Query
+            /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMessengerMember.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMessengerMember.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetMessengerMember.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - query:
+            ///   - headers:
+            public init(
+                path: Operations.GetMessengerMember.Input.Path,
+                query: Operations.GetMessengerMember.Input.Query,
+                headers: Operations.GetMessengerMember.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerMemberSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerMemberSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMessengerMember.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMessengerMember.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The branch member's summary.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetMessengerMember.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetMessengerMember.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// List branch-scoped messenger threads for the authenticated member
     ///
     /// - Remark: HTTP `GET /api/messenger/threads`.
@@ -58326,6 +58592,206 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Fetch one branch's summary for an org-unit pin panel
+    ///
+    /// Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller's org. No audit — org-structure metadata, not PII. A branch outside the caller's org returns 404.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/branches/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/branches/{id}/get(getBranch)`.
+    public enum GetBranch {
+        public static let id: Swift.String = "getBranch"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/branches/{id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/branches/{id}/GET/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetBranch.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/branches/{id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetBranch.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetBranch.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetBranch.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetBranch.Input.Path,
+                headers: Operations.GetBranch.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/branches/{id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/branches/{id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.BranchSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.BranchSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetBranch.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetBranch.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The branch summary.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/branches/{id}/get(getBranch)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetBranch.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetBranch.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/branches/{id}/get(getBranch)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/branches/{id}/get(getBranch)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/branches/{id}/get(getBranch)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }

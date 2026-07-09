@@ -1297,10 +1297,13 @@ pub fn build_router(state: AppState) -> Router {
                 .realtime_hub
                 .clone()
                 .unwrap_or_else(|| Arc::new(PgRealtimeHub::new(pool.clone(), Default::default())));
-            let messenger_store = PgMessengerStore::new(pool.clone())
-                .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())));
             let notification_store = PgNotificationStore::new(pool.clone())
                 .with_notifier(Arc::new(PostgresNotificationNotifier::new(pool.clone())));
+            let messenger_store = PgMessengerStore::new(pool.clone())
+                .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())))
+                // `@`-mentions create notification-center rows via the #198 sink
+                // (fan-out enabled) so a mentioned member sees them in their inbox.
+                .with_notification_sink(Arc::new(notification_store.clone()));
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());

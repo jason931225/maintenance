@@ -13,7 +13,7 @@ use mnt_kernel_core::{
 use mnt_messenger_adapter_postgres::{PgMessengerError, PgMessengerStore};
 use mnt_messenger_application::{
     CreateThreadCommand, ListMembersQuery, ListThreadsQuery, MarkThreadReadCommand,
-    MessagePageQuery, SearchMessagesQuery, SendMessageCommand,
+    MemberProfileQuery, MessagePageQuery, SearchMessagesQuery, SendMessageCommand,
 };
 use mnt_messenger_domain::ThreadKind;
 use mnt_platform_auth::JwtVerifier;
@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 pub const MESSENGER_ROUTE_PATHS: &[&str] = &[
     "/api/messenger/members",
+    "/api/messenger/members/{userId}",
     "/api/messenger/threads",
     "/api/messenger/threads/{threadId}/messages",
     "/api/messenger/threads/{threadId}/read-receipt",
@@ -49,6 +50,7 @@ pub fn router(state: MessengerRestState) -> Router {
     let pool = state.store.pool().clone();
     let router = Router::new()
         .route("/api/messenger/members", get(list_members))
+        .route("/api/messenger/members/{user_id}", get(get_member))
         .route(
             "/api/messenger/threads",
             get(list_threads).post(create_thread),
@@ -185,6 +187,28 @@ async fn list_members(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(Items { items }).into_response())
+}
+
+async fn get_member(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Path(user_id): Path<UserId>,
+    Query(query): Query<MembersQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let member = state
+        .store
+        .member_profile(MemberProfileQuery {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            branch_id: query.branch_id,
+            user_id,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(member).into_response())
 }
 
 async fn send_message(

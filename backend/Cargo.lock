@@ -3256,6 +3256,9 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-messenger-application",
  "mnt-messenger-domain",
+ "mnt-notifications-adapter-postgres",
+ "mnt-notifications-application",
+ "mnt-notifications-domain",
  "mnt-platform-db",
  "mnt-platform-request-context",
  "mnt-workorder-application",
@@ -3264,6 +3267,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

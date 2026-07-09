@@ -37,6 +37,7 @@ export const ko = {
         detail: "내용",
         due: "기한",
         status: "상태",
+        priority: "우선순위",
         occurredAt: "발생 시각",
         stateAfter: "이후 상태",
         note: "비고",
@@ -73,6 +74,14 @@ export const ko = {
       person: "사람",
       org: "조직",
 
+    },
+    // UI-M2a token-grammar composer (components/console/TokenComposer.tsx).
+    composer: {
+      previewLabel: "미리보기",
+      candidatesLabel: "후보 목록",
+      loading: "불러오는 중…",
+      error: "후보를 불러오지 못했습니다",
+      empty: "일치하는 항목이 없습니다",
     },
   },
   nav: {
@@ -815,6 +824,12 @@ export const ko = {
       resultsLabel: "이동 가능한 명령",
       empty: "일치하는 명령이 없습니다.",
       current: "현재",
+      sections: {
+        screens: "화면",
+        work: "대기 업무",
+        people: "사람",
+      },
+      loading: "검색 중…",
     },
   },
   page: {

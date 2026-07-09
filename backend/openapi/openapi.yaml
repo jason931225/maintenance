@@ -3033,6 +3033,42 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/messenger/members/{userId}:
+    get:
+      operationId: getMessengerMember
+      summary: Fetch one branch member's summary for a person pin panel
+      description: 'Returns a single active branch member''s summary using the same non-admin branch directory as the member
+        list, so any employee can open a coworker''s person card. Viewing another person records a person.view audit event
+        (열람 — 기록 남음); a self-view records none. A target outside the caller''s branch returns 404 with no audit trail
+        (deny-by-omission).
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: branch_id
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The branch member's summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerMemberSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/messenger/threads:
     get:
       operationId: listMessengerThreads
@@ -5125,6 +5161,34 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/branches/{id}:
+    get:
+      operationId: getBranch
+      summary: Fetch one branch's summary for an org-unit pin panel
+      description: 'Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes
+        it to the caller''s org. No audit — org-structure metadata, not PII. A branch outside the caller''s org returns 404.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The branch summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
     patch:
       operationId: updateBranch
       summary: Rename a branch or move it to another region

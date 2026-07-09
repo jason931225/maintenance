@@ -4,16 +4,18 @@
 use std::sync::Arc;
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, UserId,
-    WorkOrderId,
+    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, TraceContext,
+    UserId, WorkOrderId,
 };
 use mnt_messenger_application::{
     CreateThreadCommand, EnsureWorkOrderThreadCommand, ListMembersQuery, ListThreadsQuery,
-    MarkThreadReadCommand, MemberSummary, MessageNotifier, MessagePage, MessagePageQuery,
-    MessagePostedNotification, MessageSummary, ReadReceiptSummary, SearchMessagesQuery,
-    SendMessageCommand, ThreadSummary, messenger_audit_event,
+    MarkThreadReadCommand, MemberProfileQuery, MemberSummary, MessageNotifier, MessagePage,
+    MessagePageQuery, MessagePostedNotification, MessageSummary, ReadReceiptSummary,
+    SearchMessagesQuery, SendMessageCommand, ThreadSummary, messenger_audit_event,
 };
-use mnt_messenger_domain::{MessageBody, ThreadKind};
+use mnt_messenger_domain::{MessageBody, ThreadKind, extract_mention_user_ids};
+use mnt_notifications_application::{EmitNotificationCommand, NotificationSink};
+use mnt_notifications_domain::NotificationLink;
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
@@ -56,6 +58,7 @@ impl From<sqlx::Error> for PgMessengerError {
 pub struct PgMessengerStore {
     pool: PgPool,
     notifier: Option<Arc<dyn MessageNotifier>>,
+    notification_sink: Option<Arc<dyn NotificationSink>>,
 }
 
 impl std::fmt::Debug for PgMessengerStore {
@@ -63,6 +66,7 @@ impl std::fmt::Debug for PgMessengerStore {
         f.debug_struct("PgMessengerStore")
             .field("pool", &self.pool)
             .field("has_notifier", &self.notifier.is_some())
+            .field("has_notification_sink", &self.notification_sink.is_some())
             .finish()
     }
 }
@@ -73,12 +77,21 @@ impl PgMessengerStore {
         Self {
             pool,
             notifier: None,
+            notification_sink: None,
         }
     }
 
     #[must_use]
     pub fn with_notifier(mut self, notifier: Arc<dyn MessageNotifier>) -> Self {
         self.notifier = Some(notifier);
+        self
+    }
+
+    /// Wire the notification-center write port so an `@`-mention creates a
+    /// recipient notification row (post-commit, best-effort).
+    #[must_use]
+    pub fn with_notification_sink(mut self, sink: Arc<dyn NotificationSink>) -> Self {
+        self.notification_sink = Some(sink);
         self
     }
 
@@ -294,6 +307,56 @@ impl PgMessengerStore {
                 .await;
         }
 
+        // DESIGN §4.7-7: an `@`-mention notifies its target; `#`/`!` links do
+        // not. Resolve the body's `@<uuid>` tokens to real thread members (minus
+        // the sender) and emit one notification-center row per recipient — ids /
+        // refs only, no message body (no PII on the wire). Best-effort: the
+        // message is already committed, so a failed emit is logged, not fatal.
+        // The stable dedup key makes a retried emit a no-op.
+        if let Some(sink) = &self.notification_sink {
+            let recipients = match resolve_mention_recipients(
+                &self.pool,
+                summary.thread_id,
+                command.actor,
+                summary.body.as_str(),
+            )
+            .await
+            {
+                Ok(recipients) => recipients,
+                Err(err) => {
+                    tracing::warn!(
+                        message_id = %summary.id,
+                        error = %err,
+                        "messenger mention resolution failed; skipping notifications this send"
+                    );
+                    Vec::new()
+                }
+            };
+            for recipient in recipients {
+                let emit = EmitNotificationCommand {
+                    actor: Some(command.actor),
+                    recipient,
+                    category: "메신저".to_owned(),
+                    text: "메신저에서 회원님을 멘션했습니다".to_owned(),
+                    link: NotificationLink::Object {
+                        kind: "messenger_thread".to_owned(),
+                        id: summary.thread_id.to_string(),
+                    },
+                    dedup_key: Some(format!("msg-mention:{}:{}", summary.id, recipient)),
+                    trace: TraceContext::generate(),
+                    occurred_at: time::OffsetDateTime::now_utc(),
+                };
+                if let Err(err) = sink.emit(emit).await {
+                    tracing::warn!(
+                        message_id = %summary.id,
+                        %recipient,
+                        error = %err,
+                        "messenger mention notification emit failed"
+                    );
+                }
+            }
+        }
+
         Ok(summary)
     }
 
@@ -485,6 +548,54 @@ impl PgMessengerStore {
                 })
             })
             .collect()
+    }
+
+    /// Fetch one branch member's summary for a person pin panel (UI-M2a AC).
+    /// Viewing another person records a `person.view` audit event inside the
+    /// read transaction — so the "열람 — 기록 남음" evidence and the read commit
+    /// or roll back together. A self-view records no audit. A target that is not
+    /// a visible active member of the branch yields `not_found` and (for the
+    /// audited path) rolls back, so an unauthorized view leaves no audit trail.
+    pub async fn member_profile(
+        &self,
+        query: MemberProfileQuery,
+    ) -> Result<MemberSummary, PgMessengerError> {
+        ensure_branch_scope(&query.branch_scope, query.branch_id)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let branch_id = query.branch_id;
+        let target = query.user_id;
+
+        if query.actor == target {
+            // Self-view: plain branch-scoped read, no audit.
+            let member = with_org_conn::<_, _, PgMessengerError>(&self.pool, org, move |tx| {
+                Box::pin(async move { fetch_branch_member_tx(tx, branch_id, target).await })
+            })
+            .await?;
+            return member.ok_or_else(|| {
+                KernelError::not_found("member was not found in the branch").into()
+            });
+        }
+
+        let event = messenger_audit_event(
+            "person.view",
+            query.actor,
+            branch_id,
+            "person",
+            target,
+            query.trace,
+            query.occurred_at,
+        )?
+        .with_org(org);
+        with_audit::<_, MemberSummary, PgMessengerError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                fetch_branch_member_tx(tx, branch_id, target)
+                    .await?
+                    .ok_or_else(|| {
+                        KernelError::not_found("member was not found in the branch").into()
+                    })
+            })
+        })
+        .await
     }
 
     pub async fn message_page(
@@ -756,6 +867,87 @@ async fn insert_thread_tx(
     }
 
     Ok(())
+}
+
+/// Resolve which `@`-mentioned users are real, reachable recipients for a
+/// posted message: parsed `@<uuid>` tokens, kept only if they are members of
+/// this thread, with the sender removed (no self-notify). Order follows the
+/// body's first-seen order. Deny-by-omission — a mention of a non-member (or a
+/// nonexistent user) yields nothing, so it neither links nor notifies.
+async fn resolve_mention_recipients(
+    pool: &PgPool,
+    thread_id: ThreadId,
+    actor: UserId,
+    body: &str,
+) -> Result<Vec<UserId>, PgMessengerError> {
+    let mentioned = extract_mention_user_ids(body);
+    if mentioned.is_empty() {
+        return Ok(Vec::new());
+    }
+    let candidate_uuids: Vec<uuid::Uuid> = mentioned
+        .iter()
+        .filter(|id| **id != actor)
+        .map(|id| *id.as_uuid())
+        .collect();
+    if candidate_uuids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let org = current_org().map_err(KernelError::from)?;
+    let member_uuids: std::collections::HashSet<uuid::Uuid> =
+        with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT tm.user_id
+                    FROM messenger_thread_members tm
+                    WHERE tm.thread_id = $1
+                      AND tm.user_id = ANY($2)
+                    "#,
+                )
+                .bind(*thread_id.as_uuid())
+                .bind(&candidate_uuids)
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.into_iter()
+                    .map(|row| Ok(row.try_get::<uuid::Uuid, _>("user_id")?))
+                    .collect::<Result<std::collections::HashSet<uuid::Uuid>, PgMessengerError>>()
+            })
+        })
+        .await?;
+    Ok(mentioned
+        .into_iter()
+        .filter(|id| *id != actor && member_uuids.contains(id.as_uuid()))
+        .collect())
+}
+
+async fn fetch_branch_member_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    branch_id: BranchId,
+    user_id: UserId,
+) -> Result<Option<MemberSummary>, PgMessengerError> {
+    let row = sqlx::query(
+        r#"
+        SELECT u.id, u.display_name, u.team
+        FROM users u
+        JOIN user_branches ub
+          ON ub.user_id = u.id
+         AND ub.branch_id = $1
+        WHERE u.is_active = true
+          AND u.id = $2
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(*user_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    row.map(|row| {
+        Ok(MemberSummary {
+            id: UserId::from_uuid(row.try_get("id")?),
+            display_name: row.try_get("display_name")?,
+            team: row.try_get("team")?,
+        })
+    })
+    .transpose()
 }
 
 async fn require_thread_access(
