@@ -56,7 +56,7 @@ use axum::{Extension, Json, Router};
 use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtVerifier};
 use mnt_platform_authz::{PlatformPrincipal, Role};
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, SubjectAuthzFreshness, read_subject_authz_freshness, with_audit};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
@@ -223,6 +223,13 @@ async fn start_view_as(
     // silently sees zero rows.
     let org = lookup_active_org(&state.pool, body.org_id).await?;
 
+    // Source REAL subject freshness for the token's OWN (target org, operator) so
+    // a promoted Cedar guard — which re-reads exactly that (org, user) at guard
+    // time — does not falsely deny this token as stale/missing. The operator has
+    // no `users` row in the target tenant, so subject/session read as the absent
+    // 0 baseline; the target org's `policy_version` is real.
+    let freshness = read_freshness_for_mint(&state.pool, acting_org, principal.user_id).await?;
+
     let now = OffsetDateTime::now_utc();
     let expires_at = now + VIEW_AS_TOKEN_TTL;
 
@@ -247,12 +254,13 @@ async fn start_view_as(
                 // operator's own identity is audited separately at start/exit.
                 display_name: None,
                 feature_grants: Vec::new(),
-                // Deferred (SLICE-2): a platform view-as impersonation token does
-                // not source subject freshness. Safe 0 baseline; freshness is not
-                // consulted by any decision on the unreachable Cedar path.
-                authz_subject_version: 0,
-                authz_policy_version: 0,
-                session_generation: 0,
+                // Real subject freshness for (target org, operator): a promoted
+                // Cedar guard re-reads the same (org, user), so a fresh token
+                // satisfies the freshness requirement instead of tripping a false
+                // MissingSubjectFreshness/StaleSubject deny.
+                authz_subject_version: freshness.subject_version,
+                authz_policy_version: freshness.policy_version,
+                session_generation: freshness.session_generation,
                 issued_at: now,
             },
             VIEW_AS_TOKEN_TTL,
@@ -364,6 +372,13 @@ async fn start_tenant_context(
     }
 
     let org = lookup_active_org(&state.pool, body.org_id).await?;
+
+    // Real subject freshness for the token's OWN (target org, operator) — see
+    // `start_view_as`. This is the highest-blast-radius mint (writable
+    // SUPER_ADMIN), so carrying a matching snapshot is what lets the token pass a
+    // promoted Cedar freshness gate rather than being denied as stale.
+    let freshness = read_freshness_for_mint(&state.pool, acting_org, principal.user_id).await?;
+
     let now = OffsetDateTime::now_utc();
     let expires_at = now + TENANT_CONTEXT_TOKEN_TTL;
     let acting_role = Role::SuperAdmin;
@@ -380,12 +395,12 @@ async fn start_tenant_context(
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
-                // Deferred (SLICE-2): the platform tenant-context token does not
-                // source subject freshness. Safe 0 baseline; not consulted by any
-                // decision on the unreachable Cedar path.
-                authz_subject_version: 0,
-                authz_policy_version: 0,
-                session_generation: 0,
+                // Real subject freshness for (target org, operator) — see
+                // `start_view_as`: a promoted Cedar guard re-reads the same
+                // (org, user), so a fresh token is not falsely denied as stale.
+                authz_subject_version: freshness.subject_version,
+                authz_policy_version: freshness.policy_version,
+                session_generation: freshness.session_generation,
                 issued_at: now,
             },
             TENANT_CONTEXT_TOKEN_TTL,
@@ -616,6 +631,28 @@ async fn write_platform_audit(
         .await
         .map_err(|err| {
             tracing::error!(error = %err, "failed to write view-as audit");
+            PlatformError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal server error",
+            )
+        })
+}
+
+/// Read the DB-current subject freshness for a token's own `(org, user)` before
+/// minting, mapping a read failure to a 500 (never a silent zero stamp). Both the
+/// read-only view-as and the writable tenant-context mints share it. The `org` is
+/// the TARGET tenant and `user` is the platform operator; the read arms that
+/// org's RLS GUC internally.
+async fn read_freshness_for_mint(
+    pool: &PgPool,
+    org: OrgId,
+    user: UserId,
+) -> Result<SubjectAuthzFreshness, PlatformError> {
+    read_subject_authz_freshness(pool, org, user)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = %err, "failed to read subject freshness for mint");
             PlatformError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal",
