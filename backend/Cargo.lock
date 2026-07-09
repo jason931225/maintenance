@@ -2788,6 +2788,8 @@ dependencies = [
  "mnt-sales-rest",
  "mnt-support-adapter-postgres",
  "mnt-support-rest",
+ "mnt-todos-adapter-postgres",
+ "mnt-todos-rest",
  "mnt-workflow-domain",
  "mnt-workflow-runtime",
  "mnt-workflow-runtime-adapter-postgres",
@@ -4001,6 +4003,60 @@ dependencies = [
  "tower",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "mnt-todos-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-todos-application",
+ "mnt-todos-domain",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-todos-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-todos-domain",
+ "serde",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-todos-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mnt-todos-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "mnt-todos-adapter-postgres",
+ "mnt-todos-application",
+ "mnt-todos-domain",
+ "serde",
+ "time",
+ "tracing",
 ]
 
 [[package]]

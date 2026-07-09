@@ -4907,6 +4907,167 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/todos:
+    get:
+      operationId: listMyTodos
+      summary: List the authenticated user's todos, open first then newest first
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: include_done
+        in: query
+        required: false
+        description: When true, also return completed todos (default false).
+        schema:
+          type: boolean
+      - name: limit
+        in: query
+        required: false
+        description: Page size (clamped server-side to 1..=200; default 100).
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: The caller's todos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    post:
+      operationId: createMyTodo
+      summary: Create a todo owned by the authenticated user
+      description: >-
+        The owner is always the authenticated principal. Scope chips
+        (person/team/site/entity refs) and object links (kind+id pairs) are
+        validated ref lists of at most 20 entries each. Audited as todo.create.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTodoRequest'
+      responses:
+        '201':
+          description: The created todo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/todos/{todoId}/done:
+    post:
+      operationId: setMyTodoDone
+      summary: Mark one of the authenticated user's todos done or undone
+      description: >-
+        Explicit target state so the same endpoint supports done AND undo.
+        A cross-user id is a 404, never another user's row. Audited as
+        todo.done / todo.undone.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: todoId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTodoDoneRequest'
+      responses:
+        '200':
+          description: The updated todo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/todos/{todoId}:
+    delete:
+      operationId: deleteMyTodo
+      summary: Delete one of the authenticated user's todos
+      description: >-
+        A cross-user id is a 404, never another user's row. Audited as
+        todo.delete.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: todoId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: The todo was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/dispatch-offers:
+    get:
+      operationId: listMyDispatchOffers
+      summary: List the authenticated mechanic's pending P1 dispatch offers
+      description: >-
+        BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN,
+        still inside the accept window, with no response from the caller yet.
+        Person-scoped by construction (deny-by-omission): a caller only ever
+        sees offers addressed to them. Respond via
+        /api/v1/p1-dispatches/{dispatchId}/responses.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The caller's pending dispatch offers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyDispatchOfferPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/me:
     get:
       operationId: getCurrentUser
@@ -13616,6 +13777,132 @@ components:
           type: integer
           format: int64
           description: The number of the caller's unread notifications.
+    TodoRef:
+      type: object
+      description: >-
+        One scope chip or object link: a reference to a domain object by
+        kind + id with an optional display-label snapshot. `kind` is an
+        extensible free-form string (frontend object-registry kinds), not an
+        enum.
+      required:
+      - kind
+      - id
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        label:
+          type: string
+    TodoSummary:
+      type: object
+      required:
+      - id
+      - owner_user_id
+      - text
+      - scopes
+      - links
+      - done
+      - created_at
+      - updated_at
+      - done_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        owner_user_id:
+          $ref: '#/components/schemas/Uuid'
+        text:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TodoRef'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/TodoRef'
+        done:
+          type: boolean
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        done_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When the todo was first marked done; null while open.
+    TodoPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TodoSummary'
+    CreateTodoRequest:
+      type: object
+      required:
+      - text
+      properties:
+        text:
+          type: string
+          description: 1..=500 characters after trimming.
+        scopes:
+          type: array
+          description: Scope chips (person/team/site/entity refs); at most 20.
+          items:
+            $ref: '#/components/schemas/TodoRef'
+        links:
+          type: array
+          description: Object links (kind+id pairs); at most 20.
+          items:
+            $ref: '#/components/schemas/TodoRef'
+    SetTodoDoneRequest:
+      type: object
+      required:
+      - done
+      properties:
+        done:
+          type: boolean
+          description: Explicit target state (true = done, false = undo).
+    MyDispatchOffer:
+      type: object
+      description: >-
+        One pending P1 offer for the signed-in mechanic: a BROADCASTING
+        dispatch that fanned out to the caller, still inside its accept
+        window, with no response from the caller yet.
+      required:
+      - dispatch_id
+      - work_order_id
+      - branch_id
+      - request_no
+      - accept_window_started_at
+      - accept_window_ends_at
+      properties:
+        dispatch_id:
+          $ref: '#/components/schemas/Uuid'
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        request_no:
+          type: string
+        accept_window_started_at:
+          $ref: '#/components/schemas/Timestamp'
+        accept_window_ends_at:
+          $ref: '#/components/schemas/Timestamp'
+    MyDispatchOfferPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyDispatchOffer'
     EquipmentStatus:
       type: string
       enum:
