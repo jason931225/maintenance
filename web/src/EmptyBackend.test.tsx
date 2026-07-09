@@ -138,12 +138,18 @@ const server = setupServer(
   ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
   // Console workspace layout (UI-M1b): ConsoleShell loads it on mount for
-  // /work-hub and /attendance. Empty backend => empty layout object.
+  // /overview and /attendance. Empty backend => empty layout object.
   http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
   http.put("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
+  // UI-M3 Overview sources: engine approval inbox, my dispatch offers, todos.
+  http.get("*/api/v1/workflow-tasks", () => HttpResponse.json({ items: [] })),
+  http.get("*/api/v1/me/dispatch-offers", () =>
+    HttpResponse.json({ items: [] }),
+  ),
+  http.get("*/api/v1/me/todos", () => HttpResponse.json({ items: [] })),
   http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
   http.get("*/api/v1/me/notifications", () =>
     HttpResponse.json({ items: [], next_cursor: null }),
@@ -168,8 +174,9 @@ const server = setupServer(
     HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
   ),
   // AttendancePage is mounted by ConsoleShell for persistence, but inactive
-  // screens must not fetch. The counter below locks the /work-hub no-hidden-fetch
-  // regression while still serving /attendance when it becomes active.
+  // screens must not fetch. The counter below locks the /overview no-hidden-fetch
+  // regression (its Today panel makes exactly ONE punch-status read) while
+  // still serving /attendance when it becomes active.
   http.get("*/api/v1/hr/attendance-records/me", () => {
     attendanceRecordReads += 1;
     return HttpResponse.json({ items: [] });
@@ -285,7 +292,7 @@ function renderAt(path: string) {
 // Each entry: route, the page's heading (proves it mounted, shell intact), and
 // the empty-state copy that must appear with an empty backend.
 const pages: { path: string; heading: string; empty: string }[] = [
-  { path: "/work-hub", heading: "업무 허브", empty: "현재 처리할 업무·승인·지원 티켓이 없습니다." },
+  { path: "/overview", heading: "통합 개요", empty: "현재 처리할 항목이 없습니다." },
   { path: "/dispatch", heading: "배차 보드", empty: "표시할 접수건이 없습니다." },
   { path: "/approvals", heading: "전자결제 대기", empty: "승인 대기 건이 없습니다." },
   { path: "/kpi", heading: "임원 KPI 대시보드", empty: "KPI 데이터를 불러오면 표시됩니다." },
@@ -334,15 +341,17 @@ describe("every page renders cleanly against an empty backend", () => {
     });
   }
 
-  it("does not fetch hidden attendance data while Work Hub is active", async () => {
-    renderAt("/work-hub");
+  it("reads punch status exactly once while Overview is active (no hidden attendance-screen fetch)", async () => {
+    renderAt("/overview");
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
     await waitForNetworkIdle();
-    expect(attendanceRecordReads).toBe(0);
+    // The Today panel's punch-status chip issues ONE read; the mounted-but-
+    // inactive attendance screen must not add its own.
+    expect(attendanceRecordReads).toBe(1);
     await waitForLateMountEffects();
-    expect(attendanceRecordReads).toBe(0);
+    expect(attendanceRecordReads).toBe(1);
   });
 
   it("fetches attendance records once the attendance screen is active", async () => {

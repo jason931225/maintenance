@@ -38,8 +38,8 @@ describe("useWorkspaceStore", () => {
       .getState()
       .hydrate([
         {
-          id: "work-hub:workOrder:WO-1",
-          screen: "work-hub",
+          id: "overview:workOrder:WO-1",
+          screen: "overview",
           object: wo,
           area: "right",
           mode: "pinned",
@@ -53,8 +53,8 @@ describe("useWorkspaceStore", () => {
   it("resets transient and persisted workspace state when the owner changes", () => {
     const store = useWorkspaceStore.getState();
     store.resetForOwner("org-a:user-a");
-    store.pin("work-hub", wo);
-    store.setDragging("work-hub:workOrder:WO-1");
+    store.pin("overview", wo);
+    store.setDragging("overview:workOrder:WO-1");
     store.setSnapPreview("right");
 
     expect(isWorkspaceOwnerCurrent("org-a:user-a")).toBe(true);
@@ -85,22 +85,22 @@ describe("useWorkspaceStore", () => {
 
   it("pin / minimize / restore / close flow through the store", () => {
     const store = useWorkspaceStore.getState();
-    store.pin("work-hub", wo);
+    store.pin("overview", wo);
     expect(useWorkspaceStore.getState().panels[0].mode).toBe("pinned");
-    store.minimize("work-hub:workOrder:WO-1");
+    store.minimize("overview:workOrder:WO-1");
     expect(useWorkspaceStore.getState().panels[0].mode).toBe("minimized");
-    store.restore("work-hub:workOrder:WO-1");
+    store.restore("overview:workOrder:WO-1");
     expect(useWorkspaceStore.getState().panels[0].mode).toBe("pinned");
-    store.close("work-hub:workOrder:WO-1");
+    store.close("overview:workOrder:WO-1");
     expect(useWorkspaceStore.getState().panels).toHaveLength(0);
   });
 
   it("selectScreenPanels isolates each screen's panels", () => {
     const store = useWorkspaceStore.getState();
-    store.pin("work-hub", wo);
+    store.pin("overview", wo);
     store.pin("attendance", at);
     const { panels } = useWorkspaceStore.getState();
-    expect(selectScreenPanels(panels, "work-hub")).toHaveLength(1);
+    expect(selectScreenPanels(panels, "overview")).toHaveLength(1);
     expect(selectScreenPanels(panels, "attendance")[0].object.code).toBe(
       "AT-1",
     );
@@ -108,9 +108,9 @@ describe("useWorkspaceStore", () => {
 
   it("restoreDefault clears only the target screen", () => {
     const store = useWorkspaceStore.getState();
-    store.pin("work-hub", wo);
+    store.pin("overview", wo);
     store.pin("attendance", at);
-    store.restoreDefault("work-hub");
+    store.restoreDefault("overview");
     const { panels } = useWorkspaceStore.getState();
     expect(panels).toHaveLength(1);
     expect(panels[0].screen).toBe("attendance");
@@ -118,10 +118,10 @@ describe("useWorkspaceStore", () => {
 
   it("tracks transient drag preview state", () => {
     const store = useWorkspaceStore.getState();
-    store.setDragging("work-hub:workOrder:WO-1");
+    store.setDragging("overview:workOrder:WO-1");
     store.setSnapPreview("right");
     expect(useWorkspaceStore.getState().draggingId).toBe(
-      "work-hub:workOrder:WO-1",
+      "overview:workOrder:WO-1",
     );
     expect(useWorkspaceStore.getState().snapPreview).toBe("right");
   });

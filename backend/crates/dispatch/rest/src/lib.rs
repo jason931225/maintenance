@@ -11,7 +11,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_dispatch_adapter_postgres::{PendingFcmPush, PgDispatchError, PgDispatchStore};
 use mnt_dispatch_application::{
-    ForceAssignP1DispatchCommand, IncidentLocationInput, P1DispatchSummary,
+    ForceAssignP1DispatchCommand, IncidentLocationInput, MyDispatchOfferPage, P1DispatchSummary,
     RespondP1DispatchCommand, StartP1DispatchCommand,
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchTimerConfig};
@@ -23,6 +23,10 @@ use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use mnt_platform_jobs::{JobQueue, JobQueueError, JobRequest};
 use mnt_platform_push::{FcmPushMessage, PushError, PushNotifier};
 use serde::{Deserialize, Serialize};
+
+/// Person-scoped pending-offer list for the signed-in mechanic (UI-M3
+/// overview inbox). The owner comes from the principal, never the request.
+pub const ME_DISPATCH_OFFERS_PATH: &str = "/api/v1/me/dispatch-offers";
 
 #[derive(Clone)]
 pub struct DispatchRestState {
@@ -69,6 +73,7 @@ pub fn router(state: DispatchRestState) -> Router {
             "/api/v1/p1-dispatches/{dispatch_id}/force-assign",
             post(force_assign),
         )
+        .route(ME_DISPATCH_OFFERS_PATH, get(list_my_offers))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -167,6 +172,21 @@ async fn respond_dispatch(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(summary))
+}
+
+async fn list_my_offers(
+    State(state): State<DispatchRestState>,
+    headers: HeaderMap,
+) -> Result<Json<MyDispatchOfferPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    // No branch authorize: the query is person-scoped by construction (only
+    // dispatches that fanned out to the caller), mirroring /api/v1/me/*.
+    let items = state
+        .store
+        .list_my_pending_offers(principal.user_id, time::OffsetDateTime::now_utc())
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(MyDispatchOfferPage { items }))
 }
 
 async fn get_dispatch(

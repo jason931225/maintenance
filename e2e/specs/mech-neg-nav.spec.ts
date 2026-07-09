@@ -3,7 +3,7 @@ import { test, expect } from "../fixtures/roles";
 /**
  * MECHANIC NEGATIVE — admin-only nav items are hidden; direct visits to
  * admin-only routes redirect/403 back to the default authenticated landing
- * (/work-hub).
+ * (/overview).
  *
  * Expected visible nav for MECHANIC (from web/src/components/shell/nav.test.ts):
  *   dispatch, intake, daily-plan, messenger, support, reporting,
@@ -66,11 +66,11 @@ test("MECH-NEG direct visit to /approvals redirects away from admin route", asyn
   await loginAs("MECHANIC");
   await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
-  // /approvals is gated by RequireAdminRoute → redirects to /work-hub.
+  // /approvals is gated by RequireAdminRoute → redirects to /overview.
   await page.goto("/approvals");
-  // The app should NOT stay on /approvals; it redirects to /work-hub.
+  // The app should NOT stay on /approvals; it redirects to /overview.
   await expect(page).not.toHaveURL(/\/approvals/, { timeout: 8_000 });
-  await expect(page).toHaveURL(/\/work-hub/, { timeout: 8_000 });
+  await expect(page).toHaveURL(/\/overview/, { timeout: 8_000 });
 });
 
 test("MECH-NEG direct visit to /settings/users redirects away from admin route", async ({
@@ -80,8 +80,8 @@ test("MECH-NEG direct visit to /settings/users redirects away from admin route",
   await loginAs("MECHANIC");
   await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
-  // /settings/users is gated by RequireAdminRoute → redirects to /work-hub.
+  // /settings/users is gated by RequireAdminRoute → redirects to /overview.
   await page.goto("/settings/users");
   await expect(page).not.toHaveURL(/\/settings\/users/, { timeout: 8_000 });
-  await expect(page).toHaveURL(/\/work-hub/, { timeout: 8_000 });
+  await expect(page).toHaveURL(/\/overview/, { timeout: 8_000 });
 });

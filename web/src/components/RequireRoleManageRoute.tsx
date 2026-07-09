@@ -17,7 +17,7 @@ export function RequireRoleManageRoute() {
   const canManageRoles = hasAnyRole(session?.roles, ROLE_MANAGE_ROLES);
 
   if (!canManageRoles) {
-    return <Navigate to="/work-hub" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   return <Outlet />;

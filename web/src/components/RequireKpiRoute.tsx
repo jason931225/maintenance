@@ -26,7 +26,7 @@ export function RequireKpiRoute() {
     !hasAnyRole(session?.roles, KPI_ROLES) &&
     !hasAnyFeatureGrant(session?.feature_grants, KPI_FEATURES)
   ) {
-    return <Navigate to="/work-hub" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   return <Outlet />;

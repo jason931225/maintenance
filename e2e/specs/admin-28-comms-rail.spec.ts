@@ -47,7 +47,7 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
   // authenticated landing route, so it drives the ceremony via
   // loginAsLanding directly (same pattern as admin-21/22/23/24).
   await loginAsLanding(page, "ADMIN");
-  await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/overview/, { timeout: 15_000 });
 
   const rail = page.getByRole("complementary", { name: RAIL.label });
   await expect(rail).toBeVisible({ timeout: 10_000 });
@@ -58,8 +58,12 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
     .getByRole("button", { name: RAIL.openNotifications })
     .click();
 
+  // Anchored so a seeded notification body that legitimately contains "알림"
+  // as a substring (e.g. "미확인 알림") never strict-mode-collides with this
+  // section-header toggle: only an EXACT "알림" (optionally with a trailing
+  // unread count) matches, never a row button's longer concatenated name.
   const notificationsHeader = rail.getByRole("button", {
-    name: new RegExp(RAIL.sectionNotifications),
+    name: new RegExp(`^${RAIL.sectionNotifications}(?:\\s+\\d+)?$`),
   });
   await expect(notificationsHeader).toBeVisible({ timeout: 5_000 });
 
@@ -73,9 +77,9 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
     .getByRole("banner")
     .getByRole("button", { name: RAIL.openNotifications })
     .click();
-  await expect(
-    rail.getByRole("button", { name: RAIL.markAllRead }),
-  ).toBeHidden({ timeout: 5_000 });
+  await expect(rail.getByRole("button", { name: RAIL.markAllRead })).toBeHidden(
+    { timeout: 5_000 },
+  );
 
   // Promotion: opening the messenger page hides the rail's messenger section.
   await navigateByHref(page, "/messenger");

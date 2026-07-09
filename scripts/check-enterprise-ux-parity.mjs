@@ -246,9 +246,9 @@ if (!failures.some((failure) => failure.includes("production UI must not include
   passes.push(`production UI banned-copy scan: ${bannedNeedles.length} needles across web/src`);
 }
 
-requireNotIncludes("web/src/pages/WorkHubPage.tsx", "업무 객체 중심 실행 흐름", "Work Hub removed reported text-wall heading");
-requireIncludes("web/src/pages/WorkHubPage.test.tsx", "not.toBeInTheDocument", "Work Hub regression test asserts text-wall absence");
-requireIncludes("web/src/pages/WorkHubPage.test.tsx", "actionable group-wide priority inbox without explanatory text walls", "Work Hub test asserts actionable queue pattern");
+requireNotIncludes("web/src/pages/OverviewPage.tsx", "업무 객체 중심 실행 흐름", "Overview has no reported text-wall heading (UI-M3 replaces /work-hub)");
+requireIncludes("web/src/pages/OverviewPage.test.tsx", "not.toBeInTheDocument", "Overview regression test asserts text-wall absence");
+requireIncludes("web/src/pages/OverviewPage.test.tsx", "actionable group-wide priority inbox without explanatory text walls", "Overview test asserts actionable queue pattern");
 requireNotIncludes("web/src/features/reporting/ReportingExport.tsx", "historyNote", "Reporting export has no backend-missing history note");
 requireIncludes("web/src/pages/ReportingPage.test.tsx", "백엔드에서 아직 제공되지", "Reporting test preserves dead-copy regression guard");
 requireIncludes("docs/benchmarks/enterprise-ui-route-audit.json", "G002-wave-1-shared-contracts-and-hard-gat", "route audit owned by current G002 shared hard gate");

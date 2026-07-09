@@ -218,7 +218,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // group. They remain feature/role-gated so a no-grant MEMBER is still routed
   // to /pending, while custom grants can expose only the permitted personal
   // surface without leaking logistics-maintenance or equipment-sales nav.
-  ["work-hub", OPERATIONAL_ROLES],
+  ["overview", OPERATIONAL_ROLES],
   ["my-attendance", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
   ["approvals", ADMIN_ROLES],
@@ -283,7 +283,20 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
 // visibility: any non-deny backend grant may expose the relevant nav entry, while
 // the backend still enforces request_only/limited/allow on the API operation.
 const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
-  ["work-hub", [FEATURES.WORK_ORDER_READ_ALL]],
+  [
+    "overview",
+    [
+      FEATURES.WORK_ORDER_READ_ALL,
+      FEATURES.DAILY_PLAN_REQUEST,
+      FEATURES.DAILY_PLAN_REVIEW,
+      FEATURES.ORG_WIDE_QUEUE_TRIAGE,
+      FEATURES.KPI_READ,
+      FEATURES.MAIL_USE,
+      FEATURES.EMPLOYEE_DIRECTORY_READ,
+      FEATURES.INTEGRITY_FINDINGS_READ,
+      FEATURES.INTEGRITY_FINDING_TRIAGE,
+    ],
+  ],
   ["my-attendance", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["messenger", [FEATURES.WORK_ORDER_READ_ALL]],
   ["dispatch", [FEATURES.WORK_ORDER_READ_ALL]],
@@ -347,9 +360,9 @@ export const NAV_GROUPS = [
     label: "nav.groups.personal",
     items: [
       {
-        key: "work-hub",
-        href: "/work-hub",
-        labelKey: "nav.work-hub",
+        key: "overview",
+        href: "/overview",
+        labelKey: "nav.overview",
         Icon: Inbox,
       },
       {

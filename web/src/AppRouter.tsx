@@ -42,7 +42,7 @@ const OnboardingPage = lazy(() =>
 const PendingPage = lazy(() =>
   import("./pages/PendingPage").then((m) => ({ default: m.PendingPage })),
 );
-// ConsoleShell hosts the mounted-persistent /work-hub and /attendance screens
+// ConsoleShell hosts the mounted-persistent /overview and /attendance screens
 // (UI-M1b). It imports those pages directly, so they are no longer lazy here.
 const ConsoleShell = lazy(() =>
   import("./components/shell/ConsoleShell").then((m) => ({ default: m.ConsoleShell })),
@@ -263,7 +263,7 @@ export function AppRouter() {
 
         {/* Shell-less landing for a just-signed-up user with no role grant yet
             (empty roles or `["MEMBER"]`). ProtectedRoute redirects such a session
-            here instead of onto /work-hub (which the backend 403s). Rendered
+            here instead of onto /overview (which the backend 403s). Rendered
             outside the shell — the MEMBER has no nav surface beyond Profile, which
             the page links to. */}
         <Route
@@ -279,7 +279,7 @@ export function AppRouter() {
 
         {/* Vendor platform-admin console — its own shell + nav, gated by the
             `platform` JWT claim. A tenant session hitting /platform is bounced
-            to /work-hub by RequirePlatformRoute; a platform session hitting a
+            to /overview by RequirePlatformRoute; a platform session hitting a
             tenant route is bounced to /platform by ProtectedRoute. */}
         <Route element={<RequirePlatformRoute />}>
           <Route path="/platform" element={<PlatformShell />}>
@@ -300,13 +300,13 @@ export function AppRouter() {
         </Route>
 
         {/* App shell layout. No index (`/`) route: `/` is the public KNL
-            storefront home (#6); authenticated entry lands on /work-hub via the
+            storefront home (#6); authenticated entry lands on /overview via the
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
         {/* ConsoleShell (UI-M1b) — the new window-engine shell hosting the
-            mounted-persistent /work-hub and /attendance screens. It is a layout
+            mounted-persistent /overview and /attendance screens. It is a layout
             route with two pathless children so the shell instance is preserved
-            across /work-hub <-> /attendance navigation (mounted persistence);
+            across /overview <-> /attendance navigation (mounted persistence);
             ConsoleShell reads the location itself and does not use <Outlet />.
             Nav-visibility gating lives inside ConsoleShell. Every other route
             stays on AppShell below (two-shell coexistence). */}
@@ -317,9 +317,13 @@ export function AppRouter() {
             </Suspense>
           }
         >
-          <Route path="/work-hub" element={null} />
+          <Route path="/overview" element={null} />
           <Route path="/attendance" element={null} />
         </Route>
+
+        {/* UI-M3: /overview replaces /work-hub. Old links and bookmarks keep
+            working via this redirect. */}
+        <Route path="/work-hub" element={<Navigate to="/overview" replace />} />
 
         <Route element={<AppShell />}>
           <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
@@ -427,7 +431,7 @@ export function AppRouter() {
             <Route path="/settings/sites" element={<SitesPage />} />
             <Route path="/settings/security" element={<AdminSettingsPage />} />
           </Route>
-          <Route path="*" element={<Navigate to="/work-hub" replace />} />
+          <Route path="*" element={<Navigate to="/overview" replace />} />
         </Route>
       </Route>
     </Routes>

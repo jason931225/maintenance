@@ -131,7 +131,7 @@ export function StatBar({ items }: { items: StatBarItem[] }) {
             toneClasses[item.tone ?? "neutral"],
           )}
         >
-          <div className="text-[10px] font-extrabold uppercase text-console-faint">
+          <div className="text-[10px] font-extrabold uppercase text-current">
             {item.label}
           </div>
           <div className="mt-1 font-mono text-[15px] font-extrabold leading-none text-console-ink">

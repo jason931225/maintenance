@@ -25,9 +25,9 @@
   ],
   "dependencyRoutes": [
     {
-      "path": "/work-hub",
+      "path": "/overview",
       "expectedDependency": "messenger",
-      "requiredStory": "Work Hub depends on G007 collaboration unread threads, mail status, notification badges, and object-linked communications while preserving G005 approval lifecycle."
+      "requiredStory": "UI-M3 replaces /work-hub: /overview is wrapped by the always-mounted comms rail, so it depends on G007 collaboration unread threads, mail status, notification badges, and object-linked communications while preserving G005 approval lifecycle."
     },
     {
       "path": "/approvals",
@@ -284,16 +284,21 @@
       ]
     },
     {
-      "file": "web/src/pages/WorkHubPage.tsx",
-      "contract": "Work Hub must include collaboration notifications by pulling actionable messenger threads, approvals, support, and mail status into the object/action inbox without stale closed items.",
+      "file": "web/src/features/comms/store.ts",
+      "contract": "UI-M2b comms rail replaces Work Hub's inline conversation rows: the always-mounted rail (present on /overview and every console screen) fetches messenger threads and sums their unread count centrally instead of per-page.",
       "requiredSnippets": [
         "/api/messenger/threads",
-        "/api/approval-items",
-        "messengerUnreadCount",
-        "isActionableConversationThread",
-        "buildConversationItems",
+        "sumThreadUnread"
+      ]
+    },
+    {
+      "file": "web/src/features/comms/CommsRail.tsx",
+      "contract": "The comms rail's messenger and mail sections render actionable threads with live unread badges, superseding Work Hub's stale-closed-item filtering with a rail that never goes stale (real store subscription).",
+      "requiredSnippets": [
+        "messengerUnread",
         "threads.length",
-        "key: \"mail\""
+        "MessengerSection",
+        "section=\"mail\""
       ]
     },
     {
@@ -318,11 +323,11 @@
     },
     {
       "file": "web/src/components/RequireMailUseRoute.tsx",
-      "contract": "Mail route access must deny users without MailUse and return them to Work Hub instead of showing mailbox data.",
+      "contract": "Mail route access must deny users without MailUse and return them to the /overview action inbox (UI-M3 replaces /work-hub) instead of showing mailbox data.",
       "requiredSnippets": [
         "FEATURES.MAIL_USE",
         "feature_grants",
-        "Navigate to=\"/work-hub\""
+        "Navigate to=\"/overview\""
       ]
     }
   ],
@@ -471,7 +476,7 @@
     "web/src/features/messenger/realtime.test.ts",
     "web/src/pages/MailPage.test.tsx",
     "web/src/lib/mailHtml.test.ts",
-    "web/src/pages/WorkHubPage.test.tsx",
+    "web/src/features/comms/CommsRail.test.tsx",
     "web/src/components/shell/nav.test.ts"
   ],
   "requiredBackendTests": [

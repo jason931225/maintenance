@@ -496,10 +496,10 @@ describe("ProtectedRoute unit", () => {
 });
 
 describe("AppRouter authenticated", () => {
-  it("renders the protected work hub page when authenticated", async () => {
-    renderAt("/work-hub", adminSession);
+  it("renders the protected overview page when authenticated", async () => {
+    renderAt("/overview", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
   });
 
@@ -716,10 +716,10 @@ describe("routing", () => {
     );
   });
 
-  it("redirects unknown authenticated paths to /work-hub", async () => {
+  it("redirects unknown authenticated paths to /overview", async () => {
     renderAt("/does-not-exist", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
   });
 });
@@ -888,9 +888,9 @@ describe("OpsDashboardPage", () => {
   it("redirects a mechanic away from /ops (role-gated)", async () => {
     renderAt("/ops", mechanicSession);
 
-    // RequireAdminRoute bounces a non-admin to the authenticated work hub.
+    // RequireAdminRoute bounces a non-admin to the authenticated overview.
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "운영 대시보드" }),
@@ -911,7 +911,7 @@ describe("MailPage route guard", () => {
     renderAt("/mail", mechanicSession);
 
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "메일함" }),

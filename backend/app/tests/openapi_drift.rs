@@ -10,6 +10,7 @@ use mnt_platform_auth_rest::AUTH_ROUTE_PATHS;
 use mnt_registry_rest::REGISTRY_ROUTE_PATHS;
 use mnt_reporting_rest::KPI_ROUTE_PATHS;
 use mnt_support_rest::SUPPORT_ROUTE_PATHS;
+use mnt_todos_rest::TODOS_ROUTE_PATHS;
 use mnt_workorder_rest::MOBILE_ROUTE_PATHS;
 use tower::ServiceExt;
 
@@ -62,6 +63,13 @@ async fn openapi_yaml_covers_mounted_auth_routes() -> Result<(), Box<dyn std::er
     for path in OBJECT_ROUTE_PATHS {
         assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
     }
+    for path in TODOS_ROUTE_PATHS {
+        assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
+    }
+    assert!(
+        yaml.contains(mnt_dispatch_rest::ME_DISPATCH_OFFERS_PATH),
+        "OpenAPI YAML is missing /api/v1/me/dispatch-offers"
+    );
     assert!(
         yaml.contains("/api/v1/ws"),
         "OpenAPI YAML is missing /api/v1/ws"

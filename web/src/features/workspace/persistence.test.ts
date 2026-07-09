@@ -23,8 +23,8 @@ const support: PinnedObject = {
 
 function serverPanel(object: PinnedObject): Panel {
   return {
-    id: `work-hub:${object.kind}:${object.code}`,
-    screen: "work-hub",
+    id: `overview:${object.kind}:${object.code}`,
+    screen: "overview",
     area: "left",
     mode: "pinned",
     object,
@@ -109,7 +109,7 @@ describe("useWorkspacePersistence", () => {
     await mount(api);
     expect(useWorkspaceStore.getState().saveEnabled).toBe(true);
     act(() => {
-      useWorkspaceStore.getState().pin("work-hub", wo);
+      useWorkspaceStore.getState().pin("overview", wo);
     });
     await tick(600);
     expect(api.PUT).toHaveBeenCalledTimes(1);
@@ -121,7 +121,7 @@ describe("useWorkspacePersistence", () => {
     expect(useWorkspaceStore.getState().hydrated).toBe(true);
     expect(useWorkspaceStore.getState().saveEnabled).toBe(false);
     act(() => {
-      useWorkspaceStore.getState().pin("work-hub", wo);
+      useWorkspaceStore.getState().pin("overview", wo);
     });
     await tick(2000);
     expect(api.PUT).not.toHaveBeenCalled();
@@ -141,7 +141,7 @@ describe("useWorkspacePersistence", () => {
       await Promise.resolve(); // let owner reset + GET kickoff run
     });
     act(() => {
-      useWorkspaceStore.getState().pin("work-hub", wo, "right");
+      useWorkspaceStore.getState().pin("overview", wo, "right");
     });
     await act(async () => {
       load.resolve({
@@ -153,7 +153,7 @@ describe("useWorkspacePersistence", () => {
 
     expect(
       useWorkspaceStore.getState().panels.map((panel) => panel.id),
-    ).toEqual(["work-hub:support:SUP-1", "work-hub:workOrder:WO-1"]);
+    ).toEqual(["overview:support:SUP-1", "overview:workOrder:WO-1"]);
     await tick(600);
     expect(api.PUT).toHaveBeenCalledTimes(1);
     expect(api.PUT).toHaveBeenLastCalledWith(
@@ -183,7 +183,7 @@ describe("useWorkspacePersistence", () => {
     const api = makeApi(okEmpty, put);
     await mount(api);
     act(() => {
-      useWorkspaceStore.getState().pin("work-hub", wo);
+      useWorkspaceStore.getState().pin("overview", wo);
     });
 
     await tick(600);
@@ -211,7 +211,7 @@ describe("useWorkspacePersistence", () => {
     const api = makeApi(okEmpty);
     await mount(api);
     act(() => {
-      useWorkspaceStore.getState().pin("work-hub", wo);
+      useWorkspaceStore.getState().pin("overview", wo);
     });
 
     await tick(600);
@@ -246,7 +246,7 @@ describe("useWorkspacePersistence", () => {
     const apiB = makeApi(okEmpty, putB);
     const hook = await mount(apiA, "org-a:user-a");
     expect(useWorkspaceStore.getState().panels.map((panel) => panel.id)).toEqual([
-      "work-hub:workOrder:WO-1",
+      "overview:workOrder:WO-1",
     ]);
 
     act(() => {
@@ -271,7 +271,7 @@ describe("useWorkspacePersistence", () => {
       saveEnabled: true,
     });
     act(() => {
-      useWorkspaceStore.getState().pin("work-hub", support);
+      useWorkspaceStore.getState().pin("overview", support);
     });
     await tick(600);
 
@@ -299,7 +299,7 @@ describe("useWorkspacePersistence", () => {
     const api = makeApi(okEmpty, put);
     const hook = await mount(api);
     act(() => {
-      useWorkspaceStore.getState().pin("work-hub", wo);
+      useWorkspaceStore.getState().pin("overview", wo);
     });
 
     await tick(600);

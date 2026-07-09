@@ -18,7 +18,7 @@ import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
 import { ViewAsBanner } from "../../features/platform/ViewAsBanner";
 import { AttendancePage } from "../../pages/AttendancePage";
-import { WorkHubPage } from "../../pages/WorkHubPage";
+import { OverviewPage } from "../../pages/OverviewPage";
 import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { ConsoleToast } from "../console/primitives";
 import { CommandPalette } from "./CommandPalette";
@@ -35,16 +35,17 @@ import { QuadrantContainer } from "./workspace/QuadrantContainer";
 import { Tray } from "./workspace/Tray";
 import { CommsRail } from "../../features/comms/CommsRail";
 
-// The two screens that live in ConsoleShell (UI-M1b). Every other route stays on
+// The two screens that live in ConsoleShell (UI-M1b; /overview replaced
+// /work-hub in UI-M3). Every other route stays on
 // AppShell (two-shell coexistence). Both screens are mounted at once and toggled
 // by visibility so panel/layout/fetch state survives navigation between them.
 const SCREEN_FOR_PATH: Record<string, ScreenKey> = {
   "/attendance": "attendance",
-  "/work-hub": "work-hub",
+  "/overview": "overview",
 };
 
 const NAV_ITEM_FOR_SCREEN: Record<ScreenKey, NavItemKey> = {
-  "work-hub": "work-hub",
+  overview: "overview",
   attendance: "my-attendance",
 };
 
@@ -85,11 +86,11 @@ function ConsoleShellContent() {
     [workspaceOwnerKey],
   );
 
-  const activeScreen = SCREEN_FOR_PATH[location.pathname] ?? "work-hub";
+  const activeScreen = SCREEN_FOR_PATH[location.pathname] ?? "overview";
 
   const visible: Record<ScreenKey, boolean> = {
-    "work-hub": isNavItemVisible(
-      NAV_ITEM_FOR_SCREEN["work-hub"],
+    overview: isNavItemVisible(
+      NAV_ITEM_FOR_SCREEN.overview,
       session?.roles,
       session?.group_roles,
       session?.feature_grants,
@@ -238,12 +239,12 @@ function ConsoleShellContent() {
           >
             <RouteErrorBoundary resetKey={location.pathname}>
               <ScreenSlot
-                screen="work-hub"
-                active={activeScreen === "work-hub"}
-                mounted={visible["work-hub"]}
+                screen="overview"
+                active={activeScreen === "overview"}
+                mounted={visible.overview}
                 ownerKey={workspaceOwnerKey}
               >
-                <WorkHubPage active={activeScreen === "work-hub"} />
+                <OverviewPage active={activeScreen === "overview"} />
               </ScreenSlot>
               <ScreenSlot
                 screen="attendance"

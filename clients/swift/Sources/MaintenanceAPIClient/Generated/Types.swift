@@ -995,6 +995,39 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
     /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
     func markMyNotificationRead(_ input: Operations.MarkMyNotificationRead.Input) async throws -> Operations.MarkMyNotificationRead.Output
+    /// List the authenticated user's todos, open first then newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/todos`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/get(listMyTodos)`.
+    func listMyTodos(_ input: Operations.ListMyTodos.Input) async throws -> Operations.ListMyTodos.Output
+    /// Create a todo owned by the authenticated user
+    ///
+    /// The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/todos`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/post(createMyTodo)`.
+    func createMyTodo(_ input: Operations.CreateMyTodo.Input) async throws -> Operations.CreateMyTodo.Output
+    /// Mark one of the authenticated user's todos done or undone
+    ///
+    /// Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user's row. Audited as todo.done / todo.undone.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/todos/{todoId}/done`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/done/post(setMyTodoDone)`.
+    func setMyTodoDone(_ input: Operations.SetMyTodoDone.Input) async throws -> Operations.SetMyTodoDone.Output
+    /// Delete one of the authenticated user's todos
+    ///
+    /// A cross-user id is a 404, never another user's row. Audited as todo.delete.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/me/todos/{todoId}`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)`.
+    func deleteMyTodo(_ input: Operations.DeleteMyTodo.Input) async throws -> Operations.DeleteMyTodo.Output
+    /// List the authenticated mechanic's pending P1 dispatch offers
+    ///
+    /// BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/dispatch-offers`.
+    /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)`.
+    func listMyDispatchOffers(_ input: Operations.ListMyDispatchOffers.Input) async throws -> Operations.ListMyDispatchOffers.Output
     /// Get the authenticated user's own profile
     ///
     /// - Remark: HTTP `GET /api/v1/users/me`.
@@ -3847,6 +3880,75 @@ extension APIProtocol {
             path: path,
             headers: headers
         ))
+    }
+    /// List the authenticated user's todos, open first then newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/todos`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/get(listMyTodos)`.
+    public func listMyTodos(
+        query: Operations.ListMyTodos.Input.Query = .init(),
+        headers: Operations.ListMyTodos.Input.Headers = .init()
+    ) async throws -> Operations.ListMyTodos.Output {
+        try await listMyTodos(Operations.ListMyTodos.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Create a todo owned by the authenticated user
+    ///
+    /// The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/todos`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/post(createMyTodo)`.
+    public func createMyTodo(
+        headers: Operations.CreateMyTodo.Input.Headers = .init(),
+        body: Operations.CreateMyTodo.Input.Body
+    ) async throws -> Operations.CreateMyTodo.Output {
+        try await createMyTodo(Operations.CreateMyTodo.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Mark one of the authenticated user's todos done or undone
+    ///
+    /// Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user's row. Audited as todo.done / todo.undone.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/todos/{todoId}/done`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/done/post(setMyTodoDone)`.
+    public func setMyTodoDone(
+        path: Operations.SetMyTodoDone.Input.Path,
+        headers: Operations.SetMyTodoDone.Input.Headers = .init(),
+        body: Operations.SetMyTodoDone.Input.Body
+    ) async throws -> Operations.SetMyTodoDone.Output {
+        try await setMyTodoDone(Operations.SetMyTodoDone.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Delete one of the authenticated user's todos
+    ///
+    /// A cross-user id is a 404, never another user's row. Audited as todo.delete.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/me/todos/{todoId}`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)`.
+    public func deleteMyTodo(
+        path: Operations.DeleteMyTodo.Input.Path,
+        headers: Operations.DeleteMyTodo.Input.Headers = .init()
+    ) async throws -> Operations.DeleteMyTodo.Output {
+        try await deleteMyTodo(Operations.DeleteMyTodo.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// List the authenticated mechanic's pending P1 dispatch offers
+    ///
+    /// BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/dispatch-offers`.
+    /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)`.
+    public func listMyDispatchOffers(headers: Operations.ListMyDispatchOffers.Input.Headers = .init()) async throws -> Operations.ListMyDispatchOffers.Output {
+        try await listMyDispatchOffers(Operations.ListMyDispatchOffers.Input(headers: headers))
     }
     /// Get the authenticated user's own profile
     ///
@@ -16468,6 +16570,235 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case unread
+            }
+        }
+        /// One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum.
+        ///
+        /// - Remark: Generated from `#/components/schemas/TodoRef`.
+        public struct TodoRef: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TodoRef/kind`.
+            public var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TodoRef/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TodoRef/label`.
+            public var label: Swift.String?
+            /// Creates a new `TodoRef`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - id:
+            ///   - label:
+            public init(
+                kind: Swift.String,
+                id: Swift.String,
+                label: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.id = id
+                self.label = label
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case id
+                case label
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TodoSummary`.
+        public struct TodoSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/owner_user_id`.
+            public var ownerUserId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/text`.
+            public var text: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/scopes`.
+            public var scopes: [Components.Schemas.TodoRef]
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/links`.
+            public var links: [Components.Schemas.TodoRef]
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/done`.
+            public var done: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// When the todo was first marked done; null while open.
+            ///
+            /// - Remark: Generated from `#/components/schemas/TodoSummary/done_at`.
+            public var doneAt: Foundation.Date?
+            /// Creates a new `TodoSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - ownerUserId:
+            ///   - text:
+            ///   - scopes:
+            ///   - links:
+            ///   - done:
+            ///   - createdAt:
+            ///   - updatedAt:
+            ///   - doneAt: When the todo was first marked done; null while open.
+            public init(
+                id: Components.Schemas.Uuid,
+                ownerUserId: Components.Schemas.Uuid,
+                text: Swift.String,
+                scopes: [Components.Schemas.TodoRef],
+                links: [Components.Schemas.TodoRef],
+                done: Swift.Bool,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp,
+                doneAt: Foundation.Date? = nil
+            ) {
+                self.id = id
+                self.ownerUserId = ownerUserId
+                self.text = text
+                self.scopes = scopes
+                self.links = links
+                self.done = done
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+                self.doneAt = doneAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case ownerUserId = "owner_user_id"
+                case text
+                case scopes
+                case links
+                case done
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+                case doneAt = "done_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TodoPage`.
+        public struct TodoPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TodoPage/items`.
+            public var items: [Components.Schemas.TodoSummary]
+            /// Creates a new `TodoPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.TodoSummary]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateTodoRequest`.
+        public struct CreateTodoRequest: Codable, Hashable, Sendable {
+            /// 1..=500 characters after trimming.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateTodoRequest/text`.
+            public var text: Swift.String
+            /// Scope chips (person/team/site/entity refs); at most 20.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateTodoRequest/scopes`.
+            public var scopes: [Components.Schemas.TodoRef]?
+            /// Object links (kind+id pairs); at most 20.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateTodoRequest/links`.
+            public var links: [Components.Schemas.TodoRef]?
+            /// Creates a new `CreateTodoRequest`.
+            ///
+            /// - Parameters:
+            ///   - text: 1..=500 characters after trimming.
+            ///   - scopes: Scope chips (person/team/site/entity refs); at most 20.
+            ///   - links: Object links (kind+id pairs); at most 20.
+            public init(
+                text: Swift.String,
+                scopes: [Components.Schemas.TodoRef]? = nil,
+                links: [Components.Schemas.TodoRef]? = nil
+            ) {
+                self.text = text
+                self.scopes = scopes
+                self.links = links
+            }
+            public enum CodingKeys: String, CodingKey {
+                case text
+                case scopes
+                case links
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SetTodoDoneRequest`.
+        public struct SetTodoDoneRequest: Codable, Hashable, Sendable {
+            /// Explicit target state (true = done, false = undo).
+            ///
+            /// - Remark: Generated from `#/components/schemas/SetTodoDoneRequest/done`.
+            public var done: Swift.Bool
+            /// Creates a new `SetTodoDoneRequest`.
+            ///
+            /// - Parameters:
+            ///   - done: Explicit target state (true = done, false = undo).
+            public init(done: Swift.Bool) {
+                self.done = done
+            }
+            public enum CodingKeys: String, CodingKey {
+                case done
+            }
+        }
+        /// One pending P1 offer for the signed-in mechanic: a BROADCASTING dispatch that fanned out to the caller, still inside its accept window, with no response from the caller yet.
+        ///
+        /// - Remark: Generated from `#/components/schemas/MyDispatchOffer`.
+        public struct MyDispatchOffer: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MyDispatchOffer/dispatch_id`.
+            public var dispatchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MyDispatchOffer/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MyDispatchOffer/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MyDispatchOffer/request_no`.
+            public var requestNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MyDispatchOffer/accept_window_started_at`.
+            public var acceptWindowStartedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/MyDispatchOffer/accept_window_ends_at`.
+            public var acceptWindowEndsAt: Components.Schemas.Timestamp
+            /// Creates a new `MyDispatchOffer`.
+            ///
+            /// - Parameters:
+            ///   - dispatchId:
+            ///   - workOrderId:
+            ///   - branchId:
+            ///   - requestNo:
+            ///   - acceptWindowStartedAt:
+            ///   - acceptWindowEndsAt:
+            public init(
+                dispatchId: Components.Schemas.Uuid,
+                workOrderId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                requestNo: Swift.String,
+                acceptWindowStartedAt: Components.Schemas.Timestamp,
+                acceptWindowEndsAt: Components.Schemas.Timestamp
+            ) {
+                self.dispatchId = dispatchId
+                self.workOrderId = workOrderId
+                self.branchId = branchId
+                self.requestNo = requestNo
+                self.acceptWindowStartedAt = acceptWindowStartedAt
+                self.acceptWindowEndsAt = acceptWindowEndsAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case dispatchId = "dispatch_id"
+                case workOrderId = "work_order_id"
+                case branchId = "branch_id"
+                case requestNo = "request_no"
+                case acceptWindowStartedAt = "accept_window_started_at"
+                case acceptWindowEndsAt = "accept_window_ends_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MyDispatchOfferPage`.
+        public struct MyDispatchOfferPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MyDispatchOfferPage/items`.
+            public var items: [Components.Schemas.MyDispatchOffer]
+            /// Creates a new `MyDispatchOfferPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.MyDispatchOffer]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
             }
         }
         /// - Remark: Generated from `#/components/schemas/EquipmentStatus`.
@@ -58013,6 +58344,1072 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.MarkMyNotificationRead.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the authenticated user's todos, open first then newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/todos`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/get(listMyTodos)`.
+    public enum ListMyTodos {
+        public static let id: Swift.String = "listMyTodos"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// When true, also return completed todos (default false).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/query/include_done`.
+                public var includeDone: Swift.Bool?
+                /// Page size (clamped server-side to 1..=200; default 100).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - includeDone: When true, also return completed todos (default false).
+                ///   - limit: Page size (clamped server-side to 1..=200; default 100).
+                public init(
+                    includeDone: Swift.Bool? = nil,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.includeDone = includeDone
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMyTodos.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyTodos.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyTodos.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyTodos.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMyTodos.Input.Query = .init(),
+                headers: Operations.ListMyTodos.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.TodoPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.TodoPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyTodos.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyTodos.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The caller's todos.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/get(listMyTodos)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyTodos.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyTodos.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/get(listMyTodos)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/todos/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyTodos.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyTodos.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/get(listMyTodos)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListMyTodos.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListMyTodos.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a todo owned by the authenticated user
+    ///
+    /// The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/todos`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/post(createMyTodo)`.
+    public enum CreateMyTodo {
+        public static let id: Swift.String = "createMyTodo"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateMyTodo.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateMyTodo.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateMyTodo.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateTodoRequest)
+            }
+            public var body: Operations.CreateMyTodo.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateMyTodo.Input.Headers = .init(),
+                body: Operations.CreateMyTodo.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/todos/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.TodoSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.TodoSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateMyTodo.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateMyTodo.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// The created todo.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/post(createMyTodo)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateMyTodo.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateMyTodo.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/post(createMyTodo)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/post(createMyTodo)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/todos/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateMyTodo.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateMyTodo.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/post(createMyTodo)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreateMyTodo.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreateMyTodo.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mark one of the authenticated user's todos done or undone
+    ///
+    /// Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user's row. Audited as todo.done / todo.undone.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/todos/{todoId}/done`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/done/post(setMyTodoDone)`.
+    public enum SetMyTodoDone {
+        public static let id: Swift.String = "setMyTodoDone"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/path/todoId`.
+                public var todoId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - todoId:
+                public init(todoId: Components.Schemas.Uuid) {
+                    self.todoId = todoId
+                }
+            }
+            public var path: Operations.SetMyTodoDone.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetMyTodoDone.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetMyTodoDone.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SetMyTodoDone.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.SetTodoDoneRequest)
+            }
+            public var body: Operations.SetMyTodoDone.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.SetMyTodoDone.Input.Path,
+                headers: Operations.SetMyTodoDone.Input.Headers = .init(),
+                body: Operations.SetMyTodoDone.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.TodoSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.TodoSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SetMyTodoDone.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SetMyTodoDone.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The updated todo.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/done/post(setMyTodoDone)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SetMyTodoDone.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SetMyTodoDone.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/done/post(setMyTodoDone)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/done/post(setMyTodoDone)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/done/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SetMyTodoDone.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SetMyTodoDone.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/done/post(setMyTodoDone)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.SetMyTodoDone.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.SetMyTodoDone.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Delete one of the authenticated user's todos
+    ///
+    /// A cross-user id is a 404, never another user's row. Audited as todo.delete.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/me/todos/{todoId}`.
+    /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)`.
+    public enum DeleteMyTodo {
+        public static let id: Swift.String = "deleteMyTodo"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/DELETE/path/todoId`.
+                public var todoId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - todoId:
+                public init(todoId: Components.Schemas.Uuid) {
+                    self.todoId = todoId
+                }
+            }
+            public var path: Operations.DeleteMyTodo.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteMyTodo.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteMyTodo.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DeleteMyTodo.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.DeleteMyTodo.Input.Path,
+                headers: Operations.DeleteMyTodo.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// The todo was deleted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.DeleteMyTodo.Output.NoContent)
+            /// The todo was deleted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.DeleteMyTodo.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/DELETE/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/todos/{todoId}/DELETE/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DeleteMyTodo.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DeleteMyTodo.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/todos/{todoId}/delete(deleteMyTodo)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.DeleteMyTodo.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.DeleteMyTodo.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the authenticated mechanic's pending P1 dispatch offers
+    ///
+    /// BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/dispatch-offers`.
+    /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)`.
+    public enum ListMyDispatchOffers {
+        public static let id: Swift.String = "listMyDispatchOffers"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/dispatch-offers/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyDispatchOffers.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyDispatchOffers.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyDispatchOffers.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListMyDispatchOffers.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/dispatch-offers/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/dispatch-offers/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MyDispatchOfferPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MyDispatchOfferPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyDispatchOffers.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyDispatchOffers.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The caller's pending dispatch offers.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyDispatchOffers.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyDispatchOffers.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/dispatch-offers/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/dispatch-offers/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyDispatchOffers.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyDispatchOffers.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/dispatch-offers/get(listMyDispatchOffers)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListMyDispatchOffers.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListMyDispatchOffers.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

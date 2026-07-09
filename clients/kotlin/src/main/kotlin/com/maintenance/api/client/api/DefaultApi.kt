@@ -81,6 +81,7 @@ import com.maintenance.api.client.model.CreatePurchaseRequest
 import com.maintenance.api.client.model.CreateRegionRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
 import com.maintenance.api.client.model.CreateSiteRequest
+import com.maintenance.api.client.model.CreateTodoRequest
 import com.maintenance.api.client.model.CreateTriggerBindingRequest
 import com.maintenance.api.client.model.CreateUserRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
@@ -167,6 +168,7 @@ import com.maintenance.api.client.model.MessengerMessageSummary
 import com.maintenance.api.client.model.MessengerReadReceiptSummary
 import com.maintenance.api.client.model.MessengerThreadListResponse
 import com.maintenance.api.client.model.MessengerThreadSummary
+import com.maintenance.api.client.model.MyDispatchOfferPage
 import com.maintenance.api.client.model.NotificationPage
 import com.maintenance.api.client.model.NotificationReadAllResponse
 import com.maintenance.api.client.model.NotificationSummary
@@ -239,6 +241,7 @@ import com.maintenance.api.client.model.SendMailRequest
 import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.SetLifecycleHoldRequest
+import com.maintenance.api.client.model.SetTodoDoneRequest
 import com.maintenance.api.client.model.SignupRequest
 import com.maintenance.api.client.model.SignupResponse
 import com.maintenance.api.client.model.SimulateWorkflowDefinitionRequest
@@ -262,6 +265,8 @@ import com.maintenance.api.client.model.SyncBatchRequest
 import com.maintenance.api.client.model.SyncBatchResponse
 import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
+import com.maintenance.api.client.model.TodoPage
+import com.maintenance.api.client.model.TodoSummary
 import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.TransitionLifecycleRequest
 import com.maintenance.api.client.model.TransitionTicketRequest
@@ -4301,6 +4306,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/me/todos
+     * Create a todo owned by the authenticated user
+     * The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+     * @param createTodoRequest
+     * @return TodoSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createMyTodo(createTodoRequest: CreateTodoRequest) : TodoSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = createMyTodoWithHttpInfo(createTodoRequest = createTodoRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TodoSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/me/todos
+     * Create a todo owned by the authenticated user
+     * The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+     * @param createTodoRequest
+     * @return ApiResponse<TodoSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createMyTodoWithHttpInfo(createTodoRequest: CreateTodoRequest) : ApiResponse<TodoSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createMyTodoRequestConfig(createTodoRequest = createTodoRequest)
+
+        return@withContext request<CreateTodoRequest, TodoSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createMyTodo
+     *
+     * @param createTodoRequest
+     * @return RequestConfig
+     */
+    fun createMyTodoRequestConfig(createTodoRequest: CreateTodoRequest) : RequestConfig<CreateTodoRequest> {
+        val localVariableBody = createTodoRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/me/todos",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/object-links
      * Create a generic, audited link between two objects
      * Creates one directed edge (src -&gt; dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
@@ -5921,6 +6000,77 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.DELETE,
             path = "/api/v1/sales/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/v1/me/todos/{todoId}
+     * Delete one of the authenticated user&#39;s todos
+     * A cross-user id is a 404, never another user&#39;s row. Audited as todo.delete.
+     * @param todoId
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deleteMyTodo(todoId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = deleteMyTodoWithHttpInfo(todoId = todoId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/me/todos/{todoId}
+     * Delete one of the authenticated user&#39;s todos
+     * A cross-user id is a 404, never another user&#39;s row. Audited as todo.delete.
+     * @param todoId
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deleteMyTodoWithHttpInfo(todoId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deleteMyTodoRequestConfig(todoId = todoId)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deleteMyTodo
+     *
+     * @param todoId
+     * @return RequestConfig
+     */
+    fun deleteMyTodoRequestConfig(todoId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/me/todos/{todoId}".replace("{"+"todoId"+"}", encodeURIComponent(todoId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -12072,6 +12222,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/me/dispatch-offers
+     * List the authenticated mechanic&#39;s pending P1 dispatch offers
+     * BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+     * @return MyDispatchOfferPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMyDispatchOffers() : MyDispatchOfferPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listMyDispatchOffersWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MyDispatchOfferPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/dispatch-offers
+     * List the authenticated mechanic&#39;s pending P1 dispatch offers
+     * BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+     * @return ApiResponse<MyDispatchOfferPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMyDispatchOffersWithHttpInfo() : ApiResponse<MyDispatchOfferPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMyDispatchOffersRequestConfig()
+
+        return@withContext request<Unit, MyDispatchOfferPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMyDispatchOffers
+     *
+     * @return RequestConfig
+     */
+    fun listMyDispatchOffersRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/dispatch-offers",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/hr/attendance-records/me
      * List the signed-in employee&#39;s attendance records
      * Returns only records for the employee row explicitly linked to the authenticated user account.
@@ -12238,6 +12458,90 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/me/notifications",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/me/todos
+     * List the authenticated user&#39;s todos, open first then newest first
+     *
+     * @param includeDone When true, also return completed todos (default false). (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 100). (optional)
+     * @return TodoPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMyTodos(includeDone: kotlin.Boolean? = null, limit: kotlin.Long? = null) : TodoPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listMyTodosWithHttpInfo(includeDone = includeDone, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TodoPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/todos
+     * List the authenticated user&#39;s todos, open first then newest first
+     *
+     * @param includeDone When true, also return completed todos (default false). (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 100). (optional)
+     * @return ApiResponse<TodoPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMyTodosWithHttpInfo(includeDone: kotlin.Boolean?, limit: kotlin.Long?) : ApiResponse<TodoPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMyTodosRequestConfig(includeDone = includeDone, limit = limit)
+
+        return@withContext request<Unit, TodoPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMyTodos
+     *
+     * @param includeDone When true, also return completed todos (default false). (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 100). (optional)
+     * @return RequestConfig
+     */
+    fun listMyTodosRequestConfig(includeDone: kotlin.Boolean?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (includeDone != null) {
+                    put("include_done", listOf(includeDone.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/todos",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -16973,6 +17277,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/mail/threads/{id}/read-state".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/me/todos/{todoId}/done
+     * Mark one of the authenticated user&#39;s todos done or undone
+     * Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user&#39;s row. Audited as todo.done / todo.undone.
+     * @param todoId
+     * @param setTodoDoneRequest
+     * @return TodoSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun setMyTodoDone(todoId: java.util.UUID, setTodoDoneRequest: SetTodoDoneRequest) : TodoSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = setMyTodoDoneWithHttpInfo(todoId = todoId, setTodoDoneRequest = setTodoDoneRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TodoSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/me/todos/{todoId}/done
+     * Mark one of the authenticated user&#39;s todos done or undone
+     * Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user&#39;s row. Audited as todo.done / todo.undone.
+     * @param todoId
+     * @param setTodoDoneRequest
+     * @return ApiResponse<TodoSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun setMyTodoDoneWithHttpInfo(todoId: java.util.UUID, setTodoDoneRequest: SetTodoDoneRequest) : ApiResponse<TodoSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = setMyTodoDoneRequestConfig(todoId = todoId, setTodoDoneRequest = setTodoDoneRequest)
+
+        return@withContext request<SetTodoDoneRequest, TodoSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation setMyTodoDone
+     *
+     * @param todoId
+     * @param setTodoDoneRequest
+     * @return RequestConfig
+     */
+    fun setMyTodoDoneRequestConfig(todoId: java.util.UUID, setTodoDoneRequest: SetTodoDoneRequest) : RequestConfig<SetTodoDoneRequest> {
+        val localVariableBody = setTodoDoneRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/me/todos/{todoId}/done".replace("{"+"todoId"+"}", encodeURIComponent(todoId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

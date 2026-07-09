@@ -139,6 +139,12 @@ typed_id!(
     /// is the source of truth; realtime `LISTEN/NOTIFY` carries only this id.
     NotificationId
 );
+typed_id!(
+    /// A personal todo — one owner-scoped action item in the todos domain
+    /// (UI-M3 Overview Today/Plan panel). Owner-scoped like notifications:
+    /// the owner is always bound from the authenticated principal.
+    TodoId
+);
 
 #[cfg(test)]
 mod tests {

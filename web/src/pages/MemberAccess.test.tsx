@@ -167,15 +167,12 @@ describe("MEMBER landing → /pending", () => {
 
   it("re-checks a pending user's token after an admin grants a role", async () => {
     const user = userEvent.setup();
-    const workOrderAuthHeaders: Array<string | null> = [];
+    const supportAuthHeaders: Array<string | null> = [];
     server.use(
-      http.get("*/api/v1/work-orders", ({ request }) => {
-        workOrderAuthHeaders.push(request.headers.get("authorization"));
+      http.get("*/api/v1/support/tickets", ({ request }) => {
+        supportAuthHeaders.push(request.headers.get("authorization"));
         return HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 });
       }),
-      http.get("*/api/v1/support/tickets", () =>
-        HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
-      ),
       http.get("*/api/messenger/threads", () =>
         HttpResponse.json({ items: [], total: 0 }),
       ),
@@ -224,12 +221,12 @@ describe("MEMBER landing → /pending", () => {
     await user.click(screen.getByRole("button", { name: "권한 다시 확인" }));
 
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "계정이 생성되었습니다" }),
     ).not.toBeInTheDocument();
-    expect(workOrderAuthHeaders).toContain("Bearer admin");
+    expect(supportAuthHeaders).toContain("Bearer admin");
   });
 
   it("does NOT redirect a granted role off /dispatch", async () => {

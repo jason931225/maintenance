@@ -110,6 +110,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreatePurchaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateRegionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateRentalQuoteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateSiteRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateTodoRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateTriggerBindingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateUserRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkOrderRequest.kt
@@ -248,6 +249,8 @@ src/main/kotlin/com/maintenance/api/client/model/MessengerReadReceiptSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadKind.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/MyDispatchOffer.kt
+src/main/kotlin/com/maintenance/api/client/model/MyDispatchOfferPage.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt
 src/main/kotlin/com/maintenance/api/client/model/NotificationLink.kt
 src/main/kotlin/com/maintenance/api/client/model/NotificationLinkOneOf.kt
@@ -357,6 +360,7 @@ src/main/kotlin/com/maintenance/api/client/model/SendMailRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMailResult.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SetLifecycleHoldRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SetTodoDoneRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SignupRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SignupResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SimulateWorkflowDefinitionRequest.kt
@@ -396,6 +400,9 @@ src/main/kotlin/com/maintenance/api/client/model/TargetChangeDecision.kt
 src/main/kotlin/com/maintenance/api/client/model/TargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TargetChangeRequestSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/Team.kt
+src/main/kotlin/com/maintenance/api/client/model/TodoPage.kt
+src/main/kotlin/com/maintenance/api/client/model/TodoRef.kt
+src/main/kotlin/com/maintenance/api/client/model/TodoSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/TokenPairResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/TransitionLifecycleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TransitionTicketRequest.kt

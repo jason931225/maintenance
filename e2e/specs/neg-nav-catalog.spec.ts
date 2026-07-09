@@ -10,7 +10,7 @@ import type { TenantRole } from "../fixtures/roles";
  *       `web/src/components/shell/nav.ts`, so it is HIDDEN from MECHANIC /
  *       RECEPTIONIST / EXECUTIVE shells.
  *   (b) route guard: `/catalog` is under `RequireAdminRoute`, so a direct-URL
- *       visit by a non-admin is bounced to `/work-hub` and the CatalogAdminPage
+ *       visit by a non-admin is bounced to `/overview` and the CatalogAdminPage
  *       never renders.
  *
  * This extends the existing per-role hidden-nav contracts (mech/recp/exec
@@ -38,18 +38,18 @@ for (const role of NON_ADMIN_ROLES) {
     ).not.toBeVisible();
   });
 
-  test(`NEG-NAV-CATALOG direct visit to /catalog bounces ${role} to /work-hub`, async ({
+  test(`NEG-NAV-CATALOG direct visit to /catalog bounces ${role} to /overview`, async ({
     page,
     loginAs,
   }) => {
     await loginAs(role);
     await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
-    // /catalog is gated by RequireAdminRoute → redirect to /work-hub; the
+    // /catalog is gated by RequireAdminRoute → redirect to /overview; the
     // CatalogAdminPage heading must never render for a non-admin.
     await page.goto("/catalog");
     await expect(page).not.toHaveURL(/\/catalog/, { timeout: 8_000 });
-    await expect(page).toHaveURL(/\/work-hub/, { timeout: 8_000 });
+    await expect(page).toHaveURL(/\/overview/, { timeout: 8_000 });
     await expect(
       page.getByRole("heading", { name: /판매·문의 관리/, level: 1 }),
     ).toHaveCount(0);

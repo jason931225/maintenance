@@ -36,7 +36,7 @@ function visibleItems(
 // nav gating drifts from the backend authz model, one of these breaks.
 const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.SUPER_ADMIN]: [
-    "work-hub",
+    "overview",
     "my-attendance",
     "approvals",
     "messenger",
@@ -71,7 +71,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "profile",
   ],
   [ROLES.ADMIN]: [
-    "work-hub",
+    "overview",
     "my-attendance",
     "approvals",
     "messenger",
@@ -105,7 +105,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // Executive: KPI/intelligence/integrity yes; approvals/daily-plan/users/org/security no.
   // Equipment browse/manage remain visible, but sales catalog conversion stays admin-only.
   [ROLES.EXECUTIVE]: [
-    "work-hub",
+    "overview",
     "my-attendance",
     "messenger",
     "mail",
@@ -131,7 +131,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // Mechanic: maintenance operations and personal work surfaces; no mail,
   // approvals/kpi/users/org/security, or equipment-sales management.
   [ROLES.MECHANIC]: [
-    "work-hub",
+    "overview",
     "my-attendance",
     "messenger",
     "dispatch",
@@ -148,7 +148,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   ],
   // Receptionist: affiliate business-operations surface plus mail; no daily-plan.
   [ROLES.RECEPTIONIST]: [
-    "work-hub",
+    "overview",
     "my-attendance",
     "messenger",
     "mail",
@@ -181,7 +181,7 @@ describe("nav role gating", () => {
     expect(NAV_GROUPS[0].key).toBe("personal");
     expect(navGroupLabel("personal")).toBe("개인/부서 업무");
     expect(NAV_GROUPS[0].items.map((item) => item.key)).toEqual([
-      "work-hub",
+      "overview",
       "my-attendance",
       "approvals",
       "messenger",
@@ -191,7 +191,7 @@ describe("nav role gating", () => {
     const operations = NAV_GROUPS.find((group) => group.key === "operations");
     const assets = NAV_GROUPS.find((group) => group.key === "assets");
     expect(operations?.items.map((item) => item.key)).not.toEqual(
-      expect.arrayContaining(["work-hub", "approvals", "messenger", "mail"]),
+      expect.arrayContaining(["overview", "approvals", "messenger", "mail"]),
     );
     expect(assets?.items.map((item) => item.key)).toEqual([
       "equipment",
@@ -224,10 +224,10 @@ describe("nav role gating", () => {
     ).toBe(true);
   });
 
-  it("does not leak logistics or equipment-sales nav to a mail-only custom grant", () => {
+  it("lands feature-only custom grants on overview without leaking logistics nav", () => {
     expect(
       visibleItems([ROLES.MEMBER], undefined, [FEATURES.MAIL_USE]),
-    ).toEqual(["mail", "profile"]);
+    ).toEqual(["overview", "mail", "profile"]);
     expect(
       isNavItemVisible("dispatch", [ROLES.MEMBER], undefined, [
         FEATURES.MAIL_USE,
@@ -238,6 +238,14 @@ describe("nav role gating", () => {
         FEATURES.MAIL_USE,
       ]),
     ).toBe(false);
+    for (const grant of [
+      FEATURES.DAILY_PLAN_REQUEST,
+      FEATURES.KPI_READ,
+      FEATURES.EMPLOYEE_DIRECTORY_READ,
+      FEATURES.INTEGRITY_FINDINGS_READ,
+    ]) {
+      expect(isNavItemVisible("overview", [ROLES.MEMBER], undefined, [grant])).toBe(true);
+    }
   });
 
   it("maps operational persona custom grants to intended non-admin nav surfaces", () => {
@@ -276,7 +284,7 @@ describe("nav role gating", () => {
           FEATURES.DAILY_PLAN_REQUEST,
         ],
         expected: [
-          "work-hub",
+          "overview",
           "messenger",
           "dispatch",
           "dispatch-map",
@@ -296,7 +304,7 @@ describe("nav role gating", () => {
           FEATURES.EVIDENCE_ATTACH,
         ],
         expected: [
-          "work-hub",
+          "overview",
           "messenger",
           "dispatch",
           "dispatch-map",
@@ -317,7 +325,7 @@ describe("nav role gating", () => {
           FEATURES.DAILY_PLAN_REQUEST,
         ],
         expected: [
-          "work-hub",
+          "overview",
           "messenger",
           "dispatch",
           "dispatch-map",
@@ -338,7 +346,7 @@ describe("nav role gating", () => {
           FEATURES.MAIL_USE,
         ],
         expected: [
-          "work-hub",
+          "overview",
           "messenger",
           "mail",
           "dispatch",
@@ -481,7 +489,7 @@ describe("nav role gating", () => {
     );
     for (const role of grantedRoles) {
       for (const key of [
-        "work-hub",
+        "overview",
         "dispatch",
         "dispatch-map",
         "intake",
@@ -506,7 +514,7 @@ describe("nav role gating", () => {
       expect(visibleItems(roles ?? [])).toEqual(["profile"]);
       expect(isNavItemVisible("profile", roles)).toBe(true);
       for (const key of [
-        "work-hub",
+        "overview",
         "dispatch",
         "dispatch-map",
         "intake",
@@ -553,7 +561,7 @@ describe("nav role gating", () => {
       visibleNavItemsForRoles(["MEMBER"], undefined, [FEATURES.MAIL_USE]).find(
         (item) => item.key !== "profile",
       )?.href,
-    ).toBe("/mail");
+    ).toBe("/overview");
     expect(
       visibleNavItemsForRoles(["MEMBER"], [GROUP_ROLES.GROUP_ADMIN], []).find(
         (item) => item.key !== "profile",
@@ -572,8 +580,8 @@ describe("nav role gating", () => {
     // Default-deny: an undefined/empty roles claim is a no-grant session that the
     // backend 403s on every Feature but Login, so the nav surfaces only Profile.
     // Shared pages are now gated too (a phantom-ungated dispatch link would 403).
-    expect(isNavItemVisible("work-hub", undefined)).toBe(false);
-    expect(isNavItemVisible("work-hub", [])).toBe(false);
+    expect(isNavItemVisible("overview", undefined)).toBe(false);
+    expect(isNavItemVisible("overview", [])).toBe(false);
     expect(isNavItemVisible("dispatch", undefined)).toBe(false);
     expect(isNavItemVisible("dispatch", [])).toBe(false);
     expect(isNavItemVisible("approvals", undefined)).toBe(false);

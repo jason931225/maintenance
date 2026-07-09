@@ -29,7 +29,7 @@ function renderGuardedPolicy(session: AuthSession) {
     <AuthContext.Provider value={makeAuthContext(session)}>
       <MemoryRouter initialEntries={["/settings/policy"]}>
         <Routes>
-          <Route path="/work-hub" element={<h1>업무 허브</h1>} />
+          <Route path="/overview" element={<h1>통합 개요</h1>} />
           <Route element={<RequireRoleManageRoute />}>
             <Route path="/settings/policy" element={<h1>권한 정책</h1>} />
           </Route>
@@ -64,7 +64,7 @@ describe("RequireRoleManageRoute", () => {
       },
     });
 
-    expect(screen.getByRole("heading", { name: "업무 허브" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "통합 개요" })).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "권한 정책" }),
     ).not.toBeInTheDocument();

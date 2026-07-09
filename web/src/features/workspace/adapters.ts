@@ -1,7 +1,7 @@
 // Row -> PinnedObject adapters (UI-M1b).
 //
 // The migrated screens keep their existing row/card rendering; these small
-// mappers turn a real row (work-hub inbox item, attendance record) into the
+// mappers turn a real row (overview inbox item, attendance record) into the
 // generic pin payload so it can be pinned into a detail panel. Object-specific
 // panel renderers arrive in UI-M2a; until then the panel shows this field grid.
 

@@ -41,8 +41,8 @@ function renderGuardedRoutes(ctx: AuthContextValue, initialPath = "/dispatch") {
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route element={<RequireNavItemRoute itemKey="work-hub" />}>
-            <Route path="/work-hub" element={<div>work hub</div>} />
+          <Route element={<RequireNavItemRoute itemKey="overview" />}>
+            <Route path="/overview" element={<div>work hub</div>} />
           </Route>
           <Route path="/mail" element={<div>mail page</div>} />
           <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
@@ -77,38 +77,37 @@ function renderGuardedRoutes(ctx: AuthContextValue, initialPath = "/dispatch") {
 }
 
 describe("RequireNavItemRoute", () => {
-  it("redirects a mail-only custom member away from logistics direct URLs", () => {
+  it("redirects a mail-only custom member away from logistics direct URLs to overview", () => {
     renderGuardedRoutes(makeAuthContext([ROLES.MEMBER], [FEATURES.MAIL_USE]));
 
-    expect(screen.getByText("mail page")).toBeVisible();
+    expect(screen.getByText("work hub")).toBeVisible();
     expect(screen.queryByText("dispatch page")).not.toBeInTheDocument();
   });
 
-  it("redirects a mail-only custom member away from a direct work-hub URL", () => {
+  it("allows a mail-only custom member to reach a direct overview URL", () => {
     renderGuardedRoutes(
       makeAuthContext([ROLES.MEMBER], [FEATURES.MAIL_USE]),
-      "/work-hub",
+      "/overview",
     );
 
-    expect(screen.getByText("mail page")).toBeVisible();
-    expect(screen.queryByText("work hub")).not.toBeInTheDocument();
+    expect(screen.getByText("work hub")).toBeVisible();
   });
 
-  it("redirects a mail-only custom member away from direct financial and location URLs", () => {
+  it("redirects a mail-only custom member away from direct financial and location URLs to overview", () => {
     const mailOnly = makeAuthContext([ROLES.MEMBER], [FEATURES.MAIL_USE]);
 
     renderGuardedRoutes(mailOnly, "/financial");
-    expect(screen.getByText("mail page")).toBeVisible();
+    expect(screen.getByText("work hub")).toBeVisible();
     expect(screen.queryByText("financial page")).not.toBeInTheDocument();
   });
 
-  it("redirects a mail-only custom member away from direct location settings", () => {
+  it("redirects a mail-only custom member away from direct location settings to overview", () => {
     renderGuardedRoutes(
       makeAuthContext([ROLES.MEMBER], [FEATURES.MAIL_USE]),
       "/settings/location",
     );
 
-    expect(screen.getByText("mail page")).toBeVisible();
+    expect(screen.getByText("work hub")).toBeVisible();
     expect(screen.queryByText("location page")).not.toBeInTheDocument();
   });
 

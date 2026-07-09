@@ -3095,6 +3095,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the authenticated user's todos, open first then newest first */
+        get: operations["listMyTodos"];
+        put?: never;
+        /**
+         * Create a todo owned by the authenticated user
+         * @description The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+         */
+        post: operations["createMyTodo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos/{todoId}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one of the authenticated user's todos done or undone
+         * @description Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user's row. Audited as todo.done / todo.undone.
+         */
+        post: operations["setMyTodoDone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos/{todoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete one of the authenticated user's todos
+         * @description A cross-user id is a 404, never another user's row. Audited as todo.delete.
+         */
+        delete: operations["deleteMyTodo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/dispatch-offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated mechanic's pending P1 dispatch offers
+         * @description BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+         */
+        get: operations["listMyDispatchOffers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -6696,6 +6777,54 @@ export interface components {
              * @description The number of the caller's unread notifications.
              */
             unread: number;
+        };
+        /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
+        TodoRef: {
+            kind: string;
+            id: string;
+            label?: string;
+        };
+        TodoSummary: {
+            id: components["schemas"]["Uuid"];
+            owner_user_id: components["schemas"]["Uuid"];
+            text: string;
+            scopes: components["schemas"]["TodoRef"][];
+            links: components["schemas"]["TodoRef"][];
+            done: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: date-time
+             * @description When the todo was first marked done; null while open.
+             */
+            done_at: string | null;
+        };
+        TodoPage: {
+            items: components["schemas"]["TodoSummary"][];
+        };
+        CreateTodoRequest: {
+            /** @description 1..=500 characters after trimming. */
+            text: string;
+            /** @description Scope chips (person/team/site/entity refs); at most 20. */
+            scopes?: components["schemas"]["TodoRef"][];
+            /** @description Object links (kind+id pairs); at most 20. */
+            links?: components["schemas"]["TodoRef"][];
+        };
+        SetTodoDoneRequest: {
+            /** @description Explicit target state (true = done, false = undo). */
+            done: boolean;
+        };
+        /** @description One pending P1 offer for the signed-in mechanic: a BROADCASTING dispatch that fanned out to the caller, still inside its accept window, with no response from the caller yet. */
+        MyDispatchOffer: {
+            dispatch_id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            request_no: string;
+            accept_window_started_at: components["schemas"]["Timestamp"];
+            accept_window_ends_at: components["schemas"]["Timestamp"];
+        };
+        MyDispatchOfferPage: {
+            items: components["schemas"]["MyDispatchOffer"][];
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -12802,6 +12931,174 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyTodos: {
+        parameters: {
+            query?: {
+                /** @description When true, also return completed todos (default false). */
+                include_done?: boolean;
+                /** @description Page size (clamped server-side to 1..=200; default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's todos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createMyTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTodoRequest"];
+            };
+        };
+        responses: {
+            /** @description The created todo. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    setMyTodoDone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                todoId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTodoDoneRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated todo. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteMyTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                todoId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The todo was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyDispatchOffers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's pending dispatch offers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyDispatchOfferPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {

@@ -1,0 +1,18 @@
+[package]
+name = "mnt-todos-application"
+version = "0.1.0"
+description = "Todos use-case commands and summaries."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-kernel-core = { workspace = true }
+mnt-todos-domain = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

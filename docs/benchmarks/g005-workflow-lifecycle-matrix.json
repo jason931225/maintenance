@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "goalId": "G005-workflow-builder-approvals-work-hub",
-  "updatedAt": "2026-06-30",
-  "purpose": "Machine-readable workflow, approval, Work Hub, planned-work, notification, evidence, and object-timeline lifecycle contract for the platform-maturity ultragoal. This gate proves source-object centered workflow operations are wired through backend contracts, frontend actions, browser matrices, and regression tests before asset, collaboration, ERP, and live-rollout lanes depend on them.",
+  "updatedAt": "2026-07-09",
+  "purpose": "Machine-readable workflow, approval, Overview action inbox, planned-work, notification, evidence, and object-timeline lifecycle contract for the platform-maturity ultragoal. This gate proves source-object centered workflow operations are wired through backend contracts, frontend actions, browser matrices, and regression tests before asset, collaboration, ERP, and live-rollout lanes depend on them.",
   "nonClaimPolicy": "G005 may prove local contract, browser matrix, and regression coverage. Production Argo rollout, live screenshot/trace closure, and live DB/API/browser parity remain G009; any route audit screenshotTraceEvidence that is still Pending must be treated as a rollout blocker, not as live closure.",
   "routePaths": [
     {
-      "path": "/work-hub",
-      "routeGroup": "work-hub",
+      "path": "/overview",
+      "routeGroup": "overview",
       "mustContainOwnerGoal": "G005",
-      "requiredStory": "first-screen enterprise action inbox shows today/week tasks, approvals, messages, tickets, urgent badges, terminal removal, and group/org scope controls without maintenance-only framing"
+      "requiredStory": "first-screen enterprise overview action inbox shows today/week tasks, approvals, dispatch offers, support tickets, attendance prompts, terminal removal, partial-failure recovery, and group/org scope controls without maintenance-only framing"
     },
     {
       "path": "/approvals",
@@ -212,17 +212,17 @@
       ]
     },
     {
-      "file": "web/src/pages/WorkHubPage.tsx",
-      "contract": "Work Hub is a group-aware enterprise action inbox that combines server approval, daily plan, messenger, support, urgency, and partial-failure states without client-side security assumptions.",
+      "file": "web/src/pages/OverviewPage.tsx",
+      "contract": "Overview is the group-aware enterprise action inbox that combines workflow approvals, dispatch offers, support tickets, attendance prompts, today tasks, undo toasts, and partial-failure recovery without client-side security assumptions.",
       "requiredSnippets": [
-        "isActionableSupportTicket",
-        "messengerUnreadCount",
-        "urgentCount",
-        "approvalHref",
         "buildApprovalItems",
-        "buildDailyItems",
+        "buildDispatchItems",
+        "buildSupportItems",
+        "buildAttendanceItems",
         "partialFailure",
-        "/api/approval-items"
+        "/api/v1/workflow-tasks",
+        "emitConsoleToast",
+        "TodayPanel"
       ]
     },
     {
@@ -305,13 +305,14 @@
   ],
   "requiredWebTests": [
     "web/src/pages/WorkflowStudioPage.test.tsx",
-    "web/src/pages/WorkHubPage.test.tsx",
+    "web/src/pages/OverviewPage.test.tsx",
     "web/src/pages/ApprovalsPage.test.tsx",
     "web/src/features/approvals/ApprovalQueue.test.tsx",
     "web/src/pages/DailyPlanPage.test.tsx",
     "web/src/pages/WorkOrderDetailPage.test.tsx",
     "web/src/features/dispatch/EvidenceUpload.test.tsx",
-    "web/src/features/dispatch/DispatchBoard.test.tsx"
+    "web/src/features/dispatch/DispatchBoard.test.tsx",
+    "web/src/features/overview/TodayPanel.test.tsx"
   ],
   "requiredBackendTests": [
     "backend/app/tests/workorder_api.rs",
@@ -323,7 +324,7 @@
     "Workflow publish, pause, rollback, clone, approval decisions, payment-line changes, and terminal status changes are signing-equivalent or sensitive actions and require passkey or equivalent step-up where implemented.",
     "Workflow Builder must prove simulate before publish and reject missing approval or payment lines for templates that require them.",
     "Approval and rejection decisions require visible human comment or memo and store the actor, decision, and rationale for audit and timeline display.",
-    "Approval queues and Work Hub queues remove terminal, closed, archived, cancelled, approved, or rejected objects from actionable counts and badges.",
+    "Approval queues and Overview action-inbox queues remove terminal, closed, archived, cancelled, approved, or rejected objects from actionable counts and badges.",
     "Evidence images/files uploaded by mechanics remain viewable in manager approval context and cannot be attached after terminal completion.",
     "Planned work must originate from a received work order or explicit source object so future analytics can use historical request, equipment, site, and approval context.",
     "Urgent priority, notifications, badges, messenger/mail/work comments, and support tickets are linked to the source object instead of floating as disconnected widgets.",

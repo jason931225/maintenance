@@ -73,6 +73,27 @@ pub struct P1DispatchSummary {
     pub declined_count: i64,
 }
 
+/// One pending P1 offer for the signed-in mechanic (UI-M3 overview inbox): a
+/// BROADCASTING dispatch that fanned out to the caller, still inside its
+/// accept window, with no response from the caller yet. Person-scoped by
+/// construction — the owner is always bound from the authenticated principal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyDispatchOffer {
+    pub dispatch_id: P1DispatchId,
+    pub work_order_id: WorkOrderId,
+    pub branch_id: BranchId,
+    pub request_no: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub accept_window_started_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
+    pub accept_window_ends_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyDispatchOfferPage {
+    pub items: Vec<MyDispatchOffer>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct P1DispatchResponseSummary {
     pub dispatch_id: P1DispatchId,

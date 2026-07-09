@@ -122,7 +122,7 @@ export function OnboardingPage() {
       await finishPasskeyRegistration(api, ceremony);
       await approveDesktopIfNeeded();
       clearPasskeySetup();
-      void navigate("/work-hub", { replace: true });
+      void navigate("/overview", { replace: true });
     } catch (cause) {
       const cancelled =
         cause instanceof DOMException &&
@@ -144,7 +144,7 @@ export function OnboardingPage() {
         });
       }
       clearPasskeySetup();
-      void navigate("/work-hub", { replace: true });
+      void navigate("/overview", { replace: true });
     },
     [acceptTokens, clearPasskeySetup, navigate],
   );

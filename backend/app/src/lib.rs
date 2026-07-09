@@ -79,6 +79,8 @@ use mnt_sales_adapter_postgres::PgSalesStore;
 use mnt_sales_rest::SalesRestState;
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_rest::SupportRestState;
+use mnt_todos_adapter_postgres::PgTodoStore;
+use mnt_todos_rest::TodoRestState;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, WorkOrderRestState};
 use opentelemetry::global;
@@ -1311,6 +1313,7 @@ pub fn build_router(state: AppState) -> Router {
                 // `@`-mentions create notification-center rows via the #198 sink
                 // (fan-out enabled) so a mentioned member sees them in their inbox.
                 .with_notification_sink(Arc::new(notification_store.clone()));
+            let todo_store = PgTodoStore::new(pool.clone());
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());
@@ -1438,6 +1441,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_notifications_rest::router(NotificationRestState::new(
                     notification_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_todos_rest::router(TodoRestState::new(
+                    todo_store,
                     state.jwt_verifier.clone(),
                 )))
                 // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the

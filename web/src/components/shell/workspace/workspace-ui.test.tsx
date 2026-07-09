@@ -21,7 +21,7 @@ const wo: PinnedObject = {
   fields: [{ label: "상태", value: "진행" }],
 };
 
-// A minimal ConsoleShell-like harness for the "work-hub" screen: the window grid
+// A minimal ConsoleShell-like harness for the "overview" screen: the window grid
 // hosting a pinnable row, plus the tray. Exercises the pin -> panel -> minimize
 // -> restore -> close loop without mocking the real page data.
 function Harness() {
@@ -29,7 +29,7 @@ function Harness() {
   // Select the stable panels reference, then derive — a selector that returns a
   // fresh array every call breaks useSyncExternalStore (zustand v5).
   const allPanels = useWorkspaceStore((s) => s.panels);
-  const panels = selectScreenPanels(allPanels, "work-hub");
+  const panels = selectScreenPanels(allPanels, "overview");
   const minimize = useWorkspaceStore((s) => s.minimize);
   const restore = useWorkspaceStore((s) => s.restore);
   const popout = useWorkspaceStore((s) => s.popout);
@@ -54,7 +54,7 @@ function Harness() {
           focus();
         }}
       >
-        <ConsoleScreenContext.Provider value="work-hub">
+        <ConsoleScreenContext.Provider value="overview">
           <PinButton object={wo} />
         </ConsoleScreenContext.Provider>
       </QuadrantContainer>
@@ -63,7 +63,7 @@ function Harness() {
         hasAnyPanels={panels.length > 0}
         onRestore={restore}
         onRestoreDefault={() => {
-          restoreDefault("work-hub");
+          restoreDefault("overview");
         }}
       />
     </>
@@ -137,7 +137,7 @@ describe("workspace window UI", () => {
 
     render(
       <ConsoleWorkspaceOwnerContext.Provider value="org-new:user-new">
-        <ConsoleScreenContext.Provider value="work-hub">
+        <ConsoleScreenContext.Provider value="overview">
           <PinButton object={wo} />
         </ConsoleScreenContext.Provider>
       </ConsoleWorkspaceOwnerContext.Provider>,
@@ -151,8 +151,8 @@ describe("workspace window UI", () => {
 
   it("does not let a stale floating drag mutate a new owner's workspace", () => {
     const panel: Panel = {
-      id: "work-hub:workOrder:WO-1",
-      screen: "work-hub",
+      id: "overview:workOrder:WO-1",
+      screen: "overview",
       area: "left",
       mode: "float",
       object: wo,
@@ -182,7 +182,7 @@ describe("workspace window UI", () => {
       draggingId: null,
     });
     const onSnap = () => {
-      useWorkspaceStore.getState().pin("work-hub", panel.object, "left");
+      useWorkspaceStore.getState().pin("overview", panel.object, "left");
     };
     const onMove = () => {
       useWorkspaceStore
