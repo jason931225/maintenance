@@ -12,7 +12,7 @@ const lightTokens = {
   "console-border-soft": "#e8ecf1",
   "console-ink": "#141a21",
   "console-steel": "#566475",
-  "console-faint": "#8b98a7",
+  "console-faint": "#687585",
   "console-signal": "#f6b521",
   "console-signal-deep": "#e2a30d",
   "console-teal": "#0f766e",
@@ -49,7 +49,7 @@ const darkTokens = {
   "console-border-soft": "#232c37",
   "console-ink": "#e8edf4",
   "console-steel": "#9cabbc",
-  "console-faint": "#61707f",
+  "console-faint": "#8b98a7",
   "console-signal": "#f6b521",
   "console-signal-deep": "#ffc93d",
   "console-teal": "#2dd4bf",
@@ -98,6 +98,29 @@ function blockFor(selector: string) {
   throw new Error(`Missing CSS block for ${selector}`);
 }
 
+function relativeLuminance(hex: string) {
+  const channels = hex.replace("#", "").match(/.{2}/g);
+  if (!channels || channels.length !== 3) {
+    throw new Error(`Invalid hex color ${hex}`);
+  }
+
+  const [r, g, b] = channels.map((value) => {
+    const channel = Number.parseInt(value, 16) / 255;
+    return channel <= 0.03928
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(foreground: string, background: string) {
+  const [lighter, darker] = [
+    relativeLuminance(foreground),
+    relativeLuminance(background),
+  ].sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 function tokensIn(block: string) {
   return Object.fromEntries(
     Array.from(block.matchAll(/--([\w-]+):\s*([^;]+);/g), ([, name, value]) => [
@@ -110,6 +133,18 @@ function tokensIn(block: string) {
 describe("Oyatie console CSS tokens", () => {
   it("matches the prototype light token family", () => {
     expect(tokensIn(blockFor(".console"))).toMatchObject(lightTokens);
+  });
+
+  it("keeps faint text AA-readable on console surfaces", () => {
+    const light = tokensIn(blockFor(".console"));
+    const dark = tokensIn(blockFor(".console.dark"));
+
+    expect(
+      contrastRatio(light["console-faint"], light["console-surface"]),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      contrastRatio(dark["console-faint"], dark["console-surface"]),
+    ).toBeGreaterThanOrEqual(4.5);
   });
 
   it("flips every console token through the dark theme class", () => {

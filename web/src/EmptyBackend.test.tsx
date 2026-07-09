@@ -137,6 +137,10 @@ const server = setupServer(
     HttpResponse.json({ items: [], total: 0 }),
   ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
+  // Console workspace layout (UI-M1b): ConsoleShell loads it on mount for
+  // /work-hub and /attendance. Empty backend => empty layout object.
+  http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
+  http.put("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
@@ -157,6 +161,13 @@ const server = setupServer(
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
   ),
+  // AttendancePage is mounted by ConsoleShell for persistence, but inactive
+  // screens must not fetch. The counter below locks the /work-hub no-hidden-fetch
+  // regression while still serving /attendance when it becomes active.
+  http.get("*/api/v1/hr/attendance-records/me", () => {
+    attendanceRecordReads += 1;
+    return HttpResponse.json({ items: [] });
+  }),
   http.get("*/api/v1/hr/readiness-summary", () =>
     HttpResponse.json(emptyHrReadinessSummary),
   ),
@@ -191,6 +202,8 @@ const server = setupServer(
   ),
 );
 
+let attendanceRecordReads = 0;
+
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
 // resolve before it ends. WebSocket connections intentionally remain open and
@@ -211,10 +224,18 @@ async function waitForNetworkIdle() {
   });
 }
 
+async function waitForLateMountEffects() {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 25);
+  });
+  await waitForNetworkIdle();
+}
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
 afterEach(() => {
+  attendanceRecordReads = 0;
   server.resetHandlers();
 });
 afterAll(() => {
@@ -306,6 +327,25 @@ describe("every page renders cleanly against an empty backend", () => {
       );
     });
   }
+
+  it("does not fetch hidden attendance data while Work Hub is active", async () => {
+    renderAt("/work-hub");
+    expect(
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+    ).toBeVisible();
+    await waitForNetworkIdle();
+    expect(attendanceRecordReads).toBe(0);
+    await waitForLateMountEffects();
+    expect(attendanceRecordReads).toBe(0);
+  });
+
+  it("fetches attendance records once the attendance screen is active", async () => {
+    renderAt("/attendance");
+    expect(await screen.findByRole("heading", { name: "내 근태 기록", level: 1 })).toBeVisible();
+    await waitFor(() => {
+      expect(attendanceRecordReads).toBe(1);
+    });
+  });
 
   it("renders /payroll with zero readiness counts and no crash", async () => {
     renderAt("/payroll");

@@ -7,7 +7,7 @@ import {
   MessageSquare,
   Timer,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -17,10 +17,13 @@ import type {
   SupportTicketSummary,
   WorkOrderListItem,
 } from "../api/types";
+import { hubRowToPin } from "../features/workspace/adapters";
+import type { PinKind } from "../features/workspace/types";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { PageHeader } from "../components/shell/PageHeader";
+import { PinButton } from "../components/shell/workspace/PinButton";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import {
   FEATURES,
@@ -84,9 +87,21 @@ interface CapturedSource<T = unknown> {
   skipped?: boolean;
 }
 
+type HubFilter = Exclude<FilterKey, "all" | "urgent" | "mail">;
+
+const HUB_FILTER_KIND: Record<HubFilter, PinKind> = {
+  work: "workOrder",
+  approval: "approval",
+  daily: "dailyPlan",
+  support: "support",
+  conversation: "conversation",
+};
+
 interface HubItem {
   id: string;
-  filter: Exclude<FilterKey, "all" | "urgent" | "mail">;
+  // Human-readable object code shown in the pin panel's mono ref chip.
+  code: string;
+  filter: HubFilter;
   title: string;
   eyebrow: string;
   detail: string;
@@ -151,6 +166,7 @@ function buildWorkItems(workOrders: WorkOrderListItem[]): HubItem[] {
     const overdue = isOverdue(workOrder.target_due_at);
     return {
       id: `work-${workOrder.id}`,
+      code: workOrder.request_no,
       filter: "work",
       title: workOrderTitle(workOrder),
       eyebrow: ko.workHub.items.work,
@@ -220,6 +236,7 @@ function approvalActionLabel(item: ApprovalItem): string {
 function buildApprovalItems(items: ApprovalItem[]): HubItem[] {
   return items.map((item) => ({
     id: `approval-${item.id}`,
+    code: item.id,
     filter: "approval",
     title: safeLabel(item.title),
     eyebrow: `${ko.workHub.items.approval} · ${approvalSourceLabel(item.source)}`,
@@ -243,6 +260,7 @@ function buildDailyItems(plans: DailyPlanSummary[]): HubItem[] {
     const href = plan.id ? `/daily-plan?planId=${plan.id}` : "/daily-plan";
     return {
       id: `daily-${String(plan.id ?? index)}`,
+      code: String(plan.id ?? index),
       filter: "daily",
       title: ko.workHub.items.dailyTitle.replace("{date}", date),
       eyebrow: ko.workHub.items.daily,
@@ -265,6 +283,7 @@ function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
     const overdue = ticket.status !== "RESOLVED" && ticket.status !== "CLOSED" && isOverdue(ticket.due_at);
     return {
       id: `support-${ticket.id}`,
+      code: ticket.id,
       filter: "support",
       title: safeLabel(ticket.title),
       eyebrow: ko.workHub.items.support,
@@ -333,6 +352,7 @@ function buildConversationItems(threads: MessengerThreadSummary[]): HubItem[] {
     const kindLabel = conversationThreadKindLabel(thread.kind);
     return {
       id: `conversation-${thread.id}`,
+      code: thread.id,
       filter: "conversation",
       title: conversationThreadTitle(thread),
       eyebrow: `${ko.workHub.items.conversation} · ${kindLabel}`,
@@ -374,8 +394,14 @@ function skippedSource(key: SourceKey): Promise<CapturedSource<{ items: [] }>> {
   return Promise.resolve({ key, data: { items: [] }, failed: false, skipped: true });
 }
 
-export function WorkHubPage() {
+interface WorkHubPageProps {
+  active?: boolean;
+  onLoadCommit?: (readState: ReadState) => void;
+}
+
+export function WorkHubPage({ active = true, onLoadCommit }: WorkHubPageProps = {}) {
   const { api, session } = useAuth();
+  const mountedRef = useRef(false);
   const [data, setData] = useState<WorkHubData>(emptyData);
   const [failures, setFailures] = useState<SourceFailure[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
@@ -389,7 +415,26 @@ export function WorkHubPage() {
     hasAnyRole(session?.roles, MAIL_USE_ROLES) ||
     hasAnyFeatureGrant(session?.feature_grants, MAIL_USE_FEATURES);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const commitLoadResult = useCallback(
+    (nextData: WorkHubData, nextFailures: SourceFailure[], nextReadState: ReadState) => {
+      if (!mountedRef.current) return;
+      onLoadCommit?.(nextReadState);
+      setData(nextData);
+      setFailures(nextFailures);
+      setReadState(nextReadState);
+    },
+    [onLoadCommit],
+  );
+
   const loadData = useCallback(async () => {
+    if (!mountedRef.current) return;
     setReadState("loading");
     const workOrderQuery = canSeeTeamQueue
       ? { limit: 20, offset: 0 }
@@ -429,14 +474,17 @@ export function WorkHubPage() {
       messengerThreads: (results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? [],
     };
 
-    setData(nextData);
-    setFailures(nextFailures);
-    setReadState(requestedResults.every((result) => result.failed) ? "error" : "idle");
-  }, [api, canApprove, canSeeTeamQueue, canUseDailyPlan, canUseMessenger]);
+    commitLoadResult(
+      nextData,
+      nextFailures,
+      requestedResults.every((result) => result.failed) ? "error" : "idle",
+    );
+  }, [api, canApprove, canSeeTeamQueue, canUseDailyPlan, canUseMessenger, commitLoadResult]);
 
   useEffect(() => {
+    if (!active) return;
     void Promise.resolve().then(loadData);
-  }, [loadData]);
+  }, [active, loadData]);
 
   const inboxItems = useMemo(() => buildInboxItems(data), [data]);
   const visibleItems = filter === "all"
@@ -841,9 +889,23 @@ function WorkHubItemCard({ item }: { item: HubItem }) {
         <p className="mt-1 text-sm text-steel">{item.detail}</p>
         {item.dueLabel ? <p className="mt-1 text-xs font-medium text-steel">{item.dueLabel}</p> : null}
       </div>
-      <Button asChild variant="secondary" size="sm" className="justify-self-start md:justify-self-end">
-        <Link to={item.href}>{item.action}</Link>
-      </Button>
+      <div className="flex items-center gap-2 justify-self-start md:justify-self-end">
+        <PinButton
+          object={hubRowToPin({
+            code: item.code,
+            kind: HUB_FILTER_KIND[item.filter],
+            title: item.title,
+            eyebrow: item.eyebrow,
+            detail: item.detail,
+            dueLabel: item.dueLabel,
+            badge: item.badge,
+            href: item.href,
+          })}
+        />
+        <Button asChild variant="secondary" size="sm">
+          <Link to={item.href}>{item.action}</Link>
+        </Button>
+      </div>
     </Card>
   );
 }
