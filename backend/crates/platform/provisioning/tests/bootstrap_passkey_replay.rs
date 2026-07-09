@@ -80,7 +80,7 @@ async fn concurrent_consume_burns_the_otp_exactly_once(pool: PgPool) {
         barrier_a.wait().await;
         let mut tx = pool_a.begin().await.unwrap();
         store_a
-            .consume_open_credentials_tx(&mut tx, user_id, now)
+            .consume_open_credentials_tx(&mut tx, OrgId::knl(), user_id, now)
             .await
             .unwrap();
         tx.commit().await.unwrap();
@@ -89,7 +89,7 @@ async fn concurrent_consume_burns_the_otp_exactly_once(pool: PgPool) {
         barrier_b.wait().await;
         let mut tx = pool_b.begin().await.unwrap();
         store_b
-            .consume_open_credentials_tx(&mut tx, user_id, now)
+            .consume_open_credentials_tx(&mut tx, OrgId::knl(), user_id, now)
             .await
             .unwrap();
         tx.commit().await.unwrap();

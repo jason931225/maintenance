@@ -905,7 +905,7 @@ async fn finish_registration(
         .map_err(|err| RestError::internal(err.to_string()))?;
     services
         .bootstrap_credentials
-        .consume_open_credentials_tx(&mut tx, user_id, now)
+        .consume_open_credentials_tx(&mut tx, org_id, user_id, now)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
     tx.commit()
