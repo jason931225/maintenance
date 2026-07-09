@@ -7,6 +7,10 @@ export interface ObjectCandidate {
   /** Issued code for object-link/code-link kinds; the user id for `person`. */
   code: string;
   label: string;
+  /** Backend row id (a UUID) for coded kinds, used to route/pin the real
+   * object — the display `code` (e.g. "WO-20260612-001") is not the detail
+   * route key. Absent for `person`, whose `code` already IS the id. */
+  id?: string;
 }
 
 /** Distinguishes "loaded, zero matches" from "the fetch failed" — a provider
@@ -118,6 +122,7 @@ export function createWorkOrderCandidateProvider(api: ConsoleApiClient): Candida
       .map((wo) => ({
         kind: "workOrder" as const,
         code: workOrderCode(wo.request_no),
+        id: wo.id,
         label: `${safeLabel(wo.customer.name)} · ${safeLabel(wo.equipment.model, wo.equipment.equipment_no)}`,
       }));
     return { status: "ok", candidates };

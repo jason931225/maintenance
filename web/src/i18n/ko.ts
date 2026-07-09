@@ -74,6 +74,14 @@ export const ko = {
       org: "조직",
 
     },
+    // UI-M2a token-grammar composer (components/console/TokenComposer.tsx).
+    composer: {
+      previewLabel: "미리보기",
+      candidatesLabel: "후보 목록",
+      loading: "불러오는 중…",
+      error: "후보를 불러오지 못했습니다",
+      empty: "일치하는 항목이 없습니다",
+    },
   },
   nav: {
     "work-hub": "업무 허브",
