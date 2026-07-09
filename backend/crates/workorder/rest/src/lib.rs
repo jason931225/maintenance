@@ -60,6 +60,7 @@ time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 /// and so the completion tail can be driven directly in integration tests; the REST
 /// entry (`drive_completion_if_enabled`) stays crate-private.
 pub mod m2_strangler;
+pub mod workflow_triggers;
 
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";
@@ -2990,18 +2991,20 @@ async fn approve_work_order(
         .await
         .map_err(RestError::from_store)?;
 
-    // M2 completion strangler (design §Strangler, step 7). Only the executive
-    // approval that reaches FINAL_COMPLETED is a candidate — admin → AdminReview
-    // never touches the runtime. The legacy completion above already committed
-    // (work_orders status + audit) in its own transaction; this is a purely
-    // additive, flag-gated record step. Legacy-first ordering means a runtime
-    // failure never fails a request the tenant already saw succeed — it is logged
-    // and the payroll draft is eventually restaged by the outbox drainer. Flag OFF
-    // (the dark default for every tenant) is a single read-only SELECT that writes
-    // nothing, so the completion path stays byte-identical to legacy.
+    // Domain-event publish (BE-AUTO slice 1). Only the executive approval that
+    // reaches FINAL_COMPLETED is a candidate — admin → AdminReview never touches
+    // the runtime. The legacy completion above already committed (work_orders
+    // status + audit) in its own transaction; this publish is purely additive.
+    // The dispatcher evaluates an ordered binding list: (1) the built-in M2
+    // completion-tail strangler — flag-gated, byte-identical to the previous
+    // inline start (dark default = one read-only SELECT, nothing written) —
+    // then (2) every enabled workflow_trigger_bindings rule for
+    // 'work_order.completed'. Legacy-first ordering means a trigger failure
+    // never fails a request the tenant already saw succeed — it is logged and
+    // the payroll draft is eventually restaged by the outbox drainer.
     if summary.status == WorkOrderStatus::FinalCompleted
         && let Some(runtime) = state.workflow_runtime.as_ref()
-        && let Err(err) = m2_strangler::drive_completion_if_enabled(
+        && let Err(err) = workflow_triggers::publish_work_order_completed(
             runtime,
             &principal,
             summary.branch_id,
@@ -3012,7 +3015,7 @@ async fn approve_work_order(
         tracing::warn!(
             error = %err.message,
             work_order_id = %work_order_id,
-            "m2 strangler: runtime completion record failed (completion already persisted; drainer will restage payroll)"
+            "workflow triggers: work_order.completed publish failed (completion already persisted; drainer will restage payroll)"
         );
     }
 

@@ -103,6 +103,7 @@ mod hr;
 mod mail_sync;
 pub mod objects;
 mod workflow_drain;
+pub mod workflow_schedules;
 mod workflow_studio;
 
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
@@ -2275,6 +2276,11 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
             None
         }
     };
+    // Workflow cron-schedule poller (BE-AUTO slice 1). Same worker-role,
+    // per-tenant re-armed loop shape as the drainer. Dark-safe: no shipped
+    // migration/seed creates a schedule row, so it finds no work until a tenant
+    // authors one through the audited studio REST surface.
+    let workflow_schedule_handle = workflow_schedules::spawn(pool.clone());
     let alimtalk_policy = if config.solapi.is_some() {
         AlimtalkEscalationPolicy::enabled()
     } else {
@@ -2342,6 +2348,7 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     if let Some(handle) = audit_chain_handle {
         handle.shutdown();
     }
+    workflow_schedule_handle.shutdown();
     health_server.abort();
     result
 }

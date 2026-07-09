@@ -63,6 +63,29 @@ struct ReceiptNodeSpec {
     assignee_role_key: Option<String>,
 }
 
+/// One enabled `workflow_trigger_bindings` row (0100) as the event dispatcher
+/// consumes it.
+#[derive(Debug, Clone)]
+pub struct TriggerBindingRow {
+    pub id: Uuid,
+    pub definition_id: Uuid,
+    pub trigger_type: mnt_workflow_domain::TriggerType,
+    pub event_key: String,
+}
+
+/// One due `workflow_schedules` row (0101) as the schedule poller consumes it.
+#[derive(Debug, Clone)]
+pub struct DueScheduleRow {
+    pub id: Uuid,
+    pub label: String,
+    pub cron_expr: String,
+    pub timezone: String,
+    pub definition_id: Uuid,
+    /// The fire this row is due for — the poller's claim token: the run's
+    /// idempotency key derives from it and the advance UPDATE is guarded on it.
+    pub next_run_at: time::OffsetDateTime,
+}
+
 /// Filter for the waiting-task inbox listings (`GET /api/v1/workflow-tasks`).
 #[derive(Debug, Clone)]
 pub struct WaitingTaskListFilter {
@@ -483,6 +506,203 @@ impl PgWorkflowRuntimeStore {
                     object_type,
                     object_id,
                 }))
+            })
+        })
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// Enabled trigger bindings for one registered domain event key (0100),
+    /// read as `mnt_rt` under the armed `app.current_org`. The dispatcher calls
+    /// this at an audited-mutation commit point; ordering is stable (oldest
+    /// binding first) so evaluation order is deterministic.
+    pub async fn list_enabled_trigger_bindings(
+        &self,
+        org: OrgId,
+        event_key: &str,
+    ) -> Result<Vec<TriggerBindingRow>, KernelError> {
+        let event_key = event_key.to_owned();
+        with_org_conn::<_, Vec<TriggerBindingRow>, PgWorkflowRuntimeError>(
+            &self.pool,
+            org,
+            move |tx| {
+                Box::pin(async move {
+                    let rows = sqlx::query(
+                        "SELECT id, definition_id, trigger_type, event_key \
+                         FROM workflow_trigger_bindings \
+                         WHERE event_key = $1 AND enabled \
+                         ORDER BY created_at ASC",
+                    )
+                    .bind(event_key)
+                    .fetch_all(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+                    rows.into_iter()
+                        .map(|row| {
+                            let trigger_type: String = row.try_get("trigger_type")?;
+                            Ok(TriggerBindingRow {
+                                id: row.try_get("id")?,
+                                definition_id: row.try_get("definition_id")?,
+                                trigger_type: mnt_workflow_domain::TriggerType::from_db_str(
+                                    &trigger_type,
+                                )
+                                .map_err(PgWorkflowRuntimeError::Domain)?,
+                                event_key: row.try_get("event_key")?,
+                            })
+                        })
+                        .collect()
+                })
+            },
+        )
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// Resolve a definition's ACTIVE executable (`wf.exec.v1`) version:
+    /// `(active_version, definition JSON)`. `None` when the definition does not
+    /// exist, is not ACTIVE, has no active version, or its active version is not
+    /// `wf.exec.v1` — the trigger/schedule caller SKIPS (fail-safe) rather than
+    /// guessing a version. Read as `mnt_rt` under the armed `app.current_org`.
+    pub async fn resolve_active_exec_definition(
+        &self,
+        org: OrgId,
+        definition_id: Uuid,
+    ) -> Result<Option<(i32, serde_json::Value)>, KernelError> {
+        with_org_conn::<_, Option<(i32, serde_json::Value)>, PgWorkflowRuntimeError>(
+            &self.pool,
+            org,
+            move |tx| {
+                Box::pin(async move {
+                    let row = sqlx::query(
+                        "SELECT d.active_version, v.definition \
+                         FROM workflow_definitions d \
+                         JOIN workflow_definition_versions v \
+                           ON v.definition_id = d.id AND v.org_id = d.org_id \
+                          AND v.version = d.active_version \
+                         WHERE d.id = $1 \
+                           AND d.status = 'ACTIVE' \
+                           AND d.active_version IS NOT NULL \
+                           AND v.definition->>'schema_version' = 'wf.exec.v1'",
+                    )
+                    .bind(definition_id)
+                    .fetch_optional(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+                    let Some(row) = row else {
+                        return Ok(None);
+                    };
+                    Ok(Some((
+                        row.try_get("active_version")?,
+                        row.try_get("definition")?,
+                    )))
+                })
+            },
+        )
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// Due schedules for the poller: `enabled AND next_run_at <= now`, oldest
+    /// due first, bounded by `limit` (one tick's work). Read as `mnt_rt` under
+    /// the armed `app.current_org` (matches `idx_workflow_schedules_due`).
+    pub async fn list_due_schedules(
+        &self,
+        org: OrgId,
+        now: time::OffsetDateTime,
+        limit: i64,
+    ) -> Result<Vec<DueScheduleRow>, KernelError> {
+        with_org_conn::<_, Vec<DueScheduleRow>, PgWorkflowRuntimeError>(
+            &self.pool,
+            org,
+            move |tx| {
+                Box::pin(async move {
+                    let rows = sqlx::query(
+                        "SELECT id, label, cron_expr, timezone, definition_id, next_run_at \
+                         FROM workflow_schedules \
+                         WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= $1 \
+                         ORDER BY next_run_at ASC \
+                         LIMIT $2",
+                    )
+                    .bind(now)
+                    .bind(limit)
+                    .fetch_all(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?;
+                    rows.into_iter()
+                        .map(|row| {
+                            Ok(DueScheduleRow {
+                                id: row.try_get("id")?,
+                                label: row.try_get("label")?,
+                                cron_expr: row.try_get("cron_expr")?,
+                                timezone: row.try_get("timezone")?,
+                                definition_id: row.try_get("definition_id")?,
+                                next_run_at: row.try_get("next_run_at")?,
+                            })
+                        })
+                        .collect()
+                })
+            },
+        )
+        .await
+        .map_err(KernelError::from)
+    }
+
+    /// Advance a schedule past the fire it just handled: stamp
+    /// `last_run_at`/`last_status` and move `next_run_at` forward — GUARDED on
+    /// `next_run_at` still being the claimed fire, so a concurrent poller that
+    /// handled the same fire (winner or loser of the run-start idempotency
+    /// race; both then advance) applies exactly one advance and the slot is
+    /// never skipped or double-advanced. The audited system mutation (actor
+    /// `None`) commits in its own `with_audits` txn; a lost guard race writes
+    /// NO audit row (nothing changed). Returns whether this call advanced.
+    // mnt-gate: state-changing-handler
+    pub async fn advance_schedule(
+        &self,
+        org: OrgId,
+        schedule_id: Uuid,
+        fired_at: time::OffsetDateTime,
+        next_run_at: Option<time::OffsetDateTime>,
+        last_status: &'static str,
+    ) -> Result<bool, KernelError> {
+        with_audits::<_, bool, PgWorkflowRuntimeError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let result = sqlx::query(
+                    "UPDATE workflow_schedules \
+                     SET next_run_at = $3, last_run_at = $2, last_status = $4, \
+                         updated_at = now() \
+                     WHERE id = $1 AND next_run_at = $2",
+                )
+                .bind(schedule_id)
+                .bind(fired_at)
+                .bind(next_run_at)
+                .bind(last_status)
+                .execute(tx.as_mut())
+                .await
+                .map_err(PgWorkflowRuntimeError::from)?;
+                if result.rows_affected() == 0 {
+                    // A concurrent poller already advanced this fire — no
+                    // mutation, no audit row.
+                    return Ok((false, Vec::new()));
+                }
+                let audit = AuditEvent::new(
+                    None,
+                    AuditAction::new("workflow_schedule.advance")
+                        .map_err(PgWorkflowRuntimeError::Domain)?,
+                    "workflow_schedule",
+                    schedule_id.to_string(),
+                    TraceContext::generate(),
+                    time::OffsetDateTime::now_utc(),
+                )
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({ "next_run_at": fired_at.to_string() })),
+                    Some(serde_json::json!({
+                        "next_run_at": next_run_at.map(|at| at.to_string()),
+                        "last_run_at": fired_at.to_string(),
+                        "last_status": last_status,
+                    })),
+                );
+                Ok((true, vec![audit]))
             })
         })
         .await
@@ -1576,9 +1796,9 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                              (id, org_id, definition_id, definition_version, status, \
                               trigger_type, object_type, object_id, idempotency_key, \
                               correlation_id, trace_id, input_payload, context_payload, \
-                              initiated_by) \
+                              initiated_by, schedule_id) \
                          VALUES ($1, $2, $3, $4, 'STARTING', $5, $6, $7, $8, $9, $10, \
-                                 $11, $12, $13)",
+                                 $11, $12, $13, $14)",
                     )
                     .bind(run.id)
                     .bind(*run.org_id.as_uuid())
@@ -1593,6 +1813,7 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                     .bind(run.input_payload)
                     .bind(run.context_payload)
                     .bind(run.initiated_by.map(|user| *user.as_uuid()))
+                    .bind(run.schedule_id)
                     .execute(tx.as_mut())
                     .await
                     .map_err(PgWorkflowRuntimeError::from)?;

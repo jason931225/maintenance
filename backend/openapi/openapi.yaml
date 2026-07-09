@@ -6526,6 +6526,234 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/trigger-bindings:
+    get:
+      operationId: listWorkflowTriggerBindings
+      summary: List workflow trigger bindings (domain event → workflow start rules)
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Trigger bindings plus the registered event-key vocabulary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerBindingListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createWorkflowTriggerBinding
+      summary: Bind a registered domain event to a workflow definition
+      description: When the bound event's audited mutation commits, the dispatcher starts one idempotent run of the bound
+        definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered
+        domain event.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTriggerBindingRequest'
+      responses:
+        '200':
+          description: Created trigger binding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerBindingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/trigger-bindings/{id}/enable:
+    post:
+      operationId: enableWorkflowTriggerBinding
+      summary: Enable a workflow trigger binding
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Updated trigger binding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerBindingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/workflow-studio/trigger-bindings/{id}/disable:
+    post:
+      operationId: disableWorkflowTriggerBinding
+      summary: Disable a workflow trigger binding
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Updated trigger binding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerBindingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/workflow-studio/schedules:
+    get:
+      operationId: listWorkflowSchedules
+      summary: List workflow cron schedules
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Workflow schedules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowScheduleListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createWorkflowSchedule
+      summary: Create a workflow cron schedule
+      description: cron_expr is evaluated in the schedule's IANA timezone (default Asia/Seoul). The background poller starts
+        one idempotent run per fire and advances next_run_at.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowScheduleRequest'
+      responses:
+        '200':
+          description: Created workflow schedule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowScheduleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/schedules/{id}:
+    patch:
+      operationId: updateWorkflowSchedule
+      summary: Update a workflow cron schedule (label, cron, timezone, enabled)
+      description: Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are
+        durable objects — disable instead of delete (run history stays dereferenceable).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkflowScheduleRequest'
+      responses:
+        '200':
+          description: Updated workflow schedule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowScheduleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/schedules/preview-next-runs:
+    post:
+      operationId: previewWorkflowScheduleNextRuns
+      summary: Preview the next fire times for a cron expression
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewScheduleRequest'
+      responses:
+        '200':
+          description: The next fire times (RFC 3339, UTC) for the expression in its timezone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewScheduleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/schedules/{id}/runs:
+    get:
+      operationId: listWorkflowScheduleRuns
+      summary: Run history for a workflow schedule
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Runs started by this schedule, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleRunListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/workflow-tasks/{task_id}/finalize:
     post:
       operationId: finalizeWorkflowTask
@@ -9712,6 +9940,178 @@ components:
           type: string
         step_up:
           $ref: '#/components/schemas/PasskeyStepUpAssertion'
+    TriggerBindingResponse:
+      type: object
+      required: [id, definition_id, trigger_type, event_key, enabled, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        trigger_type:
+          type: string
+          enum: [OBJECT_EVENT, IMPORT_EVENT, MAIL_EVENT, MESSENGER_EVENT, CALENDAR_EVENT, POLL_EVENT]
+        event_key:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TriggerBindingListResponse:
+      type: object
+      required: [items, registered_event_keys]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TriggerBindingResponse'
+        registered_event_keys:
+          type: array
+          items:
+            type: string
+    CreateTriggerBindingRequest:
+      type: object
+      required: [definition_id, trigger_type, event_key]
+      properties:
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        trigger_type:
+          type: string
+          enum: [OBJECT_EVENT, IMPORT_EVENT, MAIL_EVENT, MESSENGER_EVENT, CALENDAR_EVENT, POLL_EVENT]
+        event_key:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+    WorkflowScheduleResponse:
+      type: object
+      required: [id, label, cron_expr, timezone, definition_id, enabled, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        label:
+          type: string
+        cron_expr:
+          type: string
+        timezone:
+          type: string
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        enabled:
+          type: boolean
+        next_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_status:
+          type: string
+          enum: [STARTED, SKIPPED, FAILED]
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkflowScheduleListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowScheduleResponse'
+    CreateWorkflowScheduleRequest:
+      type: object
+      required: [label, cron_expr, definition_id]
+      properties:
+        label:
+          type: string
+          maxLength: 120
+        cron_expr:
+          type: string
+        timezone:
+          type: string
+          description: IANA timezone the cron pattern is evaluated in (default Asia/Seoul).
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        enabled:
+          type: boolean
+          default: true
+    UpdateWorkflowScheduleRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          maxLength: 120
+        cron_expr:
+          type: string
+        timezone:
+          type: string
+        enabled:
+          type: boolean
+    PreviewScheduleRequest:
+      type: object
+      required: [cron_expr]
+      properties:
+        cron_expr:
+          type: string
+        timezone:
+          type: string
+          description: IANA timezone (default Asia/Seoul).
+    PreviewScheduleResponse:
+      type: object
+      required: [cron_expr, timezone, fire_times]
+      properties:
+        cron_expr:
+          type: string
+        timezone:
+          type: string
+        fire_times:
+          type: array
+          description: The next fire instants, RFC 3339 in UTC.
+          items:
+            type: string
+            format: date-time
+    ScheduleRunItem:
+      type: object
+      required: [run_id, status, definition_id, definition_version, started_at]
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        definition_version:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        failed_at:
+          type: string
+          format: date-time
+          nullable: true
+    ScheduleRunListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleRunItem'
     SimulateWorkflowDefinitionRequest:
       type: object
       properties:

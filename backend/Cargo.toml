@@ -75,6 +75,16 @@ calamine = { version = "0.35.0", features = ["dates"] }
 # advisory). Pure-Rust, no extra runtime binary. Version verified live against
 # crates.io 2026-06-23: infer 0.19.0.
 infer = { version = "0.19.0", default-features = false, features = ["std"] }
+# Cron parsing/evaluation for workflow_schedules (BE-AUTO). Versions verified
+# live against crates.io 2026-07-08: croner 3.0.1, chrono 0.4.45,
+# chrono-tz 0.10.4 (croner evaluates over chrono types; chrono-tz supplies the
+# IANA timezone the schedule's cron pattern is interpreted in — 매일 아침 9시
+# must mean 09:00 KST, not UTC). chrono was already in the lockfile
+# transitively; `time` stays the workspace-wide datetime type and chrono is
+# confined to the cron boundary.
+croner = "3.0.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10.4"
 # Versions verified live against crates.io 2026-06-12:
 # axum 0.8.9, tower-http 0.7.0, tower 0.5.3, http 1.4.2,
 # tracing 0.1.44, tracing-subscriber 0.3.23,

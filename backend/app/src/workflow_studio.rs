@@ -45,6 +45,17 @@ pub const WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/rollback";
 pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/clone";
+pub const WORKFLOW_STUDIO_TRIGGER_BINDINGS_PATH: &str = "/api/v1/workflow-studio/trigger-bindings";
+pub const WORKFLOW_STUDIO_TRIGGER_BINDING_ENABLE_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/trigger-bindings/{id}/enable";
+pub const WORKFLOW_STUDIO_TRIGGER_BINDING_DISABLE_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/trigger-bindings/{id}/disable";
+pub const WORKFLOW_STUDIO_SCHEDULES_PATH: &str = "/api/v1/workflow-studio/schedules";
+pub const WORKFLOW_STUDIO_SCHEDULE_PATH_TEMPLATE: &str = "/api/v1/workflow-studio/schedules/{id}";
+pub const WORKFLOW_STUDIO_SCHEDULE_PREVIEW_PATH: &str =
+    "/api/v1/workflow-studio/schedules/preview-next-runs";
+pub const WORKFLOW_STUDIO_SCHEDULE_RUNS_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/schedules/{id}/runs";
 pub const WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/finalize";
 pub const WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE: &str =
     "/api/v1/workflow-runs/{run_id}/post-finalization-rejection";
@@ -277,6 +288,34 @@ pub fn router(state: WorkflowStudioState) -> Router {
         .route(
             WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE,
             post(clone_definition),
+        )
+        .route(
+            WORKFLOW_STUDIO_TRIGGER_BINDINGS_PATH,
+            get(list_trigger_bindings).post(create_trigger_binding),
+        )
+        .route(
+            WORKFLOW_STUDIO_TRIGGER_BINDING_ENABLE_PATH_TEMPLATE,
+            post(enable_trigger_binding),
+        )
+        .route(
+            WORKFLOW_STUDIO_TRIGGER_BINDING_DISABLE_PATH_TEMPLATE,
+            post(disable_trigger_binding),
+        )
+        .route(
+            WORKFLOW_STUDIO_SCHEDULES_PATH,
+            get(list_schedules).post(create_schedule),
+        )
+        .route(
+            WORKFLOW_STUDIO_SCHEDULE_PATH_TEMPLATE,
+            patch(update_schedule),
+        )
+        .route(
+            WORKFLOW_STUDIO_SCHEDULE_PREVIEW_PATH,
+            post(preview_schedule_next_runs),
+        )
+        .route(
+            WORKFLOW_STUDIO_SCHEDULE_RUNS_PATH_TEMPLATE,
+            get(list_schedule_runs),
         )
         .route(WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE, post(finalize_task))
         .route(
@@ -1523,6 +1562,7 @@ async fn start_workflow_run(
             input_payload: request.input_payload.clone(),
             context_payload: request.context_payload.clone(),
             initiated_by: Some(principal.user_id),
+            schedule_id: None,
         },
         &audit,
     )
@@ -3467,6 +3507,726 @@ fn policy_decision_metadata_finding(definition: &Value) -> Option<WorkflowSimula
             scope.get("location_id")?.as_str()?
         ),
     })
+}
+
+// ===========================================================================
+// BE-AUTO slice 1 — trigger bindings + cron schedules authoring (gaps 8 & 9).
+// ===========================================================================
+
+#[derive(Debug, Serialize)]
+struct TriggerBindingResponse {
+    id: Uuid,
+    definition_id: Uuid,
+    trigger_type: String,
+    event_key: String,
+    enabled: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct TriggerBindingListResponse {
+    items: Vec<TriggerBindingResponse>,
+    /// The registered domain-event vocabulary bindings may attach to (each key
+    /// has a real dispatcher producer) — the authoring UI's event picker.
+    registered_event_keys: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateTriggerBindingRequest {
+    definition_id: Uuid,
+    trigger_type: String,
+    event_key: String,
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+fn trigger_binding_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<TriggerBindingResponse, DbError> {
+    Ok(TriggerBindingResponse {
+        id: row.try_get("id").map_err(DbError::Sqlx)?,
+        definition_id: row.try_get("definition_id").map_err(DbError::Sqlx)?,
+        trigger_type: row.try_get("trigger_type").map_err(DbError::Sqlx)?,
+        event_key: row.try_get("event_key").map_err(DbError::Sqlx)?,
+        enabled: row.try_get("enabled").map_err(DbError::Sqlx)?,
+        created_at: row.try_get("created_at").map_err(DbError::Sqlx)?,
+        updated_at: row.try_get("updated_at").map_err(DbError::Sqlx)?,
+    })
+}
+
+async fn list_trigger_bindings(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<TriggerBindingListResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let org = principal.org_id;
+    let items = with_org_conn::<_, Vec<TriggerBindingResponse>, WorkflowStudioError>(
+        &state.pool,
+        org,
+        |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    "SELECT id, definition_id, trigger_type, event_key, enabled, \
+                            created_at, updated_at \
+                     FROM workflow_trigger_bindings \
+                     ORDER BY created_at DESC",
+                )
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.iter()
+                    .map(|row| trigger_binding_from_row(row).map_err(WorkflowStudioError::from))
+                    .collect()
+            })
+        },
+    )
+    .await?;
+    record_workflow_studio_request("trigger_bindings", "success");
+    Ok(Json(TriggerBindingListResponse {
+        items,
+        registered_event_keys: mnt_workflow_domain::REGISTERED_EVENT_KEYS
+            .iter()
+            .map(|key| (*key).to_owned())
+            .collect(),
+    }))
+}
+
+async fn create_trigger_binding(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<CreateTriggerBindingRequest>,
+) -> Result<Json<TriggerBindingResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+
+    // Trigger type must be one of the reserved event-shaped TriggerType values
+    // (MANUAL/SCHEDULE/API are not event bindings; 0100 CHECK backs this up).
+    let trigger_type =
+        TriggerType::from_db_str(body.trigger_type.trim()).map_err(WorkflowStudioError::from)?;
+    if !trigger_type.is_event_binding() {
+        return Err(WorkflowStudioError::validation(
+            "trigger_type must be an event trigger (OBJECT/IMPORT/MAIL/MESSENGER/CALENDAR/POLL_EVENT)",
+        ));
+    }
+    // Only registered event keys have a real dispatcher producer; anything else
+    // would be a rule that can never fire.
+    let event_key = body.event_key.trim().to_owned();
+    if !mnt_workflow_domain::REGISTERED_EVENT_KEYS.contains(&event_key.as_str()) {
+        return Err(WorkflowStudioError::validation(format!(
+            "event_key {event_key:?} is not a registered domain event"
+        )));
+    }
+
+    let binding_id = Uuid::new_v4();
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let definition_id = body.definition_id;
+    let enabled = body.enabled;
+    let trigger_type_db = trigger_type.as_db_str();
+    let audit_event_key = event_key.clone();
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_trigger_binding.create")?,
+        "workflow_trigger_binding",
+        binding_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "definition_id": definition_id,
+            "trigger_type": trigger_type_db,
+            "event_key": audit_event_key,
+            "enabled": enabled,
+        })),
+    );
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let definition_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_definitions WHERE id = $1)")
+                    .bind(definition_id)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+            if !definition_exists {
+                return Err(WorkflowStudioError::from(KernelError::not_found(
+                    "workflow definition not found",
+                )));
+            }
+            let duplicate: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM workflow_trigger_bindings \
+                 WHERE definition_id = $1 AND event_key = $2)",
+            )
+            .bind(definition_id)
+            .bind(&event_key)
+            .fetch_one(tx.as_mut())
+            .await?;
+            if duplicate {
+                return Err(WorkflowStudioError::from(KernelError::conflict(
+                    "a binding for this definition and event already exists (enable/disable it instead)",
+                )));
+            }
+            let row = sqlx::query(
+                "INSERT INTO workflow_trigger_bindings \
+                     (id, org_id, definition_id, trigger_type, event_key, enabled, \
+                      created_by, updated_by) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $7) \
+                 RETURNING id, definition_id, trigger_type, event_key, enabled, \
+                           created_at, updated_at",
+            )
+            .bind(binding_id)
+            .bind(*org.as_uuid())
+            .bind(definition_id)
+            .bind(trigger_type_db)
+            .bind(&event_key)
+            .bind(enabled)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            trigger_binding_from_row(&row).map_err(WorkflowStudioError::from)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("trigger_binding_create", "success");
+    Ok(Json(response))
+}
+
+async fn enable_trigger_binding(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<TriggerBindingResponse>, WorkflowStudioError> {
+    set_trigger_binding_enabled(state, principal, id, true).await
+}
+
+async fn disable_trigger_binding(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<TriggerBindingResponse>, WorkflowStudioError> {
+    set_trigger_binding_enabled(state, principal, id, false).await
+}
+
+async fn set_trigger_binding_enabled(
+    state: WorkflowStudioState,
+    principal: Principal,
+    id: Uuid,
+    enabled: bool,
+) -> Result<Json<TriggerBindingResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let action = if enabled {
+        "workflow_trigger_binding.enable"
+    } else {
+        "workflow_trigger_binding.disable"
+    };
+    // with_audits (not with_audit): the before-snapshot must record the REAL
+    // prior enabled state read in the same transaction, not an assumption.
+    let response =
+        mnt_platform_db::with_audits::<_, _, WorkflowStudioError>(&state.pool, org, move |tx| {
+            Box::pin(async move {
+                let prior: Option<bool> = sqlx::query_scalar(
+                    "SELECT enabled FROM workflow_trigger_bindings WHERE id = $1 FOR UPDATE",
+                )
+                .bind(id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let Some(prior) = prior else {
+                    return Err(WorkflowStudioError::from(KernelError::not_found(
+                        "trigger binding not found",
+                    )));
+                };
+                let row = sqlx::query(
+                    "UPDATE workflow_trigger_bindings \
+                     SET enabled = $2, updated_by = $3, updated_at = now() \
+                     WHERE id = $1 \
+                     RETURNING id, definition_id, trigger_type, event_key, enabled, \
+                               created_at, updated_at",
+                )
+                .bind(id)
+                .bind(enabled)
+                .bind(*actor.as_uuid())
+                .fetch_one(tx.as_mut())
+                .await?;
+                let response = trigger_binding_from_row(&row).map_err(WorkflowStudioError::from)?;
+                let event = AuditEvent::new(
+                    Some(actor),
+                    AuditAction::new(action)?,
+                    "workflow_trigger_binding",
+                    id.to_string(),
+                    TraceContext::generate(),
+                    OffsetDateTime::now_utc(),
+                )
+                .with_org(org)
+                .with_snapshots(
+                    Some(json!({ "enabled": prior })),
+                    Some(json!({ "enabled": enabled })),
+                );
+                Ok((response, vec![event]))
+            })
+        })
+        .await?;
+    record_workflow_studio_request(
+        if enabled {
+            "trigger_binding_enable"
+        } else {
+            "trigger_binding_disable"
+        },
+        "success",
+    );
+    Ok(Json(response))
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowScheduleResponse {
+    id: Uuid,
+    label: String,
+    cron_expr: String,
+    timezone: String,
+    definition_id: Uuid,
+    enabled: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
+    next_run_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    last_run_at: Option<OffsetDateTime>,
+    last_status: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowScheduleListResponse {
+    items: Vec<WorkflowScheduleResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateWorkflowScheduleRequest {
+    label: String,
+    cron_expr: String,
+    timezone: Option<String>,
+    definition_id: Uuid,
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateWorkflowScheduleRequest {
+    label: Option<String>,
+    cron_expr: Option<String>,
+    timezone: Option<String>,
+    enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PreviewScheduleRequest {
+    cron_expr: String,
+    timezone: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PreviewScheduleResponse {
+    cron_expr: String,
+    timezone: String,
+    fire_times: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ScheduleRunListResponse {
+    items: Vec<ScheduleRunItem>,
+}
+
+#[derive(Debug, Serialize)]
+struct ScheduleRunItem {
+    run_id: Uuid,
+    status: String,
+    definition_id: Uuid,
+    definition_version: i32,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    completed_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    failed_at: Option<OffsetDateTime>,
+}
+
+fn schedule_from_row(row: &sqlx::postgres::PgRow) -> Result<WorkflowScheduleResponse, DbError> {
+    Ok(WorkflowScheduleResponse {
+        id: row.try_get("id").map_err(DbError::Sqlx)?,
+        label: row.try_get("label").map_err(DbError::Sqlx)?,
+        cron_expr: row.try_get("cron_expr").map_err(DbError::Sqlx)?,
+        timezone: row.try_get("timezone").map_err(DbError::Sqlx)?,
+        definition_id: row.try_get("definition_id").map_err(DbError::Sqlx)?,
+        enabled: row.try_get("enabled").map_err(DbError::Sqlx)?,
+        next_run_at: row.try_get("next_run_at").map_err(DbError::Sqlx)?,
+        last_run_at: row.try_get("last_run_at").map_err(DbError::Sqlx)?,
+        last_status: row.try_get("last_status").map_err(DbError::Sqlx)?,
+        created_at: row.try_get("created_at").map_err(DbError::Sqlx)?,
+        updated_at: row.try_get("updated_at").map_err(DbError::Sqlx)?,
+    })
+}
+
+async fn list_schedules(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<WorkflowScheduleListResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let org = principal.org_id;
+    let items = with_org_conn::<_, Vec<WorkflowScheduleResponse>, WorkflowStudioError>(
+        &state.pool,
+        org,
+        |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    "SELECT id, label, cron_expr, timezone, definition_id, enabled, \
+                            next_run_at, last_run_at, last_status, created_at, updated_at \
+                     FROM workflow_schedules ORDER BY created_at DESC",
+                )
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.iter()
+                    .map(|row| schedule_from_row(row).map_err(WorkflowStudioError::from))
+                    .collect()
+            })
+        },
+    )
+    .await?;
+    record_workflow_studio_request("schedules", "success");
+    Ok(Json(WorkflowScheduleListResponse { items }))
+}
+
+async fn create_schedule(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<CreateWorkflowScheduleRequest>,
+) -> Result<Json<WorkflowScheduleResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let label = body.label.trim().to_owned();
+    if label.is_empty() || label.chars().count() > 120 {
+        return Err(WorkflowStudioError::validation(
+            "label must be 1-120 characters",
+        ));
+    }
+    let cron_expr = body.cron_expr.trim().to_owned();
+    let timezone = body
+        .timezone
+        .as_deref()
+        .map(str::trim)
+        .filter(|tz| !tz.is_empty())
+        .unwrap_or(crate::workflow_schedules::DEFAULT_TIMEZONE)
+        .to_owned();
+    // Reject garbage before anything touches the DB; also computes the first
+    // fire so the poller's due index sees the row immediately.
+    let next_run_at = if body.enabled {
+        Some(
+            crate::workflow_schedules::next_occurrence(
+                &cron_expr,
+                &timezone,
+                OffsetDateTime::now_utc(),
+            )
+            .map_err(WorkflowStudioError::from)?,
+        )
+    } else {
+        // Still validate; a disabled schedule simply has no due fire.
+        crate::workflow_schedules::next_occurrence(
+            &cron_expr,
+            &timezone,
+            OffsetDateTime::now_utc(),
+        )
+        .map_err(WorkflowStudioError::from)?;
+        None
+    };
+
+    let schedule_id = Uuid::new_v4();
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let definition_id = body.definition_id;
+    let enabled = body.enabled;
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_schedule.create")?,
+        "workflow_schedule",
+        schedule_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "label": label,
+            "cron_expr": cron_expr,
+            "timezone": timezone,
+            "definition_id": definition_id,
+            "enabled": enabled,
+            "next_run_at": next_run_at.map(|at| at.to_string()),
+        })),
+    );
+    let (label_ins, cron_ins, tz_ins) = (label.clone(), cron_expr.clone(), timezone.clone());
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let definition_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM workflow_definitions WHERE id = $1)",
+            )
+            .bind(definition_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+            if !definition_exists {
+                return Err(WorkflowStudioError::from(KernelError::not_found(
+                    "workflow definition not found",
+                )));
+            }
+            let row = sqlx::query(
+                "INSERT INTO workflow_schedules \
+                     (id, org_id, label, cron_expr, timezone, definition_id, enabled, \
+                      next_run_at, created_by, updated_by) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) \
+                 RETURNING id, label, cron_expr, timezone, definition_id, enabled, \
+                           next_run_at, last_run_at, last_status, created_at, updated_at",
+            )
+            .bind(schedule_id)
+            .bind(*org.as_uuid())
+            .bind(&label_ins)
+            .bind(&cron_ins)
+            .bind(&tz_ins)
+            .bind(definition_id)
+            .bind(enabled)
+            .bind(next_run_at)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            schedule_from_row(&row).map_err(WorkflowStudioError::from)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("schedule_create", "success");
+    Ok(Json(response))
+}
+
+async fn update_schedule(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateWorkflowScheduleRequest>,
+) -> Result<Json<WorkflowScheduleResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    if let Some(label) = &body.label {
+        let label = label.trim();
+        if label.is_empty() || label.chars().count() > 120 {
+            return Err(WorkflowStudioError::validation(
+                "label must be 1-120 characters",
+            ));
+        }
+    }
+    if let Some(cron_expr) = &body.cron_expr {
+        crate::workflow_schedules::validate_cron(cron_expr).map_err(WorkflowStudioError::from)?;
+    }
+    if let Some(timezone) = &body.timezone {
+        crate::workflow_schedules::validate_timezone(timezone)
+            .map_err(WorkflowStudioError::from)?;
+    }
+
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_schedule.update")?,
+        "workflow_schedule",
+        id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "label": body.label,
+            "cron_expr": body.cron_expr,
+            "timezone": body.timezone,
+            "enabled": body.enabled,
+        })),
+    );
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = sqlx::query(
+                "SELECT id, label, cron_expr, timezone, definition_id, enabled, \
+                        next_run_at, last_run_at, last_status, created_at, updated_at \
+                 FROM workflow_schedules WHERE id = $1 FOR UPDATE",
+            )
+            .bind(id)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            let Some(current) = current else {
+                return Err(WorkflowStudioError::from(KernelError::not_found(
+                    "workflow schedule not found",
+                )));
+            };
+            let current = schedule_from_row(&current).map_err(WorkflowStudioError::from)?;
+
+            let label = body
+                .label
+                .as_deref()
+                .map(str::trim)
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| current.label.clone());
+            let cron_expr = body
+                .cron_expr
+                .as_deref()
+                .map(str::trim)
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| current.cron_expr.clone());
+            let timezone = body
+                .timezone
+                .as_deref()
+                .map(str::trim)
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| current.timezone.clone());
+            let enabled = body.enabled.unwrap_or(current.enabled);
+
+            // Recompute the next fire whenever the effective firing inputs
+            // change or the schedule (re-)enables — a stale past next_run_at
+            // must never fire the OLD pattern once, and a re-enabled schedule
+            // resumes in the future rather than firing for downtime.
+            let firing_inputs_changed = cron_expr != current.cron_expr
+                || timezone != current.timezone
+                || (enabled && !current.enabled);
+            let next_run_at = if !enabled {
+                None
+            } else if firing_inputs_changed || current.next_run_at.is_none() {
+                Some(
+                    crate::workflow_schedules::next_occurrence(
+                        &cron_expr,
+                        &timezone,
+                        OffsetDateTime::now_utc(),
+                    )
+                    .map_err(WorkflowStudioError::from)?,
+                )
+            } else {
+                current.next_run_at
+            };
+
+            let row = sqlx::query(
+                "UPDATE workflow_schedules \
+                 SET label = $2, cron_expr = $3, timezone = $4, enabled = $5, \
+                     next_run_at = $6, updated_by = $7, updated_at = now() \
+                 WHERE id = $1 \
+                 RETURNING id, label, cron_expr, timezone, definition_id, enabled, \
+                           next_run_at, last_run_at, last_status, created_at, updated_at",
+            )
+            .bind(id)
+            .bind(&label)
+            .bind(&cron_expr)
+            .bind(&timezone)
+            .bind(enabled)
+            .bind(next_run_at)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            schedule_from_row(&row).map_err(WorkflowStudioError::from)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("schedule_update", "success");
+    Ok(Json(response))
+}
+
+async fn preview_schedule_next_runs(
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<PreviewScheduleRequest>,
+) -> Result<Json<PreviewScheduleResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let timezone = body
+        .timezone
+        .as_deref()
+        .map(str::trim)
+        .filter(|tz| !tz.is_empty())
+        .unwrap_or(crate::workflow_schedules::DEFAULT_TIMEZONE)
+        .to_owned();
+    let fires = crate::workflow_schedules::next_occurrences(
+        &body.cron_expr,
+        &timezone,
+        OffsetDateTime::now_utc(),
+        crate::workflow_schedules::PREVIEW_FIRE_COUNT,
+    )
+    .map_err(WorkflowStudioError::from)?;
+    let fire_times = fires
+        .into_iter()
+        .map(|at| {
+            at.format(&time::format_description::well_known::Rfc3339)
+                .map_err(|err| WorkflowStudioError::internal(err.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    record_workflow_studio_request("schedule_preview", "success");
+    Ok(Json(PreviewScheduleResponse {
+        cron_expr: body.cron_expr.trim().to_owned(),
+        timezone,
+        fire_times,
+    }))
+}
+
+async fn list_schedule_runs(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ScheduleRunListResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let org = principal.org_id;
+    let items = with_org_conn::<_, Vec<ScheduleRunItem>, WorkflowStudioError>(
+        &state.pool,
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM workflow_schedules WHERE id = $1)",
+                )
+                .bind(id)
+                .fetch_one(tx.as_mut())
+                .await?;
+                if !exists {
+                    return Err(WorkflowStudioError::from(KernelError::not_found(
+                        "workflow schedule not found",
+                    )));
+                }
+                let rows = sqlx::query(
+                    "SELECT id, status, definition_id, definition_version, started_at, \
+                            completed_at, failed_at \
+                     FROM workflow_runs \
+                     WHERE schedule_id = $1 \
+                     ORDER BY started_at DESC \
+                     LIMIT 100",
+                )
+                .bind(id)
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.iter()
+                    .map(|row| {
+                        Ok(ScheduleRunItem {
+                            run_id: row.try_get("id")?,
+                            status: row.try_get("status")?,
+                            definition_id: row.try_get("definition_id")?,
+                            definition_version: row.try_get("definition_version")?,
+                            started_at: row.try_get("started_at")?,
+                            completed_at: row.try_get("completed_at")?,
+                            failed_at: row.try_get("failed_at")?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, sqlx::Error>>()
+                    .map_err(WorkflowStudioError::from)
+            })
+        },
+    )
+    .await?;
+    record_workflow_studio_request("schedule_runs", "success");
+    Ok(Json(ScheduleRunListResponse { items }))
 }
 
 async fn verify_workflow_step_up(

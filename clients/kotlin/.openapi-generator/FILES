@@ -109,9 +109,11 @@ src/main/kotlin/com/maintenance/api/client/model/CreatePurchaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateRegionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateRentalQuoteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateSiteRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateTriggerBindingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateUserRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkflowDefinitionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateWorkflowScheduleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatedCustomer.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatedSite.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerInquiryPage.kt
@@ -304,6 +306,8 @@ src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionReques
 src/main/kotlin/com/maintenance/api/client/model/PostFinalizationRejectionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PrepareExpenditureRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PresignedUpload.kt
+src/main/kotlin/com/maintenance/api/client/model/PreviewScheduleRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/PreviewScheduleResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PriorityLevel.kt
 src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentAcceptRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentStatusResponse.kt
@@ -339,6 +343,8 @@ src/main/kotlin/com/maintenance/api/client/model/RollbackWorkflowDefinitionReque
 src/main/kotlin/com/maintenance/api/client/model/SalesListingPage.kt
 src/main/kotlin/com/maintenance/api/client/model/SalesListingView.kt
 src/main/kotlin/com/maintenance/api/client/model/SavePurchasePreferencesRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ScheduleRunItem.kt
+src/main/kotlin/com/maintenance/api/client/model/ScheduleRunListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMailRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMailResult.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
@@ -384,6 +390,8 @@ src/main/kotlin/com/maintenance/api/client/model/Team.kt
 src/main/kotlin/com/maintenance/api/client/model/TokenPairResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/TransitionTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TriageFindingRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/TriggerBindingListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/TriggerBindingResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/UnreadNotificationCountResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateBranchRequest.kt
@@ -399,6 +407,7 @@ src/main/kotlin/com/maintenance/api/client/model/UpdateUserRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderIntakeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkflowDefinitionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpdateWorkflowScheduleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UserPage.kt
 src/main/kotlin/com/maintenance/api/client/model/UserSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/VotePollRequest.kt
@@ -430,6 +439,8 @@ src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowRunListItem.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowRunListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowRunSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowScheduleListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowScheduleResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowSimulationFinding.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowSimulationResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowStepUpRequest.kt

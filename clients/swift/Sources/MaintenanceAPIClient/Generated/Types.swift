@@ -1331,6 +1331,57 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/clone`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/clone/post(cloneWorkflowDefinition)`.
     func cloneWorkflowDefinition(_ input: Operations.CloneWorkflowDefinition.Input) async throws -> Operations.CloneWorkflowDefinition.Output
+    /// List workflow trigger bindings (domain event → workflow start rules)
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/trigger-bindings`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/get(listWorkflowTriggerBindings)`.
+    func listWorkflowTriggerBindings(_ input: Operations.ListWorkflowTriggerBindings.Input) async throws -> Operations.ListWorkflowTriggerBindings.Output
+    /// Bind a registered domain event to a workflow definition
+    ///
+    /// When the bound event's audited mutation commits, the dispatcher starts one idempotent run of the bound definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered domain event.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)`.
+    func createWorkflowTriggerBinding(_ input: Operations.CreateWorkflowTriggerBinding.Input) async throws -> Operations.CreateWorkflowTriggerBinding.Output
+    /// Enable a workflow trigger binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings/{id}/enable`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/enable/post(enableWorkflowTriggerBinding)`.
+    func enableWorkflowTriggerBinding(_ input: Operations.EnableWorkflowTriggerBinding.Input) async throws -> Operations.EnableWorkflowTriggerBinding.Output
+    /// Disable a workflow trigger binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings/{id}/disable`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/disable/post(disableWorkflowTriggerBinding)`.
+    func disableWorkflowTriggerBinding(_ input: Operations.DisableWorkflowTriggerBinding.Input) async throws -> Operations.DisableWorkflowTriggerBinding.Output
+    /// List workflow cron schedules
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/get(listWorkflowSchedules)`.
+    func listWorkflowSchedules(_ input: Operations.ListWorkflowSchedules.Input) async throws -> Operations.ListWorkflowSchedules.Output
+    /// Create a workflow cron schedule
+    ///
+    /// cron_expr is evaluated in the schedule's IANA timezone (default Asia/Seoul). The background poller starts one idempotent run per fire and advances next_run_at.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)`.
+    func createWorkflowSchedule(_ input: Operations.CreateWorkflowSchedule.Input) async throws -> Operations.CreateWorkflowSchedule.Output
+    /// Update a workflow cron schedule (label, cron, timezone, enabled)
+    ///
+    /// Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are durable objects — disable instead of delete (run history stays dereferenceable).
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/workflow-studio/schedules/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)`.
+    func updateWorkflowSchedule(_ input: Operations.UpdateWorkflowSchedule.Input) async throws -> Operations.UpdateWorkflowSchedule.Output
+    /// Preview the next fire times for a cron expression
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/schedules/preview-next-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/preview-next-runs/post(previewWorkflowScheduleNextRuns)`.
+    func previewWorkflowScheduleNextRuns(_ input: Operations.PreviewWorkflowScheduleNextRuns.Input) async throws -> Operations.PreviewWorkflowScheduleNextRuns.Output
+    /// Run history for a workflow schedule
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/schedules/{id}/runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/runs/get(listWorkflowScheduleRuns)`.
+    func listWorkflowScheduleRuns(_ input: Operations.ListWorkflowScheduleRuns.Input) async throws -> Operations.ListWorkflowScheduleRuns.Output
     /// Finalize an approval document (author or delegate)
     ///
     /// Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
@@ -4446,6 +4497,119 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// List workflow trigger bindings (domain event → workflow start rules)
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/trigger-bindings`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/get(listWorkflowTriggerBindings)`.
+    public func listWorkflowTriggerBindings(headers: Operations.ListWorkflowTriggerBindings.Input.Headers = .init()) async throws -> Operations.ListWorkflowTriggerBindings.Output {
+        try await listWorkflowTriggerBindings(Operations.ListWorkflowTriggerBindings.Input(headers: headers))
+    }
+    /// Bind a registered domain event to a workflow definition
+    ///
+    /// When the bound event's audited mutation commits, the dispatcher starts one idempotent run of the bound definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered domain event.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)`.
+    public func createWorkflowTriggerBinding(
+        headers: Operations.CreateWorkflowTriggerBinding.Input.Headers = .init(),
+        body: Operations.CreateWorkflowTriggerBinding.Input.Body
+    ) async throws -> Operations.CreateWorkflowTriggerBinding.Output {
+        try await createWorkflowTriggerBinding(Operations.CreateWorkflowTriggerBinding.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Enable a workflow trigger binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings/{id}/enable`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/enable/post(enableWorkflowTriggerBinding)`.
+    public func enableWorkflowTriggerBinding(
+        path: Operations.EnableWorkflowTriggerBinding.Input.Path,
+        headers: Operations.EnableWorkflowTriggerBinding.Input.Headers = .init()
+    ) async throws -> Operations.EnableWorkflowTriggerBinding.Output {
+        try await enableWorkflowTriggerBinding(Operations.EnableWorkflowTriggerBinding.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Disable a workflow trigger binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings/{id}/disable`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/disable/post(disableWorkflowTriggerBinding)`.
+    public func disableWorkflowTriggerBinding(
+        path: Operations.DisableWorkflowTriggerBinding.Input.Path,
+        headers: Operations.DisableWorkflowTriggerBinding.Input.Headers = .init()
+    ) async throws -> Operations.DisableWorkflowTriggerBinding.Output {
+        try await disableWorkflowTriggerBinding(Operations.DisableWorkflowTriggerBinding.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// List workflow cron schedules
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/get(listWorkflowSchedules)`.
+    public func listWorkflowSchedules(headers: Operations.ListWorkflowSchedules.Input.Headers = .init()) async throws -> Operations.ListWorkflowSchedules.Output {
+        try await listWorkflowSchedules(Operations.ListWorkflowSchedules.Input(headers: headers))
+    }
+    /// Create a workflow cron schedule
+    ///
+    /// cron_expr is evaluated in the schedule's IANA timezone (default Asia/Seoul). The background poller starts one idempotent run per fire and advances next_run_at.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)`.
+    public func createWorkflowSchedule(
+        headers: Operations.CreateWorkflowSchedule.Input.Headers = .init(),
+        body: Operations.CreateWorkflowSchedule.Input.Body
+    ) async throws -> Operations.CreateWorkflowSchedule.Output {
+        try await createWorkflowSchedule(Operations.CreateWorkflowSchedule.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Update a workflow cron schedule (label, cron, timezone, enabled)
+    ///
+    /// Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are durable objects — disable instead of delete (run history stays dereferenceable).
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/workflow-studio/schedules/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)`.
+    public func updateWorkflowSchedule(
+        path: Operations.UpdateWorkflowSchedule.Input.Path,
+        headers: Operations.UpdateWorkflowSchedule.Input.Headers = .init(),
+        body: Operations.UpdateWorkflowSchedule.Input.Body
+    ) async throws -> Operations.UpdateWorkflowSchedule.Output {
+        try await updateWorkflowSchedule(Operations.UpdateWorkflowSchedule.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Preview the next fire times for a cron expression
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/schedules/preview-next-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/preview-next-runs/post(previewWorkflowScheduleNextRuns)`.
+    public func previewWorkflowScheduleNextRuns(
+        headers: Operations.PreviewWorkflowScheduleNextRuns.Input.Headers = .init(),
+        body: Operations.PreviewWorkflowScheduleNextRuns.Input.Body
+    ) async throws -> Operations.PreviewWorkflowScheduleNextRuns.Output {
+        try await previewWorkflowScheduleNextRuns(Operations.PreviewWorkflowScheduleNextRuns.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Run history for a workflow schedule
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/schedules/{id}/runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/runs/get(listWorkflowScheduleRuns)`.
+    public func listWorkflowScheduleRuns(
+        path: Operations.ListWorkflowScheduleRuns.Input.Path,
+        headers: Operations.ListWorkflowScheduleRuns.Input.Headers = .init()
+    ) async throws -> Operations.ListWorkflowScheduleRuns.Output {
+        try await listWorkflowScheduleRuns(Operations.ListWorkflowScheduleRuns.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Finalize an approval document (author or delegate)
@@ -9293,6 +9457,435 @@ public enum Components {
                 case workflowKey = "workflow_key"
                 case displayName = "display_name"
                 case stepUp = "step_up"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse`.
+        public struct TriggerBindingResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/trigger_type`.
+            @frozen public enum TriggerTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case objectEvent = "OBJECT_EVENT"
+                case importEvent = "IMPORT_EVENT"
+                case mailEvent = "MAIL_EVENT"
+                case messengerEvent = "MESSENGER_EVENT"
+                case calendarEvent = "CALENDAR_EVENT"
+                case pollEvent = "POLL_EVENT"
+            }
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/trigger_type`.
+            public var triggerType: Components.Schemas.TriggerBindingResponse.TriggerTypePayload
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/event_key`.
+            public var eventKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/enabled`.
+            public var enabled: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/created_at`.
+            public var createdAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingResponse/updated_at`.
+            public var updatedAt: Foundation.Date
+            /// Creates a new `TriggerBindingResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - definitionId:
+            ///   - triggerType:
+            ///   - eventKey:
+            ///   - enabled:
+            ///   - createdAt:
+            ///   - updatedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                definitionId: Components.Schemas.Uuid,
+                triggerType: Components.Schemas.TriggerBindingResponse.TriggerTypePayload,
+                eventKey: Swift.String,
+                enabled: Swift.Bool,
+                createdAt: Foundation.Date,
+                updatedAt: Foundation.Date
+            ) {
+                self.id = id
+                self.definitionId = definitionId
+                self.triggerType = triggerType
+                self.eventKey = eventKey
+                self.enabled = enabled
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case definitionId = "definition_id"
+                case triggerType = "trigger_type"
+                case eventKey = "event_key"
+                case enabled
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TriggerBindingListResponse`.
+        public struct TriggerBindingListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingListResponse/items`.
+            public var items: [Components.Schemas.TriggerBindingResponse]
+            /// - Remark: Generated from `#/components/schemas/TriggerBindingListResponse/registered_event_keys`.
+            public var registeredEventKeys: [Swift.String]
+            /// Creates a new `TriggerBindingListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - registeredEventKeys:
+            public init(
+                items: [Components.Schemas.TriggerBindingResponse],
+                registeredEventKeys: [Swift.String]
+            ) {
+                self.items = items
+                self.registeredEventKeys = registeredEventKeys
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case registeredEventKeys = "registered_event_keys"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest`.
+        public struct CreateTriggerBindingRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/trigger_type`.
+            @frozen public enum TriggerTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case objectEvent = "OBJECT_EVENT"
+                case importEvent = "IMPORT_EVENT"
+                case mailEvent = "MAIL_EVENT"
+                case messengerEvent = "MESSENGER_EVENT"
+                case calendarEvent = "CALENDAR_EVENT"
+                case pollEvent = "POLL_EVENT"
+            }
+            /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/trigger_type`.
+            public var triggerType: Components.Schemas.CreateTriggerBindingRequest.TriggerTypePayload
+            /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/event_key`.
+            public var eventKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateTriggerBindingRequest/enabled`.
+            public var enabled: Swift.Bool?
+            /// Creates a new `CreateTriggerBindingRequest`.
+            ///
+            /// - Parameters:
+            ///   - definitionId:
+            ///   - triggerType:
+            ///   - eventKey:
+            ///   - enabled:
+            public init(
+                definitionId: Components.Schemas.Uuid,
+                triggerType: Components.Schemas.CreateTriggerBindingRequest.TriggerTypePayload,
+                eventKey: Swift.String,
+                enabled: Swift.Bool? = nil
+            ) {
+                self.definitionId = definitionId
+                self.triggerType = triggerType
+                self.eventKey = eventKey
+                self.enabled = enabled
+            }
+            public enum CodingKeys: String, CodingKey {
+                case definitionId = "definition_id"
+                case triggerType = "trigger_type"
+                case eventKey = "event_key"
+                case enabled
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse`.
+        public struct WorkflowScheduleResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/cron_expr`.
+            public var cronExpr: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/timezone`.
+            public var timezone: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/enabled`.
+            public var enabled: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/next_run_at`.
+            public var nextRunAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/last_run_at`.
+            public var lastRunAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/last_status`.
+            @frozen public enum LastStatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case started = "STARTED"
+                case skipped = "SKIPPED"
+                case failed = "FAILED"
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/last_status`.
+            public var lastStatus: Components.Schemas.WorkflowScheduleResponse.LastStatusPayload?
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/created_at`.
+            public var createdAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleResponse/updated_at`.
+            public var updatedAt: Foundation.Date
+            /// Creates a new `WorkflowScheduleResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - label:
+            ///   - cronExpr:
+            ///   - timezone:
+            ///   - definitionId:
+            ///   - enabled:
+            ///   - nextRunAt:
+            ///   - lastRunAt:
+            ///   - lastStatus:
+            ///   - createdAt:
+            ///   - updatedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                label: Swift.String,
+                cronExpr: Swift.String,
+                timezone: Swift.String,
+                definitionId: Components.Schemas.Uuid,
+                enabled: Swift.Bool,
+                nextRunAt: Foundation.Date? = nil,
+                lastRunAt: Foundation.Date? = nil,
+                lastStatus: Components.Schemas.WorkflowScheduleResponse.LastStatusPayload? = nil,
+                createdAt: Foundation.Date,
+                updatedAt: Foundation.Date
+            ) {
+                self.id = id
+                self.label = label
+                self.cronExpr = cronExpr
+                self.timezone = timezone
+                self.definitionId = definitionId
+                self.enabled = enabled
+                self.nextRunAt = nextRunAt
+                self.lastRunAt = lastRunAt
+                self.lastStatus = lastStatus
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case label
+                case cronExpr = "cron_expr"
+                case timezone
+                case definitionId = "definition_id"
+                case enabled
+                case nextRunAt = "next_run_at"
+                case lastRunAt = "last_run_at"
+                case lastStatus = "last_status"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowScheduleListResponse`.
+        public struct WorkflowScheduleListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowScheduleListResponse/items`.
+            public var items: [Components.Schemas.WorkflowScheduleResponse]
+            /// Creates a new `WorkflowScheduleListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.WorkflowScheduleResponse]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateWorkflowScheduleRequest`.
+        public struct CreateWorkflowScheduleRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateWorkflowScheduleRequest/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateWorkflowScheduleRequest/cron_expr`.
+            public var cronExpr: Swift.String
+            /// IANA timezone the cron pattern is evaluated in (default Asia/Seoul).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateWorkflowScheduleRequest/timezone`.
+            public var timezone: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateWorkflowScheduleRequest/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateWorkflowScheduleRequest/enabled`.
+            public var enabled: Swift.Bool?
+            /// Creates a new `CreateWorkflowScheduleRequest`.
+            ///
+            /// - Parameters:
+            ///   - label:
+            ///   - cronExpr:
+            ///   - timezone: IANA timezone the cron pattern is evaluated in (default Asia/Seoul).
+            ///   - definitionId:
+            ///   - enabled:
+            public init(
+                label: Swift.String,
+                cronExpr: Swift.String,
+                timezone: Swift.String? = nil,
+                definitionId: Components.Schemas.Uuid,
+                enabled: Swift.Bool? = nil
+            ) {
+                self.label = label
+                self.cronExpr = cronExpr
+                self.timezone = timezone
+                self.definitionId = definitionId
+                self.enabled = enabled
+            }
+            public enum CodingKeys: String, CodingKey {
+                case label
+                case cronExpr = "cron_expr"
+                case timezone
+                case definitionId = "definition_id"
+                case enabled
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateWorkflowScheduleRequest`.
+        public struct UpdateWorkflowScheduleRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowScheduleRequest/label`.
+            public var label: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowScheduleRequest/cron_expr`.
+            public var cronExpr: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowScheduleRequest/timezone`.
+            public var timezone: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowScheduleRequest/enabled`.
+            public var enabled: Swift.Bool?
+            /// Creates a new `UpdateWorkflowScheduleRequest`.
+            ///
+            /// - Parameters:
+            ///   - label:
+            ///   - cronExpr:
+            ///   - timezone:
+            ///   - enabled:
+            public init(
+                label: Swift.String? = nil,
+                cronExpr: Swift.String? = nil,
+                timezone: Swift.String? = nil,
+                enabled: Swift.Bool? = nil
+            ) {
+                self.label = label
+                self.cronExpr = cronExpr
+                self.timezone = timezone
+                self.enabled = enabled
+            }
+            public enum CodingKeys: String, CodingKey {
+                case label
+                case cronExpr = "cron_expr"
+                case timezone
+                case enabled
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PreviewScheduleRequest`.
+        public struct PreviewScheduleRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PreviewScheduleRequest/cron_expr`.
+            public var cronExpr: Swift.String
+            /// IANA timezone (default Asia/Seoul).
+            ///
+            /// - Remark: Generated from `#/components/schemas/PreviewScheduleRequest/timezone`.
+            public var timezone: Swift.String?
+            /// Creates a new `PreviewScheduleRequest`.
+            ///
+            /// - Parameters:
+            ///   - cronExpr:
+            ///   - timezone: IANA timezone (default Asia/Seoul).
+            public init(
+                cronExpr: Swift.String,
+                timezone: Swift.String? = nil
+            ) {
+                self.cronExpr = cronExpr
+                self.timezone = timezone
+            }
+            public enum CodingKeys: String, CodingKey {
+                case cronExpr = "cron_expr"
+                case timezone
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PreviewScheduleResponse`.
+        public struct PreviewScheduleResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PreviewScheduleResponse/cron_expr`.
+            public var cronExpr: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PreviewScheduleResponse/timezone`.
+            public var timezone: Swift.String
+            /// The next fire instants, RFC 3339 in UTC.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PreviewScheduleResponse/fire_times`.
+            public var fireTimes: [Foundation.Date]
+            /// Creates a new `PreviewScheduleResponse`.
+            ///
+            /// - Parameters:
+            ///   - cronExpr:
+            ///   - timezone:
+            ///   - fireTimes: The next fire instants, RFC 3339 in UTC.
+            public init(
+                cronExpr: Swift.String,
+                timezone: Swift.String,
+                fireTimes: [Foundation.Date]
+            ) {
+                self.cronExpr = cronExpr
+                self.timezone = timezone
+                self.fireTimes = fireTimes
+            }
+            public enum CodingKeys: String, CodingKey {
+                case cronExpr = "cron_expr"
+                case timezone
+                case fireTimes = "fire_times"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ScheduleRunItem`.
+        public struct ScheduleRunItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunItem/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunItem/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunItem/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunItem/definition_version`.
+            public var definitionVersion: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunItem/started_at`.
+            public var startedAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunItem/completed_at`.
+            public var completedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunItem/failed_at`.
+            public var failedAt: Foundation.Date?
+            /// Creates a new `ScheduleRunItem`.
+            ///
+            /// - Parameters:
+            ///   - runId:
+            ///   - status:
+            ///   - definitionId:
+            ///   - definitionVersion:
+            ///   - startedAt:
+            ///   - completedAt:
+            ///   - failedAt:
+            public init(
+                runId: Components.Schemas.Uuid,
+                status: Swift.String,
+                definitionId: Components.Schemas.Uuid,
+                definitionVersion: Swift.Int,
+                startedAt: Foundation.Date,
+                completedAt: Foundation.Date? = nil,
+                failedAt: Foundation.Date? = nil
+            ) {
+                self.runId = runId
+                self.status = status
+                self.definitionId = definitionId
+                self.definitionVersion = definitionVersion
+                self.startedAt = startedAt
+                self.completedAt = completedAt
+                self.failedAt = failedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case runId = "run_id"
+                case status
+                case definitionId = "definition_id"
+                case definitionVersion = "definition_version"
+                case startedAt = "started_at"
+                case completedAt = "completed_at"
+                case failedAt = "failed_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ScheduleRunListResponse`.
+        public struct ScheduleRunListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScheduleRunListResponse/items`.
+            public var items: [Components.Schemas.ScheduleRunItem]
+            /// Creates a new `ScheduleRunListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.ScheduleRunItem]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
             }
         }
         /// - Remark: Generated from `#/components/schemas/SimulateWorkflowDefinitionRequest`.
@@ -68162,6 +68755,1783 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List workflow trigger bindings (domain event → workflow start rules)
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/trigger-bindings`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/get(listWorkflowTriggerBindings)`.
+    public enum ListWorkflowTriggerBindings {
+        public static let id: Swift.String = "listWorkflowTriggerBindings"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowTriggerBindings.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowTriggerBindings.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListWorkflowTriggerBindings.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListWorkflowTriggerBindings.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.TriggerBindingListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.TriggerBindingListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListWorkflowTriggerBindings.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListWorkflowTriggerBindings.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Trigger bindings plus the registered event-key vocabulary.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/get(listWorkflowTriggerBindings)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListWorkflowTriggerBindings.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListWorkflowTriggerBindings.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/get(listWorkflowTriggerBindings)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/get(listWorkflowTriggerBindings)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Bind a registered domain event to a workflow definition
+    ///
+    /// When the bound event's audited mutation commits, the dispatcher starts one idempotent run of the bound definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered domain event.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)`.
+    public enum CreateWorkflowTriggerBinding {
+        public static let id: Swift.String = "createWorkflowTriggerBinding"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateWorkflowTriggerBinding.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateWorkflowTriggerBinding.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateWorkflowTriggerBinding.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateTriggerBindingRequest)
+            }
+            public var body: Operations.CreateWorkflowTriggerBinding.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateWorkflowTriggerBinding.Input.Headers = .init(),
+                body: Operations.CreateWorkflowTriggerBinding.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.TriggerBindingResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.TriggerBindingResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateWorkflowTriggerBinding.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateWorkflowTriggerBinding.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Created trigger binding.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.CreateWorkflowTriggerBinding.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.CreateWorkflowTriggerBinding.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/post(createWorkflowTriggerBinding)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Enable a workflow trigger binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings/{id}/enable`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/enable/post(enableWorkflowTriggerBinding)`.
+    public enum EnableWorkflowTriggerBinding {
+        public static let id: Swift.String = "enableWorkflowTriggerBinding"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/enable/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/enable/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.EnableWorkflowTriggerBinding.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/enable/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.EnableWorkflowTriggerBinding.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.EnableWorkflowTriggerBinding.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.EnableWorkflowTriggerBinding.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.EnableWorkflowTriggerBinding.Input.Path,
+                headers: Operations.EnableWorkflowTriggerBinding.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/enable/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/enable/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.TriggerBindingResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.TriggerBindingResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.EnableWorkflowTriggerBinding.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.EnableWorkflowTriggerBinding.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated trigger binding.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/enable/post(enableWorkflowTriggerBinding)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.EnableWorkflowTriggerBinding.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.EnableWorkflowTriggerBinding.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/enable/post(enableWorkflowTriggerBinding)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/enable/post(enableWorkflowTriggerBinding)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/enable/post(enableWorkflowTriggerBinding)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Disable a workflow trigger binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/trigger-bindings/{id}/disable`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/disable/post(disableWorkflowTriggerBinding)`.
+    public enum DisableWorkflowTriggerBinding {
+        public static let id: Swift.String = "disableWorkflowTriggerBinding"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/disable/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/disable/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.DisableWorkflowTriggerBinding.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/disable/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DisableWorkflowTriggerBinding.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DisableWorkflowTriggerBinding.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DisableWorkflowTriggerBinding.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.DisableWorkflowTriggerBinding.Input.Path,
+                headers: Operations.DisableWorkflowTriggerBinding.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/disable/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/trigger-bindings/{id}/disable/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.TriggerBindingResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.TriggerBindingResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DisableWorkflowTriggerBinding.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DisableWorkflowTriggerBinding.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated trigger binding.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/disable/post(disableWorkflowTriggerBinding)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.DisableWorkflowTriggerBinding.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.DisableWorkflowTriggerBinding.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/disable/post(disableWorkflowTriggerBinding)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/disable/post(disableWorkflowTriggerBinding)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/trigger-bindings/{id}/disable/post(disableWorkflowTriggerBinding)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List workflow cron schedules
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/get(listWorkflowSchedules)`.
+    public enum ListWorkflowSchedules {
+        public static let id: Swift.String = "listWorkflowSchedules"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowSchedules.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowSchedules.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListWorkflowSchedules.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListWorkflowSchedules.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowScheduleListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowScheduleListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListWorkflowSchedules.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListWorkflowSchedules.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Workflow schedules.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/get(listWorkflowSchedules)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListWorkflowSchedules.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListWorkflowSchedules.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/get(listWorkflowSchedules)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/get(listWorkflowSchedules)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a workflow cron schedule
+    ///
+    /// cron_expr is evaluated in the schedule's IANA timezone (default Asia/Seoul). The background poller starts one idempotent run per fire and advances next_run_at.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)`.
+    public enum CreateWorkflowSchedule {
+        public static let id: Swift.String = "createWorkflowSchedule"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateWorkflowSchedule.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateWorkflowSchedule.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateWorkflowSchedule.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateWorkflowScheduleRequest)
+            }
+            public var body: Operations.CreateWorkflowSchedule.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateWorkflowSchedule.Input.Headers = .init(),
+                body: Operations.CreateWorkflowSchedule.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowScheduleResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowScheduleResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateWorkflowSchedule.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateWorkflowSchedule.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Created workflow schedule.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.CreateWorkflowSchedule.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.CreateWorkflowSchedule.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/post(createWorkflowSchedule)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Update a workflow cron schedule (label, cron, timezone, enabled)
+    ///
+    /// Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are durable objects — disable instead of delete (run history stays dereferenceable).
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/workflow-studio/schedules/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)`.
+    public enum UpdateWorkflowSchedule {
+        public static let id: Swift.String = "updateWorkflowSchedule"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/PATCH/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.UpdateWorkflowSchedule.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkflowSchedule.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkflowSchedule.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateWorkflowSchedule.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.UpdateWorkflowScheduleRequest)
+            }
+            public var body: Operations.UpdateWorkflowSchedule.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdateWorkflowSchedule.Input.Path,
+                headers: Operations.UpdateWorkflowSchedule.Input.Headers = .init(),
+                body: Operations.UpdateWorkflowSchedule.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/PATCH/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/PATCH/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowScheduleResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowScheduleResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateWorkflowSchedule.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateWorkflowSchedule.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated workflow schedule.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdateWorkflowSchedule.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdateWorkflowSchedule.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/patch(updateWorkflowSchedule)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Preview the next fire times for a cron expression
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-studio/schedules/preview-next-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/preview-next-runs/post(previewWorkflowScheduleNextRuns)`.
+    public enum PreviewWorkflowScheduleNextRuns {
+        public static let id: Swift.String = "previewWorkflowScheduleNextRuns"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/preview-next-runs/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewWorkflowScheduleNextRuns.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewWorkflowScheduleNextRuns.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PreviewWorkflowScheduleNextRuns.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/preview-next-runs/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/preview-next-runs/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.PreviewScheduleRequest)
+            }
+            public var body: Operations.PreviewWorkflowScheduleNextRuns.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PreviewWorkflowScheduleNextRuns.Input.Headers = .init(),
+                body: Operations.PreviewWorkflowScheduleNextRuns.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/preview-next-runs/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/preview-next-runs/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PreviewScheduleResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PreviewScheduleResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PreviewWorkflowScheduleNextRuns.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PreviewWorkflowScheduleNextRuns.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The next fire times (RFC 3339, UTC) for the expression in its timezone.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/preview-next-runs/post(previewWorkflowScheduleNextRuns)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PreviewWorkflowScheduleNextRuns.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PreviewWorkflowScheduleNextRuns.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/preview-next-runs/post(previewWorkflowScheduleNextRuns)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/preview-next-runs/post(previewWorkflowScheduleNextRuns)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/preview-next-runs/post(previewWorkflowScheduleNextRuns)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Run history for a workflow schedule
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-studio/schedules/{id}/runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/runs/get(listWorkflowScheduleRuns)`.
+    public enum ListWorkflowScheduleRuns {
+        public static let id: Swift.String = "listWorkflowScheduleRuns"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/runs/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/runs/GET/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.ListWorkflowScheduleRuns.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/runs/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowScheduleRuns.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowScheduleRuns.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListWorkflowScheduleRuns.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ListWorkflowScheduleRuns.Input.Path,
+                headers: Operations.ListWorkflowScheduleRuns.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/runs/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/schedules/{id}/runs/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ScheduleRunListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ScheduleRunListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListWorkflowScheduleRuns.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListWorkflowScheduleRuns.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Runs started by this schedule, newest first.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/runs/get(listWorkflowScheduleRuns)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListWorkflowScheduleRuns.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListWorkflowScheduleRuns.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/runs/get(listWorkflowScheduleRuns)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/runs/get(listWorkflowScheduleRuns)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/schedules/{id}/runs/get(listWorkflowScheduleRuns)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }
