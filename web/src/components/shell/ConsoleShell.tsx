@@ -5,6 +5,7 @@ import {
   ConsoleScreenContext,
   ConsoleWorkspaceOwnerContext,
 } from "../../features/workspace/pin-context";
+import { candidateToPin } from "../../features/workspace/adapters";
 import { useWorkspacePersistence } from "../../features/workspace/persistence";
 import {
   runForWorkspaceOwner,
@@ -303,6 +304,14 @@ function ConsoleShellContent() {
         <CommandPalette
           onClose={() => {
             setCommandPaletteOpen(false);
+          }}
+          onPinObject={(candidate) => {
+            const pinned = candidateToPin(candidate);
+            if (pinned) {
+              mutateWorkspace(() => {
+                pin(activeScreen, pinned);
+              });
+            }
           }}
         />
       ) : null}

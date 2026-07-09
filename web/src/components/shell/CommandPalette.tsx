@@ -25,6 +25,11 @@ import { visibleNavItemsForRoles, type VisibleNavItem } from "./nav";
 
 interface CommandPaletteProps {
   onClose: () => void;
+  /** When provided (ConsoleShell), selecting a work/person result pins it into
+   * the active screen instead of navigating — the pin's mount fetches live
+   * detail (and, for a person, records the view-audit). Omitted on AppShell,
+   * where there is no window engine, so results navigate. */
+  onPinObject?: (candidate: ObjectCandidate) => void;
 }
 
 interface ScreenCommand {
@@ -44,7 +49,7 @@ function normalize(value: string): string {
   return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
 }
 
-export function CommandPalette({ onClose }: CommandPaletteProps) {
+export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   const { api, session } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -163,6 +168,10 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
 
   function runObject(candidate: ObjectCandidate) {
     onClose();
+    if (onPinObject) {
+      onPinObject(candidate);
+      return;
+    }
     const ref = { id: candidate.id ?? candidate.code, code: candidate.code, name: candidate.label };
     void navigate(objectRegistry[candidate.kind].route(ref));
   }

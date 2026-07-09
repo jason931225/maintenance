@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
@@ -46,11 +46,11 @@ function authValue(): AuthContextValue {
   };
 }
 
-function renderPalette() {
+function renderPalette(onPinObject?: (candidate: { kind: string; code: string }) => void) {
   return render(
     <AuthContext.Provider value={authValue()}>
       <MemoryRouter initialEntries={["/work-hub"]}>
-        <CommandPalette onClose={() => undefined} />
+        <CommandPalette onClose={() => undefined} onPinObject={onPinObject as never} />
       </MemoryRouter>
     </AuthContext.Provider>,
   );
@@ -85,6 +85,25 @@ describe("CommandPalette (UI-M2a)", () => {
 
     // Each object row carries its issued code / id for routing.
     expect(screen.getAllByText(/WO-/).length).toBeGreaterThan(0);
+  });
+
+  it("pins an object result (not navigate) when onPinObject is provided — the ConsoleShell path", async () => {
+    server.use(
+      http.get("*/api/v1/work-orders", () => HttpResponse.json({ items: [], limit: 100, offset: 0, total: 0 })),
+      http.get("*/api/messenger/members", () =>
+        HttpResponse.json({
+          items: [{ id: "22222222-2222-4222-8222-222222222222", display_name: "홍길동", team: "MAINTENANCE" }],
+        }),
+      ),
+    );
+    const pinned: { kind: string; code: string }[] = [];
+    renderPalette((c) => pinned.push(c));
+
+    fireEvent.click(await screen.findByText("홍길동"));
+
+    expect(pinned).toEqual([
+      expect.objectContaining({ kind: "person", code: "22222222-2222-4222-8222-222222222222" }),
+    ]);
   });
 
   it("omits work/people rows when their APIs deny (deny-by-omission), keeping screens", () => {
