@@ -72,6 +72,7 @@ export const ko = {
       journal: "업무일지",
       intake: "접수",
       person: "사람",
+      channel: "채널",
       org: "조직",
 
     },
