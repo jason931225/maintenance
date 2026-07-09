@@ -58,6 +58,10 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
     .getByRole("button", { name: RAIL.openNotifications })
     .click();
 
+  // Anchored so a seeded notification body that legitimately contains "알림"
+  // as a substring (e.g. "미확인 알림") never strict-mode-collides with this
+  // section-header toggle: only an EXACT "알림" (optionally with a trailing
+  // unread count) matches, never a row button's longer concatenated name.
   const notificationsHeader = rail.getByRole("button", {
     name: new RegExp(`^${RAIL.sectionNotifications}(?:\\s+\\d+)?$`),
   });
