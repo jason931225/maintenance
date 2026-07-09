@@ -166,8 +166,8 @@ async fn seed_rollout(pool: &PgPool, org: Uuid, tag: &str) -> SeededRollout {
     // ── messenger: thread + message ─────────────────────────────────────────
     let thread = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO messenger_threads (id, kind, branch_id, work_order_id, created_by, org_id) \
-         VALUES ($1, 'work_order', $2, $3, $4, $5)",
+        "INSERT INTO messenger_threads (id, kind, visibility, branch_id, work_order_id, created_by, org_id) \
+         VALUES ($1, 'work_order', 'direct', $2, $3, $4, $5)",
     )
     .bind(thread)
     .bind(branch)

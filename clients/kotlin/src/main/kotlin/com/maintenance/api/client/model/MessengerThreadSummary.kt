@@ -24,6 +24,7 @@
 package com.maintenance.api.client.model
 
 import com.maintenance.api.client.model.MessengerThreadKind
+import com.maintenance.api.client.model.MessengerThreadVisibility
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -34,6 +35,8 @@ import kotlinx.serialization.Contextual
  *
  * @param id
  * @param kind
+ * @param visibility
+ * @param muted Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed).
  * @param branchId
  * @param title
  * @param workOrderId
@@ -53,6 +56,13 @@ data class MessengerThreadSummary (
 
     @Contextual @SerialName(value = "kind")
     val kind: MessengerThreadKind,
+
+    @Contextual @SerialName(value = "visibility")
+    val visibility: MessengerThreadVisibility,
+
+    /* Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed). */
+    @SerialName(value = "muted")
+    val muted: kotlin.Boolean,
 
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID,

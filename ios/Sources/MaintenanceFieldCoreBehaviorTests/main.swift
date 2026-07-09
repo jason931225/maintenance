@@ -579,6 +579,8 @@ struct MaintenanceFieldCoreBehaviorTests {
         Components.Schemas.MessengerThreadSummary(
             id: messengerThreadID,
             kind: .team,
+            visibility: .channel,
+            muted: false,
             branchId: messengerBranchID,
             title: "팀 채널",
             memberCount: 3,
@@ -602,6 +604,8 @@ struct MaintenanceFieldCoreBehaviorTests {
             attachmentEvidenceIds: [],
             readCount: 1,
             readTargetCount: 2,
+            ackCount: 0,
+            ackedByMe: false,
             sentAt: isoDate("2026-06-12T09:\(String(format: "%02d", minute)):00Z"),
             createdAt: isoDate("2026-06-12T09:\(String(format: "%02d", minute)):00Z")
         )

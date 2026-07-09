@@ -5,6 +5,8 @@ info:
 paths:
   /healthz:
     get:
+      tags:
+        - system
       operationId: healthz
       summary: Health check
       responses:
@@ -12,6 +14,8 @@ paths:
           description: Service is alive.
   /readyz:
     get:
+      tags:
+        - system
       operationId: readyz
       summary: Readiness check
       responses:
@@ -21,6 +25,8 @@ paths:
           description: A required dependency is unavailable.
   /.well-known/apple-app-site-association:
     get:
+      tags:
+        - system
       operationId: appleAppSiteAssociation
       summary: Apple App Site Association (native passkeys)
       description: Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS
@@ -35,6 +41,8 @@ paths:
                 $ref: '#/components/schemas/AppleAppSiteAssociation'
   /.well-known/assetlinks.json:
     get:
+      tags:
+        - system
       operationId: androidAssetLinks
       summary: Android Digital Asset Links (native passkeys)
       description: Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app's passkeys
@@ -51,6 +59,8 @@ paths:
                   $ref: '#/components/schemas/AndroidAssetLinkStatement'
   /api/v1/ws:
     get:
+      tags:
+        - ws
       operationId: connectRealtimeWebSocket
       summary: Connect to the realtime WebSocket stream
       description: 'Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting
@@ -74,6 +84,8 @@ paths:
           description: Realtime is unavailable.
   /api/approval-items:
     get:
+      tags:
+        - approval-items
       operationId: listApprovalItems
       summary: List federated approval workflow items
       description: Returns a server-owned, paginated approval queue across typed workflow objects. Each item carries ontology,
@@ -115,6 +127,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/work-orders:
     post:
+      tags:
+        - work-orders
       operationId: createWorkOrder
       summary: Create a work order from branch-scoped equipment management number
       security:
@@ -142,6 +156,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/work-orders/{workOrderId}:
     get:
+      tags:
+        - work-orders
       operationId: getWorkOrder
       summary: Fetch one work order
       security:
@@ -158,6 +174,8 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
+      tags:
+        - work-orders
       operationId: updateWorkOrderIntake
       summary: Edit work-order intake narrative fields
       security:
@@ -187,6 +205,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/work-orders/{workOrderId}/priority:
     patch:
+      tags:
+        - work-orders
       operationId: updateWorkOrderPriority
       summary: Update work-order priority
       security:
@@ -213,6 +233,8 @@ paths:
                 $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/assignments:
     put:
+      tags:
+        - work-orders
       operationId: assignWorkOrder
       summary: Assign mechanics and approval-line approvers
       security:
@@ -234,6 +256,8 @@ paths:
                 $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/start:
     post:
+      tags:
+        - work-orders
       operationId: startWorkOrder
       summary: Start assigned work
       security:
@@ -249,6 +273,8 @@ paths:
                 $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/report:
     post:
+      tags:
+        - work-orders
       operationId: submitWorkOrderReport
       summary: Submit a mechanic work report
       security:
@@ -270,6 +296,8 @@ paths:
                 $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/approve:
     post:
+      tags:
+        - work-orders
       operationId: approveWorkOrder
       summary: Approve the next pending non-mechanic approval step
       security:
@@ -293,6 +321,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/work-orders/{workOrderId}/target-change-requests:
     post:
+      tags:
+        - work-orders
       operationId: requestTargetChange
       summary: Request a target due-date change
       security:
@@ -314,6 +344,8 @@ paths:
                 $ref: '#/components/schemas/TargetChangeRequestSummary'
   /api/target-change-requests/{requestId}/review:
     post:
+      tags:
+        - target-change-requests
       operationId: reviewTargetChange
       summary: Review a target due-date change request
       security:
@@ -335,6 +367,8 @@ paths:
                 $ref: '#/components/schemas/TargetChangeRequestSummary'
   /api/daily-work-plans:
     get:
+      tags:
+        - daily-work-plans
       operationId: listDailyWorkPlans
       summary: List branch-scoped daily work plans
       description: Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status
@@ -356,6 +390,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/DailyPlanListPage'
     post:
+      tags:
+        - daily-work-plans
       operationId: createDailyWorkPlan
       summary: Create a daily work plan
       security:
@@ -375,6 +411,8 @@ paths:
                 $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}:
     get:
+      tags:
+        - daily-work-plans
       operationId: getDailyWorkPlan
       summary: Read a daily work plan by id
       security:
@@ -390,6 +428,8 @@ paths:
                 $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}/request-review:
     post:
+      tags:
+        - daily-work-plans
       operationId: requestDailyWorkPlanReview
       summary: Send a daily work plan for review
       security:
@@ -405,6 +445,8 @@ paths:
                 $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}/review:
     post:
+      tags:
+        - daily-work-plans
       operationId: reviewDailyWorkPlan
       summary: Review a daily work plan
       security:
@@ -426,6 +468,8 @@ paths:
                 $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}/confirm:
     post:
+      tags:
+        - daily-work-plans
       operationId: confirmDailyWorkPlan
       summary: Confirm an approved daily work plan
       security:
@@ -441,6 +485,8 @@ paths:
                 $ref: '#/components/schemas/DailyPlanSummary'
   /api/work-orders/{workOrderId}/outsource-works:
     post:
+      tags:
+        - work-orders
       operationId: createOutsourceWork
       summary: Create an outsource work request for a work order
       security:
@@ -462,6 +508,8 @@ paths:
                 $ref: '#/components/schemas/OutsourceWorkSummary'
   /api/v1/kpi:
     get:
+      tags:
+        - kpi
       operationId: getKpiReport
       summary: Fetch branch-scoped KPI rollups for the seven standard metrics
       description: Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose
@@ -516,6 +564,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/ops/summary:
     get:
+      tags:
+        - ops
       operationId: getOpsSummary
       summary: Per-tenant operational dashboard rollup
       description: 'Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging
@@ -542,6 +592,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/audit/attestation:
     get:
+      tags:
+        - audit
       operationId: getAuditChainAttestation
       summary: L20 tamper-evident audit-chain attestation for the caller's tenant
       description: 'Read-only recompute-and-compare verdict for the org''s cryptographically-sealed audit-event hash
@@ -580,6 +632,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/work-orders:
     get:
+      tags:
+        - work-orders
       operationId: listWorkOrders
       summary: List branch-scoped work orders
       description: Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`,
@@ -673,6 +727,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/work-orders/{workOrderId}:
     get:
+      tags:
+        - work-orders
       operationId: getWorkOrderDetail
       summary: Fetch branch-scoped work-order detail
       security:
@@ -694,6 +750,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/work-orders/{workOrderId}/reject:
     post:
+      tags:
+        - work-orders
       operationId: rejectWorkOrder
       summary: Reject a submitted work order with an audit memo
       security:
@@ -725,6 +783,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/inspections/schedules:
     get:
+      tags:
+        - inspections
       operationId: listInspectionSchedules
       summary: List branch-scoped regular inspection schedules
       security:
@@ -779,6 +839,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     post:
+      tags:
+        - inspections
       operationId: createInspectionSchedule
       summary: Create a regular inspection schedule
       security:
@@ -816,6 +878,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/inspections/schedules/{schedule_id}/rounds:
     post:
+      tags:
+        - inspections
       operationId: completeInspectionRound
       summary: Complete a scheduled regular inspection round
       security:
@@ -859,6 +923,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/support/tickets:
     get:
+      tags:
+        - support
       operationId: listSupportTickets
       summary: List branch-scoped support tickets with optional filters
       security:
@@ -927,6 +993,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     post:
+      tags:
+        - support
       operationId: createInternalSupportTicket
       summary: Open an internal support ticket as authenticated staff
       security:
@@ -958,6 +1026,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/support/tickets/{id}:
     get:
+      tags:
+        - support
       operationId: getSupportTicket
       summary: Get a support ticket with its comments (staff view)
       security:
@@ -989,6 +1059,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/support/tickets/{id}/assign:
     post:
+      tags:
+        - support
       operationId: assignSupportTicket
       summary: Assign or reassign a support ticket (triages untriaged intake)
       security:
@@ -1028,6 +1100,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/support/tickets/{id}/transition:
     post:
+      tags:
+        - support
       operationId: transitionSupportTicket
       summary: Drive the support ticket status FSM
       security:
@@ -1069,6 +1143,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/support/tickets/{id}/comments:
     post:
+      tags:
+        - support
       operationId: addSupportTicketComment
       summary: Append a comment or internal note to a support ticket
       security:
@@ -1108,6 +1184,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/support/intake:
     post:
+      tags:
+        - support
       operationId: submitSupportIntake
       summary: Submit a support request from the unauthenticated customer channel
       description: 'Unauthenticated, rate-limited customer intake. Generic validation errors are returned; the customer contact
@@ -1135,6 +1213,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/equipment/lookup:
     get:
+      tags:
+        - equipment
       operationId: lookupEquipment
       summary: Resolve branch-scoped equipment by management number
       security:
@@ -1164,6 +1244,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/equipment/list:
     get:
+      tags:
+        - equipment
       operationId: listEquipment
       summary: Paginated, filterable, branch-scoped equipment list
       description: 'Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in
@@ -1256,6 +1338,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/equipment:
     get:
+      tags:
+        - equipment
       operationId: autocompleteEquipment
       summary: Autocomplete branch-scoped equipment by management number, equipment number, or model
       security:
@@ -1290,6 +1374,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
+      tags:
+        - equipment
       operationId: createEquipment
       summary: Create a single equipment master row on the HQ branch
       description: Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
@@ -1320,6 +1406,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment/import:
     post:
+      tags:
+        - equipment
       operationId: importEquipmentMasterList
       summary: Import the 지게차 master-list workbook into a fresh registry
       description: Admin-gated (MasterListImport) multipart upload of the K&L master-list .xlsx. Upserts equipment by equipment
@@ -1356,6 +1444,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/employees:
     get:
+      tags:
+        - employees
       operationId: listEmployees
       summary: Paginated tenant HR employee directory
       description: Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
@@ -1398,6 +1488,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/employees/{id}/lifecycle-events:
     get:
+      tags:
+        - employees
       operationId: listEmployeeLifecycleEvents
       summary: List audited employee lifecycle events
       description: Tenant-scoped append-only lifecycle ledger for onboarding, offboarding, termination, and intra-group/company
@@ -1424,6 +1516,8 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     post:
+      tags:
+        - employees
       operationId: createEmployeeLifecycleEvent
       summary: Record an employee lifecycle transition with legal signoffs
       description: Mutates the canonical employee status/company/org-unit/position only through an audited event requiring
@@ -1461,6 +1555,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/org-chart:
     get:
+      tags:
+        - hr
       operationId: getHrOrgChart
       summary: Read the tenant HR organization chart
       description: Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows
@@ -1480,6 +1576,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/hr/leave-balances:
     get:
+      tags:
+        - hr
       operationId: listHrLeaveBalances
       summary: List employee leave-balance rows
       description: Read-only HR leave summary extracted from imported employee workbooks. Payroll and sensitive columns remain
@@ -1517,6 +1615,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/hr/attendance-summary:
     get:
+      tags:
+        - hr
       operationId: listHrAttendanceSummary
       summary: List branch-scoped attendance summaries
       description: Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation
@@ -1554,6 +1654,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/hr/attendance-import/preview:
     post:
+      tags:
+        - hr
       operationId: previewAttendanceImport
       summary: Preview a direct attendance workbook or CSV through the governed import ledger
       description: Creates an immutable attendance_direct import run, preserves raw source rows, masks restricted values in
@@ -1589,6 +1691,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/attendance-import/{run_id}/dry-run:
     post:
+      tags:
+        - hr
       operationId: dryRunAttendanceImport
       summary: Resolve employees and branches for a direct attendance import without writing facts
       security:
@@ -1618,6 +1722,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/attendance-import/{run_id}/apply:
     post:
+      tags:
+        - hr
       operationId: applyAttendanceImport
       summary: Apply a dry-run direct attendance import as append-only coordinate-free facts
       description: Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving
@@ -1649,6 +1755,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/attendance-import/summary:
     get:
+      tags:
+        - hr
       operationId: listAttendanceImportSummary
       summary: List governed direct attendance import runs
       description: Lists attendance_direct import runs and summaries for authorized HR readers without exposing raw source
@@ -1686,6 +1794,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/hr/attendance-records/me:
     get:
+      tags:
+        - hr
       operationId: listMyEmployeeAttendanceRecords
       summary: List the signed-in employee's attendance records
       description: Returns only records for the employee row explicitly linked to the authenticated user account.
@@ -1721,6 +1831,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
+      tags:
+        - hr
       operationId: createMyEmployeeAttendanceRecord
       summary: Record the signed-in employee's attendance transition
       description: Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
@@ -1749,6 +1861,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/attendance-records:
     get:
+      tags:
+        - hr
       operationId: listEmployeeAttendanceRecords
       summary: List employee attendance records for HR/payroll review
       description: Authorized HR/payroll readers can inspect direct attendance records and their payroll material lineage.
@@ -1790,6 +1904,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/employees/import:
     post:
+      tags:
+        - employees
       operationId: importEmployees
       summary: Import payroll workbook sheets into the employee directory
       description: Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and
@@ -1825,6 +1941,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/employees/import/preview:
     post:
+      tags:
+        - employees
       operationId: previewEmployeeImport
       summary: Preview an employee workbook through the governed import ledger
       description: Creates an immutable tenant-scoped raw import run, preserves every non-empty source row, masks restricted/PII/payroll/location
@@ -1860,6 +1978,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/employees/import/{run_id}/dry-run:
     post:
+      tags:
+        - employees
       operationId: dryRunEmployeeImport
       summary: Compute employee import insert/update counts without writing employees
       security:
@@ -1889,6 +2009,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/employees/import/{run_id}/apply:
     post:
+      tags:
+        - employees
       operationId: applyEmployeeImport
       summary: Apply a dry-run employee import run
       description: Applies only candidate rows from a DRY_RUN import run; preserved rows remain raw-ledger evidence and are
@@ -1920,6 +2042,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/employees/export.csv:
     get:
+      tags:
+        - employees
       operationId: exportEmployeesCsv
       summary: Export standardized employee directory CSV
       description: Exports canonical employee fields only. Raw import ledger values, payroll data, account numbers, resident
@@ -1939,6 +2063,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/equipment/{id}:
     get:
+      tags:
+        - equipment
       operationId: getEquipment
       summary: Read one branch-scoped equipment master row
       description: 'Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals only receive rows
@@ -1965,6 +2091,8 @@ paths:
         '503':
           description: JWT verification is not configured.
     patch:
+      tags:
+        - equipment
       operationId: updateEquipment
       summary: Update fields on one equipment master row
       description: Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null
@@ -1993,6 +2121,8 @@ paths:
         '503':
           description: JWT verification is not configured.
     delete:
+      tags:
+        - equipment
       operationId: deleteEquipment
       summary: Soft-delete one equipment master row
       description: Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and
@@ -2016,6 +2146,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment/{id}/versions:
     get:
+      tags:
+        - equipment
       operationId: listEquipmentVersions
       summary: List the append-only version history of one equipment master row
       description: 'Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content
@@ -2042,6 +2174,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment/{id}/versions/{version}/rollback:
     post:
+      tags:
+        - equipment
       operationId: rollbackEquipmentVersion
       summary: Roll one equipment master row back to a prior version
       description: 'Admin-gated (EquipmentManage), audited. Re-applies the target version''s stored content through the
@@ -2076,6 +2210,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment/{id}/timeline-graph:
     get:
+      tags:
+        - equipment
       operationId: getEquipmentTimelineGraph
       summary: Read one equipment lifecycle ribbon and relationship graph
       description: 'Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order
@@ -2103,6 +2239,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/object-actions/catalog:
     get:
+      tags:
+        - object-actions
       operationId: getObjectActionCatalog
       summary: Read governed object-action descriptors for one object
       description: Returns typed, UI-renderable action descriptors for a console object. The initial CAP-5 vertical slice
@@ -2142,6 +2280,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/object-actions/execute:
     post:
+      tags:
+        - object-actions
       operationId: executeObjectAction
       summary: Execute a governed audited object action
       description: Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion
@@ -2179,6 +2319,8 @@ paths:
           description: JWT or passkey step-up verification is not configured.
   /api/v1/sync:
     post:
+      tags:
+        - sync
       operationId: replayOfflineSyncBatch
       summary: Replay an idempotent mobile offline-operation batch
       security:
@@ -2210,6 +2352,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/evidence/presign:
     post:
+      tags:
+        - evidence
       operationId: presignEvidenceUpload
       summary: Issue a presigned upload ticket for work-order evidence
       security:
@@ -2241,6 +2385,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/evidence/{evidenceId}/confirm:
     post:
+      tags:
+        - evidence
       operationId: confirmEvidenceUpload
       summary: Confirm direct evidence upload completion and trigger replica verification
       security:
@@ -2268,6 +2414,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/evidence/staging-presign:
     post:
+      tags:
+        - evidence
       operationId: presignEvidenceStagingUpload
       summary: Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize
         before storage)
@@ -2305,6 +2453,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/evidence/{evidenceId}/status:
     get:
+      tags:
+        - evidence
       operationId: getEvidenceProcessingStatus
       summary: Poll the server-side processing status of an evidence row
       security:
@@ -2332,6 +2482,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/devices:
     post:
+      tags:
+        - devices
       operationId: registerMobileDevice
       summary: Register or refresh a mobile device binding
       security:
@@ -2357,6 +2509,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /api/v1/location-consent/status:
     get:
+      tags:
+        - location-consent
       operationId: getLocationConsentStatus
       summary: Read the authenticated user's location consent status
       security:
@@ -2382,6 +2536,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location-consent/grant:
     post:
+      tags:
+        - location-consent
       operationId: grantLocationConsent
       summary: Grant GPS location collection consent
       security:
@@ -2409,6 +2565,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location-consent/suspend:
     post:
+      tags:
+        - location-consent
       operationId: suspendLocationConsent
       summary: Suspend GPS collection with the always-visible off switch
       security:
@@ -2436,6 +2594,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location-consent/resume:
     post:
+      tags:
+        - location-consent
       operationId: resumeLocationConsent
       summary: Resume GPS collection after an off-switch suspension
       security:
@@ -2463,6 +2623,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location-consent/withdraw:
     post:
+      tags:
+        - location-consent
       operationId: withdrawLocationConsent
       summary: Withdraw location consent and destroy destructible location data
       security:
@@ -2490,6 +2652,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location-pings:
     post:
+      tags:
+        - location-pings
       operationId: recordLocationPing
       summary: Ingest an on-duty GPS ping when consent is granted
       description: Coordinates are destructible and never written to audit_events.
@@ -2512,6 +2676,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location-consents/ledger:
     get:
+      tags:
+        - location-consents
       operationId: listLocationConsentLedger
       summary: Read the consent lifecycle ledger
       security:
@@ -2559,6 +2725,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location/arrival-events:
     get:
+      tags:
+        - location
       operationId: listArrivalEvents
       summary: Read the site arrival/departure events log (#13)
       description: Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated;
@@ -2608,6 +2776,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/location-consents/ledger.csv:
     get:
+      tags:
+        - location-consents
       operationId: exportLocationConsentLedgerCsv
       summary: Export the consent lifecycle ledger as CSV
       security:
@@ -2655,6 +2825,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/auth/passkey/register/start:
     post:
+      tags:
+        - auth
       summary: Start passkey registration (authenticated)
       description: Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings
         passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey
@@ -2683,6 +2855,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/auth/passkey/register/finish:
     post:
+      tags:
+        - auth
       summary: Finish passkey registration (authenticated)
       description: Finishes a passkey registration ceremony for the authenticated session user.
       security:
@@ -2706,6 +2880,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/auth/signup:
     post:
+      tags:
+        - auth
       summary: Open self-service signup
       description: Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization
         and emails it a single-use one-time sign-in code; the caller then redeems that code via `POST /api/v1/auth/otp/redeem`
@@ -2733,6 +2909,8 @@ paths:
           $ref: '#/components/responses/BadGateway'
   /api/v1/auth/passkey/login/start:
     post:
+      tags:
+        - auth
       summary: Start usernameless passkey login
       description: Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge
         has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per
@@ -2750,6 +2928,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/passkey/login/finish:
     post:
+      tags:
+        - auth
       summary: Finish passkey login
       description: Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating refresh token.
       requestBody:
@@ -2769,6 +2949,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/device-login/start:
     post:
+      tags:
+        - auth
       operationId: startDeviceLogin
       summary: Start desktop QR login handoff
       description: Creates a short-lived desktop login handoff. The desktop keeps the `poll_token` and renders `approve_url`
@@ -2785,6 +2967,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/device-login/poll:
     post:
+      tags:
+        - auth
       operationId: pollDeviceLogin
       summary: Poll a desktop QR login handoff
       description: Desktop-only polling endpoint. Pending/expired responses carry no tokens. Once a phone has approved the
@@ -2809,6 +2993,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/device-login/approve:
     post:
+      tags:
+        - auth
       operationId: approveDeviceLogin
       summary: Approve a desktop QR login with an existing phone passkey
       description: Phone-side approval for an existing passkey user. The phone submits the approve token plus a usernameless
@@ -2828,6 +3014,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/device-login/approve-session:
     post:
+      tags:
+        - auth
       operationId: approveDeviceLoginSession
       summary: Approve a desktop QR login from an authenticated phone session
       description: Phone-side approval used after first-time QR enrollment. The phone has redeemed the handoff OTP and enrolled
@@ -2851,6 +3039,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/otp/redeem:
     post:
+      tags:
+        - auth
       summary: First sign-in by redeeming a one-time code
       description: First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or
         the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong
@@ -2875,6 +3065,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/admin/otp/issue:
     post:
+      tags:
+        - auth
       summary: Issue a one-time sign-in code (admin)
       description: Issues a single-use, high-entropy 8-character one-time code for a pre-provisioned zero-credential user
         so they can perform their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN within branch scope. The code is returned
@@ -2904,6 +3096,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/auth/admin/credential-reset:
     post:
+      tags:
+        - auth
       summary: Reset a user's credentials for account recovery (admin)
       description: Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user's
         passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN
@@ -2933,6 +3127,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/auth/passkey/enroll-handoff:
     post:
+      tags:
+        - auth
       summary: Mint a cross-device passkey-enrollment handoff (self)
       description: Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so
         they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console).
@@ -2963,6 +3159,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/auth/passkeys:
     get:
+      tags:
+        - auth
       operationId: listAuthPasskeys
       summary: List the authenticated user's own passkey credentials
       description: Returns the caller's own WebAuthn credentials (id and registration / last-use timestamps) through the auth
@@ -2989,6 +3187,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/auth/passkeys/{id}:
     delete:
+      tags:
+        - auth
       operationId: deleteAuthPasskey
       summary: Revoke one of the authenticated user's own passkey credentials
       description: Deletes a credential owned by the caller through the auth namespace. A credential that is not the caller's
@@ -3019,6 +3219,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/auth/privacy-consent/status:
     post:
+      tags:
+        - auth
       summary: Read required first-login privacy consent status
       description: Returns whether the authenticated user has accepted the current required Korean privacy collection/use
         notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent
@@ -3036,6 +3238,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/privacy-consent/accept:
     post:
+      tags:
+        - auth
       summary: Accept required first-login privacy terms
       description: Persists the authenticated user's required initial-login acknowledgement of the privacy collection/use
         notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional
@@ -3061,6 +3265,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/token/refresh:
     post:
+      tags:
+        - auth
       summary: Rotate refresh token
       description: Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
       requestBody:
@@ -3082,6 +3288,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/logout:
     post:
+      tags:
+        - auth
       summary: Logout and revoke refresh-token family
       requestBody:
         required: true
@@ -3096,6 +3304,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /api/messenger/members:
     get:
+      tags:
+        - messenger
       operationId: listMessengerMembers
       summary: List active branch members eligible for messenger thread creation
       description: 'Authenticated branch members can discover active coworkers in a branch they are scoped to without requiring
@@ -3133,6 +3343,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/messenger/members/{userId}:
     get:
+      tags:
+        - messenger
       operationId: getMessengerMember
       summary: Fetch one branch member's summary for a person pin panel
       description: 'Returns a single active branch member''s summary using the same non-admin branch directory as the member
@@ -3169,6 +3381,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/messenger/threads:
     get:
+      tags:
+        - messenger
       operationId: listMessengerThreads
       summary: List branch-scoped messenger threads for the authenticated member
       security:
@@ -3195,6 +3409,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
+      tags:
+        - messenger
       operationId: createMessengerThread
       summary: Create a branch-scoped messenger thread
       security:
@@ -3222,6 +3438,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/messenger/threads/{threadId}/messages:
     get:
+      tags:
+        - messenger
       operationId: listMessengerMessages
       summary: Page messenger messages before an optional cursor
       security:
@@ -3256,6 +3474,8 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     post:
+      tags:
+        - messenger
       operationId: sendMessengerMessage
       summary: Send a message with optional evidence attachments
       security:
@@ -3285,6 +3505,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/messenger/threads/{threadId}/read-receipt:
     put:
+      tags:
+        - messenger
       operationId: markMessengerThreadRead
       summary: Mark the authenticated member's thread read cursor
       security:
@@ -3310,8 +3532,165 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/messenger/channels:
+    get:
+      tags:
+        - messenger
+      operationId: listMessengerChannels
+      summary: Discover joinable channels in the caller's branch scope
+      description: 'Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is
+        already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels
+        are never returned.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Joinable channels visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/messenger/threads/{threadId}/join:
+    post:
+      tags:
+        - messenger
+      operationId: joinMessengerChannel
+      summary: Join a channel thread the caller can see in scope
+      description: 'Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct
+        thread is not joinable and returns 403; a thread outside the caller''s branch scope returns 404 (deny-by-omission).
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      responses:
+        '200':
+          description: The thread the caller joined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/threads/{threadId}/mute:
+    put:
+      tags:
+        - messenger
+      operationId: setMessengerThreadMute
+      summary: Set the caller's personal mute for a thread
+      description: 'Direct-save personal setting. A muted thread still records every message; it only suppresses the caller''s
+        mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMessengerThreadMuteRequest'
+      responses:
+        '200':
+          description: The thread's post-toggle mute state for the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadMuteSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/threads/{threadId}/presence:
+    get:
+      tags:
+        - messenger
+      operationId: getMessengerThreadPresence
+      summary: Activity-derived presence for members of a thread
+      description: 'Returns online/away/offline per thread member, derived from the age of each member''s last real action
+        (message/read/ack) — not a live socket, so "online" means "acted within the freshness window". The caller must be
+        a thread member; a non-member gets 403 and sees no presence.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      responses:
+        '200':
+          description: Presence of every member of the thread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerMemberPresenceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/messages/{messageId}/ack:
+    post:
+      tags:
+        - messenger
+      operationId: toggleMessengerMessageAck
+      summary: Toggle the caller's ack on a message
+      description: 'Toggle the caller''s ack: if present it is removed, else added. This is not idempotent
+        and is not safe to blindly retry; clients should reconcile from the returned MessengerAckSummary
+        acked and ack_count values. The caller must be a member of the message''s thread; a non-member gets
+        403.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The message's post-toggle ack state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerAckSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/messenger/search:
     get:
+      tags:
+        - messenger
       operationId: searchMessengerMessages
       summary: Search branch-scoped messenger messages visible to the authenticated member
       security:
@@ -3345,6 +3724,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/equipment/{id}/substitutes:
     get:
+      tags:
+        - equipment
       operationId: listEquipmentSubstitutes
       summary: List compatible spare equipment candidates for a down unit
       description: Same branch by default. SUPER_ADMIN may set all_branches=true to search across branches.
@@ -3378,6 +3759,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment-by-location:
     get:
+      tags:
+        - equipment-by-location
       operationId: listEquipmentByLocation
       summary: Aggregate equipment by site for the dispatch map
       description: Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access
@@ -3401,6 +3784,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/customers:
     post:
+      tags:
+        - customers
       operationId: createCustomer
       summary: Create a customer (고객) directly
       description: Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller's org
@@ -3434,6 +3819,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/sites:
     post:
+      tags:
+        - sites
       operationId: createSite
       summary: Create a site (현장) under an existing customer
       description: Admin-gated (EquipmentManage). Creates a site under a customer in the caller's org; the customer must belong
@@ -3470,6 +3857,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/sites/{id}:
     patch:
+      tags:
+        - sites
       operationId: updateSite
       summary: Update a site's coordinates and administrative address
       description: 'Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map
@@ -3501,6 +3890,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment-substitutions:
     post:
+      tags:
+        - equipment-substitutions
       operationId: assignEquipmentSubstitute
       summary: Assign a substitute (대차) unit to a down/under-repair equipment
       description: Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
@@ -3533,6 +3924,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment-substitutions/{id}/return:
     post:
+      tags:
+        - equipment-substitutions
       operationId: returnEquipmentSubstitute
       summary: Return an active substitute (대차) assignment
       description: Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
@@ -3567,6 +3960,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/equipment/{id}/ownership-transfer-requests:
     get:
+      tags:
+        - equipment
       operationId: listEquipmentOwnershipTransfers
       summary: List legal ownership transfer workflow requests for one equipment asset
       description: Returns the durable ownership-transfer request ledger for a single asset. A transfer changes only the legal
@@ -3590,6 +3985,8 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     post:
+      tags:
+        - equipment
       operationId: createEquipmentOwnershipTransfer
       summary: Request a cross-org legal ownership transfer
       description: Creates a pending transfer request and approval line. This endpoint does not immediately mutate `asset_owner`;
@@ -3623,6 +4020,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/equipment/ownership-transfer-requests/{id}/decisions:
     post:
+      tags:
+        - equipment
       operationId: decideEquipmentOwnershipTransfer
       summary: Approve or reject the current ownership-transfer signoff step
       description: Advances the ordered transfer signoff line one step at a time. The final accounting approval writes the
@@ -3661,6 +4060,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/financial/rental-quotes/compute:
     post:
+      tags:
+        - financial
       operationId: computeRentalQuote
       summary: Compute a rental quote from explicit financial inputs without persisting it
       security:
@@ -3686,6 +4087,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/financial/rental-quotes:
     post:
+      tags:
+        - financial
       operationId: createRentalQuote
       summary: Compute and persist a rental quote for equipment
       security:
@@ -3713,6 +4116,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/financial/rental-quotes/{quoteId}:
     get:
+      tags:
+        - financial
       operationId: getRentalQuote
       summary: Fetch a persisted rental quote
       security:
@@ -3734,6 +4139,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/financial/equipment/{equipmentId}/cost-ledger:
     get:
+      tags:
+        - financial
       operationId: listEquipmentCostLedger
       summary: List equipment cost ledger entries
       security:
@@ -3757,6 +4164,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/financial/equipment/{equipmentId}/lifecycle-cost:
     get:
+      tags:
+        - financial
       operationId: getEquipmentLifecycleCost
       summary: Per-asset lifecycle cost, TCO, and gross margin
       description: Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance
@@ -3781,6 +4190,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual:
     post:
+      tags:
+        - financial
       operationId: appendManualCostLedgerEntry
       summary: Append a manual admin equipment cost and recompute residual value
       security:
@@ -3810,6 +4221,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/financial/purchase-requests:
     post:
+      tags:
+        - financial
       operationId: createPurchaseRequest
       summary: Attach a 거래명세표 evidence record and open a purchase request
       security:
@@ -3837,6 +4250,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
   /api/v1/financial/purchase-requests/{purchaseRequestId}:
     get:
+      tags:
+        - financial
       operationId: getPurchaseRequest
       summary: Fetch one purchase request
       security:
@@ -3858,6 +4273,8 @@ paths:
           $ref: "#/components/responses/NotFound"
   /api/v1/financial/purchase-requests/{purchaseRequestId}/submit:
     post:
+      tags:
+        - financial
       operationId: submitPurchaseRequest
       summary: Submit a statement-attached purchase request for admin approval
       security:
@@ -3879,6 +4296,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin:
     post:
+      tags:
+        - financial
       operationId: approvePurchaseRequestAdmin
       summary: Admin approval for a submitted purchase request
       security:
@@ -3900,6 +4319,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure:
     post:
+      tags:
+        - financial
       operationId: preparePurchaseExpenditure
       summary: Record expenditure number and route to execution or executive approval
       security:
@@ -3927,6 +4348,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive:
     post:
+      tags:
+        - financial
       operationId: approvePurchaseRequestExecutive
       summary: Executive final approval for above-threshold purchase requests
       security:
@@ -3948,6 +4371,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/reject:
     post:
+      tags:
+        - financial
       operationId: rejectPurchaseRequest
       summary: Reject a purchase request before execution
       security:
@@ -3975,6 +4400,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/restart:
     post:
+      tags:
+        - financial
       operationId: restartPurchaseRequest
       summary: Restart a rejected purchase request with a replacement statement evidence record
       security:
@@ -4004,6 +4431,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/execute:
     post:
+      tags:
+        - financial
       operationId: executePurchaseRequest
       summary: Execute an approved purchase request and feed the amount into the equipment cost ledger
       security:
@@ -4025,6 +4454,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/work-orders/{workOrderId}/p1-dispatch:
     post:
+      tags:
+        - work-orders
       operationId: startP1Dispatch
       summary: Start a P1 emergency dispatch broadcast for a work order
       security:
@@ -4054,6 +4485,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/p1-dispatches/{dispatchId}:
     get:
+      tags:
+        - p1-dispatches
       operationId: getP1Dispatch
       summary: Fetch P1 dispatch status
       security:
@@ -4075,6 +4508,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/p1-dispatches/{dispatchId}/responses:
     post:
+      tags:
+        - p1-dispatches
       operationId: respondP1Dispatch
       summary: Accept or decline a P1 dispatch broadcast
       security:
@@ -4104,6 +4539,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/p1-dispatches/{dispatchId}/force-assign:
     post:
+      tags:
+        - p1-dispatches
       operationId: forceAssignP1Dispatch
       summary: Manager force-assign a P1 dispatch after accept-window escalation
       security:
@@ -4133,6 +4570,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/exports/daily-status:
     get:
+      tags:
+        - exports
       operationId: getDailyStatusExport
       summary: Export the daily work-progress status workbook
       description: Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and regular-inspection schedule
@@ -4170,6 +4609,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/exports/work-diary:
     get:
+      tags:
+        - exports
       operationId: getWorkDiaryExport
       summary: Export the confirmed or generated work-diary workbook
       description: Exports the 업무일지 workbook for the requested date, preserving the template's additional sheets and using
@@ -4207,6 +4648,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/exports/kpi:
     get:
+      tags:
+        - exports
       operationId: getKpiExport
       summary: Export the KPI rollup workbook
       description: Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
@@ -4265,6 +4708,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/reporting/work-diary:
     get:
+      tags:
+        - reporting
       operationId: getWorkDiaryDraft
       summary: Get or generate the editable work-diary draft for a date
       security:
@@ -4287,6 +4732,8 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
     put:
+      tags:
+        - reporting
       operationId: updateWorkDiaryDraft
       summary: Update an editable work-diary draft body
       security:
@@ -4318,6 +4765,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/reporting/work-diary/confirm:
     post:
+      tags:
+        - reporting
       operationId: confirmWorkDiaryDraft
       summary: Confirm a work-diary draft before export
       security:
@@ -4343,6 +4792,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/policy/features:
     get:
+      tags:
+        - policy
       operationId: listPolicyFeatures
       summary: List canonical policy feature catalog for Policy Studio
       security:
@@ -4368,6 +4819,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/roles:
     get:
+      tags:
+        - policy
       operationId: listPolicyRoles
       summary: List built-in role templates and tenant custom roles
       security:
@@ -4390,6 +4843,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     post:
+      tags:
+        - policy
       operationId: createPolicyRole
       summary: Create a tenant custom role definition
       description: Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles,
@@ -4426,6 +4881,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/roles/{id}:
     patch:
+      tags:
+        - policy
       operationId: updatePolicyRole
       summary: Update a tenant custom role definition
       description: 'Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle
@@ -4476,6 +4933,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/roles/{id}/status:
     patch:
+      tags:
+        - policy
       operationId: updatePolicyRoleStatus
       summary: Publish, roll back, or retire a tenant custom role
       description: 'Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage
@@ -4523,6 +4982,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/roles/{id}/status-preview:
     post:
+      tags:
+        - policy
       operationId: previewPolicyRoleStatus
       summary: Preview custom-role lifecycle status impact
       description: Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role.
@@ -4566,6 +5027,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/audit-events:
     get:
+      tags:
+        - policy
       operationId: listPolicyAuditEvents
       summary: List Policy Studio audit evidence
       description: Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for
@@ -4605,6 +5068,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/role-templates:
     get:
+      tags:
+        - policy
       operationId: listPolicyRoleTemplates
       summary: List safe starter templates for tenant custom roles
       description: Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never
@@ -4633,6 +5098,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/assignments:
     get:
+      tags:
+        - policy
       operationId: listPolicyAssignments
       summary: List custom-role assignments for one user
       description: Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective
@@ -4668,6 +5135,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/users/{id}/assignments:
     put:
+      tags:
+        - policy
       operationId: replacePolicyAssignments
       summary: Replace one user's custom-role assignments
       description: Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive
@@ -4718,6 +5187,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/policy/users/{id}/assignment-preview:
     post:
+      tags:
+        - policy
       operationId: previewPolicyAssignments
       summary: Preview requested custom-role assignment impact for one user
       description: 'Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user.
@@ -4759,6 +5230,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/users:
     get:
+      tags:
+        - users
       operationId: listUsers
       summary: List users visible within the caller's branch scope
       security:
@@ -4804,6 +5277,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     post:
+      tags:
+        - users
       operationId: createUser
       summary: Create a user with roles and branch memberships
       security:
@@ -4835,6 +5310,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/notifications:
     get:
+      tags:
+        - me
       operationId: listMyNotifications
       summary: List the authenticated user's notifications, newest first
       security:
@@ -4876,6 +5353,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/notifications/unread-count:
     get:
+      tags:
+        - me
       operationId: getMyUnreadNotificationCount
       summary: Count the authenticated user's unread notifications
       security:
@@ -4897,6 +5376,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/notifications/read-all:
     post:
+      tags:
+        - me
       operationId: markAllMyNotificationsRead
       summary: Mark all of the authenticated user's unread notifications read
       security:
@@ -4918,6 +5399,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/notifications/{id}/read:
     post:
+      tags:
+        - me
       operationId: markMyNotificationRead
       summary: Mark one of the authenticated user's notifications read
       security:
@@ -4947,6 +5430,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/leave/requests:
     get:
+      tags:
+        - leave
       operationId: listLeaveRequests
       summary: List the branch-scoped leave-request approval queue (연차 결재함)
       description: >-
@@ -4989,6 +5474,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/leave/requests/{id}/decide:
     post:
+      tags:
+        - leave
       operationId: decideLeaveRequest
       summary: Approve, return, or reject a pending leave request
       description: >-
@@ -5038,6 +5525,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/leave/balances:
     get:
+      tags:
+        - leave
       operationId: listLeaveBalances
       summary: Per-employee annual-leave balance roster (직원별 연차 현황)
       description: >-
@@ -5065,6 +5554,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/leave/promotions:
     post:
+      tags:
+        - leave
       operationId: pushLeavePromotion
       summary: Serve a §61 연차 사용 촉진 (round 1 or 2)
       description: >-
@@ -5101,6 +5592,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/leave/refusal-notices:
     post:
+      tags:
+        - leave
       operationId: pushLeaveRefusalNotice
       summary: Serve a 노무수령거부 notice (after a round-2 promotion)
       description: >-
@@ -5129,6 +5622,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/me/inbox-docs:
     get:
+      tags:
+        - me
       operationId: listMyInboxDocs
       summary: List the authenticated user's statutory-notice vault (개인 수신함)
       description: >-
@@ -5182,6 +5677,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/inbox-docs/{id}:
     get:
+      tags:
+        - me
       operationId: getMyInboxDoc
       summary: Read one of the authenticated user's inbox documents
       description: >-
@@ -5215,6 +5712,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/inbox-docs/{id}/confirm-receipt:
     post:
+      tags:
+        - me
       operationId: confirmMyInboxDocReceipt
       summary: Confirm receipt of a legal notice (the legal receipt evidence)
       description: >-
@@ -5268,6 +5767,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/todos:
     get:
+      tags:
+        - me
       operationId: listMyTodos
       summary: List the authenticated user's todos, open first then newest first
       security:
@@ -5302,6 +5803,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     post:
+      tags:
+        - me
       operationId: createMyTodo
       summary: Create a todo owned by the authenticated user
       description: >-
@@ -5335,6 +5838,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/todos/{todoId}/done:
     post:
+      tags:
+        - me
       operationId: setMyTodoDone
       summary: Mark one of the authenticated user's todos done or undone
       description: >-
@@ -5374,6 +5879,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/todos/{todoId}:
     delete:
+      tags:
+        - me
       operationId: deleteMyTodo
       summary: Delete one of the authenticated user's todos
       description: >-
@@ -5402,6 +5909,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/dispatch-offers:
     get:
+      tags:
+        - me
       operationId: listMyDispatchOffers
       summary: List the authenticated mechanic's pending P1 dispatch offers
       description: >-
@@ -5429,6 +5938,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/action-inbox:
     get:
+      tags:
+        - me
       operationId: listMyActionInbox
       summary: Unified action inbox for the authenticated principal
       description: >-
@@ -5462,6 +5973,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/me:
     get:
+      tags:
+        - users
       operationId: getCurrentUser
       summary: Get the authenticated user's own profile
       security:
@@ -5484,6 +5997,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     patch:
+      tags:
+        - users
       operationId: updateCurrentUser
       summary: Update the authenticated user's own display name and phone
       security:
@@ -5513,6 +6028,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/workspace:
     get:
+      tags:
+        - me
       operationId: getCurrentUserWorkspace
       summary: Get the authenticated user's console workspace layout
       description: >-
@@ -5537,6 +6054,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     put:
+      tags:
+        - me
       operationId: putCurrentUserWorkspace
       summary: Upsert the authenticated user's console workspace layout
       description: >-
@@ -5569,6 +6088,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/me/authz:
     get:
+      tags:
+        - me
       operationId: getCurrentUserAuthz
       summary: Get the authenticated caller's authorization projection
       description: >-
@@ -5600,6 +6121,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/{id}:
     get:
+      tags:
+        - users
       operationId: getUser
       summary: Get a user by id within the caller's branch scope
       security:
@@ -5630,6 +6153,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     patch:
+      tags:
+        - users
       operationId: updateUser
       summary: Update a user's profile, roles, and branch memberships
       security:
@@ -5669,6 +6194,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/{id}/deactivate:
     post:
+      tags:
+        - users
       operationId: deactivateUser
       summary: Deactivate (soft-disable) a user
       security:
@@ -5702,6 +6229,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/regions:
     get:
+      tags:
+        - regions
       operationId: listRegions
       summary: List all regions
       security:
@@ -5726,6 +6255,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     post:
+      tags:
+        - regions
       operationId: createRegion
       summary: Create a region
       security:
@@ -5757,6 +6288,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/regions/{id}:
     patch:
+      tags:
+        - regions
       operationId: updateRegion
       summary: Rename a region
       security:
@@ -5795,6 +6328,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     delete:
+      tags:
+        - regions
       operationId: deactivateRegion
       summary: Soft-delete (deactivate) a region
       description: Soft-deletes a region. Refused with 409 while the region still has active branches, so live tenant data
@@ -5830,6 +6365,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/branches:
     get:
+      tags:
+        - branches
       operationId: listBranches
       summary: List all branches (also backs support-ticket triage)
       security:
@@ -5854,6 +6391,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     post:
+      tags:
+        - branches
       operationId: createBranch
       summary: Create a branch inside a region
       security:
@@ -5885,6 +6424,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/branches/{id}:
     get:
+      tags:
+        - branches
       operationId: getBranch
       summary: Fetch one branch's summary for an org-unit pin panel
       description: 'Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes
@@ -5913,6 +6454,8 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
+      tags:
+        - branches
       operationId: updateBranch
       summary: Rename a branch or move it to another region
       security:
@@ -5951,6 +6494,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
     delete:
+      tags:
+        - branches
       operationId: deactivateBranch
       summary: Soft-delete (deactivate) a branch
       description: Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment,
@@ -5986,6 +6531,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/passkeys:
     get:
+      tags:
+        - passkeys
       operationId: listPasskeys
       summary: List the authenticated user's own passkey credentials
       description: Returns the caller's own WebAuthn credentials (id and registration / last-use timestamps). No secret material
@@ -6013,6 +6560,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/passkeys/{id}:
     delete:
+      tags:
+        - passkeys
       operationId: deletePasskey
       summary: Revoke one of the authenticated user's own passkey credentials
       description: Deletes a credential owned by the caller. A credential that is not the caller's own returns 404. The caller's
@@ -6044,6 +6593,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/storefront/listings:
     get:
+      tags:
+        - storefront
       operationId: storefrontListListings
       summary: List published sales listings for the public storefront (#6)
       description: Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible
@@ -6091,6 +6642,8 @@ paths:
                 $ref: '#/components/schemas/SalesListingPage'
   /api/v1/storefront/listings/{id}:
     get:
+      tags:
+        - storefront
       operationId: storefrontGetListing
       summary: Read one public sales listing (#6)
       description: Public, unauthenticated read of a single storefront-visible listing. Returns 404 if the listing does not
@@ -6112,6 +6665,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/storefront/listings/{id}/media/{media_id}:
     get:
+      tags:
+        - storefront
       operationId: storefrontGetListingMedia
       summary: Serve one public sales-listing photo (#6)
       description: Public, unauthenticated serve of one listing photo's bytes, streamed from the object store. The media must
@@ -6140,6 +6695,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/storefront/inquiries:
     post:
+      tags:
+        - storefront
       operationId: submitInquiry
       summary: Submit a public customer inquiry (#6)
       description: Public, unauthenticated lead intake. Accepts the customer's contact details and topic and acknowledges
@@ -6161,6 +6718,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/sales/listings:
     get:
+      tags:
+        - sales
       operationId: adminListListings
       summary: List all sales listings for the admin console (#6)
       description: Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including
@@ -6212,6 +6771,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
+      tags:
+        - sales
       operationId: createListing
       summary: Create a sales listing (#6)
       description: Admin-gated (SalesManage). Creates a new catalog listing and returns its server-generated id.
@@ -6238,6 +6799,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/sales/listings/{id}:
     patch:
+      tags:
+        - sales
       operationId: updateListing
       summary: Update a sales listing (#6)
       description: 'Admin-gated (SalesManage). Partial update: absent keys are left unchanged; nullable keys explicitly set
@@ -6268,6 +6831,8 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
     delete:
+      tags:
+        - sales
       operationId: deleteListing
       summary: Archive a sales listing (#6)
       description: Admin-gated (SalesManage). Soft-archives the listing (status -> WITHDRAWN) and removes it from
@@ -6291,6 +6856,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/sales/inquiries:
     get:
+      tags:
+        - sales
       operationId: listInquiries
       summary: List customer inquiries for the admin inbox (#6)
       description: Admin-gated (SalesManage) inquiry inbox. Optional status filter; results are paged.
@@ -6332,6 +6899,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/sales/inquiries/{id}:
     patch:
+      tags:
+        - sales
       operationId: updateInquiryStatus
       summary: Update a customer inquiry's triage status (#6)
       description: Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
@@ -6362,6 +6931,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/platform/orgs/{id}:
     delete:
+      tags:
+        - platform
       operationId: removePlatformOrg
       summary: Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
       description: 'Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform
@@ -6426,6 +6997,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/integrity/findings:
     get:
+      tags:
+        - integrity
       operationId: listIntegrityFindings
       summary: List governance findings (anomaly / 검토 필요) for the current org
       description: 'Lists governance findings raised by the integrity engine (#34): records that need human review such as
@@ -6457,6 +7030,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/integrity/findings/{id}/triage:
     post:
+      tags:
+        - integrity
       operationId: triageIntegrityFinding
       summary: Triage (review) a governance finding
       description: Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo
@@ -6495,6 +7070,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/mail/account:
     get:
+      tags:
+        - mail
       operationId: getMailAccount
       summary: Get the tenant's configured webmail account (write-only password)
       description: Returns the configured corporate mailbox for the caller's tenant. The response NEVER contains a password;
@@ -6518,6 +7095,8 @@ paths:
         '503':
           $ref: '#/components/responses/MailUnavailable'
     put:
+      tags:
+        - mail
       operationId: configureMailAccount
       summary: Configure (create or replace) the tenant's webmail account
       description: 'Upserts the mailbox config. Passwords are write-only: a present password is sealed (envelope AEAD) and
@@ -6548,6 +7127,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/account/test:
     post:
+      tags:
+        - mail
       operationId: testMailAccountConnection
       summary: Test the SMTP connection with the stored credentials
       description: Authenticates to the tenant's configured SMTP server using the stored credentials and reports a structured
@@ -6573,6 +7154,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/send:
     post:
+      tags:
+        - mail
       operationId: sendMail
       summary: Compose and send a new message
       description: Sends a new outbound message through the tenant's SMTP server and persists it as a direction=OUT message.
@@ -6604,6 +7187,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/reply:
     post:
+      tags:
+        - mail
       operationId: replyMail
       summary: Reply to a message (sets In-Reply-To / References)
       description: Sends a reply through the tenant's SMTP server, stamping the In-Reply-To and References threading headers,
@@ -6635,6 +7220,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/forward:
     post:
+      tags:
+        - mail
       operationId: forwardMail
       summary: Forward a message (sets In-Reply-To / References)
       description: Forwards a message through the tenant's SMTP server, stamping the In-Reply-To and References threading
@@ -6666,6 +7253,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/folders:
     get:
+      tags:
+        - mail
       operationId: listMailFolders
       summary: List the tenant mailbox folders
       description: Lists the configured mailbox's folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed
@@ -6689,6 +7278,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/threads:
     get:
+      tags:
+        - mail
       operationId: listMailThreads
       summary: List mail threads (paginated, unread filter, search)
       description: 'Lists the mailbox''s threads newest-first. Optional filters: unread-only, a full-text search term q, a
@@ -6742,6 +7333,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/threads/{id}:
     get:
+      tags:
+        - mail
       operationId: getMailThread
       summary: Get one thread with its messages
       description: Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized
@@ -6772,6 +7365,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/threads/{id}/read-state:
     patch:
+      tags:
+        - mail
       operationId: setMailThreadReadState
       summary: Mark a mail thread read or unread
       description: Sets every inbound message in the visible thread to read or unread and recomputes thread/folder unread
@@ -6807,6 +7402,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/messages/{id}:
     get:
+      tags:
+        - mail
       operationId: getMailMessage
       summary: Get one message with its attachments
       description: Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint).
@@ -6837,6 +7434,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/mail/attachments/{id}/download:
     get:
+      tags:
+        - mail
       operationId: downloadMailAttachment
       summary: Get a presigned download URL for an attachment
       description: Resolves the attachment under the caller's org (cross-tenant invisible) and returns a short-lived presigned
@@ -6867,6 +7466,8 @@ paths:
           $ref: '#/components/responses/MailUnavailable'
   /api/v1/workflow-studio/catalog:
     get:
+      tags:
+        - workflow-studio
       operationId: getWorkflowStudioCatalog
       summary: List Workflow Studio connector allowlist and templates
       description: 'Returns the server-owned connector/action allowlist and starter workflow templates. This is the safe no-code
@@ -6887,6 +7488,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/workflow-studio/definitions:
     get:
+      tags:
+        - workflow-studio
       operationId: listWorkflowDefinitions
       summary: List tenant workflow definitions
       description: Lists tenant-owned workflow definitions with latest version metadata, approval/payment line requirements,
@@ -6906,6 +7509,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
+      tags:
+        - workflow-studio
       operationId: createWorkflowDefinition
       summary: Create a draft workflow definition
       description: Creates a DRAFT workflow definition and version 1. Publishing, pausing, rollback, and clone operations
@@ -6935,6 +7540,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/submittable-definitions:
     get:
+      tags:
+        - workflow-studio
       operationId: listSubmittableWorkflowDefinitions
       summary: List workflow definitions the caller may start (기안 template gallery)
       description: 'All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the
@@ -6958,6 +7565,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/workflow-studio/definitions/{id}:
     patch:
+      tags:
+        - workflow-studio
       operationId: updateWorkflowDefinition
       summary: Update a draft workflow definition
       description: Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object
@@ -6994,6 +7603,8 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
     delete:
+      tags:
+        - workflow-studio
       operationId: archiveWorkflowDefinition
       summary: Delete a draft workflow definition
       description: Soft-deletes a DRAFT workflow definition by moving the mutable pointer to RETIRED while preserving
@@ -7035,6 +7646,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/workflow-studio/definitions/{id}/history:
     get:
+      tags:
+        - workflow-studio
       operationId: listWorkflowDefinitionHistory
       summary: List append-only workflow definition change history
       security:
@@ -7060,6 +7673,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/workflow-studio/definitions/{id}/simulate:
     post:
+      tags:
+        - workflow-studio
       operationId: simulateWorkflowDefinition
       summary: Simulate publish readiness without writing
       description: Validates the workflow definition, required approval/payment lines, conditional notification rules, and
@@ -7095,6 +7710,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/publish:
     post:
+      tags:
+        - workflow-studio
       operationId: publishWorkflowDefinition
       summary: Publish a workflow definition version (direct for new, staged for active)
       description: Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion,
@@ -7142,6 +7759,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/pause:
     post:
+      tags:
+        - workflow-studio
       operationId: pauseWorkflowDefinition
       summary: Pause an active workflow definition
       security:
@@ -7181,6 +7800,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/rollback:
     post:
+      tags:
+        - workflow-studio
       operationId: rollbackWorkflowDefinition
       summary: Roll back by appending a new active version copied from history
       security:
@@ -7220,6 +7841,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/clone:
     post:
+      tags:
+        - workflow-studio
       operationId: cloneWorkflowDefinition
       summary: Clone a workflow definition into a new draft
       security:
@@ -7259,6 +7882,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/by-object-kind/{kind}:
     get:
+      tags:
+        - workflow-studio
       operationId: listWorkflowDefinitionsByObjectKind
       summary: Automation rules acting on an object kind (dynamics↔ontology)
       description: The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or
@@ -7286,6 +7911,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve:
     post:
+      tags:
+        - workflow-studio
       operationId: approveWorkflowDefinitionRevision
       summary: Approve a staged pending revision (four-eyes application)
       description: Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve
@@ -7337,6 +7964,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw:
     post:
+      tags:
+        - workflow-studio
       operationId: withdrawWorkflowDefinitionRevision
       summary: Withdraw (discard) a staged pending revision
       description: Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history.
@@ -7373,6 +8002,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/workflow-studio/trigger-bindings:
     get:
+      tags:
+        - workflow-studio
       operationId: listWorkflowTriggerBindings
       summary: List workflow trigger bindings (domain event → workflow start rules)
       security:
@@ -7389,6 +8020,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
+      tags:
+        - workflow-studio
       operationId: createWorkflowTriggerBinding
       summary: Bind a registered domain event to a workflow definition
       description: When the bound event's audited mutation commits, the dispatcher starts one idempotent run of the bound
@@ -7421,6 +8054,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/trigger-bindings/{id}/enable:
     post:
+      tags:
+        - workflow-studio
       operationId: enableWorkflowTriggerBinding
       summary: Enable a workflow trigger binding
       security:
@@ -7446,6 +8081,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/workflow-studio/trigger-bindings/{id}/disable:
     post:
+      tags:
+        - workflow-studio
       operationId: disableWorkflowTriggerBinding
       summary: Disable a workflow trigger binding
       security:
@@ -7471,6 +8108,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/workflow-studio/schedules:
     get:
+      tags:
+        - workflow-studio
       operationId: listWorkflowSchedules
       summary: List workflow cron schedules
       security:
@@ -7487,6 +8126,8 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
+      tags:
+        - workflow-studio
       operationId: createWorkflowSchedule
       summary: Create a workflow cron schedule
       description: cron_expr is evaluated in the schedule's IANA timezone (default Asia/Seoul). The background poller starts
@@ -7516,6 +8157,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/schedules/{id}:
     patch:
+      tags:
+        - workflow-studio
       operationId: updateWorkflowSchedule
       summary: Update a workflow cron schedule (label, cron, timezone, enabled)
       description: Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are
@@ -7551,6 +8194,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/schedules/preview-next-runs:
     post:
+      tags:
+        - workflow-studio
       operationId: previewWorkflowScheduleNextRuns
       summary: Preview the next fire times for a cron expression
       security:
@@ -7576,6 +8221,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/schedules/{id}/runs:
     get:
+      tags:
+        - workflow-studio
       operationId: listWorkflowScheduleRuns
       summary: Run history for a workflow schedule
       security:
@@ -7601,6 +8248,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/workflow-tasks/{task_id}/finalize:
     post:
+      tags:
+        - workflow-tasks
       operationId: finalizeWorkflowTask
       summary: Finalize an approval document (author or delegate)
       description: Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is
@@ -7640,6 +8289,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-runs/{run_id}/post-finalization-rejection:
     post:
+      tags:
+        - workflow-runs
       operationId: createWorkflowPostFinalizationRejection
       summary: Create a compensating post-finalization rejection (사후 반려)
       description: Records a compensating document linked to an already-finalized run and notifies the whole approval line.
@@ -7678,6 +8329,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-runs:
     post:
+      tags:
+        - workflow-runs
       operationId: startWorkflowRun
       summary: Start a workflow run (idempotent)
       description: Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node.
@@ -7709,6 +8362,8 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
     get:
+      tags:
+        - workflow-runs
       operationId: listWorkflowRunsAdmin
       summary: Org-wide admin run list, incl. dead-letter (workflow-manage)
       description: Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter
@@ -7750,6 +8405,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-runs/{run_id}:
     get:
+      tags:
+        - workflow-runs
       operationId: getWorkflowRun
       summary: Read-only run detail — head, waiting tasks, node-step timeline
       description: Visibility mirrors the approval inbox exactly — the run's initiator, a claimer of one of its tasks, or a
@@ -7778,6 +8435,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/workflow-runs/mine:
     get:
+      tags:
+        - workflow-runs
       operationId: listMyWorkflowRuns
       summary: List the runs the caller initiated (submission box)
       description: Returns runs where initiated_by is the caller, optionally filtered by status/object_type. Final-approved but
@@ -7817,6 +8476,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-tasks:
     get:
+      tags:
+        - workflow-tasks
       operationId: listWorkflowTasks
       summary: List approval-inbox waiting tasks (group or personal)
       description: Group inbox via role_key, personal inbox via assignee=me. Policy-bearing rows are gated legacy-enforce with an
@@ -7857,6 +8518,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-tasks/{task_id}/claim:
     post:
+      tags:
+        - workflow-tasks
       operationId: claimWorkflowTask
       summary: Claim an OPEN waiting task
       description: Transitions an OPEN task to CLAIMED for the caller. A same-user replay is a 200 no-op; a task claimed by
@@ -7894,6 +8557,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-tasks/{task_id}/decide:
     post:
+      tags:
+        - workflow-tasks
       operationId: decideWorkflowTask
       summary: Decide a waiting task (approve/reject/return)
       description: Completes a non-finalize approval task. approve advances the run to the next node (a human task parks WAITING;
@@ -7932,6 +8597,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/collaboration/calendar/events:
     get:
+      tags:
+        - collaboration
       operationId: listCollaborationCalendarEvents
       summary: List tenant-scoped collaboration calendar events
       description: Returns server-filtered collaboration calendar events for the caller's tenant. Personal events are visible
@@ -7972,6 +8639,8 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
     post:
+      tags:
+        - collaboration
       operationId: createCollaborationCalendarEvent
       summary: Create an audited collaboration calendar event
       description: Creates a tenant-scoped calendar event with explicit audience scope and optional source object link. The
@@ -7999,6 +8668,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/collaboration/polls:
     get:
+      tags:
+        - collaboration
       operationId: listCollaborationPolls
       summary: List collaboration polls
       description: Returns open collaboration polls by default with aggregate option counts, caller vote state, target-scope
@@ -8034,6 +8705,8 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
     post:
+      tags:
+        - collaboration
       operationId: createCollaborationPoll
       summary: Create an audited collaboration poll
       description: Creates a poll with explicit target scope, anonymous/named vote mode, source-object link, option validation,
@@ -8061,6 +8734,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/collaboration/polls/{id}/vote:
     post:
+      tags:
+        - collaboration
       operationId: voteCollaborationPoll
       summary: Submit or replace the caller's poll vote
       description: Upserts the caller's vote after validating poll lifecycle, option ownership, single-vs-multiple selection
@@ -8096,6 +8771,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/object-links:
     get:
+      tags:
+        - object-links
       operationId: listObjectLinks
       summary: List the generic links touching one object, in both directions
       description: Returns every object_link where the given (kind, id) is the source (outgoing) or the destination
@@ -8129,6 +8806,8 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
     post:
+      tags:
+        - object-links
       operationId: createObjectLink
       summary: Create a generic, audited link between two objects
       description: Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds
@@ -8158,6 +8837,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/object-links/{id}:
     delete:
+      tags:
+        - object-links
       operationId: deleteObjectLink
       summary: Remove an object link (audited)
       description: Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a
@@ -8181,6 +8862,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/search:
     get:
+      tags:
+        - search
       operationId: searchObjects
       summary: Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
       description: 'Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order,
@@ -8220,6 +8903,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/objects/{kind}/{id}:
     get:
+      tags:
+        - objects
       operationId: resolveObject
       summary: Resolve any object to a compact head (code, title, status)
       description: 'Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated.
@@ -8257,6 +8942,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/objects/{kind}/{id}/graph:
     get:
+      tags:
+        - objects
       operationId: getObjectGraph
       summary: Walk the bounded object-link neighborhood of an object
       description: 'Bounded level-by-level walk over object_links up to `depth` hops (clamped 1-5), org-scoped under
@@ -8301,6 +8988,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/object-types:
     get:
+      tags:
+        - object-types
       operationId: listObjectTypes
       summary: List the object-type registry with caller-visible instance counts
       description: 'Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count —
@@ -8325,6 +9014,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/object-types/{kind}:
     get:
+      tags:
+        - object-types
       operationId: getObjectType
       summary: Fetch one object type with its caller-visible instance count
       description: Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count
@@ -8355,6 +9046,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/link-types:
     get:
+      tags:
+        - link-types
       operationId: listLinkTypes
       summary: List the edge-type registry (object-link relationship vocabulary)
       description: Returns the seeded, platform-wide set of relationship labels an object_link may use. createObjectLink
@@ -8376,6 +9069,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/series:
     post:
+      tags:
+        - series
       operationId: createSeries
       summary: Create an SR- series and attach its first instance
       description: 'Creates an org-scoped series with a canonical SR- code and attaches the first instance. The instance
@@ -8407,6 +9102,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/series/by-instance:
     get:
+      tags:
+        - series
       operationId: getSeriesByInstance
       summary: Find which series an object belongs to
       description: 'Returns the series a given (kind, id) instance belongs to, or null. Membership is revealed only when
@@ -8441,6 +9138,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/series/{id}:
     get:
+      tags:
+        - series
       operationId: getSeries
       summary: Read a series and its ordered, caller-visible instances
       description: 'Returns the series head and its instances resolved to ObjectHeads, ordered by attach time. Instances
@@ -8469,6 +9168,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/series/{id}/instances:
     post:
+      tags:
+        - series
       operationId: attachSeriesInstance
       summary: Attach an instance to an existing series
       description: 'Attaches a (kind, id) instance to the series. The series must exist for the caller and the instance
@@ -8507,6 +9208,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/financial/purchase-requests/preferences:
     get:
+      tags:
+        - financial
       operationId: getPurchaseRequestPreferences
       summary: Fetch the current user's purchase request workspace preferences
       security:
@@ -8521,6 +9224,8 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
     put:
+      tags:
+        - financial
       operationId: savePurchaseRequestPreferences
       summary: Save the current user's purchase request workspace preferences
       security:
@@ -8544,6 +9249,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/financial/purchase-requests/attachments/presign:
     post:
+      tags:
+        - financial
       operationId: presignPurchaseRequestAttachment
       summary: Create a purchase attachment record and return a presigned upload URL
       security:
@@ -8571,6 +9278,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/financial/purchase-requests/attachments/{attachmentId}/confirm:
     post:
+      tags:
+        - financial
       operationId: confirmPurchaseRequestAttachment
       summary: Confirm a completed direct purchase attachment upload
       security:
@@ -8596,6 +9305,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/attachments/{attachmentId}/download:
     get:
+      tags:
+        - financial
       operationId: downloadPurchaseRequestAttachment
       summary: Return a short-lived download URL for a confirmed purchase attachment
       security:
@@ -8624,6 +9335,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/period-locks:
     get:
+      tags:
+        - period-locks
       operationId: listPeriodLocks
       summary: List payroll/accounting period locks
       description: Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are
@@ -8659,6 +9372,8 @@ paths:
         '503':
           description: JWT verification is not configured.
     post:
+      tags:
+        - period-locks
       operationId: createPeriodLock
       summary: Lock a payroll/accounting period (freeze window)
       description: 'Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every
@@ -8691,6 +9406,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/period-locks/{lockId}/unlock:
     post:
+      tags:
+        - period-locks
       operationId: unlockPeriodLock
       summary: Unlock a period lock (one-shot, reason required)
       description: Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking
@@ -8731,6 +9448,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/lifecycles/{objectType}/{objectId}:
     get:
+      tags:
+        - lifecycles
       operationId: getObjectLifecycle
       summary: Read one object's lifecycle state and transition log
       description: Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold /
@@ -8759,6 +9478,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/lifecycles/{objectType}/{objectId}/transition:
     post:
+      tags:
+        - lifecycles
       operationId: transitionObjectLifecycle
       summary: Transition one object's lifecycle state
       description: 'Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the
@@ -8796,6 +9517,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/lifecycles/{objectType}/{objectId}/hold:
     post:
+      tags:
+        - lifecycles
       operationId: setObjectLifecycleHold
       summary: Set or clear legal hold / retention on one object's lifecycle
       description: Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when
@@ -8828,6 +9551,8 @@ paths:
           description: JWT verification is not configured.
   /api/v1/office/sessions:
     post:
+      tags:
+        - office
       operationId: createOfficeSession
       summary: Issue a signed DocumentServer editor config for a document
       description: Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document.
@@ -8876,6 +9601,8 @@ paths:
           description: Office editor or document storage is not configured.
   /api/v1/office/callback:
     post:
+      tags:
+        - office
       operationId: officeCallback
       summary: DocumentServer force-save callback (machine, JWT-verified)
       description: The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE
@@ -8944,6 +9671,8 @@ paths:
                     minimum: 0
   /api/v1/office/documents/{documentRef}/versions:
     get:
+      tags:
+        - office
       operationId: listOfficeDocumentVersions
       summary: List a document's immutable version history (newest first)
       security:
@@ -8975,6 +9704,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore:
     post:
+      tags:
+        - office
       operationId: restoreOfficeDocumentVersion
       summary: Non-destructively restore a version (re-publish it as a new version)
       description: Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with
@@ -14966,6 +15697,21 @@ components:
       - team
       - dm
       - group
+    MessengerThreadVisibility:
+      type: string
+      description: 'channel = a named, branch-scoped room any active branch member may join; direct = a fixed member set
+        (DMs, work-order threads, groups).'
+      enum:
+      - channel
+      - direct
+    MessengerPresenceStatus:
+      type: string
+      description: Activity-derived presence — online within the freshness window of the member's last action, else away,
+        else offline (or never seen).
+      enum:
+      - online
+      - away
+      - offline
     MessengerMemberSummary:
       type: object
       required:
@@ -15001,6 +15747,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         kind:
           $ref: '#/components/schemas/MessengerThreadKind'
+        visibility:
+          description: 'Optional taxonomy override; when omitted the thread is always direct (fixed member set) — pass
+            visibility=channel explicitly to create a joinable, discoverable team channel. A channel requires a title;
+            DM and work-order threads are always direct.'
+          oneOf:
+          - $ref: '#/components/schemas/MessengerThreadVisibility'
+          - type: 'null'
         title:
           type:
           - string
@@ -15027,6 +15780,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Uuid'
+        quoted_message_id:
+          description: Optional reply-quote target; must be a message in the same thread.
+          type:
+          - string
+          - 'null'
+          format: uuid
     MarkMessengerThreadReadRequest:
       type: object
       required:
@@ -15039,6 +15798,8 @@ components:
       required:
       - id
       - kind
+      - visibility
+      - muted
       - branch_id
       - title
       - work_order_id
@@ -15053,6 +15814,11 @@ components:
           $ref: '#/components/schemas/Uuid'
         kind:
           $ref: '#/components/schemas/MessengerThreadKind'
+        visibility:
+          $ref: '#/components/schemas/MessengerThreadVisibility'
+        muted:
+          type: boolean
+          description: Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed).
         branch_id:
           $ref: '#/components/schemas/Uuid'
         title:
@@ -15106,6 +15872,11 @@ components:
       - attachment_evidence_ids
       - read_count
       - read_target_count
+      - ack_count
+      - acked_by_me
+      - quoted_message_id
+      - quoted_body
+      - quoted_sender_name
       - sent_at
       - created_at
       properties:
@@ -15137,6 +15908,28 @@ components:
           type: integer
           format: int64
           description: Non-sender thread members expected to read this message.
+        ack_count:
+          type: integer
+          format: int64
+          description: Members who have acked ("확인") this message.
+        acked_by_me:
+          type: boolean
+          description: Whether the reading caller has acked this message. Always false on a realtime message-posted event.
+        quoted_message_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: Reply-quote target, when this message quotes an earlier one in the thread.
+        quoted_body:
+          type:
+          - string
+          - 'null'
+          description: Short preview of the quoted message; null when nothing is quoted or the quote was deleted.
+        quoted_sender_name:
+          type:
+          - string
+          - 'null'
         sent_at:
           $ref: '#/components/schemas/Timestamp'
         created_at:
@@ -15184,6 +15977,71 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    MessengerAckSummary:
+      type: object
+      required:
+      - message_id
+      - thread_id
+      - acked
+      - ack_count
+      properties:
+        message_id:
+          $ref: '#/components/schemas/Uuid'
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        acked:
+          type: boolean
+          description: Whether the caller's ack is present after the toggle.
+        ack_count:
+          type: integer
+          format: int64
+    SetMessengerThreadMuteRequest:
+      type: object
+      required:
+      - muted
+      properties:
+        muted:
+          type: boolean
+    MessengerThreadMuteSummary:
+      type: object
+      required:
+      - thread_id
+      - muted
+      properties:
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        muted:
+          type: boolean
+    MessengerMemberPresence:
+      type: object
+      required:
+      - user_id
+      - display_name
+      - last_activity_at
+      - status
+      properties:
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type:
+          - string
+          - 'null'
+        last_activity_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        status:
+          $ref: '#/components/schemas/MessengerPresenceStatus'
+    MessengerMemberPresenceListResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessengerMemberPresence'
     NotificationLink:
       description: Deep-link target — an object reference (kind + id) or a bare app screen.
       oneOf:

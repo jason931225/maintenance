@@ -2209,6 +2209,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messenger/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover joinable channels in the caller's branch scope
+         * @description Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels are never returned.
+         */
+        get: operations["listMessengerChannels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join a channel thread the caller can see in scope
+         * @description Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct thread is not joinable and returns 403; a thread outside the caller's branch scope returns 404 (deny-by-omission).
+         */
+        post: operations["joinMessengerChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the caller's personal mute for a thread
+         * @description Direct-save personal setting. A muted thread still records every message; it only suppresses the caller's mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+         */
+        put: operations["setMessengerThreadMute"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Activity-derived presence for members of a thread
+         * @description Returns online/away/offline per thread member, derived from the age of each member's last real action (message/read/ack) — not a live socket, so "online" means "acted within the freshness window". The caller must be a thread member; a non-member gets 403 and sees no presence.
+         */
+        get: operations["getMessengerThreadPresence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/messages/{messageId}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Toggle the caller's ack on a message
+         * @description Toggle the caller's ack: if present it is removed, else added. This is not idempotent and is not safe to blindly retry; clients should reconcile from the returned MessengerAckSummary acked and ack_count values. The caller must be a member of the message's thread; a non-member gets 403.
+         */
+        post: operations["toggleMessengerMessageAck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/messenger/search": {
         parameters: {
             query?: never;
@@ -7410,6 +7510,16 @@ export interface components {
         };
         /** @enum {string} */
         MessengerThreadKind: "work_order" | "team" | "dm" | "group";
+        /**
+         * @description channel = a named, branch-scoped room any active branch member may join; direct = a fixed member set (DMs, work-order threads, groups).
+         * @enum {string}
+         */
+        MessengerThreadVisibility: "channel" | "direct";
+        /**
+         * @description Activity-derived presence — online within the freshness window of the member's last action, else away, else offline (or never seen).
+         * @enum {string}
+         */
+        MessengerPresenceStatus: "online" | "away" | "offline";
         MessengerMemberSummary: {
             id: components["schemas"]["Uuid"];
             display_name: string;
@@ -7421,6 +7531,8 @@ export interface components {
         CreateMessengerThreadRequest: {
             branch_id: components["schemas"]["Uuid"];
             kind: components["schemas"]["MessengerThreadKind"];
+            /** @description Optional taxonomy override; when omitted the thread is always direct (fixed member set) — pass visibility=channel explicitly to create a joinable, discoverable team channel. A channel requires a title; DM and work-order threads are always direct. */
+            visibility?: components["schemas"]["MessengerThreadVisibility"] | null;
             title?: string | null;
             /** Format: uuid */
             work_order_id?: string | null;
@@ -7429,6 +7541,11 @@ export interface components {
         SendMessengerMessageRequest: {
             body: string;
             attachment_evidence_ids?: components["schemas"]["Uuid"][];
+            /**
+             * Format: uuid
+             * @description Optional reply-quote target; must be a message in the same thread.
+             */
+            quoted_message_id?: string | null;
         };
         MarkMessengerThreadReadRequest: {
             last_read_message_id: components["schemas"]["Uuid"];
@@ -7436,6 +7553,9 @@ export interface components {
         MessengerThreadSummary: {
             id: components["schemas"]["Uuid"];
             kind: components["schemas"]["MessengerThreadKind"];
+            visibility: components["schemas"]["MessengerThreadVisibility"];
+            /** @description Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed). */
+            muted: boolean;
             branch_id: components["schemas"]["Uuid"];
             title: string | null;
             /** Format: uuid */
@@ -7476,6 +7596,21 @@ export interface components {
              * @description Non-sender thread members expected to read this message.
              */
             read_target_count: number;
+            /**
+             * Format: int64
+             * @description Members who have acked ("확인") this message.
+             */
+            ack_count: number;
+            /** @description Whether the reading caller has acked this message. Always false on a realtime message-posted event. */
+            acked_by_me: boolean;
+            /**
+             * Format: uuid
+             * @description Reply-quote target, when this message quotes an earlier one in the thread.
+             */
+            quoted_message_id: string | null;
+            /** @description Short preview of the quoted message; null when nothing is quoted or the quote was deleted. */
+            quoted_body: string | null;
+            quoted_sender_name: string | null;
             sent_at: components["schemas"]["Timestamp"];
             created_at: components["schemas"]["Timestamp"];
         };
@@ -7493,6 +7628,31 @@ export interface components {
             last_read_message_id: components["schemas"]["Uuid"];
             read_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
+        };
+        MessengerAckSummary: {
+            message_id: components["schemas"]["Uuid"];
+            thread_id: components["schemas"]["Uuid"];
+            /** @description Whether the caller's ack is present after the toggle. */
+            acked: boolean;
+            /** Format: int64 */
+            ack_count: number;
+        };
+        SetMessengerThreadMuteRequest: {
+            muted: boolean;
+        };
+        MessengerThreadMuteSummary: {
+            thread_id: components["schemas"]["Uuid"];
+            muted: boolean;
+        };
+        MessengerMemberPresence: {
+            user_id: components["schemas"]["Uuid"];
+            display_name: string | null;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            status: components["schemas"]["MessengerPresenceStatus"];
+        };
+        MessengerMemberPresenceListResponse: {
+            items: components["schemas"]["MessengerMemberPresence"][];
         };
         /** @description Deep-link target — an object reference (kind + id) or a bare app screen. */
         NotificationLink: {
@@ -12277,6 +12437,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessengerReadReceiptSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMessengerChannels: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Joinable channels visible to the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    joinMessengerChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The thread the caller joined. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setMessengerThreadMute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMessengerThreadMuteRequest"];
+            };
+        };
+        responses: {
+            /** @description The thread's post-toggle mute state for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadMuteSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getMessengerThreadPresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Presence of every member of the thread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMemberPresenceListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    toggleMessengerMessageAck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                messageId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The message's post-toggle ack state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerAckSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];

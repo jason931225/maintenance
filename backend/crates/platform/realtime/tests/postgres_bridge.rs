@@ -51,6 +51,7 @@ async fn postgres_notify_from_instance_a_wakes_instance_b_and_rereads_message_bo
                 branch_scope: BranchScope::single(branch_id),
                 branch_id,
                 kind: ThreadKind::Team,
+                visibility: None,
                 title: Some("정비팀".to_owned()),
                 work_order_id: None,
                 member_ids: vec![sender, recipient],
@@ -67,6 +68,7 @@ async fn postgres_notify_from_instance_a_wakes_instance_b_and_rereads_message_bo
                 thread_id: thread.id,
                 body: "A 인스턴스에서 저장된 본문을 B 인스턴스가 DB에서 재조회".to_owned(),
                 attachment_evidence_ids: Vec::new(),
+                quoted_message_id: None,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -105,6 +107,7 @@ async fn reconnect_replays_messages_after_the_last_read_cursor(pool: PgPool) {
                 branch_scope: BranchScope::single(branch_id),
                 branch_id,
                 kind: ThreadKind::Team,
+                visibility: None,
                 title: Some("정비팀".to_owned()),
                 work_order_id: None,
                 member_ids: vec![sender, recipient],
@@ -120,6 +123,7 @@ async fn reconnect_replays_messages_after_the_last_read_cursor(pool: PgPool) {
                 thread_id: thread.id,
                 body: "already read".to_owned(),
                 attachment_evidence_ids: Vec::new(),
+                quoted_message_id: None,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -132,6 +136,7 @@ async fn reconnect_replays_messages_after_the_last_read_cursor(pool: PgPool) {
                 thread_id: thread.id,
                 body: "replayed after reconnect".to_owned(),
                 attachment_evidence_ids: Vec::new(),
+                quoted_message_id: None,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc() + time::Duration::seconds(1),
             })
@@ -404,6 +409,7 @@ async fn create_thread(
             branch_scope: BranchScope::single(branch_id),
             branch_id,
             kind: ThreadKind::Team,
+            visibility: None,
             title: Some("정비팀".to_owned()),
             work_order_id: None,
             member_ids: vec![sender, recipient],
@@ -429,6 +435,7 @@ async fn send_at(
             thread_id,
             body: body.to_owned(),
             attachment_evidence_ids: Vec::new(),
+            quoted_message_id: None,
             trace: TraceContext::generate(),
             occurred_at,
         })

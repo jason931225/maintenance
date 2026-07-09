@@ -40,6 +40,11 @@ import kotlinx.serialization.Contextual
  * @param attachmentEvidenceIds
  * @param readCount Non-sender thread members whose read receipt has reached this message.
  * @param readTargetCount Non-sender thread members expected to read this message.
+ * @param ackCount Members who have acked (\"확인\") this message.
+ * @param ackedByMe Whether the reading caller has acked this message. Always false on a realtime message-posted event.
+ * @param quotedMessageId Reply-quote target, when this message quotes an earlier one in the thread.
+ * @param quotedBody Short preview of the quoted message; null when nothing is quoted or the quote was deleted.
+ * @param quotedSenderName
  * @param sentAt
  * @param createdAt
  */
@@ -76,6 +81,25 @@ data class MessengerMessageSummary (
     /* Non-sender thread members expected to read this message. */
     @SerialName(value = "read_target_count")
     val readTargetCount: kotlin.Long,
+
+    /* Members who have acked (\"확인\") this message. */
+    @SerialName(value = "ack_count")
+    val ackCount: kotlin.Long,
+
+    /* Whether the reading caller has acked this message. Always false on a realtime message-posted event. */
+    @SerialName(value = "acked_by_me")
+    val ackedByMe: kotlin.Boolean,
+
+    /* Reply-quote target, when this message quotes an earlier one in the thread. */
+    @Contextual @SerialName(value = "quoted_message_id")
+    val quotedMessageId: java.util.UUID?,
+
+    /* Short preview of the quoted message; null when nothing is quoted or the quote was deleted. */
+    @SerialName(value = "quoted_body")
+    val quotedBody: kotlin.String?,
+
+    @SerialName(value = "quoted_sender_name")
+    val quotedSenderName: kotlin.String?,
 
     @Contextual @SerialName(value = "sent_at")
     val sentAt: java.time.OffsetDateTime,

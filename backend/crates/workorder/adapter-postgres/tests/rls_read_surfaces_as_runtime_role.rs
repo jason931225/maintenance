@@ -280,6 +280,7 @@ async fn messenger_thread_list_returns_tenant_rows_as_runtime_role(owner_pool: P
                 branch_scope: BranchScope::single(branch),
                 branch_id: branch,
                 kind: ThreadKind::Team,
+                visibility: None,
                 title: Some("정비팀".to_owned()),
                 work_order_id: None,
                 member_ids: vec![sender, recipient],
