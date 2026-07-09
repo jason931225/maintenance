@@ -1,6 +1,6 @@
 -- Access-path indexes for the inbox_docs read filters and idempotent emission.
 --
--- Split from the table (0117) so the correctness schema and the query-tuning
+-- Split from the table (0119) so the correctness schema and the query-tuning
 -- indexes review independently.
 
 -- At-most-once emission: a producer supplying a dedup_key can safely re-drain
