@@ -4,7 +4,7 @@ test("ADMIN-23 equipment detail renders lifecycle ribbon and relationship graph"
   page,
 }) => {
   await loginAsLanding(page, "ADMIN");
-  await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/overview/, { timeout: 15_000 });
 
   await page.getByRole("link", { name: "장비 조회" }).click();
   await expect(page).toHaveURL(/\/equipment$/, { timeout: 10_000 });

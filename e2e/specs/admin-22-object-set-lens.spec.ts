@@ -4,7 +4,7 @@ test("ADMIN-22 ops object-set lens drills into the dispatch query", async ({
   page,
 }) => {
   await loginAsLanding(page, "ADMIN");
-  await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/overview/, { timeout: 15_000 });
 
   await page.getByRole("link", { name: "운영 대시보드" }).click();
   await expect(page).toHaveURL(/\/ops/, { timeout: 10_000 });

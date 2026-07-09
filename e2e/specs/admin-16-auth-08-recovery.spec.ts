@@ -117,13 +117,13 @@ base("ADMIN-16/AUTH-08 admin credential-reset recovers a locked-out user", async
   try {
     await redeemOtp(userPage, RECEPTIONIST.otp);
     await enrollPasskey(userPage);
-    await expect(userPage).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+    await expect(userPage).toHaveURL(/\/overview/, { timeout: 15_000 });
 
     // ── Step 1b: confirm the OLD passkey can log in BEFORE the reset ─────────────
     await logout(userPage);
     await passkeyLogin(userPage);
     // Passkey login uses LoginPage's default authenticated landing: Work Hub.
-    await expect(userPage).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+    await expect(userPage).toHaveURL(/\/overview/, { timeout: 15_000 });
 
     // ── Step 2: the SUPER_ADMIN resets the user's credentials ───────────────────
     await loginAs(adminPage, "SUPER_ADMIN");
@@ -173,12 +173,12 @@ base("ADMIN-16/AUTH-08 admin credential-reset recovers a locked-out user", async
     try {
       await redeemOtp(userPage, newOtp);
       await enrollPasskey(userPage);
-      await expect(userPage).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+      await expect(userPage).toHaveURL(/\/overview/, { timeout: 15_000 });
 
       // The recovered NEW passkey logs in cleanly.
       await logout(userPage);
       await passkeyLogin(userPage);
-      await expect(userPage).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+      await expect(userPage).toHaveURL(/\/overview/, { timeout: 15_000 });
     } finally {
       await removeVirtualAuthenticator(newAuth);
     }

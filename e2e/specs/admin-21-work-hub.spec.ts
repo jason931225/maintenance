@@ -1,83 +1,104 @@
-import { test, expect, sql, TENANT_ORG_ID } from "../fixtures/roles";
+import { test, expect } from "../fixtures/roles";
 import { attachConsoleGuard, auditPage } from "../fixtures/ux";
 
-const ADMIN_ID = "00000000-0000-0000-0000-0000000d0003";
-const WORK_ORDER_ID = "00000000-0000-0000-0000-000000f00009";
-const TARGET_CHANGE_ID = "00000000-0000-0000-0000-0000000cc021";
-
 /**
- * ADMIN-21 — Work Hub is the enterprise action inbox for issue #55.
+ * ADMIN-21 — the unified action inbox landing surface (issue #55 lineage).
  *
- * This verifies the Slack/SAP/ServiceNow-style landing surface in a real browser:
- * existing work, approval, daily-plan, messenger, support, and platform-operated mailbox modules
- * are promoted as one workflow hub with no route-error fallback.
+ * UI-M3 replaced /work-hub with /overview (통합 개요): one deadline-first
+ * action inbox over real pending items (engine approvals, dispatch offers,
+ * support tickets, attendance exceptions) plus the Today/Plan todos panel.
+ * The filename keeps the historical ADMIN-21 story id so the persona/maturity
+ * matrices stay stable.
+ *
+ * Proves the AC round-trip in a real browser:
+ *   1. a real seeded support ticket surfaces as an inbox row, and its primary
+ *      action executes the REAL FSM transition (접수 → the row's next action
+ *      becomes 해결);
+ *   2. todos CRUD against the todos domain: add → appears; complete → leaves
+ *      the open list; delete → gone;
+ *   3. no route-error fallback anywhere on the surface.
  */
-test("ADMIN-21 admin opens the Work Hub action inbox", async ({
+test("ADMIN-21 admin drives the overview action inbox end to end", async ({
   page,
   loginAs,
 }) => {
-  // Own the target-change fixture here: ADMIN-19 also exercises and mutates the
-  // approval queue, so this story must restore the item it expects when the full
-  // browser suite runs in order.
-  sql(
-    `BEGIN;
-     SELECT set_config('app.current_org', '${TENANT_ORG_ID}', true);
-     INSERT INTO target_change_requests (
-       id, work_order_id, requested_by, requested_target_due_at, reason,
-       status, reviewed_by, reviewed_at, review_memo, org_id
-     ) VALUES (
-       '${TARGET_CHANGE_ID}', '${WORK_ORDER_ID}', '${ADMIN_ID}',
-       now() - interval '1 minute', 'E2E Work Hub 일정 변경 검토 대상',
-       'REQUESTED', NULL, NULL, NULL, '${TENANT_ORG_ID}'
-     )
-     ON CONFLICT (id) DO UPDATE
-       SET work_order_id = EXCLUDED.work_order_id,
-           requested_by = EXCLUDED.requested_by,
-           requested_target_due_at = EXCLUDED.requested_target_due_at,
-           reason = EXCLUDED.reason,
-           status = 'REQUESTED',
-           reviewed_by = NULL,
-           reviewed_at = NULL,
-           review_memo = NULL,
-           org_id = EXCLUDED.org_id;
-     COMMIT;`,
-  );
-
   const consoleGuard = attachConsoleGuard(page);
   await loginAs("ADMIN");
 
-  const federatedApprovals = page.waitForResponse((response) =>
-    response.url().includes("/api/approval-items") &&
-    response.request().method() === "GET" &&
-    response.status() === 200,
-  );
-  await page.goto("/work-hub");
-  await federatedApprovals;
+  // Seed one REAL actionable ticket through the public intake API so the run
+  // is self-contained regardless of suite ordering.
+  const ticketTitle = `Overview E2E ticket ${Date.now()}`;
+  const intake = await page.request.post("/api/v1/support/intake", {
+    data: {
+      category: "OPERATIONAL",
+      priority: "URGENT",
+      title: ticketTitle,
+      body: "Seeded by admin-21 to prove the overview primary action round-trip.",
+      requester_name: "Overview E2E",
+      requester_contact: "overview-e2e@example.invalid",
+    },
+  });
+  expect(intake.ok()).toBe(true);
+
+  await page.goto("/overview");
   await expect(
-    page.getByRole("heading", { name: "업무 허브", level: 1 }),
+    page.getByRole("heading", { name: "통합 개요", level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByRole("region", { name: "우선순위 액션 큐" })).toBeVisible();
-  await expect(page.getByText("업무 객체 중심 실행 흐름")).not.toBeVisible();
-  await expect(page.getByText("팀·그룹 범위", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /승인·검토 .*건 보기/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "승인", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "업무·운영 모듈 열기" })).toBeVisible();
   await expect(
-    page.locator(`a[href="/approvals#target-change-${TARGET_CHANGE_ID}"]`),
+    page.getByRole("heading", { name: "액션 인박스", level: 2 }),
   ).toBeVisible();
-  const approvalLink = page
-    .locator('a[href^="/approvals?source=work-order&focus="]')
-    .filter({ hasText: "승인센터에서 검토" })
-    .first();
-  await expect(approvalLink).toHaveAttribute(
-    "href",
-    /\/approvals\?source=work-order&focus=/,
+  await expect(
+    page.getByRole("group", { name: "항목 종류 필터" }),
+  ).toBeVisible();
+
+  // (1) The seeded OPEN ticket is an inbox row whose primary action runs the
+  // real support FSM transition. 접수 = OPEN → IN_PROGRESS…
+  await expect(page.getByText(ticketTitle)).toBeVisible({ timeout: 15_000 });
+  const transitionResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/transition") &&
+      response.request().method() === "POST" &&
+      response.status() === 200,
   );
-  await approvalLink.click();
-  await expect(page).toHaveURL(/\/approvals\?source=work-order&focus=/);
-  await expect(page.getByText("업무 허브에서 연결된 승인 건을 강조했습니다.")).toBeVisible();
-  await expect(page.locator('[aria-current="true"]')).toBeVisible();
+  await page.getByRole("button", { name: `${ticketTitle} 접수` }).click();
+  await transitionResponse;
+  await expect(page.getByText("티켓을 접수했습니다.")).toBeVisible();
+  // …and after the refetch the SAME row's primary action is the next legal
+  // transition (IN_PROGRESS → RESOLVED), proving the mutation stuck.
+  await expect(
+    page.getByRole("button", { name: `${ticketTitle} 해결` }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // (2) Todos CRUD against the real todos domain.
+  const todoText = `E2E 할 일 ${Date.now()}`;
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/v1/me/todos") &&
+      response.request().method() === "POST" &&
+      response.status() === 201,
+  );
+  await page.getByRole("textbox", { name: "할 일 추가" }).fill(todoText);
+  await page.getByRole("button", { name: "추가" }).click();
+  await createResponse;
+  await expect(page.getByText(todoText)).toBeVisible();
+
+  // Complete it — explicit done state; the undo toast appears; the open list
+  // no longer shows it.
+  await page
+    .getByRole("checkbox", { name: `${todoText} 완료로 표시` })
+    .click();
+  await expect(page.getByText("할 일을 완료했습니다.")).toBeVisible();
+  await expect(page.getByText(todoText)).not.toBeVisible({ timeout: 15_000 });
+
+  // Show done items, then delete it for a clean slate.
+  await page.getByRole("checkbox", { name: "완료 항목 표시" }).check();
+  await expect(page.getByText(todoText)).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: `${todoText} 삭제` }).click();
+  await expect(page.getByText("할 일을 삭제했습니다.")).toBeVisible();
+  await expect(page.getByText(todoText)).not.toBeVisible({ timeout: 15_000 });
+
+  // (3) No route-error fallback anywhere on the surface.
   await expect(page.getByText("이 화면을 표시하지 못했습니다.")).not.toBeVisible();
 
-  await auditPage(page, { context: "/work-hub-to-approvals", consoleGuard });
+  await auditPage(page, { context: "/overview-action-inbox", consoleGuard });
 });

@@ -12,10 +12,10 @@ import {
  *
  * Runs only under the `dev-auth` Playwright project (`MNT_DEV_AUTH_E2E=1`) — it
  * needs the authenticated ConsoleShell and a seeded backend with at least one
- * pinnable /work-hub row. The default preview-only `chromium` project ignores
+ * pinnable /overview row. The default preview-only `chromium` project ignores
  * this file. CI-only, like chrome-01/02.
  *
- * Proves the AC: pin a real object on /work-hub, pop out and drag/snap it,
+ * Proves the AC: pin a real object on /overview, pop out and drag/snap it,
  * switch to /attendance and back (panel survives — mounted persistence, no
  * reload), reload (layout restored from the server profile), minimize to tray
  * and restore, Esc closes; axe clean.
@@ -62,7 +62,7 @@ async function seedPinnedSupportTicket(page: Page): Promise<string> {
       category: "OPERATIONAL",
       priority: "URGENT",
       title,
-      body: "Seeded by chrome-03-workspace to guarantee a real pinnable Work Hub row.",
+      body: "Seeded by chrome-03-workspace to guarantee a real pinnable overview row.",
       requester_name: "Workspace E2E",
       requester_contact: "workspace-e2e@example.invalid",
     },
@@ -90,8 +90,8 @@ async function completePasskeySetupIfNeeded(page: Page) {
     name: "패스키 등록",
     level: 1,
   });
-  const workHubTitle = page.getByRole("heading", {
-    name: "업무 허브",
+  const overviewTitle = page.getByRole("heading", {
+    name: "통합 개요",
     level: 1,
   });
   const firstReady = await Promise.race([
@@ -99,9 +99,9 @@ async function completePasskeySetupIfNeeded(page: Page) {
       .waitFor({ state: "visible", timeout: 15_000 })
       .then(() => "onboarding" as const)
       .catch(() => undefined),
-    workHubTitle
+    overviewTitle
       .waitFor({ state: "visible", timeout: 15_000 })
-      .then(() => "work-hub" as const)
+      .then(() => "overview" as const)
       .catch(() => undefined),
   ]);
   if (firstReady === "onboarding") {
@@ -122,15 +122,16 @@ test("window grammar: pin survives screen switch + reload, tray restore, Esc", a
     // Use a hard navigation here on purpose: the later reload assertion needs a
     // durable refresh-cookie session. A fresh dev-auth persona has no passkey,
     // so the first hard navigation can correctly route through onboarding.
-    await page.goto("/work-hub");
+    await page.goto("/overview");
     await completePasskeySetupIfNeeded(page);
     await expect(
-      page.getByRole("heading", { name: "업무 허브", level: 1 }),
+      page.getByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
 
-    // Pin the seeded real row into a detail panel.
+    // Pin the seeded real row into a detail panel. Overview rows are compact
+    // list rows (no per-row heading), so match the title text itself.
     await expect(
-      page.getByRole("heading", { name: supportTicketTitle, exact: true }),
+      page.getByText(supportTicketTitle, { exact: true }),
     ).toBeVisible({ timeout: 15_000 });
     const pinButton = page.getByRole("button", {
       name: `${supportTicketTitle} 상세 고정`,
@@ -159,9 +160,9 @@ test("window grammar: pin survives screen switch + reload, tray restore, Esc", a
       .click();
     await expect(page).toHaveURL(/\/attendance/);
     await nav(page)
-      .getByRole("link", { name: "업무 허브", exact: true })
+      .getByRole("link", { name: "통합 개요", exact: true })
       .click();
-    await expect(page).toHaveURL(/\/work-hub/);
+    await expect(page).toHaveURL(/\/overview/);
     await expect(page.getByRole("button", { name: "최소화" })).toBeVisible();
 
     // Reload — the layout is restored from the server profile.

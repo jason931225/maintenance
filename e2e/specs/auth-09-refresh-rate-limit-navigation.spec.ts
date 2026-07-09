@@ -27,7 +27,7 @@ test("AUTH-09 rapid hard navigation does not rate-limit boot refresh", async ({
   await loginAs("SUPER_ADMIN");
 
   const protectedRoutes = [
-    "/work-hub",
+    "/overview",
     "/dispatch",
     "/dispatch-map",
     "/intake",
