@@ -287,6 +287,30 @@ async fn admin_creates_region_branch_and_user_then_lists_and_reads(pool: PgPool)
         .collect();
     assert!(names.contains(&"강남지점"), "{names:?}");
 
+    // Get-one for an org-unit pin panel (UI-M2a): found → 200 + summary;
+    // an id not in the org → 404 (exercises axum routing + error mapping).
+    let (status, one) = send(
+        &harness,
+        "GET",
+        &format!("/api/v1/branches/{branch_id}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{one:?}");
+    assert_eq!(one["id"], branch_id);
+    assert_eq!(one["name"], "강남지점");
+
+    let (status, _missing) = send(
+        &harness,
+        "GET",
+        "/api/v1/branches/00000000-0000-4000-8000-000000000000",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
     // List users in scope returns the admin and the new mechanic.
     let (status, users) = send(&harness, "GET", "/api/v1/users", &token, None).await;
     assert_eq!(status, StatusCode::OK);
