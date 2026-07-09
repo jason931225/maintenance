@@ -1002,6 +1002,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
     /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
     func markMyNotificationRead(_ input: Operations.MarkMyNotificationRead.Input) async throws -> Operations.MarkMyNotificationRead.Output
+    /// List the authenticated user's statutory-notice vault (개인 수신함)
+    ///
+    /// Metadata only — a locked legal notice's body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/inbox-docs`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/get(listMyInboxDocs)`.
+    func listMyInboxDocs(_ input: Operations.ListMyInboxDocs.Input) async throws -> Operations.ListMyInboxDocs.Output
+    /// Read one of the authenticated user's inbox documents
+    ///
+    /// Reading a LOCKED legal notice returns its metadata with `payload` omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its `payload`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/inbox-docs/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/get(getMyInboxDoc)`.
+    func getMyInboxDoc(_ input: Operations.GetMyInboxDoc.Input) async throws -> Operations.GetMyInboxDoc.Output
+    /// Confirm receipt of a legal notice (the legal receipt evidence)
+    ///
+    /// Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 = 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user's / unknown document is 404.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/inbox-docs/{id}/confirm-receipt`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)`.
+    func confirmMyInboxDocReceipt(_ input: Operations.ConfirmMyInboxDocReceipt.Input) async throws -> Operations.ConfirmMyInboxDocReceipt.Output
     /// List the authenticated user's todos, open first then newest first
     ///
     /// - Remark: HTTP `GET /api/v1/me/todos`.
@@ -3944,6 +3965,53 @@ extension APIProtocol {
         try await markMyNotificationRead(Operations.MarkMyNotificationRead.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// List the authenticated user's statutory-notice vault (개인 수신함)
+    ///
+    /// Metadata only — a locked legal notice's body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/inbox-docs`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/get(listMyInboxDocs)`.
+    public func listMyInboxDocs(
+        query: Operations.ListMyInboxDocs.Input.Query = .init(),
+        headers: Operations.ListMyInboxDocs.Input.Headers = .init()
+    ) async throws -> Operations.ListMyInboxDocs.Output {
+        try await listMyInboxDocs(Operations.ListMyInboxDocs.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Read one of the authenticated user's inbox documents
+    ///
+    /// Reading a LOCKED legal notice returns its metadata with `payload` omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its `payload`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/inbox-docs/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/get(getMyInboxDoc)`.
+    public func getMyInboxDoc(
+        path: Operations.GetMyInboxDoc.Input.Path,
+        headers: Operations.GetMyInboxDoc.Input.Headers = .init()
+    ) async throws -> Operations.GetMyInboxDoc.Output {
+        try await getMyInboxDoc(Operations.GetMyInboxDoc.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Confirm receipt of a legal notice (the legal receipt evidence)
+    ///
+    /// Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 = 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user's / unknown document is 404.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/inbox-docs/{id}/confirm-receipt`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)`.
+    public func confirmMyInboxDocReceipt(
+        path: Operations.ConfirmMyInboxDocReceipt.Input.Path,
+        headers: Operations.ConfirmMyInboxDocReceipt.Input.Headers = .init(),
+        body: Operations.ConfirmMyInboxDocReceipt.Input.Body
+    ) async throws -> Operations.ConfirmMyInboxDocReceipt.Output {
+        try await confirmMyInboxDocReceipt(Operations.ConfirmMyInboxDocReceipt.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// List the authenticated user's todos, open first then newest first
@@ -17176,6 +17244,216 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case unread
+            }
+        }
+        /// A list-row / confirmation view of one inbox document. Never carries the body `payload` — that is only ever on InboxDocDetail, and only once readable.
+        ///
+        /// - Remark: Generated from `#/components/schemas/InboxDocSummary`.
+        public struct InboxDocSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/recipient_user_id`.
+            public var recipientUserId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case payslip = "payslip"
+                case legalNotice = "legal_notice"
+            }
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/kind`.
+            public var kind: Components.Schemas.InboxDocSummary.KindPayload
+            /// Statutory subtype for a legal notice (근로계약/취업규칙/연차촉진/노무수령거부).
+            ///
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/notice_type`.
+            public var noticeType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/title`.
+            public var title: Swift.String
+            /// Statutory basis surfaced in the passkey gate (e.g. 근로기준법 §61).
+            ///
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/legal_basis`.
+            public var legalBasis: Swift.String?
+            /// Producing-object kind (e.g. workflow_run, payroll_run).
+            ///
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/source_kind`.
+            public var sourceKind: Swift.String?
+            /// Producing-object id (e.g. the AP- run code).
+            ///
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/source_id`.
+            public var sourceId: Swift.String?
+            /// True while a legal notice awaits receipt confirmation — its body is withheld until confirmed. Always false for payslips.
+            ///
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/locked`.
+            public var locked: Swift.Bool
+            /// The recipient who confirmed receipt; null until confirmed.
+            ///
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/confirmed_by`.
+            public var confirmedBy: Swift.String?
+            /// When receipt was confirmed (the legal receipt timestamp); null until then.
+            ///
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/confirmed_at`.
+            public var confirmedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/InboxDocSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `InboxDocSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - recipientUserId:
+            ///   - kind:
+            ///   - noticeType: Statutory subtype for a legal notice (근로계약/취업규칙/연차촉진/노무수령거부).
+            ///   - title:
+            ///   - legalBasis: Statutory basis surfaced in the passkey gate (e.g. 근로기준법 §61).
+            ///   - sourceKind: Producing-object kind (e.g. workflow_run, payroll_run).
+            ///   - sourceId: Producing-object id (e.g. the AP- run code).
+            ///   - locked: True while a legal notice awaits receipt confirmation — its body is withheld until confirmed. Always false for payslips.
+            ///   - confirmedBy: The recipient who confirmed receipt; null until confirmed.
+            ///   - confirmedAt: When receipt was confirmed (the legal receipt timestamp); null until then.
+            ///   - createdAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                recipientUserId: Components.Schemas.Uuid,
+                kind: Components.Schemas.InboxDocSummary.KindPayload,
+                noticeType: Swift.String? = nil,
+                title: Swift.String,
+                legalBasis: Swift.String? = nil,
+                sourceKind: Swift.String? = nil,
+                sourceId: Swift.String? = nil,
+                locked: Swift.Bool,
+                confirmedBy: Swift.String? = nil,
+                confirmedAt: Foundation.Date? = nil,
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.recipientUserId = recipientUserId
+                self.kind = kind
+                self.noticeType = noticeType
+                self.title = title
+                self.legalBasis = legalBasis
+                self.sourceKind = sourceKind
+                self.sourceId = sourceId
+                self.locked = locked
+                self.confirmedBy = confirmedBy
+                self.confirmedAt = confirmedAt
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case recipientUserId = "recipient_user_id"
+                case kind
+                case noticeType = "notice_type"
+                case title
+                case legalBasis = "legal_basis"
+                case sourceKind = "source_kind"
+                case sourceId = "source_id"
+                case locked
+                case confirmedBy = "confirmed_by"
+                case confirmedAt = "confirmed_at"
+                case createdAt = "created_at"
+            }
+        }
+        /// A single inbox document. Extends InboxDocSummary with the body `payload`, present only when readable (a payslip, or an already-confirmed legal notice) and omitted while a legal notice is locked.
+        ///
+        /// - Remark: Generated from `#/components/schemas/InboxDocDetail`.
+        public struct InboxDocDetail: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InboxDocDetail/value1`.
+            public var value1: Components.Schemas.InboxDocSummary
+            /// - Remark: Generated from `#/components/schemas/InboxDocDetail/value2`.
+            public struct Value2Payload: Codable, Hashable, Sendable {
+                /// Rendered document payload (legal prose paragraphs, or payslip figures).
+                ///
+                /// - Remark: Generated from `#/components/schemas/InboxDocDetail/value2/payload`.
+                public struct PayloadPayload: Codable, Hashable, Sendable {
+                    /// A container of undocumented properties.
+                    public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                    /// Creates a new `PayloadPayload`.
+                    ///
+                    /// - Parameters:
+                    ///   - additionalProperties: A container of undocumented properties.
+                    public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                        self.additionalProperties = additionalProperties
+                    }
+                    public init(from decoder: any Swift.Decoder) throws {
+                        additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                    }
+                    public func encode(to encoder: any Swift.Encoder) throws {
+                        try encoder.encodeAdditionalProperties(additionalProperties)
+                    }
+                }
+                /// Rendered document payload (legal prose paragraphs, or payslip figures).
+                ///
+                /// - Remark: Generated from `#/components/schemas/InboxDocDetail/value2/payload`.
+                public var payload: Components.Schemas.InboxDocDetail.Value2Payload.PayloadPayload?
+                /// Creates a new `Value2Payload`.
+                ///
+                /// - Parameters:
+                ///   - payload: Rendered document payload (legal prose paragraphs, or payslip figures).
+                public init(payload: Components.Schemas.InboxDocDetail.Value2Payload.PayloadPayload? = nil) {
+                    self.payload = payload
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case payload
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/InboxDocDetail/value2`.
+            public var value2: Components.Schemas.InboxDocDetail.Value2Payload
+            /// Creates a new `InboxDocDetail`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.InboxDocSummary,
+                value2: Components.Schemas.InboxDocDetail.Value2Payload
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                self.value1 = try .init(from: decoder)
+                self.value2 = try .init(from: decoder)
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try self.value1.encode(to: encoder)
+                try self.value2.encode(to: encoder)
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InboxDocPage`.
+        public struct InboxDocPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InboxDocPage/items`.
+            public var items: [Components.Schemas.InboxDocSummary]
+            /// - Remark: Generated from `#/components/schemas/InboxDocPage/next_cursor`.
+            public var nextCursor: Swift.String?
+            /// Creates a new `InboxDocPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - nextCursor:
+            public init(
+                items: [Components.Schemas.InboxDocSummary],
+                nextCursor: Swift.String? = nil
+            ) {
+                self.items = items
+                self.nextCursor = nextCursor
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case nextCursor = "next_cursor"
+            }
+        }
+        /// The fresh passkey assertion proving present possession of an authenticator. Its absence yields 428 (precondition required).
+        ///
+        /// - Remark: Generated from `#/components/schemas/InboxDocConfirmReceiptRequest`.
+        public struct InboxDocConfirmReceiptRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InboxDocConfirmReceiptRequest/step_up`.
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion?
+            /// Creates a new `InboxDocConfirmReceiptRequest`.
+            ///
+            /// - Parameters:
+            ///   - stepUp:
+            public init(stepUp: Components.Schemas.PasskeyStepUpAssertion? = nil) {
+                self.stepUp = stepUp
+            }
+            public enum CodingKeys: String, CodingKey {
+                case stepUp = "step_up"
             }
         }
         /// One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum.
@@ -59545,6 +59823,851 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.MarkMyNotificationRead.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the authenticated user's statutory-notice vault (개인 수신함)
+    ///
+    /// Metadata only — a locked legal notice's body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/inbox-docs`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/get(listMyInboxDocs)`.
+    public enum ListMyInboxDocs {
+        public static let id: Swift.String = "listMyInboxDocs"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/query/filter`.
+                @frozen public enum FilterPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case action = "action"
+                    case pay = "pay"
+                    case done = "done"
+                    case all = "all"
+                }
+                /// 확인 필요 (`action`) = legal notices awaiting receipt; 급여명세 (`pay`) = payslips; 완료 (`done`) = confirmed; 전체 (`all`, default).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/query/filter`.
+                public var filter: Operations.ListMyInboxDocs.Input.Query.FilterPayload?
+                /// Keyset cursor; return documents strictly older than this id.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/query/before`.
+                public var before: Components.Schemas.Uuid?
+                /// Page size (clamped server-side to 1..=200; default 50).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - filter: 확인 필요 (`action`) = legal notices awaiting receipt; 급여명세 (`pay`) = payslips; 완료 (`done`) = confirmed; 전체 (`all`, default).
+                ///   - before: Keyset cursor; return documents strictly older than this id.
+                ///   - limit: Page size (clamped server-side to 1..=200; default 50).
+                public init(
+                    filter: Operations.ListMyInboxDocs.Input.Query.FilterPayload? = nil,
+                    before: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.filter = filter
+                    self.before = before
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMyInboxDocs.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyInboxDocs.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyInboxDocs.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyInboxDocs.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMyInboxDocs.Input.Query = .init(),
+                headers: Operations.ListMyInboxDocs.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.InboxDocPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.InboxDocPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyInboxDocs.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyInboxDocs.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// A page of the caller's inbox documents.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/get(listMyInboxDocs)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyInboxDocs.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyInboxDocs.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/get(listMyInboxDocs)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UnprocessableContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/responses/422/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/responses/422/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyInboxDocs.Output.UnprocessableContent.Body
+                /// Creates a new `UnprocessableContent`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyInboxDocs.Output.UnprocessableContent.Body) {
+                    self.body = body
+                }
+            }
+            /// Unknown filter value.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/get(listMyInboxDocs)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Operations.ListMyInboxDocs.Output.UnprocessableContent)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Operations.ListMyInboxDocs.Output.UnprocessableContent {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyInboxDocs.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyInboxDocs.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/get(listMyInboxDocs)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListMyInboxDocs.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListMyInboxDocs.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read one of the authenticated user's inbox documents
+    ///
+    /// Reading a LOCKED legal notice returns its metadata with `payload` omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its `payload`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/inbox-docs/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/get(getMyInboxDoc)`.
+    public enum GetMyInboxDoc {
+        public static let id: Swift.String = "getMyInboxDoc"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/GET/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetMyInboxDoc.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMyInboxDoc.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMyInboxDoc.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetMyInboxDoc.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetMyInboxDoc.Input.Path,
+                headers: Operations.GetMyInboxDoc.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.InboxDocDetail)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.InboxDocDetail {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMyInboxDoc.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMyInboxDoc.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The document (body withheld while locked).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/get(getMyInboxDoc)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetMyInboxDoc.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetMyInboxDoc.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/get(getMyInboxDoc)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/get(getMyInboxDoc)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMyInboxDoc.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMyInboxDoc.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/get(getMyInboxDoc)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetMyInboxDoc.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetMyInboxDoc.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Confirm receipt of a legal notice (the legal receipt evidence)
+    ///
+    /// Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 = 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user's / unknown document is 404.
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/inbox-docs/{id}/confirm-receipt`.
+    /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)`.
+    public enum ConfirmMyInboxDocReceipt {
+        public static let id: Swift.String = "confirmMyInboxDocReceipt"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.ConfirmMyInboxDocReceipt.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConfirmMyInboxDocReceipt.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConfirmMyInboxDocReceipt.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ConfirmMyInboxDocReceipt.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.InboxDocConfirmReceiptRequest)
+            }
+            public var body: Operations.ConfirmMyInboxDocReceipt.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.ConfirmMyInboxDocReceipt.Input.Path,
+                headers: Operations.ConfirmMyInboxDocReceipt.Input.Headers = .init(),
+                body: Operations.ConfirmMyInboxDocReceipt.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.InboxDocSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.InboxDocSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ConfirmMyInboxDocReceipt.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ConfirmMyInboxDocReceipt.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The confirmed document, unlocked and stamped.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ConfirmMyInboxDocReceipt.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ConfirmMyInboxDocReceipt.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UnprocessableContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/422/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/422/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ConfirmMyInboxDocReceipt.Output.UnprocessableContent.Body
+                /// Creates a new `UnprocessableContent`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ConfirmMyInboxDocReceipt.Output.UnprocessableContent.Body) {
+                    self.body = body
+                }
+            }
+            /// The document is a payslip and cannot be receipt-confirmed.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Operations.ConfirmMyInboxDocReceipt.Output.UnprocessableContent)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Operations.ConfirmMyInboxDocReceipt.Output.UnprocessableContent {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/428/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/428/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ConfirmMyInboxDocReceipt.Output.PreconditionRequired.Body
+                /// Creates a new `PreconditionRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ConfirmMyInboxDocReceipt.Output.PreconditionRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// A fresh passkey step-up is required to confirm receipt.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)/responses/428`.
+            ///
+            /// HTTP response code: `428 preconditionRequired`.
+            case preconditionRequired(Operations.ConfirmMyInboxDocReceipt.Output.PreconditionRequired)
+            /// The associated value of the enum case if `self` is `.preconditionRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionRequired`.
+            /// - SeeAlso: `.preconditionRequired`.
+            public var preconditionRequired: Operations.ConfirmMyInboxDocReceipt.Output.PreconditionRequired {
+                get throws {
+                    switch self {
+                    case let .preconditionRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/inbox-docs/{id}/confirm-receipt/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ConfirmMyInboxDocReceipt.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ConfirmMyInboxDocReceipt.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification or passkey step-up is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/inbox-docs/{id}/confirm-receipt/post(confirmMyInboxDocReceipt)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ConfirmMyInboxDocReceipt.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ConfirmMyInboxDocReceipt.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):
