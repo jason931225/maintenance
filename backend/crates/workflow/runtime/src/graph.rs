@@ -72,9 +72,13 @@ impl ExecGraph {
             .map(|edges| {
                 edges
                     .iter()
-                    .filter_map(|edge| {
-                        let from = edge.get("from").and_then(Value::as_str)?;
-                        let to = edge.get("to").and_then(Value::as_str)?;
+                    .map(|edge| {
+                        let from = edge.get("from").and_then(Value::as_str).ok_or_else(|| {
+                            KernelError::validation("workflow edge missing string 'from'")
+                        })?;
+                        let to = edge.get("to").and_then(Value::as_str).ok_or_else(|| {
+                            KernelError::validation("workflow edge missing string 'to'")
+                        })?;
                         let when = match edge.get("when") {
                             Some(Value::String(value))
                                 if matches!(value.as_str(), "true" | "false") =>
@@ -88,11 +92,11 @@ impl ExecGraph {
                             }
                             None => None,
                         };
-                        Some(Ok(Edge {
+                        Ok(Edge {
                             from: from.to_owned(),
                             to: to.to_owned(),
                             when,
-                        }))
+                        })
                     })
                     .collect::<Result<Vec<_>, KernelError>>()
             })
@@ -459,6 +463,14 @@ mod tests {
     fn condition_edge_with_invalid_when_label_fails_at_parse() {
         let mut def = branching_graph();
         def["edges"][1]["when"] = json!("True");
+
+        assert!(ExecGraph::parse(&def).is_err());
+    }
+
+    #[test]
+    fn edge_missing_endpoint_fails_at_parse() {
+        let mut def = approval_graph();
+        def["edges"][0] = json!({"from": "submit"});
 
         assert!(ExecGraph::parse(&def).is_err());
     }
