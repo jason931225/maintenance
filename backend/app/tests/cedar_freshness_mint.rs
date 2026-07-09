@@ -275,13 +275,15 @@ async fn read_returns_db_current_freshness_as_runtime_role(owner_pool: PgPool) {
 }
 
 // ===========================================================================
-// Site 3 construction seam: the group-admin tenant-context issuer carries the
-// sourced freshness onto the verified token claims. (The two platform mints share
-// the identical AccessTokenInput→claims plumbing and get end-to-end HTTP coverage
-// in `platform-rest/tests/view_as.rs`.)
+// Supplementary issuer-seam check: the group-admin tenant-context ISSUER carries
+// all THREE freshness fields (policy, subject, session) onto the verified claims
+// without transposition. The REAL site-3 handler wiring is proven end-to-end in
+// `auth-rest/tests/group_admin_tenant_context.rs` (that cross-org actor has no
+// subject row, so subject/session are 0 there); this in-org seam fills the
+// (subject, session) non-zero gap the handler test cannot exercise.
 // ===========================================================================
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
-async fn group_admin_tenant_context_mint_carries_real_freshness(owner_pool: PgPool) {
+async fn group_admin_issuer_seam_carries_all_three_fields(owner_pool: PgPool) {
     seed_org(&owner_pool, ORG_A, "A").await;
     // An in-org subject with a real subject row lets this seam exercise the FULL
     // (policy, subject, session) non-zero path. In production the group-admin
