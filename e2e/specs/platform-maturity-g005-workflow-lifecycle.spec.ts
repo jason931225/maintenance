@@ -5,13 +5,15 @@ import routeAudit from "../../docs/benchmarks/enterprise-ui-route-audit.json" wi
 
 const GOAL_ID = "G005-workflow-builder-approvals-work-hub";
 
-test.describe("G005 workflow/approval/Work Hub lifecycle contract", () => {
+test.describe("G005 workflow/approval/Overview lifecycle contract", () => {
   test("maps every G005 route to a source-object browser lifecycle without claiming live closure", () => {
     expect(workflowMatrix.goalId).toBe(GOAL_ID);
     expect(workflowMatrix.nonClaimPolicy).toContain("G009");
 
     const matrixRoutes = new Map(workflowMatrix.routePaths.map((row) => [row.path, row]));
-    const auditRows = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
+    const auditRowsByCanonicalPath = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
+    const auditRowsByRawPath = new Map(routeAudit.routeCoverage.map((row) => [row.rawPath ?? row.canonicalPath, row]));
+    const auditForMatrixPath = (path: string) => auditRowsByRawPath.get(path) ?? auditRowsByCanonicalPath.get(path);
     const g005AuditRows = routeAudit.routeCoverage.filter((row) => row.ownerLane.startsWith("G005"));
 
     expect(g005AuditRows.length).toBeGreaterThanOrEqual(6);
@@ -20,7 +22,7 @@ test.describe("G005 workflow/approval/Work Hub lifecycle contract", () => {
     }
 
     for (const route of workflowMatrix.routePaths) {
-      const auditRow = auditRows.get(route.path);
+      const auditRow = auditForMatrixPath(route.path);
       expect(auditRow, `${route.path} must exist in route audit`).toBeTruthy();
       expect(auditRow?.ownerLane, `${route.path} must be G005-owned`).toContain("G005");
       expect(auditRow?.e2eSpec, `${route.path} must require browser story`).toContain("Required browser");
@@ -49,10 +51,12 @@ test.describe("G005 workflow/approval/Work Hub lifecycle contract", () => {
   });
 
   test("keeps downstream dependencies explicit for assets, support, and finance lanes", () => {
-    const auditRows = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
+    const auditRowsByCanonicalPath = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
+    const auditRowsByRawPath = new Map(routeAudit.routeCoverage.map((row) => [row.rawPath ?? row.canonicalPath, row]));
+    const auditForMatrixPath = (path: string) => auditRowsByRawPath.get(path) ?? auditRowsByCanonicalPath.get(path);
 
     for (const dependency of workflowMatrix.dependencyRoutes) {
-      const auditRow = auditRows.get(dependency.path);
+      const auditRow = auditForMatrixPath(dependency.path);
       expect(auditRow, `${dependency.path} must exist in route audit`).toBeTruthy();
       const combined = `${auditRow?.ownerLane} ${auditRow?.sourceObject} ${auditRow?.e2eSpec} ${auditRow?.groupScopeStory}`;
       expect(combined, `${dependency.path} must declare ${dependency.expectedDependency}`).toContain(dependency.expectedDependency);
