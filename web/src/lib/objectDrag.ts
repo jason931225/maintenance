@@ -35,7 +35,7 @@ export function readDraggedObject(transfer: DataTransfer): DraggedObject | null 
     // must be rejected here, never reach objectRegistry[kind] and throw.
     if (
       typeof kind === "string" &&
-      kind in objectRegistry &&
+      Object.hasOwn(objectRegistry, kind) &&
       typeof code === "string" &&
       code.length > 0 &&
       typeof label === "string"

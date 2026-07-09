@@ -314,13 +314,24 @@ impl PgMessengerStore {
         // message is already committed, so a failed emit is logged, not fatal.
         // The stable dedup key makes a retried emit a no-op.
         if let Some(sink) = &self.notification_sink {
-            let recipients = resolve_mention_recipients(
+            let recipients = match resolve_mention_recipients(
                 &self.pool,
                 summary.thread_id,
                 command.actor,
                 summary.body.as_str(),
             )
-            .await?;
+            .await
+            {
+                Ok(recipients) => recipients,
+                Err(err) => {
+                    tracing::warn!(
+                        message_id = %summary.id,
+                        error = %err,
+                        "messenger mention resolution failed; skipping notifications this send"
+                    );
+                    Vec::new()
+                }
+            };
             for recipient in recipients {
                 let emit = EmitNotificationCommand {
                     actor: Some(command.actor),
