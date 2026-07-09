@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse, ws } from "msw";
+import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -20,6 +20,8 @@ import {
   workOrderListItems,
   workOrders,
 } from "./test/fixtures";
+import { createConsoleMessengerWsHandlers } from "./test/messengerWs";
+import { ROUTE_LOAD_OPTIONS, waitForRouteReady } from "./test/routeReady";
 
 // ── MSW handlers ──────────────────────────────────────────────────────────────
 
@@ -59,8 +61,6 @@ const homeSupportTicket = {
   resolved_at: null,
   closed_at: null,
 } as const;
-
-const messengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
 function approvalContext(source: "WORK_ORDER", objectId: string, branchId: string) {
   return {
@@ -119,7 +119,7 @@ function approvalItemsPage() {
 }
 
 const server = setupServer(
-  messengerWs.addEventListener("connection", () => {}),
+  ...createConsoleMessengerWsHandlers(),
   http.get("*/api/approval-items", ({ request }) => {
     const url = new URL(request.url);
     approvalRequests.push(url);
@@ -247,6 +247,20 @@ const server = setupServer(
   http.get("*/api/v1/hr/readiness-summary", () =>
     HttpResponse.json(hrReadinessSummary),
   ),
+  http.get("*/api/v1/hr/absence-exit-dashboard", () =>
+    HttpResponse.json({
+      summary: {
+        open_absence_alerts: 0,
+        exit_cases_pending_hr: 0,
+        settlement_needs_source: 0,
+        settlement_ready: 0,
+        approval_drafts: 0,
+        submitted: 0,
+      },
+      alerts: [],
+      exit_cases: [],
+    }),
+  ),
   http.get("*/api/v1/location/arrival-events", () =>
     HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
   ),
@@ -287,6 +301,18 @@ const server = setupServer(
   http.get("*/api/messenger/threads", () => HttpResponse.json({ items: [] })),
   http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
   http.get("*/api/v1/mail/threads", () => HttpResponse.json([])),
+  http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
+  http.put("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
+  http.get("*/api/v1/workflow-tasks", () =>
+    HttpResponse.json({ items: [] }),
+  ),
+  http.get("*/api/v1/me/dispatch-offers", () =>
+    HttpResponse.json({ items: [] }),
+  ),
+  http.get("*/api/v1/me/todos", () => HttpResponse.json({ items: [] })),
+  http.get("*/api/v1/hr/attendance-records/me", () =>
+    HttpResponse.json({ items: [] }),
+  ),
   http.get("*/api/v1/me/notifications", () =>
     HttpResponse.json({ items: [], next_cursor: null }),
   ),
@@ -498,16 +524,12 @@ describe("ProtectedRoute unit", () => {
 describe("AppRouter authenticated", () => {
   it("renders the protected overview page when authenticated", async () => {
     renderAt("/overview", adminSession);
-    expect(
-      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
   });
 
   it("renders the protected dispatch page when authenticated", async () => {
     renderAt("/dispatch");
-    expect(
-      await screen.findByRole("heading", { name: "작업지시 목록", level: 2 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("작업지시 목록", { level: 2 })).toBeVisible();
   });
 });
 
@@ -642,50 +664,37 @@ describe("routing", () => {
 
   it("renders /intake page", async () => {
     renderAt("/intake");
-    expect(
-      await screen.findByRole("heading", { name: "접수 입력", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("접수 입력")).toBeVisible();
   });
 
   it("renders /approvals page", async () => {
     // /approvals is admin-only (RequireAdminRoute) — render with an admin session.
     renderAt("/approvals", adminSession);
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "전자결재시스템 대기", level: 1 },
-        { timeout: 15000 },
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("전자결재시스템 대기")).toBeVisible();
   });
 
   it("renders /kpi page", async () => {
     // /kpi is KpiRead-gated (RequireKpiRoute) — render with a KpiRead role.
     renderAt("/kpi", adminSession);
-    expect(
-      await screen.findByRole("heading", {
-        name: "임원 KPI 대시보드",
-        level: 1,
-      }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("임원 KPI 대시보드")).toBeVisible();
   });
 
   it("renders /payroll page", async () => {
     renderAt("/payroll", adminSession);
+    expect(await waitForRouteReady("급여 준비")).toBeVisible();
     expect(
-      await screen.findByRole("heading", { name: "급여 준비", level: 1 }),
-    ).toBeVisible();
-    expect(
-      await screen.findByRole("heading", { name: "급여 산출 준비도" }),
+      await screen.findByRole(
+        "heading",
+        { name: "급여 산출 준비도" },
+        ROUTE_LOAD_OPTIONS,
+      ),
     ).toBeVisible();
     expect(screen.getByText("COSS Group 2026-06 payroll import")).toBeVisible();
   });
 
   it("renders /messenger page", async () => {
     renderAt("/messenger");
-    expect(
-      await screen.findByRole("heading", { name: "메신저", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("메신저")).toBeVisible();
   });
 
   it("redirects unauthenticated /wallboard to login before protected data calls", async () => {
@@ -722,9 +731,7 @@ describe("routing", () => {
 
   it("redirects unknown authenticated paths to /overview", async () => {
     renderAt("/does-not-exist", adminSession);
-    expect(
-      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
   });
 });
 
@@ -833,18 +840,13 @@ describe("OpsDashboardPage", () => {
   it("renders the ops summary for an admin session", async () => {
     renderAt("/ops", adminSession);
 
-    expect(
-      await screen.findByRole("heading", { name: "운영 대시보드", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("운영 대시보드")).toBeVisible();
     // Funnel value (completed = 5) and a mechanic-load row render.
     expect(await screen.findByText("김정비")).toBeVisible();
     // The aging-alert tile renders the configured hour threshold.
     expect(screen.getByText("24시간 초과 미해결")).toBeVisible();
     expect(
-      await screen.findByRole("heading", {
-        name: "작업지시 오브젝트 렌즈",
-        level: 2,
-      }),
+      await waitForRouteReady("작업지시 오브젝트 렌즈", { level: 2 }),
     ).toBeVisible();
     expect(screen.getByRole("link", { name: /P1 긴급/ })).toHaveAttribute(
       "href",
@@ -868,13 +870,15 @@ describe("OpsDashboardPage", () => {
     const user = userEvent.setup();
     renderAt("/ops", adminSession);
 
-    const p1Tile = await screen.findByRole("link", { name: /P1 긴급/ });
+    const p1Tile = await screen.findByRole(
+      "link",
+      { name: /P1 긴급/ },
+      ROUTE_LOAD_OPTIONS,
+    );
     listRequests.length = 0;
     await user.click(p1Tile);
 
-    expect(
-      await screen.findByRole("heading", { name: "작업지시 목록", level: 2 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("작업지시 목록", { level: 2 })).toBeVisible();
     expect(
       screen.getByText("오브젝트 렌즈 필터가 적용되었습니다."),
     ).toBeVisible();
@@ -893,9 +897,7 @@ describe("OpsDashboardPage", () => {
     renderAt("/ops", mechanicSession);
 
     // RequireAdminRoute bounces a non-admin to the authenticated overview.
-    expect(
-      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "운영 대시보드" }),
     ).not.toBeInTheDocument();
@@ -906,17 +908,13 @@ describe("MailPage route guard", () => {
   it("allows MailUse roles to reach the mailbox", async () => {
     renderAt("/mail", receptionistSession);
 
-    expect(
-      await screen.findByRole("heading", { name: "메일함", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("메일함")).toBeVisible();
   });
 
   it("redirects mechanics away from /mail", async () => {
     renderAt("/mail", mechanicSession);
 
-    expect(
-      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "메일함" }),
     ).not.toBeInTheDocument();
@@ -928,7 +926,7 @@ describe("IntakePage", () => {
     const user = userEvent.setup();
     renderAt("/intake");
 
-    await screen.findByRole("heading", { name: "접수 입력", level: 1 });
+    await waitForRouteReady("접수 입력");
     await user.type(screen.getByLabelText(/호기/), "#290");
 
     expect((await screen.findAllByText("GTS25DE"))[0]).toBeVisible();
@@ -956,7 +954,7 @@ describe("IntakePage", () => {
     const user = userEvent.setup();
     renderAt("/intake");
 
-    await screen.findByRole("heading", { name: "접수 입력", level: 1 });
+    await waitForRouteReady("접수 입력");
     await user.type(screen.getByLabelText(/호기/), "29");
     await user.click(
       await screen.findByRole("option", { name: /290.*GTS25DE/ }),

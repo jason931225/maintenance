@@ -5,12 +5,13 @@ import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { AppRouter } from "../../AppRouter";
+import { FinancialPage } from "../../pages/FinancialPage";
 import { createConsoleApiClient } from "../../api/client";
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import type { components } from "@maintenance/api-client-ts";
 import { branchId } from "../../test/fixtures";
+import { waitForRouteReady } from "../../test/routeReady";
 
 const server = setupServer();
 
@@ -184,10 +185,15 @@ function renderApp(ctx: AuthContextValue) {
   return render(
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={["/financial"]}>
-        <AppRouter />
+        <FinancialPage />
       </MemoryRouter>
     </AuthContext.Provider>,
   );
+}
+
+async function renderFinancialApp(ctx: AuthContextValue) {
+  renderApp(ctx);
+  await waitForRouteReady("구매·정산");
 }
 
 function session(roles: string[], orgId = knlOrgId): AuthSession {
@@ -272,7 +278,7 @@ describe("financial purchase request workflow", () => {
       ),
     );
 
-    renderApp(makeAuthContext(adminSession));
+    await renderFinancialApp(makeAuthContext(adminSession));
 
     await user.click(
       await screen.findByRole(
@@ -422,7 +428,7 @@ describe("financial purchase request workflow", () => {
       }),
     );
 
-    renderApp(makeAuthContext(session(["ADMIN"], nonKnlOrgId)));
+    await renderFinancialApp(makeAuthContext(session(["ADMIN"], nonKnlOrgId)));
 
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
 
@@ -518,7 +524,7 @@ describe("financial purchase request workflow", () => {
       }),
     );
 
-    renderApp(makeAuthContext(session(["ADMIN"], nonKnlOrgId)));
+    await renderFinancialApp(makeAuthContext(session(["ADMIN"], nonKnlOrgId)));
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
 
     const intake = await screen.findByRole("form", { name: "구매요청 작성" });
@@ -574,7 +580,7 @@ describe("financial purchase request workflow", () => {
     );
 
     // Executive can final-approve but not execute.
-    renderApp(makeAuthContext(session(["EXECUTIVE"])));
+    await renderFinancialApp(makeAuthContext(session(["EXECUTIVE"])));
 
     await user.type(
       await screen.findByLabelText("구매요청서 번호로 불러오기"),
@@ -612,7 +618,7 @@ describe("financial purchase request workflow", () => {
 
     // Receptionist can create/submit but NOT approve. A submitted request has
     // only the admin-approve action, which the receptionist must not see.
-    renderApp(makeAuthContext(receptionistSession));
+    await renderFinancialApp(makeAuthContext(receptionistSession));
 
     await user.type(
       await screen.findByLabelText("구매요청서 번호로 불러오기"),
@@ -632,7 +638,7 @@ describe("financial purchase request workflow", () => {
     server.use(lookupHandler());
     // Mechanic only has RequestOnly on PurchaseRequestCreate, so the create
     // button (which needs Allow) must not render.
-    renderApp(makeAuthContext(mechanicSession));
+    await renderFinancialApp(makeAuthContext(mechanicSession));
 
     expect(
       await screen.findByRole("button", { name: "불러오기" }),
@@ -659,7 +665,7 @@ describe("financial purchase request workflow", () => {
       ),
     );
 
-    renderApp(makeAuthContext(adminSession));
+    await renderFinancialApp(makeAuthContext(adminSession));
 
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
@@ -704,7 +710,7 @@ describe("financial purchase request workflow", () => {
       ),
     );
 
-    renderApp(makeAuthContext(adminSession));
+    await renderFinancialApp(makeAuthContext(adminSession));
 
     // Create a request first so the submit button appears.
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
@@ -741,7 +747,7 @@ describe("rental quote", () => {
       }),
     );
 
-    renderApp(makeAuthContext(adminSession));
+    await renderFinancialApp(makeAuthContext(adminSession));
     await user.click(await screen.findByRole("tab", { name: "임대 견적" }));
     await lookupEquipment(user);
     await user.click(screen.getByRole("button", { name: "견적 생성" }));
@@ -772,7 +778,7 @@ describe("cost ledger", () => {
       ),
     );
 
-    renderApp(makeAuthContext(adminSession));
+    await renderFinancialApp(makeAuthContext(adminSession));
     await user.click(await screen.findByRole("tab", { name: "원가 원장" }));
     await lookupEquipment(user);
     await user.click(screen.getByRole("button", { name: "원장 조회" }));
@@ -786,7 +792,7 @@ describe("cost ledger", () => {
     server.use(lookupHandler());
 
     // Receptionist lacks EquipmentCostLedgerRead; the panel renders no lookup.
-    renderApp(makeAuthContext(receptionistSession));
+    await renderFinancialApp(makeAuthContext(receptionistSession));
     await user.click(await screen.findByRole("tab", { name: "원가 원장" }));
 
     expect(

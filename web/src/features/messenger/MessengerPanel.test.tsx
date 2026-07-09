@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, ws } from "msw";
 import { setupServer } from "msw/node";
 import {
   afterAll,
@@ -35,6 +35,8 @@ const uploadedEvidence: string[] = [];
 const confirmedEvidence: string[] = [];
 const scrollIntoView = vi.fn();
 
+const messengerWs = ws.link("ws://localhost:8080/api/v1/ws*");
+
 const thread: MessengerThreadSummary = {
   id: threadId,
   kind: "work_order",
@@ -58,6 +60,7 @@ const searchMessage = message(
 );
 
 const server = setupServer(
+  messengerWs.addEventListener("connection", () => {}),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({
       items: [thread],
@@ -131,6 +134,7 @@ const server = setupServer(
 );
 
 beforeAll(() => {
+  server.listen({ onUnhandledRequest: "error" });
   Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
     value: scrollIntoView,
@@ -142,7 +146,6 @@ beforeAll(() => {
       close() {}
     },
   );
-  server.listen({ onUnhandledRequest: "error" });
 });
 
 afterEach(() => {

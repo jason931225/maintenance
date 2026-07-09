@@ -326,18 +326,17 @@ export function AppRouter() {
             storefront home (#6); authenticated entry lands on /overview via the
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
-        {/* ConsoleShell (UI-M1b) — the new window-engine shell hosting the
-            mounted-persistent /overview and /attendance screens. It is a layout
-            route with two pathless children so the shell instance is preserved
-            across /overview <-> /attendance navigation (mounted persistence);
-            ConsoleShell reads the location itself and does not use <Outlet />.
-            Nav-visibility gating lives inside ConsoleShell. Every other route
-            stays on AppShell below (two-shell coexistence). */}
+        {/* ConsoleShell (UI-M1b) — the window-engine shell owns only /overview
+            and /attendance. Keep the pathless shell parent constrained by the
+            two explicit child paths below; an unconstrained pathless layout here
+            would match every protected URL before AppShell can claim it. */}
         <Route
           element={
-            <Suspense fallback={<PageSpinner />}>
-              <ConsoleShell />
-            </Suspense>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ConsoleShell />
+              </Suspense>
+            </RouteErrorBoundary>
           }
         >
           <Route path="/overview" element={null} />

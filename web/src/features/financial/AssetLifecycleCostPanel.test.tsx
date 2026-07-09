@@ -5,7 +5,7 @@ import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { AppRouter } from "../../AppRouter";
+import { FinancialPage } from "../../pages/FinancialPage";
 import { createConsoleApiClient } from "../../api/client";
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
@@ -129,7 +129,7 @@ function renderApp(ctx: AuthContextValue) {
   return render(
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={["/financial"]}>
-        <AppRouter />
+        <FinancialPage />
       </MemoryRouter>
     </AuthContext.Provider>,
   );
