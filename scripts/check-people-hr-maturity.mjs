@@ -1,26 +1,10 @@
-import { readFileSync } from "node:fs";
+import { createTextGate } from "./lib/text-gate.mjs";
 
-const checks = [];
-
-function read(path) {
-  return readFileSync(path, "utf8");
-}
-
-function requireIncludes(path, needle, label) {
-  const source = read(path);
-  if (!source.includes(needle)) {
-    throw new Error(`${path} is missing ${label}: ${needle}`);
-  }
-  checks.push(`${label} present`);
-}
-
-function requireAbsent(path, pattern, label) {
-  const source = read(path);
-  if (pattern.test(source)) {
-    throw new Error(`${path} still contains ${label}`);
-  }
-  checks.push(`${label} absent`);
-}
+const { requireIncludes, requireAbsent, reportGate } = createTextGate({
+  includeFailure: ({ path, needle, label }) => `${path} is missing ${label}: ${needle}`,
+  absentFailure: ({ path, label }) => `${path} still contains ${label}`,
+  passLabel: (label, kind) => `${label} ${kind === "absent" ? "absent" : "present"}`,
+});
 
 requireIncludes(
   "web/src/pages/EmployeesPage.tsx",
@@ -116,4 +100,4 @@ requireAbsent(
   "dead/demo HR product copy",
 );
 
-console.log(`people HR maturity gate passed (${checks.length} checks)`);
+reportGate("people HR maturity gate passed");

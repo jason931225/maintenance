@@ -1,34 +1,11 @@
-import { readFileSync } from "node:fs";
+import { createTextGate } from "./lib/text-gate.mjs";
 
-const checks = [];
-
-function read(path) {
-  return readFileSync(path, "utf8");
-}
-
-function requireIncludes(path, needle, label) {
-  const source = read(path);
-  if (!source.includes(needle)) {
-    throw new Error(`${path} is missing ${label}: ${needle}`);
-  }
-  checks.push(`${label} present`);
-}
-
-function requireMatches(path, pattern, label) {
-  const source = read(path);
-  if (!pattern.test(source)) {
-    throw new Error(`${path} does not satisfy ${label}: ${pattern}`);
-  }
-  checks.push(`${label} present`);
-}
-
-function requireAbsent(path, pattern, label) {
-  const source = read(path);
-  if (pattern.test(source)) {
-    throw new Error(`${path} violates ${label}: ${pattern}`);
-  }
-  checks.push(`${label} absent`);
-}
+const { requireIncludes, requireMatches, requireAbsent, reportGate } = createTextGate({
+  includeFailure: ({ path, needle, label }) => `${path} is missing ${label}: ${needle}`,
+  matchFailure: ({ path, pattern, label }) => `${path} does not satisfy ${label}: ${pattern}`,
+  absentFailure: ({ path, pattern, label }) => `${path} violates ${label}: ${pattern}`,
+  passLabel: (label, kind) => `${label} ${kind === "absent" ? "absent" : "present"}`,
+});
 
 requireIncludes(
   "docs/specs/payroll.md",
@@ -170,4 +147,4 @@ requireAbsent(
   "generic HR page raw payroll/bank/resident fields",
 );
 
-console.log(`payroll release gate check passed (${checks.length} checks)`);
+reportGate("payroll release gate check passed");

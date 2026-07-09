@@ -1,0 +1,36 @@
+{
+  "fixture_id": "nhis-edi-loss-report-v1",
+  "source_urls": [
+    "https://www.nhis.or.kr/static/html/wbdb/f/wbdbf0201.html",
+    "https://edi.nhis.or.kr/webedi/file_sy/all_sangsil.html"
+  ],
+  "policy": "fixture-only generated-file workflow; no live filing and no real resident registration numbers",
+  "rows": [
+    {
+      "workplace_management_number": "WP-FIXTURE-001",
+      "employee_name": "홍길동_FIXTURE",
+      "resident_registration_number_token": "RRN_FIXTURE_EMPLOYEE_001",
+      "loss_date": "2026-07-03",
+      "loss_reason_code": "01",
+      "national_pension": "Y",
+      "health_insurance": "Y",
+      "employment_insurance": "Y",
+      "industrial_accident_insurance": "Y",
+      "annual_income_amount": "0",
+      "review_note": "fixture only; human review required before real filing"
+    },
+    {
+      "workplace_management_number": "WP-FIXTURE-001",
+      "employee_name": "김철수_FIXTURE",
+      "resident_registration_number_token": "RRN_FIXTURE_EMPLOYEE_002",
+      "loss_date": "2026-07-03",
+      "loss_reason_code": "02",
+      "national_pension": "Y",
+      "health_insurance": "Y",
+      "employment_insurance": "N",
+      "industrial_accident_insurance": "Y",
+      "annual_income_amount": "0",
+      "review_note": "fixture only; generated file is not submitted"
+    }
+  ]
+}

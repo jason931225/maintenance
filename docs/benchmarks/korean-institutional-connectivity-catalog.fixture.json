@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "state_machine": {
+    "states": ["research_only", "fixture_only", "sandbox", "partner_approved", "live_read", "live_write", "prohibited", "deprecated"],
+    "default_terminal_state": "prohibited",
+    "transition_gates": [
+      { "from": "research_only", "to": "fixture_only", "required_evidence": ["official/source evidence", "data classification", "fixture plan", "no-login/no-secret proof"] },
+      { "from": "fixture_only", "to": "sandbox", "required_evidence": ["official sandbox/testbed approval", "no-live-network test", "redaction test", "consent model"] },
+      { "from": "sandbox", "to": "partner_approved", "required_evidence": ["legal/business enrollment", "partner approval"] },
+      { "from": "partner_approved", "to": "live_read", "required_evidence": ["DPIA/security review", "audit logging", "retention policy", "incident playbook", "user consent UX"] },
+      { "from": "live_read", "to": "live_write", "required_evidence": ["side-effect legal signoff", "dual approval", "idempotency/rollback strategy", "receipt evidence", "operations runbook"] },
+      { "from": "any", "to": "prohibited", "required_evidence": ["forbidden data-flow requirement", "anti-automation bypass requirement", "adverse legal/security finding"] }
+    ]
+  },
+  "connectors": [
+    {
+      "institution_id": "kftc_open_banking",
+      "domain": "banking",
+      "workflow_ids": ["banking.accounts.list", "banking.transactions.list"],
+      "auth_modes": ["official_oauth", "fixture_only"],
+      "side_effect_class": "read_only",
+      "legal_status": "counsel_review",
+      "capability_state": "fixture_only",
+      "fixture_path": "docs/benchmarks/fixtures/korean-connectivity/kftc-open-banking.fixture.json",
+      "evidence_policy": { "intent_hash": true, "redacted_transcript": true, "receipt_or_status": true, "parser_version": true, "source_urls": true, "retention_class": "fixture" },
+      "source_evidence": [
+        { "url": "https://openapi.kftc.or.kr/service/openBanking", "source_type": "official_docs", "fetched_at_policy": "public_read_only_cache", "license_or_terms_status": "official_public_reference", "scraping_allowed_scope": "public_metadata_only" },
+        { "url": "https://developers.kftc.or.kr/dev/openapi/open-banking/transaction", "source_type": "official_docs", "fetched_at_policy": "public_read_only_cache", "license_or_terms_status": "official_public_reference", "scraping_allowed_scope": "public_metadata_only" }
+      ],
+      "forbidden_data": ["bank_password", "session_cookie", "otp", "security_card", "real_account_credential"]
+    },
+    {
+      "institution_id": "financial_mydata_standard_api",
+      "domain": "banking",
+      "workflow_ids": ["mydata.accounts.snapshot"],
+      "auth_modes": ["mydata_token", "fixture_only"],
+      "side_effect_class": "read_only",
+      "legal_status": "partner_required",
+      "capability_state": "research_only",
+      "fixture_path": "docs/benchmarks/fixtures/korean-connectivity/financial-mydata.fixture.json",
+      "evidence_policy": { "intent_hash": true, "redacted_transcript": true, "receipt_or_status": true, "parser_version": true, "source_urls": true, "retention_class": "fixture" },
+      "source_evidence": [
+        { "url": "https://developers.mydatakorea.org/mdtb/apg/dgi/bas/FSAG0101", "source_type": "official_docs", "fetched_at_policy": "public_read_only_cache", "license_or_terms_status": "partner_required", "scraping_allowed_scope": "public_metadata_only" }
+      ],
+      "forbidden_data": ["bank_password", "raw_financial_credential", "session_cookie", "otp"]
+    },
+    {
+      "institution_id": "nhis_edi_loss_report",
+      "domain": "public_labor",
+      "workflow_ids": ["social_insurance.loss_report.generate_file"],
+      "auth_modes": ["manual_file_upload", "fixture_only"],
+      "side_effect_class": "generated_file",
+      "legal_status": "counsel_review",
+      "capability_state": "fixture_only",
+      "fixture_path": "docs/benchmarks/fixtures/korean-connectivity/nhis-edi-loss-report.fixture.json",
+      "evidence_policy": { "intent_hash": true, "redacted_transcript": true, "receipt_or_status": true, "parser_version": true, "source_urls": true, "retention_class": "fixture" },
+      "source_evidence": [
+        { "url": "https://www.nhis.or.kr/static/html/wbdb/f/wbdbf0201.html", "source_type": "official_docs", "fetched_at_policy": "public_read_only_cache", "license_or_terms_status": "official_public_reference", "scraping_allowed_scope": "public_metadata_only" },
+        { "url": "https://edi.nhis.or.kr/webedi/file_sy/all_sangsil.html", "source_type": "file_format_spec", "fetched_at_policy": "public_read_only_cache", "license_or_terms_status": "official_public_reference", "scraping_allowed_scope": "public_metadata_only" }
+      ],
+      "forbidden_data": ["real_resident_registration_number", "certificate_password", "session_cookie", "production_filing_session"]
+    },
+    {
+      "institution_id": "nts_asp_einvoice_readiness",
+      "domain": "tax",
+      "workflow_ids": ["tax.einvoice.asp_readiness"],
+      "auth_modes": ["nts_asp_certified", "fixture_only"],
+      "side_effect_class": "certified_issuance",
+      "legal_status": "partner_required",
+      "capability_state": "research_only",
+      "fixture_path": "docs/benchmarks/fixtures/korean-connectivity/nts-asp-einvoice-readiness.fixture.json",
+      "evidence_policy": { "intent_hash": true, "redacted_transcript": true, "receipt_or_status": true, "parser_version": true, "source_urls": true, "retention_class": "fixture" },
+      "source_evidence": [
+        { "url": "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7788&mi=2462", "source_type": "official_docs", "fetched_at_policy": "public_read_only_cache", "license_or_terms_status": "official_public_reference", "scraping_allowed_scope": "public_metadata_only" }
+      ],
+      "forbidden_data": ["certificate_private_key", "certificate_password", "production_hometax_session", "taxpayer_secret"]
+    },
+    {
+      "institution_id": "local_agent_cert_session_simulator",
+      "domain": "local_agent",
+      "workflow_ids": ["local_agent.signed_challenge.fixture", "local_agent.session_proof.fixture"],
+      "auth_modes": ["local_agent_cert_session", "fixture_only"],
+      "side_effect_class": "read_only",
+      "legal_status": "research_only",
+      "capability_state": "fixture_only",
+      "fixture_path": "docs/benchmarks/fixtures/korean-connectivity/local-agent-simulator.fixture.json",
+      "evidence_policy": { "intent_hash": true, "redacted_transcript": true, "receipt_or_status": true, "parser_version": true, "source_urls": true, "retention_class": "fixture" },
+      "source_evidence": [
+        { "url": "https://www.law.go.kr/lsInfoP.do?lsiSeq=102472", "source_type": "legal_source", "fetched_at_policy": "manual_review_required", "license_or_terms_status": "official_public_reference", "scraping_allowed_scope": "no_fetch_manual_reference" },
+        { "url": "https://www.law.go.kr/LSW//admRulInfoP.do?admRulSeq=2100000265956&chrClsCd=010201", "source_type": "legal_source", "fetched_at_policy": "manual_review_required", "license_or_terms_status": "official_public_reference", "scraping_allowed_scope": "no_fetch_manual_reference" }
+      ],
+      "forbidden_data": ["pfx", "signPri.key", "signCert.der", "certificate_password", "otp", "security_card", "session_cookie", "browser_storage"]
+    }
+  ]
+}

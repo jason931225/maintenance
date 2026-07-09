@@ -82,6 +82,10 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
      — else `permission denied for database/schema public`. This does NOT weaken tenant
      isolation (mnt_rt stays NOBYPASSRLS; the job queue is infra, not org data).
      *Proper fix:* create the apalis schema in a migration (as `mnt_app`) + grant mnt_rt DML.
+- **Restoring from a dev/local dump:** purge dev-auth role-switch personas before pointing
+  a release build at it — `DELETE FROM users WHERE phone LIKE 'dev-auth:%';`. The
+  composition root refuses to boot (api/worker) if any remain (`mnt-app`'s
+  `assert_no_dev_auth_personas`, compiled out only under `--features dev-auth`).
 
 ## 5. The GitOps server (Argo CD, ns `argocd`)
 - Argo watches branch **main**, app-of-apps

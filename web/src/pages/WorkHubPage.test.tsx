@@ -3,11 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { createConsoleApiClient } from "../api/client";
-import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
+import type { AuthSession } from "../context/auth";
+import { AuthTestProvider } from "../test/AuthTestProvider";
 import { branchId, primaryMechanicId, workOrderListItems } from "../test/fixtures";
 import { WorkHubPage } from "./WorkHubPage";
 
@@ -28,30 +27,25 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(session: AuthSession): AuthContextValue {
-  return {
-    session,
-    restoring: false,
-    login: async () => {},
-    logout: async () => {},
-    refresh: async () => {},
-    acceptTokens: () => {},
-    clearPasskeySetup: () => {},
-    viewAs: undefined,
-    enterViewAs: () => {},
-    exitViewAs: () => undefined,
-    api: createConsoleApiClient(session.access_token),
-  };
+function renderPage(
+  session: AuthSession,
+  props?: Parameters<typeof WorkHubPage>[0],
+) {
+  return render(
+    <AuthTestProvider session={session}>
+      <MemoryRouter>
+        <WorkHubPage {...props} />
+      </MemoryRouter>
+    </AuthTestProvider>,
+  );
 }
 
-function renderPage(session: AuthSession) {
-  return render(
-    <AuthContext.Provider value={makeAuthContext(session)}>
-      <MemoryRouter>
-        <WorkHubPage />
-      </MemoryRouter>
-    </AuthContext.Provider>,
-  );
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }
 
 const requestedPlanId = "44444444-4444-4444-8444-444444444444";
@@ -586,5 +580,54 @@ describe("WorkHubPage", () => {
     });
 
     expect(await screen.findByText("데이터를 불러오지 못했습니다.")).toBeVisible();
+  });
+
+  it("does not commit a delayed load after unmount", async () => {
+    const workOrdersResponse = deferred<Response>();
+    server.use(
+      http.get("*/api/v1/work-orders", ({ request }) => {
+        workOrderListRequests.push(new URL(request.url));
+        return workOrdersResponse.promise;
+      }),
+      http.get("*/api/v1/support/tickets", () =>
+        HttpResponse.json({ items: [], next_cursor: null, total: 0 }),
+      ),
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+    );
+    const onLoadCommit = vi.fn();
+    const { unmount } = renderPage(
+      {
+        access_token: "receptionist-token",
+        roles: ["RECEPTIONIST"],
+        branches: [branchId],
+      },
+      { onLoadCommit },
+    );
+
+    await waitFor(() => {
+      expect(workOrderListRequests).toHaveLength(1);
+    });
+    unmount();
+
+    const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      workOrdersResponse.resolve(
+        HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
+      );
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      expect(onLoadCommit).not.toHaveBeenCalled();
+    } finally {
+      if (windowDescriptor) {
+        Object.defineProperty(globalThis, "window", windowDescriptor);
+      }
+    }
   });
 });

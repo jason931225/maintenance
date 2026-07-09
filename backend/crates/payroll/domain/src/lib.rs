@@ -136,6 +136,47 @@ pub struct PayrollDraft {
     pub net_pay_won: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeverancePayInput {
+    pub hire_date: Date,
+    pub exit_date: Date,
+    pub average_wage_period_start: Date,
+    pub average_wage_period_end: Date,
+    pub average_wage_calendar_days: i64,
+    pub average_wage_total_won: i64,
+    /// 1-day 통상임금 (ordinary wage) in won.
+    ///
+    /// MANDATORY (not `Option`) by design: 근로기준법 시행령 제2조② requires
+    /// severance to use the HIGHER of the average wage and the ordinary wage, so
+    /// every caller must supply this. A plain field makes omission a *compile*
+    /// error rather than a silent average-wage-only fall back — which is exactly
+    /// the under-calculation bug that hurts the absence→exit population whose
+    /// depressed 3-month window yields an artificially low average wage. The
+    /// caller is responsible for deriving this daily figure from the monthly
+    /// 통상임금 (e.g. via the 기준시간 209h rule); the kernel keeps that policy out.
+    /// A non-positive value is rejected in `build_severance_pay_draft`.
+    pub ordinary_daily_wage_won: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeverancePayDraft {
+    pub hire_date: Date,
+    pub exit_date: Date,
+    pub service_days: i64,
+    pub average_wage_period_start: Date,
+    pub average_wage_period_end: Date,
+    pub average_wage_calendar_days: i64,
+    pub average_wage_total_won: i64,
+    pub average_daily_wage_milliwon: i64,
+    pub ordinary_daily_wage_won: i64,
+    /// The daily wage that actually governed severance: max(average, ordinary).
+    /// Auditable proof of which statutory basis won.
+    pub statutory_daily_wage_milliwon: i64,
+    pub statutory_30_day_wage_won: i64,
+    pub severance_pay_won: i64,
+    pub source: OfficialSource,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfessionalReviewerKind {
     LaborAttorney,
@@ -169,6 +210,26 @@ pub struct PayrollReleaseGateInput {
 #[must_use]
 pub const fn payroll_sources_verified_on() -> Date {
     date!(2026 - 06 - 27)
+}
+
+#[must_use]
+pub const fn moel_retirement_pay_source() -> OfficialSource {
+    OfficialSource {
+        authority: "Ministry of Employment and Labor",
+        title: "Retirement pay average wage formula",
+        url: "https://www.moel.go.kr/faq/faqView.do?seqRepeat=89",
+        retrieved_on: date!(2026 - 07 - 03),
+    }
+}
+
+#[must_use]
+pub const fn nhis_qualification_loss_form_source() -> OfficialSource {
+    OfficialSource {
+        authority: "National Health Insurance Service",
+        title: "4-insurance workplace subscriber qualification loss report",
+        url: "https://www.nhis.or.kr/static/html/wbdb/f/wbdbf0201.html",
+        retrieved_on: date!(2026 - 07 - 03),
+    }
 }
 
 #[must_use]
@@ -434,6 +495,117 @@ pub fn build_employee_payroll_draft(input: PayrollDraftInput) -> Result<PayrollD
     })
 }
 
+pub fn build_severance_pay_draft(
+    input: SeverancePayInput,
+) -> Result<SeverancePayDraft, KernelError> {
+    if input.exit_date < input.hire_date {
+        return Err(KernelError::validation(
+            "exit date must be on or after hire date",
+        ));
+    }
+    if input.average_wage_period_end < input.average_wage_period_start {
+        return Err(KernelError::validation(
+            "average wage period end must be on or after start",
+        ));
+    }
+    if input.average_wage_period_end > input.exit_date {
+        return Err(KernelError::validation(
+            "average wage period must not end after the exit date",
+        ));
+    }
+    if input.average_wage_calendar_days <= 0 {
+        return Err(KernelError::validation(
+            "average wage calendar days must be positive",
+        ));
+    }
+    if input.average_wage_total_won <= 0 {
+        return Err(KernelError::validation(
+            "average wage total must be positive",
+        ));
+    }
+    // FAIL LOUD: the 통상임금 floor cannot be applied without the ordinary wage.
+    // Reject rather than silently compute severance from the average wage alone,
+    // which under-pays the absence→exit population this feature targets.
+    if input.ordinary_daily_wage_won <= 0 {
+        return Err(KernelError::validation(
+            "ordinary daily wage (통상임금) is required and must be positive; severance must never fall back to the average-wage-only figure",
+        ));
+    }
+
+    let service_days = i64::from(
+        input
+            .exit_date
+            .to_julian_day()
+            .saturating_sub(input.hire_date.to_julian_day())
+            + 1,
+    );
+    if service_days < 365 {
+        return Err(KernelError::validation(
+            "statutory severance pay requires at least one year of service",
+        ));
+    }
+
+    let average_daily_wage_milliwon = checked_i128_to_i64(
+        checked_mul_i128(input.average_wage_total_won, 1_000)?
+            / i128::from(input.average_wage_calendar_days),
+    )?;
+
+    // 통상임금 floor (근로기준법 시행령 제2조②): severance uses the HIGHER of the
+    // 1-day average wage and the 1-day ordinary wage. Decide which governs by
+    // cross-multiplying (ordinary_daily > average_daily  <=>  ordinary_daily *
+    // calendar_days > average_wage_total), so the comparison never loses the
+    // fractional part that flooring `average_daily_wage_milliwon` would drop.
+    let ordinary_governs = checked_mul_i128(
+        input.ordinary_daily_wage_won,
+        input.average_wage_calendar_days,
+    )? > i128::from(input.average_wage_total_won);
+
+    let statutory_daily_wage_milliwon = if ordinary_governs {
+        checked_i128_to_i64(checked_mul_i128(input.ordinary_daily_wage_won, 1_000)?)?
+    } else {
+        average_daily_wage_milliwon
+    };
+
+    // Fold both paths into one formula by choosing the numerator base and its
+    // divisor. Ordinary path uses exact won (divisor 1); average path keeps the
+    // existing high-precision direct form (divisor = calendar_days) so its
+    // rounding is byte-for-byte unchanged when it governs.
+    let (base_won, base_divisor) = if ordinary_governs {
+        (input.ordinary_daily_wage_won, 1_i64)
+    } else {
+        (
+            input.average_wage_total_won,
+            input.average_wage_calendar_days,
+        )
+    };
+
+    let statutory_30_day_wage_won =
+        checked_i128_to_i64(checked_mul_i128(base_won, 30)? / i128::from(base_divisor))?;
+    let severance_pay_won = checked_i128_to_i64(
+        checked_mul_i128(base_won, 30)?
+            .checked_mul(i128::from(service_days))
+            .ok_or_else(|| KernelError::validation("severance calculation overflow"))?
+            / i128::from(base_divisor)
+            / 365,
+    )?;
+
+    Ok(SeverancePayDraft {
+        hire_date: input.hire_date,
+        exit_date: input.exit_date,
+        service_days,
+        average_wage_period_start: input.average_wage_period_start,
+        average_wage_period_end: input.average_wage_period_end,
+        average_wage_calendar_days: input.average_wage_calendar_days,
+        average_wage_total_won: input.average_wage_total_won,
+        average_daily_wage_milliwon,
+        ordinary_daily_wage_won: input.ordinary_daily_wage_won,
+        statutory_daily_wage_milliwon,
+        statutory_30_day_wage_won,
+        severance_pay_won,
+        source: moel_retirement_pay_source(),
+    })
+}
+
 pub fn validate_release_gate(input: &PayrollReleaseGateInput) -> Result<(), KernelError> {
     if input.rate_table_version.trim().is_empty() {
         return Err(KernelError::validation(
@@ -509,6 +681,16 @@ fn amount_by_ppm_floor_won(base_won: i64, ppm: u32) -> Result<i64, KernelError> 
         .checked_mul(i128::from(ppm))
         .ok_or_else(|| KernelError::validation("payroll rate multiplication overflow"))?
         / PPM_DENOMINATOR;
+    i64::try_from(amount).map_err(|_| KernelError::validation("payroll amount overflow"))
+}
+
+fn checked_mul_i128(left: i64, right: i64) -> Result<i128, KernelError> {
+    i128::from(left)
+        .checked_mul(i128::from(right))
+        .ok_or_else(|| KernelError::validation("payroll amount multiplication overflow"))
+}
+
+fn checked_i128_to_i64(amount: i128) -> Result<i64, KernelError> {
     i64::try_from(amount).map_err(|_| KernelError::validation("payroll amount overflow"))
 }
 
@@ -650,6 +832,105 @@ mod tests {
             }),
         };
         validate_release_gate(&validated).unwrap();
+    }
+
+    #[test]
+    fn builds_severance_pay_from_moel_average_wage_formula() {
+        // Ordinary daily wage (90,000) is BELOW the average daily wage (100,000),
+        // so the average-wage path governs and the historical figures must be
+        // byte-for-byte unchanged.
+        let draft = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2024 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 9_100_000,
+            ordinary_daily_wage_won: 90_000,
+        })
+        .unwrap();
+
+        assert_eq!(draft.service_days, 912);
+        assert_eq!(draft.average_daily_wage_milliwon, 100_000_000);
+        // max(average 100,000, ordinary 90,000) => average governs.
+        assert_eq!(draft.statutory_daily_wage_milliwon, 100_000_000);
+        assert_eq!(draft.statutory_30_day_wage_won, 3_000_000);
+        assert_eq!(draft.severance_pay_won, 7_495_890);
+        assert_eq!(draft.source, moel_retirement_pay_source());
+    }
+
+    #[test]
+    fn ordinary_wage_floor_governs_when_three_month_window_is_depressed() {
+        // Absence→exit population: unpaid leave halved the 3-month wage total, so
+        // the average daily wage collapses to 50,000/day. The employee's ordinary
+        // daily wage is still 100,000. 통상임금 floor must govern and roughly double
+        // the severance versus the average-wage-only figure.
+        let draft = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2024 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 4_550_000, // depressed window: 50,000/day
+            ordinary_daily_wage_won: 100_000,
+        })
+        .unwrap();
+
+        // Average path would have produced only the depressed figure.
+        assert_eq!(draft.average_daily_wage_milliwon, 50_000_000);
+        let average_only_severance = 4_550_000_i128 * 30 * 912 / 91 / 365;
+        assert_eq!(average_only_severance, 3_747_945);
+
+        // Ordinary wage floor governs: max(50,000, 100,000) = 100,000.
+        assert_eq!(draft.statutory_daily_wage_milliwon, 100_000_000);
+        assert_eq!(draft.statutory_30_day_wage_won, 3_000_000);
+        assert_eq!(draft.severance_pay_won, 7_495_890);
+        assert!(
+            draft.severance_pay_won > i64::try_from(average_only_severance).unwrap(),
+            "ordinary-wage floor must exceed the depressed average-wage figure"
+        );
+    }
+
+    #[test]
+    fn severance_pay_refuses_short_service_or_missing_wage_basis() {
+        let short_service = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2026 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 9_100_000,
+            ordinary_daily_wage_won: 100_000,
+        });
+        assert!(short_service.is_err());
+
+        let missing_wage = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2024 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 0,
+            ordinary_daily_wage_won: 100_000,
+        });
+        assert!(missing_wage.is_err());
+    }
+
+    #[test]
+    fn severance_pay_refuses_missing_ordinary_wage_floor() {
+        // FAIL LOUD: absent/non-positive ordinary wage must be rejected, never
+        // silently degraded to average-wage-only.
+        let missing_ordinary = build_severance_pay_draft(SeverancePayInput {
+            hire_date: date!(2024 - 01 - 01),
+            exit_date: date!(2026 - 06 - 30),
+            average_wage_period_start: date!(2026 - 04 - 01),
+            average_wage_period_end: date!(2026 - 06 - 30),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 9_100_000,
+            ordinary_daily_wage_won: 0,
+        });
+        assert!(missing_ordinary.is_err());
+        assert!(format!("{:?}", missing_ordinary.err().unwrap()).contains("ordinary daily wage"));
     }
 
     fn line_amount(draft: &PayrollDraft, code: DeductionCode) -> i64 {

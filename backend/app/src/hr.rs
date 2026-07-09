@@ -8,16 +8,21 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
+};
+use mnt_payroll_domain::{
+    ProfessionalReviewerKind, ProfessionalValidation, SeverancePayInput, build_severance_pay_draft,
+    moel_retirement_pay_source, nhis_qualification_loss_form_source,
 };
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
+use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
-use time::OffsetDateTime;
+use time::{Date, Month, OffsetDateTime};
 use uuid::Uuid;
 
 pub const EMPLOYEES_PATH: &str = "/api/v1/employees";
@@ -40,6 +45,11 @@ pub const HR_ATTENDANCE_IMPORT_APPLY_PATH_TEMPLATE: &str =
 pub const HR_ATTENDANCE_IMPORT_SUMMARY_PATH: &str = "/api/v1/hr/attendance-import/summary";
 pub const HR_MY_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records/me";
 pub const HR_ATTENDANCE_RECORDS_PATH: &str = "/api/v1/hr/attendance-records";
+pub const HR_ABSENCE_EXIT_DASHBOARD_PATH: &str = "/api/v1/hr/absence-exit-dashboard";
+pub const HR_EXIT_CASES_PATH: &str = "/api/v1/hr/exit-cases";
+pub const HR_EXIT_CASE_CONFIRM_PATH_TEMPLATE: &str = "/api/v1/hr/exit-cases/{id}/confirm";
+pub const HR_EXIT_CASE_APPROVAL_DRAFT_PATH_TEMPLATE: &str =
+    "/api/v1/hr/exit-cases/{id}/approval-draft";
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_IMPORT_HEADER_SCAN_ROWS: usize = 25;
 const DEFAULT_LIMIT: i64 = 500;
@@ -67,6 +77,19 @@ pub fn router(state: HrState) -> Router {
         .route(HR_LEAVE_BALANCES_PATH, get(list_leave_balances))
         .route(HR_ATTENDANCE_SUMMARY_PATH, get(list_attendance_summary))
         .route(HR_READINESS_SUMMARY_PATH, get(get_hr_readiness_summary))
+        .route(
+            HR_ABSENCE_EXIT_DASHBOARD_PATH,
+            get(get_absence_exit_dashboard),
+        )
+        .route(HR_EXIT_CASES_PATH, post(report_employee_exit_case))
+        .route(
+            HR_EXIT_CASE_CONFIRM_PATH_TEMPLATE,
+            post(confirm_employee_exit_case),
+        )
+        .route(
+            HR_EXIT_CASE_APPROVAL_DRAFT_PATH_TEMPLATE,
+            post(draft_employee_exit_approval),
+        )
         .route(
             HR_ATTENDANCE_IMPORT_PREVIEW_PATH,
             post(preview_attendance_import).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
@@ -432,6 +455,205 @@ struct EmployeeForLifecycle {
 struct HrListQuery {
     limit: Option<i64>,
     offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AbsenceExitDashboardQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    #[serde(default)]
+    employee_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct AbsenceExitDashboardResponse {
+    summary: AbsenceExitSummary,
+    alerts: Vec<EmployeeAbsenceAlertResponse>,
+    exit_cases: Vec<EmployeeExitCaseResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct AbsenceExitSummary {
+    open_absence_alerts: i64,
+    exit_cases_pending_hr: i64,
+    settlement_needs_source: i64,
+    settlement_ready: i64,
+    approval_drafts: i64,
+    submitted: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeAbsenceAlertResponse {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    employee_number: Option<String>,
+    company: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    org_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worksite_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_name: Option<String>,
+    work_date: String,
+    source: String,
+    status: String,
+    severity: String,
+    audience_roles: Vec<String>,
+    signal_payload: Value,
+    notification_title: String,
+    notification_message: String,
+    link_href: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_case_id: Option<Uuid>,
+    detected_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReportEmployeeExitCaseRequest {
+    employee_id: Uuid,
+    #[serde(default)]
+    branch_id: Option<Uuid>,
+    #[serde(default)]
+    absence_alert_id: Option<Uuid>,
+    effective_exit_date: String,
+    site_manager_note: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfirmEmployeeExitCaseRequest {
+    #[serde(default)]
+    decision: Option<String>,
+    #[serde(default)]
+    hq_confirmation: bool,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    settlement_input: Option<ExitSettlementInput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DraftEmployeeExitApprovalRequest {
+    #[serde(default)]
+    submit: bool,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    settlement_input: Option<ExitSettlementInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ExitSettlementInput {
+    average_wage_period_start: String,
+    average_wage_period_end: String,
+    average_wage_calendar_days: i64,
+    average_wage_total_won: i64,
+    /// Monthly 통상임금 (ordinary wage) in won, gathered alongside the average-wage
+    /// source fields. Mandatory (no `#[serde(default)]`): the request fails to
+    /// deserialize when absent, so the statutory 통상임금 floor can never be
+    /// silently skipped for the depressed-window absence→exit population.
+    monthly_ordinary_wage_won: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeExitCaseResponse {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    employee_number: Option<String>,
+    company: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    org_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worksite_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    absence_alert_id: Option<Uuid>,
+    status: String,
+    effective_exit_date: String,
+    site_manager_note: String,
+    reported_by: Uuid,
+    reported_at: OffsetDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hr_confirmed_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hr_confirmed_at: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hq_confirmed_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hq_confirmed_at: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_submitted_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_submitted_at: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settlement_package: Option<EmployeeExitSettlementPackageResponse>,
+    next_actions: Vec<ExitCaseNextAction>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeExitSettlementPackageResponse {
+    id: Uuid,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_days: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_period_start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_period_end: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_calendar_days: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_wage_total_won: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    average_daily_wage_milliwon: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    severance_pay_won: Option<i64>,
+    /// 통상임금 (ordinary-wage) statutory basis (0093 review HIGH #2): the monthly
+    /// ordinary wage a reviewer signs, the 통상일급 derived from it via the 209h/8h
+    /// rule, and the daily wage that actually governed severance = max(average,
+    /// ordinary). Persisted, digest-covered, and exposed so the money trail is
+    /// auditable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    monthly_ordinary_wage_won: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ordinary_daily_wage_won: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    statutory_daily_wage_milliwon: Option<i64>,
+    missing_source_fields: Vec<String>,
+    statutory_basis: Value,
+    /// The generated MOEL/NHIS insurance-loss document. Also carries a
+    /// `certification_status` key (stamped by `exit_case_from_row`, mirroring
+    /// the field below) so the document itself never omits the uncertified
+    /// marker even if forwarded independently of this DTO.
+    insurance_loss_payload: Value,
+    /// The generated approval-submission document. Same
+    /// `certification_status` stamping as `insurance_loss_payload`.
+    approval_payload: Value,
+    /// EFFECTIVE certification state (single source for the "산정 초안 — 노무사
+    /// 검증 전" label): reported `CERTIFIED` only when the stored
+    /// `certification_status` is CERTIFIED AND the stored digest still binds the
+    /// current numbers; a stale/absent digest is reported `UNCERTIFIED_DRAFT`.
+    certification_status: String,
+    generated_at: OffsetDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    submitted_by: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    submitted_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExitCaseNextAction {
+    key: String,
+    label: String,
+    href: String,
 }
 
 async fn list_employees(
@@ -1090,6 +1312,479 @@ async fn get_hr_readiness_summary(
     .await?;
 
     Ok(Json(summary))
+}
+
+async fn get_absence_exit_dashboard(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<AbsenceExitDashboardQuery>,
+) -> Result<Json<AbsenceExitDashboardResponse>, HrError> {
+    authorize_hr_scoped(&principal, Feature::EmployeeDirectoryRead)?;
+    record_hr_read("absence_exit_dashboard");
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let scope = principal.branch_scope.clone();
+    let actor = principal.user_id;
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let employee_id = query.employee_id;
+
+    // `with_audits` (not `with_org_conn`): the read-path materializer mutates the
+    // audited `employee_absence_alerts` table, so a changed pass must land an
+    // audit row in the SAME transaction (0093 review MEDIUM #5). It emits ZERO
+    // events on an unchanged read, so the materializer's idempotency/write-storm
+    // guard is preserved — no audit spam on repeated dashboard GETs.
+    let dashboard = with_audits::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let changed_alert_ids =
+                materialize_absence_alerts_from_imports(tx, org_uuid, &scope).await?;
+            let summary = load_absence_exit_summary(tx, &scope).await?;
+            let alerts = load_absence_alerts(tx, &scope, employee_id, limit, offset).await?;
+            let exit_cases = load_exit_cases(tx, &scope, employee_id, limit, offset).await?;
+
+            let mut events = Vec::new();
+            if !changed_alert_ids.is_empty() {
+                events.push(
+                    AuditEvent::new(
+                        Some(actor),
+                        AuditAction::new("employee.absence_alert.materialize")
+                            .map_err(HrError::from_kernel)?,
+                        "employee_absence_alerts",
+                        org_uuid.to_string(),
+                        TraceContext::generate(),
+                        OffsetDateTime::now_utc(),
+                    )
+                    .with_org(org)
+                    .with_snapshots(
+                        None,
+                        Some(json!({
+                            "changed_count": changed_alert_ids.len(),
+                            "changed_alert_ids": changed_alert_ids,
+                            "source": "attendance_direct_import",
+                            "trigger": "absence_exit_dashboard_read",
+                        })),
+                    ),
+                );
+            }
+
+            Ok((
+                AbsenceExitDashboardResponse {
+                    summary,
+                    alerts,
+                    exit_cases,
+                },
+                events,
+            ))
+        })
+    })
+    .await?;
+
+    Ok(Json(dashboard))
+}
+
+async fn report_employee_exit_case(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<ReportEmployeeExitCaseRequest>,
+) -> Result<Json<EmployeeExitCaseResponse>, HrError> {
+    let effective_exit_date = normalize_date_text(&body.effective_exit_date)?;
+    let site_manager_note =
+        normalize_limited_text(body.site_manager_note, 1000, "site_manager_note")?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.exit.report").map_err(HrError::from_kernel)?,
+        "employee",
+        body.employee_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "employee_id": body.employee_id,
+            "absence_alert_id": body.absence_alert_id,
+            "effective_exit_date": effective_exit_date,
+            "branch_id": body.branch_id
+        })),
+    );
+
+    let exit_case = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let branch_id = resolve_exit_case_branch(
+                tx,
+                org_uuid,
+                body.employee_id,
+                body.branch_id,
+                body.absence_alert_id,
+            )
+            .await?;
+            authorize_hr_scoped_write(&principal, Feature::ExitCaseReport, branch_id)?;
+            ensure_employee_exists(tx, org_uuid, body.employee_id).await?;
+
+            let case_id: Uuid = sqlx::query_scalar(
+                r#"
+                INSERT INTO employee_exit_cases (
+                    org_id, employee_id, branch_id, absence_alert_id,
+                    effective_exit_date, site_manager_note, reported_by
+                )
+                VALUES ($1, $2, $3, $4, $5::DATE, $6, $7)
+                RETURNING id
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(body.employee_id)
+            .bind(branch_id)
+            .bind(body.absence_alert_id)
+            .bind(&effective_exit_date)
+            .bind(&site_manager_note)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            if let Some(alert_id) = body.absence_alert_id {
+                sqlx::query(
+                    r#"
+                    UPDATE employee_absence_alerts
+                    SET status = 'LINKED_EXIT',
+                        linked_exit_case_id = $3,
+                        updated_at = now()
+                    WHERE org_id = $1 AND id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(alert_id)
+                .bind(case_id)
+                .execute(tx.as_mut())
+                .await?;
+            }
+
+            load_exit_case_by_id(tx, org_uuid, case_id).await
+        })
+    })
+    .await?;
+
+    Ok(Json(exit_case))
+}
+
+// M2-strangler-debt: this absence->exit->settlement flow is a hardcoded cross-module
+// decision spine (report -> HR confirm -> HQ confirm -> settlement -> approval). It is the
+// SECOND such flow (after completion->approval->payroll) slated to migrate onto the ADR-0018
+// workflow runtime spine (workflow_runs / workflow_node_runs / workflow_waiting_tasks /
+// workflow_outbox_events). State machine -> spine-IR mapping: exit_case.status transitions map
+// to workflow_node_runs; the two-tier confirm maps to workflow_waiting_tasks with required_policy
+// guards; the settlement/certification side effects map to idempotency-keyed workflow_outbox_events.
+// See .omc/plans/ralplan-pr166-completion.md S8.2 (M2 charter follow-up). Migration is mechanical,
+// not a rewrite, once the M2 executor lands.
+async fn confirm_employee_exit_case(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(case_id): Path<Uuid>,
+    Json(body): Json<ConfirmEmployeeExitCaseRequest>,
+) -> Result<Json<EmployeeExitCaseResponse>, HrError> {
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let decision = body
+        .decision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("CONFIRM")
+        .to_ascii_uppercase();
+    let note = normalize_optional_limited_text(body.note, 1000, "note")?;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.exit.confirm").map_err(HrError::from_kernel)?,
+        "employee_exit_case",
+        case_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "exit_case_id": case_id,
+            "decision": decision,
+            "hq_confirmation": body.hq_confirmation
+        })),
+    );
+
+    let exit_case = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let context = load_exit_case_context(tx, org_uuid, case_id, true).await?;
+
+            // Separation-of-duties capability gate (replaces the coarse
+            // EmployeeDirectoryManage gate). A REJECT may be performed by anyone
+            // holding either confirmation capability; a CONFIRM is gated per tier
+            // below. Both are checked as capabilities against the case's branch,
+            // consistent with the move toward capability (not role-string) authz.
+            let holds_hr_confirm =
+                authorize_hr_scoped_write(&principal, Feature::ExitCaseHrConfirm, context.branch_id)
+                    .is_ok();
+            let holds_hq_confirm =
+                authorize_hr_scoped_write(&principal, Feature::ExitCaseHqConfirm, context.branch_id)
+                    .is_ok();
+
+            if decision == "REJECT" {
+                if !(holds_hr_confirm || holds_hq_confirm) {
+                    return Err(HrError::from_kernel(KernelError::forbidden(
+                        "rejecting an exit case requires an exit-case confirmation capability",
+                    )));
+                }
+                sqlx::query(
+                    r#"
+                    UPDATE employee_exit_cases
+                    SET status = 'REJECTED',
+                        confirmation_note = $3,
+                        updated_at = now()
+                    WHERE org_id = $1 AND id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(case_id)
+                .bind(note.as_deref())
+                .execute(tx.as_mut())
+                .await?;
+                return load_exit_case_by_id(tx, org_uuid, case_id).await;
+            }
+            if decision != "CONFIRM" {
+                return Err(HrError::validation("decision must be CONFIRM or REJECT"));
+            }
+
+            // Two-tier separation of duties enforced in CODE — the client
+            // `hq_confirmation` boolean only selects which tier is attempted; the
+            // capability + stored-state + distinct-actor checks are the authority.
+            if body.hq_confirmation {
+                if !holds_hq_confirm {
+                    return Err(HrError::from_kernel(KernelError::forbidden(
+                        "HQ confirmation requires the exit-case HQ confirmation capability",
+                    )));
+                }
+                authorize_exit_confirmation_hq_tier(
+                    &context.status,
+                    context.hr_confirmed_by,
+                    *actor.as_uuid(),
+                )?;
+            } else if !holds_hr_confirm {
+                return Err(HrError::from_kernel(KernelError::forbidden(
+                    "HR confirmation requires the exit-case HR confirmation capability",
+                )));
+            }
+
+            insert_confirmed_exit_lifecycle_event(tx, org_uuid, actor, &context, note.as_deref())
+                .await?;
+
+            let next_status = if body.hq_confirmation {
+                "HQ_CONFIRMED"
+            } else {
+                "HR_CONFIRMED"
+            };
+            sqlx::query(
+                r#"
+                UPDATE employee_exit_cases
+                SET status = $3,
+                    hr_confirmed_by = COALESCE(hr_confirmed_by, $4),
+                    hr_confirmed_at = COALESCE(hr_confirmed_at, now()),
+                    hq_confirmed_by = CASE WHEN $5 THEN $4 ELSE hq_confirmed_by END,
+                    hq_confirmed_at = CASE WHEN $5 THEN COALESCE(hq_confirmed_at, now()) ELSE hq_confirmed_at END,
+                    confirmation_note = $6,
+                    updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(case_id)
+            .bind(next_status)
+            .bind(*actor.as_uuid())
+            .bind(body.hq_confirmation)
+            .bind(note.as_deref())
+            .execute(tx.as_mut())
+            .await?;
+
+            upsert_exit_settlement_package(tx, org_uuid, case_id, body.settlement_input.clone())
+                .await?;
+            load_exit_case_by_id(tx, org_uuid, case_id).await
+        })
+    })
+    .await?;
+
+    Ok(Json(exit_case))
+}
+
+async fn draft_employee_exit_approval(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(case_id): Path<Uuid>,
+    Json(body): Json<DraftEmployeeExitApprovalRequest>,
+) -> Result<Json<EmployeeExitCaseResponse>, HrError> {
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let note = normalize_optional_limited_text(body.note, 1000, "note")?;
+
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.exit.approval_draft").map_err(HrError::from_kernel)?,
+        "employee_exit_case",
+        case_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "exit_case_id": case_id,
+            "submit": body.submit,
+            "has_settlement_input": body.settlement_input.is_some(),
+            // Certification state is captured in the audit trail: writing the
+            // approval_payload (a certification-covered field) atomically resets
+            // the package to UNCERTIFIED_DRAFT below, so the settlement figure
+            // being drafted/submitted is, by construction, an uncertified draft.
+            "certification_status": "UNCERTIFIED_DRAFT"
+        })),
+    );
+
+    let exit_case = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+        Box::pin(async move {
+            let context = load_exit_case_context(tx, org_uuid, case_id, true).await?;
+            authorize_hr_scoped_write(
+                &principal,
+                Feature::ExitSettlementManage,
+                context.branch_id,
+            )?;
+            if !matches!(
+                context.status.as_str(),
+                "HR_CONFIRMED" | "HQ_CONFIRMED" | "SETTLEMENT_READY" | "APPROVAL_DRAFTED"
+            ) {
+                return Err(HrError::from_kernel(KernelError::invalid_transition(
+                    "exit approval draft requires HR or HQ confirmation first",
+                )));
+            }
+
+            let existing_ready_package_id = if body.settlement_input.is_none() {
+                sqlx::query_scalar::<_, Uuid>(
+                    r#"
+                    SELECT id
+                    FROM employee_exit_settlement_packages
+                    WHERE org_id = $1
+                      AND exit_case_id = $2
+                      AND severance_pay_won IS NOT NULL
+                      AND CARDINALITY(missing_source_fields) = 0
+                    ORDER BY updated_at DESC, generated_at DESC
+                    LIMIT 1
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(case_id)
+                .fetch_optional(tx.as_mut())
+                .await?
+            } else {
+                None
+            };
+            let package_id = if let Some(package_id) = existing_ready_package_id {
+                package_id
+            } else {
+                upsert_exit_settlement_package(tx, org_uuid, case_id, body.settlement_input.clone())
+                    .await?
+            };
+            let package_ready = sqlx::query(
+                r#"
+                SELECT severance_pay_won, missing_source_fields,
+                       monthly_ordinary_wage_won, ordinary_daily_wage_won,
+                       statutory_daily_wage_milliwon
+                FROM employee_exit_settlement_packages
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(package_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+            let severance_pay_won: Option<i64> = package_ready.try_get("severance_pay_won")?;
+            let missing_source_fields: Vec<String> =
+                package_ready.try_get("missing_source_fields")?;
+            if severance_pay_won.is_none() || !missing_source_fields.is_empty() {
+                return Err(HrError::validation(
+                    "exit settlement requires complete wage source fields before approval draft",
+                ));
+            }
+
+            // Embed the 통상임금 basis into the filed approval document too (0093
+            // review HIGH #2), from the same persisted columns the digest covers,
+            // so a read-path digest recompute stays consistent.
+            let approval_payload = with_ordinary_wage_basis(
+                build_exit_approval_payload(&context, note.as_deref()),
+                package_ready.try_get("monthly_ordinary_wage_won")?,
+                package_ready.try_get("ordinary_daily_wage_won")?,
+                package_ready.try_get("statutory_daily_wage_milliwon")?,
+            );
+            let package_status = if body.submit {
+                "SUBMITTED"
+            } else {
+                "APPROVAL_DRAFTED"
+            };
+            sqlx::query(
+                r#"
+                UPDATE employee_exit_settlement_packages
+                SET status = $3,
+                    approval_payload = $4,
+                    submitted_by = CASE WHEN $5 THEN $6 ELSE submitted_by END,
+                    submitted_at = CASE WHEN $5 THEN now() ELSE submitted_at END,
+                    -- Atomic re-uncertification (0093 HIGH): approval_payload is a
+                    -- certification-covered field, so writing it invalidates any
+                    -- prior certification in the same statement.
+                    certification_status = 'UNCERTIFIED_DRAFT',
+                    certification_artifact = NULL,
+                    certified_package_digest = NULL,
+                    updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(package_id)
+            .bind(package_status)
+            .bind(approval_payload)
+            .bind(body.submit)
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
+
+            sqlx::query(
+                r#"
+                UPDATE employee_exit_cases
+                SET status = $3,
+                    approval_submitted_by = CASE WHEN $4 THEN $5 ELSE approval_submitted_by END,
+                    approval_submitted_at = CASE WHEN $4 THEN now() ELSE approval_submitted_at END,
+                    updated_at = now()
+                WHERE org_id = $1 AND id = $2
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(case_id)
+            .bind(if body.submit {
+                "SUBMITTED"
+            } else {
+                "APPROVAL_DRAFTED"
+            })
+            .bind(body.submit)
+            .bind(*actor.as_uuid())
+            .execute(tx.as_mut())
+            .await?;
+
+            load_exit_case_by_id(tx, org_uuid, case_id).await
+        })
+    })
+    .await?;
+
+    Ok(Json(exit_case))
 }
 
 async fn preview_attendance_import(
@@ -4683,6 +5378,1215 @@ fn default_lifecycle_status(event_type: &str) -> &'static str {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ExitCaseContext {
+    id: Uuid,
+    employee_id: Uuid,
+    employee_name: String,
+    employee_number: Option<String>,
+    company: String,
+    org_unit: Option<String>,
+    position: Option<String>,
+    worksite_name: Option<String>,
+    hire_date: Option<String>,
+    branch_id: Option<Uuid>,
+    branch_name: Option<String>,
+    status: String,
+    /// Who recorded the first-tier (HR) confirmation, if any. Authoritative
+    /// input to the two-tier separation-of-duties check in the confirm handler:
+    /// the HQ confirmer must differ from this actor.
+    hr_confirmed_by: Option<Uuid>,
+    effective_exit_date: String,
+    site_manager_note: String,
+}
+
+/// Materialize absence alerts from imported attendance facts, returning the ids
+/// of the rows this pass actually INSERTed or UPDATEd. On unchanged imports the
+/// `IS DISTINCT FROM` guard on the ON CONFLICT UPDATE (plus DO NOTHING on true
+/// duplicates) means `RETURNING` yields nothing — so a repeated dashboard read
+/// reports zero changed rows and emits no audit event (0093 review MEDIUM #5:
+/// the caller audits only real mutations, preserving the write-storm guard).
+async fn materialize_absence_alerts_from_imports(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    scope: &BranchScope,
+) -> Result<Vec<Uuid>, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO employee_absence_alerts (
+            org_id, employee_id, branch_id, work_date, source, severity, signal_payload
+        )
+        SELECT DISTINCT ON (a.employee_id, a.work_date::DATE)
+            a.org_id,
+            a.employee_id,
+            a.branch_id,
+            a.work_date::DATE,
+            'attendance_direct_import',
+            'WARNING',
+            jsonb_build_object(
+                'signal', 'NO_CLOCK_OR_ZERO_MINUTES',
+                'source_sheet', a.source_sheet,
+                'source_row', a.source_row,
+                'source_key', a.source_key,
+                'employee_name', a.employee_name,
+                'branch_name', a.branch_name,
+                'work_date', a.work_date,
+                'message', 'Imported attendance row has no clock-in/out and zero worked minutes.'
+            )
+        FROM attendance_direct_import_events a
+        JOIN employees e
+          ON e.id = a.employee_id
+         AND e.org_id = a.org_id
+        WHERE a.org_id =
+        "#,
+    );
+    builder.push_bind(org_uuid);
+    builder.push(
+        r#"
+          AND e.employment_status = 'ACTIVE'
+          AND a.check_in_at IS NULL
+          AND a.check_out_at IS NULL
+          AND COALESCE(a.minutes_worked, 0) = 0
+          AND
+        "#,
+    );
+    push_branch_scope_column(&mut builder, scope, "a.branch_id");
+    builder.push(
+        r#"
+        ORDER BY a.employee_id, a.work_date::DATE, a.created_at DESC, a.id DESC
+        ON CONFLICT (org_id, employee_id, work_date, source)
+        DO UPDATE SET
+            branch_id = EXCLUDED.branch_id,
+            severity = EXCLUDED.severity,
+            signal_payload = EXCLUDED.signal_payload,
+            updated_at = now()
+        WHERE employee_absence_alerts.status = 'OPEN'
+          -- Write-storm bound (S6.3): this materializer runs on the dashboard GET
+          -- path, so an unconditional DO UPDATE would rewrite every OPEN alert on
+          -- every read (dead tuples + WAL per request). The IS DISTINCT FROM guard
+          -- makes a repeated read over unchanged imports touch ZERO rows, so the
+          -- per-request write set is bounded to alerts whose import facts actually
+          -- changed, while still refreshing an alert when a re-import corrects it.
+          AND (
+            employee_absence_alerts.branch_id IS DISTINCT FROM EXCLUDED.branch_id
+            OR employee_absence_alerts.severity IS DISTINCT FROM EXCLUDED.severity
+            OR employee_absence_alerts.signal_payload IS DISTINCT FROM EXCLUDED.signal_payload
+          )
+        RETURNING id
+        "#,
+    );
+    let changed_ids: Vec<Uuid> = builder.build_query_scalar().fetch_all(tx.as_mut()).await?;
+    Ok(changed_ids)
+}
+
+async fn load_absence_exit_summary(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+) -> Result<AbsenceExitSummary, HrError> {
+    Ok(AbsenceExitSummary {
+        open_absence_alerts: count_absence_alerts(tx, scope, "a.status = 'OPEN'").await?,
+        exit_cases_pending_hr: count_exit_cases(tx, scope, "c.status = 'REPORTED'").await?,
+        settlement_needs_source: count_exit_packages(tx, scope, "p.status = 'NEEDS_SOURCE'")
+            .await?,
+        settlement_ready: count_exit_packages(tx, scope, "p.status = 'READY_FOR_APPROVAL'").await?,
+        approval_drafts: count_exit_packages(tx, scope, "p.status = 'APPROVAL_DRAFTED'").await?,
+        submitted: count_exit_cases(tx, scope, "c.status = 'SUBMITTED'").await?,
+    })
+}
+
+async fn count_absence_alerts(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    predicate: &'static str,
+) -> Result<i64, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*)::BIGINT FROM employee_absence_alerts a WHERE ",
+    );
+    builder.push(predicate);
+    builder.push(" AND ");
+    push_branch_scope_column(&mut builder, scope, "a.branch_id");
+    Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?)
+}
+
+async fn count_exit_cases(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    predicate: &'static str,
+) -> Result<i64, HrError> {
+    let mut builder =
+        QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM employee_exit_cases c WHERE ");
+    builder.push(predicate);
+    builder.push(" AND ");
+    push_branch_scope_column(&mut builder, scope, "c.branch_id");
+    Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?)
+}
+
+async fn count_exit_packages(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    predicate: &'static str,
+) -> Result<i64, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT COUNT(*)::BIGINT
+        FROM employee_exit_settlement_packages p
+        JOIN employee_exit_cases c
+          ON c.id = p.exit_case_id
+         AND c.org_id = p.org_id
+        WHERE
+        "#,
+    );
+    builder.push(predicate);
+    builder.push(" AND ");
+    push_branch_scope_column(&mut builder, scope, "c.branch_id");
+    Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?)
+}
+
+async fn load_absence_alerts(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    employee_id: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<EmployeeAbsenceAlertResponse>, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            a.id,
+            a.employee_id,
+            e.name AS employee_name,
+            e.employee_number,
+            e.company,
+            e.org_unit,
+            e.worksite_name,
+            a.branch_id,
+            b.name AS branch_name,
+            a.work_date::TEXT AS work_date,
+            a.source,
+            a.status,
+            a.severity,
+            a.audience_roles,
+            a.signal_payload,
+            a.linked_exit_case_id AS exit_case_id,
+            a.detected_at
+        FROM employee_absence_alerts a
+        JOIN employees e
+          ON e.id = a.employee_id
+         AND e.org_id = a.org_id
+        LEFT JOIN branches b
+          ON b.id = a.branch_id
+         AND b.org_id = a.org_id
+        WHERE
+        "#,
+    );
+    push_branch_scope_column(&mut builder, scope, "a.branch_id");
+    if let Some(employee_id) = employee_id {
+        builder.push(" AND a.employee_id = ");
+        builder.push_bind(employee_id);
+    }
+    builder.push(" ORDER BY a.work_date DESC, a.detected_at DESC, a.id DESC LIMIT ");
+    builder.push_bind(limit);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
+
+    builder
+        .build()
+        .fetch_all(tx.as_mut())
+        .await?
+        .into_iter()
+        .map(absence_alert_from_row)
+        .collect::<Result<Vec<_>, HrError>>()
+}
+
+async fn load_exit_cases(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    scope: &BranchScope,
+    employee_id: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<EmployeeExitCaseResponse>, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(exit_case_select_sql());
+    builder.push(" WHERE ");
+    push_branch_scope_column(&mut builder, scope, "c.branch_id");
+    if let Some(employee_id) = employee_id {
+        builder.push(" AND c.employee_id = ");
+        builder.push_bind(employee_id);
+    }
+    builder.push(" ORDER BY c.updated_at DESC, c.reported_at DESC, c.id DESC LIMIT ");
+    builder.push_bind(limit);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
+
+    builder
+        .build()
+        .fetch_all(tx.as_mut())
+        .await?
+        .into_iter()
+        .map(exit_case_from_row)
+        .collect::<Result<Vec<_>, HrError>>()
+}
+
+async fn load_exit_case_by_id(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    case_id: Uuid,
+) -> Result<EmployeeExitCaseResponse, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(exit_case_select_sql());
+    builder.push(" WHERE c.org_id = ");
+    builder.push_bind(org_uuid);
+    builder.push(" AND c.id = ");
+    builder.push_bind(case_id);
+
+    let row = builder
+        .build()
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| HrError::from_kernel(KernelError::not_found("exit case not found")))?;
+    exit_case_from_row(row)
+}
+
+fn exit_case_select_sql() -> &'static str {
+    r#"
+    SELECT
+        c.id,
+        c.employee_id,
+        e.name AS employee_name,
+        e.employee_number,
+        e.company,
+        e.org_unit,
+        e.worksite_name,
+        c.branch_id,
+        b.name AS branch_name,
+        c.absence_alert_id,
+        c.status,
+        c.effective_exit_date::TEXT AS effective_exit_date,
+        c.site_manager_note,
+        c.reported_by,
+        c.reported_at,
+        c.hr_confirmed_by,
+        c.hr_confirmed_at,
+        c.hq_confirmed_by,
+        c.hq_confirmed_at,
+        c.approval_submitted_by,
+        c.approval_submitted_at,
+        p.id AS package_id,
+        p.status AS package_status,
+        p.service_days,
+        p.average_wage_period_start::TEXT AS average_wage_period_start,
+        p.average_wage_period_end::TEXT AS average_wage_period_end,
+        p.average_wage_calendar_days,
+        p.average_wage_total_won,
+        p.average_daily_wage_milliwon,
+        p.severance_pay_won,
+        p.monthly_ordinary_wage_won,
+        p.ordinary_daily_wage_won,
+        p.statutory_daily_wage_milliwon,
+        p.missing_source_fields,
+        p.statutory_basis,
+        p.insurance_loss_payload,
+        p.approval_payload,
+        p.certification_status,
+        p.certified_package_digest,
+        p.generated_at,
+        p.submitted_by,
+        p.submitted_at
+    FROM employee_exit_cases c
+    JOIN employees e
+      ON e.id = c.employee_id
+     AND e.org_id = c.org_id
+    LEFT JOIN branches b
+      ON b.id = c.branch_id
+     AND b.org_id = c.org_id
+    LEFT JOIN employee_exit_settlement_packages p
+      ON p.exit_case_id = c.id
+     AND p.org_id = c.org_id
+    "#
+}
+
+async fn load_exit_case_context(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    case_id: Uuid,
+    lock_case: bool,
+) -> Result<ExitCaseContext, HrError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            c.id,
+            c.employee_id,
+            e.name AS employee_name,
+            e.employee_number,
+            e.company,
+            e.org_unit,
+            e.position,
+            e.worksite_name,
+            e.hire_date,
+            c.branch_id,
+            b.name AS branch_name,
+            c.status,
+            c.hr_confirmed_by,
+            c.effective_exit_date::TEXT AS effective_exit_date,
+            c.site_manager_note
+        FROM employee_exit_cases c
+        JOIN employees e
+          ON e.id = c.employee_id
+         AND e.org_id = c.org_id
+        LEFT JOIN branches b
+          ON b.id = c.branch_id
+         AND b.org_id = c.org_id
+        WHERE c.org_id =
+        "#,
+    );
+    builder.push_bind(org_uuid);
+    builder.push(" AND c.id = ");
+    builder.push_bind(case_id);
+    if lock_case {
+        builder.push(" FOR UPDATE OF c");
+    }
+
+    let row = builder
+        .build()
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| HrError::from_kernel(KernelError::not_found("exit case not found")))?;
+
+    Ok(ExitCaseContext {
+        id: row.try_get("id")?,
+        employee_id: row.try_get("employee_id")?,
+        employee_name: row.try_get("employee_name")?,
+        employee_number: row.try_get("employee_number")?,
+        company: row.try_get("company")?,
+        org_unit: row.try_get("org_unit")?,
+        position: row.try_get("position")?,
+        worksite_name: row.try_get("worksite_name")?,
+        hire_date: row.try_get("hire_date")?,
+        branch_id: row.try_get("branch_id")?,
+        branch_name: row.try_get("branch_name")?,
+        status: row.try_get("status")?,
+        hr_confirmed_by: row.try_get("hr_confirmed_by")?,
+        effective_exit_date: row.try_get("effective_exit_date")?,
+        site_manager_note: row.try_get("site_manager_note")?,
+    })
+}
+
+async fn resolve_exit_case_branch(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    employee_id: Uuid,
+    requested_branch_id: Option<Uuid>,
+    absence_alert_id: Option<Uuid>,
+) -> Result<Option<Uuid>, HrError> {
+    if requested_branch_id.is_some() {
+        return Ok(requested_branch_id);
+    }
+    if let Some(alert_id) = absence_alert_id {
+        let branch_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT branch_id FROM employee_absence_alerts WHERE org_id = $1 AND id = $2 AND employee_id = $3",
+        )
+        .bind(org_uuid)
+        .bind(alert_id)
+        .bind(employee_id)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .flatten();
+        if branch_id.is_some() {
+            return Ok(branch_id);
+        }
+    }
+    let branch_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT branch_id
+        FROM attendance_direct_import_events
+        WHERE org_id = $1 AND employee_id = $2
+        ORDER BY work_date DESC, created_at DESC, id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(employee_id)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    Ok(branch_id)
+}
+
+async fn ensure_employee_exists(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    employee_id: Uuid,
+) -> Result<(), HrError> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM employees WHERE org_id = $1 AND id = $2)")
+            .bind(org_uuid)
+            .bind(employee_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+    if !exists {
+        return Err(HrError::from_kernel(KernelError::not_found(
+            "employee not found",
+        )));
+    }
+    Ok(())
+}
+
+async fn insert_confirmed_exit_lifecycle_event(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    actor: UserId,
+    context: &ExitCaseContext,
+    note: Option<&str>,
+) -> Result<(), HrError> {
+    let current = load_employee_for_lifecycle(tx, org_uuid, context.employee_id).await?;
+    if normalize_enum_text(current.employment_status.clone()) == "EXITED" {
+        return Ok(());
+    }
+    let transition = NormalizedEmployeeLifecycleTransition {
+        event_type: "TERMINATE".to_owned(),
+        to_status: "EXITED".to_owned(),
+        to_company: None,
+        to_org_unit: None,
+        to_position: None,
+        effective_date: context.effective_exit_date.clone(),
+        comment: note
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("Exit confirmed from case {}", context.id)),
+        signoffs: EmployeeLifecycleSignoffs {
+            privacy_notice_ack: true,
+            korean_labor_law_ack: true,
+            payroll_cutoff_ack: true,
+            retirement_settlement_ack: true,
+        },
+    };
+    validate_lifecycle_transition(&current, &transition)?;
+
+    let lifecycle_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO employee_lifecycle_events (
+            id, org_id, employee_id, event_type, from_status, to_status,
+            from_company, to_company, from_org_unit, to_org_unit,
+            from_position, to_position, effective_date, comment,
+            signoffs, created_by
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10,
+            $11, $12, $13, $14,
+            $15, $16
+        )
+        "#,
+    )
+    .bind(lifecycle_id)
+    .bind(org_uuid)
+    .bind(context.employee_id)
+    .bind(&transition.event_type)
+    .bind(&current.employment_status)
+    .bind(&transition.to_status)
+    .bind(&current.company)
+    .bind(&current.company)
+    .bind(current.org_unit.as_deref())
+    .bind(current.org_unit.as_deref())
+    .bind(current.position.as_deref())
+    .bind(current.position.as_deref())
+    .bind(&transition.effective_date)
+    .bind(&transition.comment)
+    .bind(json!(&transition.signoffs))
+    .bind(*actor.as_uuid())
+    .execute(tx.as_mut())
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE employees
+        SET employment_status = 'EXITED',
+            exit_date = $3,
+            updated_at = now()
+        WHERE org_id = $1 AND id = $2
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(context.employee_id)
+    .bind(&context.effective_exit_date)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn upsert_exit_settlement_package(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: Uuid,
+    case_id: Uuid,
+    settlement_input: Option<ExitSettlementInput>,
+) -> Result<Uuid, HrError> {
+    let context = load_exit_case_context(tx, org_uuid, case_id, false).await?;
+    let (
+        package_status,
+        service_days,
+        period_start,
+        period_end,
+        calendar_days,
+        total_won,
+        daily_milliwon,
+        severance_pay_won,
+        missing_source_fields,
+        monthly_ordinary_wage_won,
+        ordinary_daily_wage_won,
+        statutory_daily_wage_milliwon,
+    ) = build_settlement_calculation(&context, settlement_input.as_ref())?;
+    let statutory_basis = exit_statutory_basis();
+    let insurance_loss_payload = with_ordinary_wage_basis(
+        build_insurance_loss_payload(&context),
+        monthly_ordinary_wage_won,
+        ordinary_daily_wage_won,
+        statutory_daily_wage_milliwon,
+    );
+
+    let package_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO employee_exit_settlement_packages (
+            org_id, exit_case_id, employee_id, status, service_days,
+            average_wage_period_start, average_wage_period_end,
+            average_wage_calendar_days, average_wage_total_won,
+            average_daily_wage_milliwon, severance_pay_won,
+            missing_source_fields, statutory_basis, insurance_loss_payload,
+            monthly_ordinary_wage_won, ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
+            generated_at
+        )
+        VALUES (
+            $1, $2, $3, $4, $5,
+            $6::DATE, $7::DATE,
+            $8, $9,
+            $10, $11,
+            $12, $13, $14,
+            $15, $16,
+            $17,
+            now()
+        )
+        ON CONFLICT (org_id, exit_case_id)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            service_days = EXCLUDED.service_days,
+            average_wage_period_start = EXCLUDED.average_wage_period_start,
+            average_wage_period_end = EXCLUDED.average_wage_period_end,
+            average_wage_calendar_days = EXCLUDED.average_wage_calendar_days,
+            average_wage_total_won = EXCLUDED.average_wage_total_won,
+            average_daily_wage_milliwon = EXCLUDED.average_daily_wage_milliwon,
+            severance_pay_won = EXCLUDED.severance_pay_won,
+            missing_source_fields = EXCLUDED.missing_source_fields,
+            statutory_basis = EXCLUDED.statutory_basis,
+            insurance_loss_payload = EXCLUDED.insurance_loss_payload,
+            monthly_ordinary_wage_won = EXCLUDED.monthly_ordinary_wage_won,
+            ordinary_daily_wage_won = EXCLUDED.ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon = EXCLUDED.statutory_daily_wage_milliwon,
+            -- Atomic re-uncertification (0093 HIGH #1): recomputing settlement fields
+            -- invalidates any prior 노무사/세무사 certification. Reset here explicitly
+            -- AND enforced for every write path by migration 0094's
+            -- enforce_settlement_certification_reset() BEFORE UPDATE trigger. This
+            -- path is never itself a certification action.
+            certification_status = 'UNCERTIFIED_DRAFT',
+            certification_artifact = NULL,
+            certified_package_digest = NULL,
+            generated_at = now(),
+            updated_at = now()
+        RETURNING id
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(case_id)
+    .bind(context.employee_id)
+    .bind(package_status)
+    .bind(service_days)
+    .bind(period_start.as_deref())
+    .bind(period_end.as_deref())
+    .bind(calendar_days)
+    .bind(total_won)
+    .bind(daily_milliwon)
+    .bind(severance_pay_won)
+    .bind(missing_source_fields)
+    .bind(statutory_basis)
+    .bind(insurance_loss_payload)
+    .bind(monthly_ordinary_wage_won)
+    .bind(ordinary_daily_wage_won)
+    .bind(statutory_daily_wage_milliwon)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    if package_status == "READY_FOR_APPROVAL" {
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_cases
+            SET status = CASE
+                    WHEN status IN ('HR_CONFIRMED','HQ_CONFIRMED') THEN 'SETTLEMENT_READY'
+                    ELSE status
+                END,
+                updated_at = now()
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(case_id)
+        .execute(tx.as_mut())
+        .await?;
+    }
+
+    Ok(package_id)
+}
+
+type SettlementCalculation = (
+    &'static str,
+    Option<i32>,
+    Option<String>,
+    Option<String>,
+    Option<i32>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Vec<String>,
+    // 통상임금 (ordinary-wage) statutory basis (0093 review HIGH #2), all `None`
+    // until the wage source arrives: monthly ordinary wage, derived ordinary
+    // daily wage, and the daily wage that actually governed severance.
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+);
+
+/// 월 소정근로시간 (statutory monthly standard hours) for a 주40시간 worker.
+const MONTHLY_STANDARD_HOURS: i64 = 209;
+/// 1일 소정근로시간 (contractual daily hours).
+const DAILY_CONTRACTUAL_HOURS: i64 = 8;
+
+/// 통상일급 (1-day ordinary wage) from the monthly 통상임금 via the statutory
+/// 기준시간 rule: 통상시급 = 월 통상임금 / 209h, 통상일급 = 통상시급 × 8h.
+///
+/// STANDARD-WORKER ASSUMPTION (explicit, v1 scope): 209h/month and 8h/day are the
+/// 주40시간·1일 8시간 standard-worker convention (the official Minimum Wage
+/// Commission tables publish hourly, 8-hour daily, and "monthly (209h basis)"
+/// figures on exactly this basis). This derivation is valid ONLY for standard
+/// 40h-week / 8h-day workers; non-standard schedules (shorter contractual hours,
+/// shift patterns) need schedule-specific monthly standard hours and are OUT OF
+/// v1 SCOPE.
+///
+/// 0093 review HIGH #3 (money bug): multiply BEFORE dividing —
+/// `(monthly * 8) / 209`, not `(monthly / 209) * 8` — in checked i128 wide
+/// arithmetic. Flooring `monthly / 209` first understated the daily figure by up
+/// to 7 won/day, which under-paid severance whenever the ordinary floor governed.
+fn ordinary_daily_wage_won_from_monthly(monthly_ordinary_wage_won: i64) -> Result<i64, HrError> {
+    let daily = i128::from(monthly_ordinary_wage_won) * i128::from(DAILY_CONTRACTUAL_HOURS)
+        / i128::from(MONTHLY_STANDARD_HOURS);
+    i64::try_from(daily).map_err(|_| HrError::validation("ordinary daily wage overflow"))
+}
+
+/// Deterministic SHA-256 that binds a settlement package's CERTIFIED state to
+/// the exact revision a 노무사/세무사 signed off (0093 HIGH: a non-null artifact
+/// only proves an artifact exists, not that it certified *these* numbers).
+///
+/// Covers every certification-relevant field persisted on the row: the
+/// severance figure, the statutory basis, the insurance-loss payload, the
+/// approval payload, the wage-source-derived inputs (period bounds, calendar
+/// days, wage total, average daily wage, service days), AND the 통상임금
+/// (ordinary-wage) basis (monthly ordinary wage, derived ordinary daily wage,
+/// and the statutory daily wage that governed). The ordinary-wage basis is bound
+/// DIRECTLY (0093 review HIGH #2): binding it only transitively via
+/// `severance_pay_won` was false, because the ordinary wage can change while the
+/// average wage still governs, or two ordinary inputs can floor to the same
+/// severance.
+///
+/// This covered-field set MUST stay byte-identical to the certification-covered
+/// column set enforced by migration 0094's
+/// `enforce_settlement_certification_reset()` BEFORE UPDATE trigger — the two are
+/// cross-referenced so any covered write invalidates a stale certification.
+///
+/// Order-stable: this workspace builds `serde_json` without `preserve_order`, so
+/// its object map is a `BTreeMap` that serializes with sorted keys, and embedded
+/// JSONB values round-trip through the same `BTreeMap`. Identical inputs
+/// therefore always hash identically regardless of column or JSON key order.
+/// Recursively re-key every JSON object in sorted key order so a digest over the
+/// result is canonical regardless of serde_json's `preserve_order` feature. A
+/// transitive dependency (e.g. cedar-policy -> schemars) can enable
+/// `serde_json/preserve_order` workspace-wide, flipping `Value` objects from a
+/// sorted `BTreeMap` to an insertion-order `IndexMap`; a statutory certification
+/// digest must never depend on such a global cargo feature. Sorting at every
+/// level yields the same bytes serde_json produced by default (sorted) before any
+/// such feature was present, so this does NOT change any already-stored digest.
+fn canonical_json(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let sorted: BTreeMap<&String, &Value> = map.iter().collect();
+            Value::Object(
+                sorted
+                    .into_iter()
+                    .map(|(k, v)| (k.clone(), canonical_json(v)))
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonical_json).collect()),
+        scalar => scalar.clone(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_certified_package_digest(
+    severance_pay_won: Option<i64>,
+    statutory_basis: &Value,
+    insurance_loss_payload: &Value,
+    approval_payload: &Value,
+    average_wage_period_start: Option<&str>,
+    average_wage_period_end: Option<&str>,
+    average_wage_calendar_days: Option<i32>,
+    average_wage_total_won: Option<i64>,
+    average_daily_wage_milliwon: Option<i64>,
+    service_days: Option<i32>,
+    monthly_ordinary_wage_won: Option<i64>,
+    ordinary_daily_wage_won: Option<i64>,
+    statutory_daily_wage_milliwon: Option<i64>,
+) -> String {
+    let canonical = json!({
+        "severance_pay_won": severance_pay_won,
+        "statutory_basis": statutory_basis,
+        "insurance_loss_payload": insurance_loss_payload,
+        "approval_payload": approval_payload,
+        "average_wage_period_start": average_wage_period_start,
+        "average_wage_period_end": average_wage_period_end,
+        "average_wage_calendar_days": average_wage_calendar_days,
+        "average_wage_total_won": average_wage_total_won,
+        "average_daily_wage_milliwon": average_daily_wage_milliwon,
+        "service_days": service_days,
+        "monthly_ordinary_wage_won": monthly_ordinary_wage_won,
+        "ordinary_daily_wage_won": ordinary_daily_wage_won,
+        "statutory_daily_wage_milliwon": statutory_daily_wage_milliwon,
+    });
+    // `canonical_json` sorts every object key recursively so the digest is
+    // independent of serde_json's `preserve_order` feature (a transitive dep can
+    // enable it workspace-wide). `Value::to_string()` is serde_json's infallible
+    // `Display` serializer (same compact bytes as `serde_json::to_vec`), so the
+    // money path carries no panic branch (also avoids the `clippy::expect_used`
+    // deny without an allow).
+    sha256_hex(canonical_json(&canonical).to_string().as_bytes())
+}
+
+/// Stamps the EFFECTIVE `certification_status` onto a generated payload
+/// (insurance-loss or approval) so any surface that renders or exports the
+/// payload directly can still derive the "산정 초안 — 노무사 검증 전" marker
+/// (pre-mortem #4: the label must never be hand-placed per surface, only
+/// derived from this single computed value). No-op if the payload isn't a
+/// JSON object.
+fn with_certification_status_marker(mut payload: Value, certification_status: &str) -> Value {
+    if let Value::Object(map) = &mut payload {
+        map.insert(
+            "certification_status".to_owned(),
+            Value::String(certification_status.to_owned()),
+        );
+    }
+    payload
+}
+
+/// Embeds the 통상임금 (ordinary-wage) statutory basis into a generated payload
+/// (insurance-loss or approval) so the filed MOEL/NHIS document itself records
+/// which ordinary-wage input was compared against the average wage (0093 review
+/// HIGH #2 — the money trail must be auditable in the document, not just on the
+/// row). No-op unless the payload is a JSON object AND all three basis figures
+/// are present (i.e. the package reached READY_FOR_APPROVAL).
+fn with_ordinary_wage_basis(
+    mut payload: Value,
+    monthly_ordinary_wage_won: Option<i64>,
+    ordinary_daily_wage_won: Option<i64>,
+    statutory_daily_wage_milliwon: Option<i64>,
+) -> Value {
+    if let (Value::Object(map), Some(monthly), Some(daily), Some(statutory_daily)) = (
+        &mut payload,
+        monthly_ordinary_wage_won,
+        ordinary_daily_wage_won,
+        statutory_daily_wage_milliwon,
+    ) {
+        map.insert(
+            "ordinary_wage_basis".to_owned(),
+            json!({
+                "monthly_ordinary_wage_won": monthly,
+                "ordinary_daily_wage_won": daily,
+                "statutory_daily_wage_milliwon": statutory_daily,
+            }),
+        );
+    }
+    payload
+}
+
+/// Serialize a `ProfessionalValidation` into the exact 4-key JSON artifact that
+/// migration 0093's `..._cert_artifact_shape_chk` CHECK requires, emitting
+/// `reviewer_kind` as exactly `LABOR_ATTORNEY` / `TAX_ACCOUNTANT`.
+///
+/// This is the write-side shape a future 노무사 certification-recording endpoint
+/// persists. v1 ships no such endpoint, so `CERTIFIED` is unreachable-by-design
+/// in production (safe — nothing gates on it yet, and the atomic reset in every
+/// settlement UPDATE plus the digest-match honoring below hold the invariant the
+/// moment a recording path is added). It is exercised by the certification tests.
+#[cfg_attr(not(test), allow(dead_code))]
+fn certification_artifact_json(validation: &ProfessionalValidation) -> Value {
+    let reviewer_kind = match validation.reviewer_kind {
+        ProfessionalReviewerKind::LaborAttorney => "LABOR_ATTORNEY",
+        ProfessionalReviewerKind::TaxAccountant => "TAX_ACCOUNTANT",
+    };
+    json!({
+        "reviewer_kind": reviewer_kind,
+        "reviewed_on": validation.reviewed_on.to_string(),
+        "artifact_sha256": validation.artifact_sha256,
+        "reviewer_reference": validation.reviewer_reference,
+    })
+}
+
+fn build_settlement_calculation(
+    context: &ExitCaseContext,
+    input: Option<&ExitSettlementInput>,
+) -> Result<SettlementCalculation, HrError> {
+    let mut missing = Vec::new();
+    let Some(hire_date_text) = context.hire_date.as_deref() else {
+        missing.push("hire_date".to_owned());
+        missing.extend(missing_wage_source_fields());
+        return Ok((
+            "NEEDS_SOURCE",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            missing,
+            None,
+            None,
+            None,
+        ));
+    };
+    let hire_date = parse_yyyy_mm_dd(hire_date_text)?;
+    let exit_date = parse_yyyy_mm_dd(&context.effective_exit_date)?;
+    let service_days = exit_date
+        .to_julian_day()
+        .saturating_sub(hire_date.to_julian_day())
+        + 1;
+
+    let Some(input) = input else {
+        missing.extend(missing_wage_source_fields());
+        return Ok((
+            "NEEDS_SOURCE",
+            Some(service_days),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            missing,
+            None,
+            None,
+            None,
+        ));
+    };
+
+    let period_start = parse_yyyy_mm_dd(&input.average_wage_period_start)?;
+    let period_end = parse_yyyy_mm_dd(&input.average_wage_period_end)?;
+    // 통상일급 (1-day ordinary wage) derived from the monthly 통상임금 via the
+    // 기준시간 209h/8h rule (see `ordinary_daily_wage_won_from_monthly`). This
+    // derivation policy lives in the app layer, not the payroll kernel (which
+    // only enforces the max(average, ordinary) floor). Fail loud rather than
+    // default so the depressed-window population is never under-calculated by
+    // silently skipping the floor.
+    if input.monthly_ordinary_wage_won <= 0 {
+        return Err(HrError::validation(
+            "monthly ordinary wage (월 통상임금) is required and must be positive for the 통상임금 floor",
+        ));
+    }
+    let ordinary_daily_wage_won =
+        ordinary_daily_wage_won_from_monthly(input.monthly_ordinary_wage_won)?;
+    let draft = build_severance_pay_draft(SeverancePayInput {
+        hire_date,
+        exit_date,
+        average_wage_period_start: period_start,
+        average_wage_period_end: period_end,
+        average_wage_calendar_days: input.average_wage_calendar_days,
+        average_wage_total_won: input.average_wage_total_won,
+        ordinary_daily_wage_won,
+    })
+    .map_err(HrError::from_kernel)?;
+
+    let service_days = i32::try_from(draft.service_days)
+        .map_err(|_| HrError::validation("service days overflow"))?;
+    let calendar_days = i32::try_from(draft.average_wage_calendar_days)
+        .map_err(|_| HrError::validation("average wage calendar days overflow"))?;
+    Ok((
+        "READY_FOR_APPROVAL",
+        Some(service_days),
+        Some(draft.average_wage_period_start.to_string()),
+        Some(draft.average_wage_period_end.to_string()),
+        Some(calendar_days),
+        Some(draft.average_wage_total_won),
+        Some(draft.average_daily_wage_milliwon),
+        Some(draft.severance_pay_won),
+        missing,
+        // 통상임금 basis (0093 review HIGH #2): monthly input, derived daily, and
+        // the daily wage that actually governed = max(average, ordinary).
+        Some(input.monthly_ordinary_wage_won),
+        Some(draft.ordinary_daily_wage_won),
+        Some(draft.statutory_daily_wage_milliwon),
+    ))
+}
+
+fn missing_wage_source_fields() -> Vec<String> {
+    vec![
+        "average_wage_period_start".to_owned(),
+        "average_wage_period_end".to_owned(),
+        "average_wage_calendar_days".to_owned(),
+        "average_wage_total_won".to_owned(),
+        "pre_exit_three_month_wage_sources".to_owned(),
+    ]
+}
+
+fn exit_statutory_basis() -> Value {
+    json!({
+        "retirement_pay": {
+            "authority": moel_retirement_pay_source().authority,
+            "title": moel_retirement_pay_source().title,
+            "url": moel_retirement_pay_source().url,
+            "retrieved_on": moel_retirement_pay_source().retrieved_on.to_string(),
+            "formula": "average_daily_wage * 30 * service_days / 365"
+        },
+        "insurance_loss": {
+            "authority": nhis_qualification_loss_form_source().authority,
+            "title": nhis_qualification_loss_form_source().title,
+            "url": nhis_qualification_loss_form_source().url,
+            "retrieved_on": nhis_qualification_loss_form_source().retrieved_on.to_string()
+        }
+    })
+}
+
+fn build_insurance_loss_payload(context: &ExitCaseContext) -> Value {
+    json!({
+        "employee": {
+            "id": context.employee_id,
+            "name": context.employee_name,
+            "employee_number": context.employee_number,
+            "company": context.company,
+            "org_unit": context.org_unit,
+            "position": context.position,
+            "worksite_name": context.worksite_name
+        },
+        "exit": {
+            "case_id": context.id,
+            "effective_exit_date": context.effective_exit_date,
+            "reported_reason": context.site_manager_note
+        },
+        "forms": [
+            "national_pension_workplace_subscriber_loss",
+            "health_insurance_workplace_subscriber_loss",
+            "employment_insurance_insured_loss",
+            "workers_compensation_insured_loss"
+        ],
+        "source_url": nhis_qualification_loss_form_source().url
+    })
+}
+
+fn build_exit_approval_payload(context: &ExitCaseContext, note: Option<&str>) -> Value {
+    json!({
+        "document_type": "employee_exit_settlement",
+        "title": format!("{} 퇴사 정산 및 4대보험 상실신고", context.employee_name),
+        "target_date": context.effective_exit_date,
+        "employee_id": context.employee_id,
+        "company": context.company,
+        "org_unit": context.org_unit,
+        "branch_id": context.branch_id,
+        "branch_name": context.branch_name,
+        "requested_note": note,
+        "approval_line": [
+            "site_manager",
+            "employee_hr_manager",
+            "hq_hr_manager",
+            "payroll_manager",
+            "insurance_loss_reporter"
+        ],
+        "tracking": {
+            "payroll_cutoff": true,
+            "insurance_loss_report": true,
+            "retirement_settlement": true
+        },
+        "href": format!("/approvals?source=employee-exit&focus={}", context.id)
+    })
+}
+
+fn absence_alert_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<EmployeeAbsenceAlertResponse, HrError> {
+    let id: Uuid = row.try_get("id")?;
+    let employee_id: Uuid = row.try_get("employee_id")?;
+    let employee_name: String = row.try_get("employee_name")?;
+    let work_date: String = row.try_get("work_date")?;
+    let branch_name: Option<String> = row.try_get("branch_name")?;
+    let audience_roles: Vec<String> = row.try_get("audience_roles")?;
+    let notification_title = format!("결근 이상징후: {employee_name}");
+    let notification_message = match branch_name.as_deref() {
+        Some(branch) => {
+            format!("{work_date} {branch} 근태자료에서 출퇴근 기록이 확인되지 않았습니다.")
+        }
+        None => format!("{work_date} 근태자료에서 출퇴근 기록이 확인되지 않았습니다."),
+    };
+    Ok(EmployeeAbsenceAlertResponse {
+        id,
+        employee_id,
+        employee_name,
+        employee_number: row.try_get("employee_number")?,
+        company: row.try_get("company")?,
+        org_unit: row.try_get("org_unit")?,
+        worksite_name: row.try_get("worksite_name")?,
+        branch_id: row.try_get("branch_id")?,
+        branch_name,
+        work_date,
+        source: row.try_get("source")?,
+        status: row.try_get("status")?,
+        severity: row.try_get("severity")?,
+        audience_roles,
+        signal_payload: row.try_get("signal_payload")?,
+        notification_title,
+        notification_message,
+        link_href: format!("/insurance-assist?employee={employee_id}&alert={id}"),
+        exit_case_id: row.try_get("exit_case_id")?,
+        detected_at: row.try_get("detected_at")?,
+    })
+}
+
+fn exit_case_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeExitCaseResponse, HrError> {
+    let package_id: Option<Uuid> = row.try_get("package_id")?;
+    let settlement_package = if let Some(id) = package_id {
+        let service_days: Option<i32> = row.try_get("service_days")?;
+        let average_wage_period_start: Option<String> = row.try_get("average_wage_period_start")?;
+        let average_wage_period_end: Option<String> = row.try_get("average_wage_period_end")?;
+        let average_wage_calendar_days: Option<i32> = row.try_get("average_wage_calendar_days")?;
+        let average_wage_total_won: Option<i64> = row.try_get("average_wage_total_won")?;
+        let average_daily_wage_milliwon: Option<i64> =
+            row.try_get("average_daily_wage_milliwon")?;
+        let severance_pay_won: Option<i64> = row.try_get("severance_pay_won")?;
+        let monthly_ordinary_wage_won: Option<i64> = row.try_get("monthly_ordinary_wage_won")?;
+        let ordinary_daily_wage_won: Option<i64> = row.try_get("ordinary_daily_wage_won")?;
+        let statutory_daily_wage_milliwon: Option<i64> =
+            row.try_get("statutory_daily_wage_milliwon")?;
+        let statutory_basis: Value = row.try_get("statutory_basis")?;
+        let insurance_loss_payload: Value = row.try_get("insurance_loss_payload")?;
+        let approval_payload: Value = row.try_get("approval_payload")?;
+        let stored_certification_status: String = row.try_get("certification_status")?;
+        let stored_digest: Option<String> = row.try_get("certified_package_digest")?;
+
+        // Honor CERTIFIED only when the stored digest still binds the CURRENT
+        // numbers. A stale digest (numbers recomputed after certification) or a
+        // missing digest is reported as UNCERTIFIED_DRAFT — the code, not the DB
+        // CHECK, is what proves the artifact certified *these* figures.
+        let recomputed_digest = compute_certified_package_digest(
+            severance_pay_won,
+            &statutory_basis,
+            &insurance_loss_payload,
+            &approval_payload,
+            average_wage_period_start.as_deref(),
+            average_wage_period_end.as_deref(),
+            average_wage_calendar_days,
+            average_wage_total_won,
+            average_daily_wage_milliwon,
+            service_days,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
+        );
+        let certification_status = if stored_certification_status == "CERTIFIED"
+            && stored_digest.as_deref() == Some(recomputed_digest.as_str())
+        {
+            "CERTIFIED".to_owned()
+        } else {
+            "UNCERTIFIED_DRAFT".to_owned()
+        };
+
+        // 0093 MEDIUM (label plumbing is a backend deliverable): the generated
+        // insurance-loss and approval payloads are the documents a human can
+        // actually file with MOEL/NHIS, so the EFFECTIVE certification status
+        // must ride along inside them too — not just the top-level DTO field —
+        // or a surface that only forwards the raw payload could drop the
+        // uncertified marker. Mutated AFTER the digest above is computed from
+        // the untouched stored values, so this annotation never feeds back
+        // into what a certification digest binds.
+        let insurance_loss_payload =
+            with_certification_status_marker(insurance_loss_payload, &certification_status);
+        let approval_payload =
+            with_certification_status_marker(approval_payload, &certification_status);
+
+        Some(EmployeeExitSettlementPackageResponse {
+            id,
+            status: row.try_get("package_status")?,
+            service_days,
+            average_wage_period_start,
+            average_wage_period_end,
+            average_wage_calendar_days,
+            average_wage_total_won,
+            average_daily_wage_milliwon,
+            severance_pay_won,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
+            missing_source_fields: row.try_get("missing_source_fields")?,
+            statutory_basis,
+            insurance_loss_payload,
+            approval_payload,
+            certification_status,
+            generated_at: row.try_get("generated_at")?,
+            submitted_by: row.try_get("submitted_by")?,
+            submitted_at: row.try_get("submitted_at")?,
+        })
+    } else {
+        None
+    };
+    let case_id: Uuid = row.try_get("id")?;
+    let status: String = row.try_get("status")?;
+    Ok(EmployeeExitCaseResponse {
+        id: case_id,
+        employee_id: row.try_get("employee_id")?,
+        employee_name: row.try_get("employee_name")?,
+        employee_number: row.try_get("employee_number")?,
+        company: row.try_get("company")?,
+        org_unit: row.try_get("org_unit")?,
+        worksite_name: row.try_get("worksite_name")?,
+        branch_id: row.try_get("branch_id")?,
+        branch_name: row.try_get("branch_name")?,
+        absence_alert_id: row.try_get("absence_alert_id")?,
+        status: status.clone(),
+        effective_exit_date: row.try_get("effective_exit_date")?,
+        site_manager_note: row.try_get("site_manager_note")?,
+        reported_by: row.try_get("reported_by")?,
+        reported_at: row.try_get("reported_at")?,
+        hr_confirmed_by: row.try_get("hr_confirmed_by")?,
+        hr_confirmed_at: row.try_get("hr_confirmed_at")?,
+        hq_confirmed_by: row.try_get("hq_confirmed_by")?,
+        hq_confirmed_at: row.try_get("hq_confirmed_at")?,
+        approval_submitted_by: row.try_get("approval_submitted_by")?,
+        approval_submitted_at: row.try_get("approval_submitted_at")?,
+        settlement_package,
+        next_actions: exit_case_next_actions(case_id, &status),
+    })
+}
+
+fn exit_case_next_actions(case_id: Uuid, status: &str) -> Vec<ExitCaseNextAction> {
+    let mut actions = Vec::new();
+    if status == "REPORTED" {
+        actions.push(ExitCaseNextAction {
+            key: "confirm_exit".to_owned(),
+            label: "퇴사 확인/승인".to_owned(),
+            href: format!("/insurance-assist?exitCase={case_id}"),
+        });
+    }
+    if matches!(
+        status,
+        "HR_CONFIRMED" | "HQ_CONFIRMED" | "SETTLEMENT_READY" | "APPROVAL_DRAFTED"
+    ) {
+        actions.push(ExitCaseNextAction {
+            key: "prepare_settlement".to_owned(),
+            label: "4대보험/퇴직금 결제상신".to_owned(),
+            href: format!("/payroll?exitCase={case_id}"),
+        });
+    }
+    actions
+}
+
 fn validate_lifecycle_transition(
     current: &EmployeeForLifecycle,
     transition: &NormalizedEmployeeLifecycleTransition,
@@ -5360,6 +7264,31 @@ fn push_attendance_branch_scope(builder: &mut QueryBuilder<Postgres>, scope: &Br
     };
 }
 
+fn push_branch_scope_column(
+    builder: &mut QueryBuilder<Postgres>,
+    scope: &BranchScope,
+    column: &'static str,
+) {
+    match scope {
+        BranchScope::All => {
+            builder.push(" TRUE ");
+        }
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" FALSE ");
+        }
+        BranchScope::Branches(branches) => {
+            let ids = branches
+                .iter()
+                .map(|branch| *branch.as_uuid())
+                .collect::<Vec<_>>();
+            builder.push(column);
+            builder.push(" = ANY(");
+            builder.push_bind(ids);
+            builder.push(") ");
+        }
+    };
+}
+
 fn record_hr_read(surface: &'static str) {
     metrics::counter!("hr_core_requests_total", "surface" => surface).increment(1);
 }
@@ -5373,6 +7302,123 @@ fn record_hr_import(inserted: usize, updated: usize) {
 
 fn authorize_hr_org_wide(principal: &Principal, feature: Feature) -> Result<(), HrError> {
     authorize_org_wide(principal, Action::new(feature)).map_err(HrError::from_kernel)
+}
+
+fn authorize_hr_scoped(principal: &Principal, feature: Feature) -> Result<(), HrError> {
+    match &principal.branch_scope {
+        BranchScope::All => authorize_hr_org_wide(principal, feature),
+        BranchScope::Branches(branches) if branches.is_empty() => Err(HrError::from_kernel(
+            KernelError::forbidden("branch-scoped HR access requires at least one branch"),
+        )),
+        BranchScope::Branches(branches) => {
+            let action = Action::new(feature);
+            if branches
+                .iter()
+                .any(|branch| authorize(principal, action, *branch).is_ok())
+            {
+                Ok(())
+            } else {
+                Err(HrError::from_kernel(KernelError::forbidden(
+                    "role is not allowed to use feature",
+                )))
+            }
+        }
+    }
+}
+
+/// Enforce the second-tier (HQ) separation of duties for an exit-case
+/// confirmation. Called only after the `ExitCaseHqConfirm` capability check has
+/// passed. The stored case state plus the distinct-actor rule — never the
+/// client `hq_confirmation` boolean — is the authority: HQ confirmation is
+/// allowed only when the case is already `HR_CONFIRMED` AND the recorded HR
+/// confirmer is a DIFFERENT actor than the one now attempting HQ confirmation.
+fn authorize_exit_confirmation_hq_tier(
+    current_status: &str,
+    hr_confirmed_by: Option<Uuid>,
+    actor: Uuid,
+) -> Result<(), HrError> {
+    if current_status != "HR_CONFIRMED" {
+        return Err(HrError::from_kernel(KernelError::invalid_transition(
+            "HQ confirmation requires a prior HR confirmation",
+        )));
+    }
+    match hr_confirmed_by {
+        Some(hr_actor) if hr_actor == actor => Err(HrError::from_kernel(KernelError::forbidden(
+            "HQ confirmation must be performed by a different actor than the HR confirmer",
+        ))),
+        Some(_) => Ok(()),
+        None => Err(HrError::from_kernel(KernelError::invalid_transition(
+            "HQ confirmation requires a recorded HR confirmer",
+        ))),
+    }
+}
+
+fn authorize_hr_scoped_write(
+    principal: &Principal,
+    feature: Feature,
+    branch_id: Option<Uuid>,
+) -> Result<(), HrError> {
+    if let Some(branch_id) = branch_id {
+        return authorize(
+            principal,
+            Action::new(feature),
+            BranchId::from_uuid(branch_id),
+        )
+        .map_err(HrError::from_kernel);
+    }
+    authorize_hr_scoped(principal, feature)
+}
+
+fn normalize_date_text(value: &str) -> Result<String, HrError> {
+    Ok(parse_yyyy_mm_dd(value)?.to_string())
+}
+
+fn parse_yyyy_mm_dd(value: &str) -> Result<Date, HrError> {
+    let value = value.trim();
+    let parts = value.split('-').collect::<Vec<_>>();
+    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return Err(HrError::validation("date must use YYYY-MM-DD"));
+    }
+    let year = parts[0]
+        .parse::<i32>()
+        .map_err(|_| HrError::validation("date year must be numeric"))?;
+    let month = parts[1]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("date month must be numeric"))?;
+    let day = parts[2]
+        .parse::<u8>()
+        .map_err(|_| HrError::validation("date day must be numeric"))?;
+    let month = Month::try_from(month).map_err(|_| HrError::validation("date month is invalid"))?;
+    Date::from_calendar_date(year, month, day)
+        .map_err(|_| HrError::validation("date day is invalid"))
+}
+
+fn normalize_limited_text(
+    value: String,
+    max_chars: usize,
+    field: &'static str,
+) -> Result<String, HrError> {
+    let value = normalize_optional_text(Some(value))
+        .ok_or_else(|| HrError::validation(format!("{field} is required")))?;
+    if value.chars().count() > max_chars {
+        return Err(HrError::validation(format!(
+            "{field} must be {max_chars} characters or fewer"
+        )));
+    }
+    Ok(value)
+}
+
+fn normalize_optional_limited_text(
+    value: Option<String>,
+    max_chars: usize,
+    field: &'static str,
+) -> Result<Option<String>, HrError> {
+    match normalize_optional_text(value) {
+        Some(value) if value.chars().count() > max_chars => Err(HrError::validation(format!(
+            "{field} must be {max_chars} characters or fewer"
+        ))),
+        value => Ok(value),
+    }
 }
 
 #[derive(Debug)]
@@ -6433,5 +8479,1734 @@ E-001,홍길동,본사,2026-07-01,abc
             normalize_attendance_note(Some("x".repeat(501))).is_err(),
             "long attendance notes must be rejected before persistence"
         );
+    }
+
+    fn sample_settlement_input() -> ExitSettlementInput {
+        ExitSettlementInput {
+            average_wage_period_start: "2026-04-01".to_owned(),
+            average_wage_period_end: "2026-06-30".to_owned(),
+            average_wage_calendar_days: 91,
+            average_wage_total_won: 9_000_000,
+            monthly_ordinary_wage_won: 3_000_000,
+        }
+    }
+
+    async fn arm_mnt_rt(
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        org_id: Uuid,
+    ) -> Result<(), String> {
+        sqlx::query("SET LOCAL ROLE mnt_rt")
+            .execute(tx.as_mut())
+            .await
+            .map_err(|err| format!("set runtime role failed: {err}"))?;
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_id.to_string())
+            .execute(tx.as_mut())
+            .await
+            .map_err(|err| format!("arm current org failed: {err}"))?;
+        Ok(())
+    }
+
+    async fn seed_exit_case(pool: &sqlx::PgPool) -> Result<(Uuid, Uuid), String> {
+        let org_id = Uuid::new_v4();
+        let region_id = Uuid::new_v4();
+        let branch_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        let employee_id = Uuid::new_v4();
+        let case_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(org_id)
+            .bind(format!("exit-{}", &org_id.to_string()[..8]))
+            .bind("Exit Settlement Test")
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed organization failed: {err}"))?;
+        sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
+            .bind(region_id)
+            .bind("정산지역")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed region failed: {err}"))?;
+        sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
+            .bind(branch_id)
+            .bind(region_id)
+            .bind("본사")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed branch failed: {err}"))?;
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY['ADMIN']::TEXT[], true, $3)",
+        )
+        .bind(user_id)
+        .bind("Exit HR Manager")
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed user failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employees (
+                id, org_id, company, name, employee_number, hire_date,
+                source_filename, source_sheet, source_row, source_key, raw_row, source_metadata
+            )
+            VALUES ($1, $2, '테스트', '홍길동', 'E-001', '2020-01-01',
+                    'employees.xlsx', '직원', 2, 'employee-row-2', '{}', '{}')
+            "#,
+        )
+        .bind(employee_id)
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed employee failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employee_exit_cases (
+                id, org_id, employee_id, branch_id, status,
+                effective_exit_date, site_manager_note, reported_by
+            )
+            VALUES ($1, $2, $3, $4, 'HR_CONFIRMED', '2026-06-30', '무단결근 확인', $5)
+            "#,
+        )
+        .bind(case_id)
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed exit case failed: {err}"))?;
+        Ok((org_id, case_id))
+    }
+
+    #[test]
+    fn certified_package_digest_is_deterministic_and_canonical() {
+        let statutory = json!({"formula": "avg*30*days/365", "authority": "MOEL"});
+        let insurance = json!({"forms": ["np", "hi"]});
+        let approval = json!({"document_type": "employee_exit_settlement"});
+        let digest = |severance: Option<i64>, basis: &Value| {
+            compute_certified_package_digest(
+                severance,
+                basis,
+                &insurance,
+                &approval,
+                Some("2026-04-01"),
+                Some("2026-06-30"),
+                Some(91),
+                Some(9_000_000),
+                Some(98_901),
+                Some(2373),
+                Some(3_000_000),
+                Some(114_832),
+                Some(98_901),
+            )
+        };
+        let d1 = digest(Some(30_000_000), &statutory);
+        let d2 = digest(Some(30_000_000), &statutory);
+        assert_eq!(d1, d2, "identical inputs must hash identically");
+        assert_eq!(d1.len(), 64, "digest is a 64-hex SHA-256");
+        assert!(
+            d1.chars().all(|c| c.is_ascii_hexdigit()),
+            "digest must be lowercase hex"
+        );
+
+        let changed = digest(Some(30_000_001), &statutory);
+        assert_ne!(
+            d1, changed,
+            "a changed severance figure must change the digest"
+        );
+
+        // Embedded-JSON key order must not affect the digest (canonical form).
+        let mut reordered = serde_json::Map::new();
+        reordered.insert("authority".to_owned(), json!("MOEL"));
+        reordered.insert("formula".to_owned(), json!("avg*30*days/365"));
+        let reordered = Value::Object(reordered);
+        assert_eq!(
+            d1,
+            digest(Some(30_000_000), &reordered),
+            "key order in embedded JSON must not change the digest"
+        );
+    }
+
+    /// 0093 review HIGH #2: the certified digest must bind the 통상임금 basis
+    /// DIRECTLY, not merely transitively through `severance_pay_won`. Changing
+    /// ONLY the monthly ordinary wage (holding severance and every other covered
+    /// field byte-identical — the case where the average wage governs the floor)
+    /// must still change the digest.
+    #[test]
+    fn certified_digest_binds_ordinary_wage_even_when_severance_unchanged() {
+        let statutory = json!({"formula": "avg*30*days/365"});
+        let insurance = json!({"forms": ["np", "hi"]});
+        let approval = json!({"document_type": "employee_exit_settlement"});
+        let digest = |monthly: Option<i64>| {
+            compute_certified_package_digest(
+                // Severance + every non-ordinary covered field held CONSTANT.
+                Some(30_000_000),
+                &statutory,
+                &insurance,
+                &approval,
+                Some("2026-04-01"),
+                Some("2026-06-30"),
+                Some(91),
+                Some(9_000_000),
+                Some(98_901),
+                Some(2373),
+                monthly,
+                Some(114_832),
+                Some(98_901),
+            )
+        };
+        assert_ne!(
+            digest(Some(3_000_000)),
+            digest(Some(3_100_000)),
+            "changing the ordinary wage must change the digest even when severance is unchanged"
+        );
+    }
+
+    /// 0093 review HIGH #3 (money bug): the 통상일급 derivation must multiply
+    /// BEFORE dividing (`(monthly * 8) / 209`), never floor `monthly / 209` first.
+    /// Flooring first understated the daily ordinary wage by up to 7 won/day and
+    /// under-paid severance whenever the ordinary floor governed.
+    #[test]
+    fn ordinary_daily_wage_multiplies_before_dividing() -> Result<(), String> {
+        // monthly % 209 != 0 and the remainder × 8 crosses 209, so the buggy
+        // floor-first formula and the corrected formula actually diverge.
+        let monthly = 3_000_100_i64;
+        assert_ne!(
+            monthly % MONTHLY_STANDARD_HOURS,
+            0,
+            "must exercise a remainder"
+        );
+        // Buggy floor-first: floor(3_000_100 / 209) * 8 = 14_354 * 8 = 114_832.
+        let buggy_floor_first = monthly / MONTHLY_STANDARD_HOURS * DAILY_CONTRACTUAL_HOURS;
+        assert_eq!(
+            buggy_floor_first, 114_832,
+            "buggy floor-first value for reference"
+        );
+        // Corrected multiply-before-divide: (3_000_100 * 8) / 209 = 114_836.
+        let corrected = ordinary_daily_wage_won_from_monthly(monthly)
+            .map_err(|err| format!("unexpected overflow: {}", err.message))?;
+        assert_eq!(corrected, 114_836, "must be (monthly * 8) / 209");
+        assert!(
+            corrected > buggy_floor_first,
+            "multiply-before-divide must not understate the daily wage (corrected {corrected} vs buggy {buggy_floor_first})"
+        );
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn settlement_recalculation_reverts_certification(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        // Build the settlement package via the real code path, as mnt_rt.
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("initial upsert failed: {err:?}"))?;
+
+        // Simulate the (deferred) 노무사 recording action: mark CERTIFIED with a
+        // valid artifact + digest as mnt_rt.
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::LaborAttorney,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "a".repeat(64),
+            reviewer_reference: "노무법인 검증 2026-1".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind("b".repeat(64))
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("simulate certification failed: {err}"))?;
+
+        // Recompute settlement fields via the normal code path.
+        upsert_exit_settlement_package(&mut tx, org_id, case_id, Some(sample_settlement_input()))
+            .await
+            .map_err(|err| format!("recompute upsert failed: {err:?}"))?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT certification_status,
+                   certification_artifact IS NULL AS artifact_null,
+                   certified_package_digest IS NULL AS digest_null
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("reload package failed: {err}"))?;
+        let status: String = row
+            .try_get("certification_status")
+            .map_err(|err| format!("read status failed: {err}"))?;
+        let artifact_null: bool = row
+            .try_get("artifact_null")
+            .map_err(|err| format!("read artifact_null failed: {err}"))?;
+        let digest_null: bool = row
+            .try_get("digest_null")
+            .map_err(|err| format!("read digest_null failed: {err}"))?;
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+
+        assert_eq!(
+            status, "UNCERTIFIED_DRAFT",
+            "a settlement recompute must revert certification_status"
+        );
+        assert!(artifact_null, "recompute must clear certification_artifact");
+        assert!(digest_null, "recompute must clear certified_package_digest");
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn certification_honored_only_when_digest_binds_current_numbers(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("upsert failed: {err:?}"))?;
+
+        // Compute the digest that binds the CURRENT row and certify with it.
+        let covered = sqlx::query(
+            r#"
+            SELECT severance_pay_won, statutory_basis, insurance_loss_payload, approval_payload,
+                   average_wage_period_start::TEXT AS average_wage_period_start,
+                   average_wage_period_end::TEXT AS average_wage_period_end,
+                   average_wage_calendar_days, average_wage_total_won,
+                   average_daily_wage_milliwon, service_days,
+                   monthly_ordinary_wage_won, ordinary_daily_wage_won,
+                   statutory_daily_wage_milliwon
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("load covered fields failed: {err}"))?;
+        let severance_pay_won: Option<i64> = covered
+            .try_get("severance_pay_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_basis: Value = covered
+            .try_get("statutory_basis")
+            .map_err(|err| format!("{err}"))?;
+        let insurance_loss_payload: Value = covered
+            .try_get("insurance_loss_payload")
+            .map_err(|err| format!("{err}"))?;
+        let approval_payload: Value = covered
+            .try_get("approval_payload")
+            .map_err(|err| format!("{err}"))?;
+        let period_start: Option<String> = covered
+            .try_get("average_wage_period_start")
+            .map_err(|err| format!("{err}"))?;
+        let period_end: Option<String> = covered
+            .try_get("average_wage_period_end")
+            .map_err(|err| format!("{err}"))?;
+        let calendar_days: Option<i32> = covered
+            .try_get("average_wage_calendar_days")
+            .map_err(|err| format!("{err}"))?;
+        let total_won: Option<i64> = covered
+            .try_get("average_wage_total_won")
+            .map_err(|err| format!("{err}"))?;
+        let daily_milliwon: Option<i64> = covered
+            .try_get("average_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
+        let service_days: Option<i32> = covered
+            .try_get("service_days")
+            .map_err(|err| format!("{err}"))?;
+        let monthly_ordinary_wage_won: Option<i64> = covered
+            .try_get("monthly_ordinary_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let ordinary_daily_wage_won: Option<i64> = covered
+            .try_get("ordinary_daily_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_daily_wage_milliwon: Option<i64> = covered
+            .try_get("statutory_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
+        let matching_digest = compute_certified_package_digest(
+            severance_pay_won,
+            &statutory_basis,
+            &insurance_loss_payload,
+            &approval_payload,
+            period_start.as_deref(),
+            period_end.as_deref(),
+            calendar_days,
+            total_won,
+            daily_milliwon,
+            service_days,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
+        );
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::TaxAccountant,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "c".repeat(64),
+            reviewer_reference: "세무법인 검증 2026-2".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind(&matching_digest)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("certify with matching digest failed: {err}"))?;
+
+        // Matching digest → the read path honors CERTIFIED.
+        let honored = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (matching) failed: {err:?}"))?;
+        assert_eq!(
+            honored
+                .settlement_package
+                .as_ref()
+                .map(|p| p.certification_status.as_str()),
+            Some("CERTIFIED"),
+            "a digest that binds the current numbers must be honored"
+        );
+
+        // Interleave a recompute the DB CHECK cannot catch: change a covered field
+        // WITHOUT resetting certification, leaving a stale-certified row.
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET severance_pay_won = severance_pay_won + 1
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("mutate covered field failed: {err}"))?;
+
+        let stale = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (stale) failed: {err:?}"))?;
+        assert_eq!(
+            stale
+                .settlement_package
+                .as_ref()
+                .map(|p| p.certification_status.as_str()),
+            Some("UNCERTIFIED_DRAFT"),
+            "a stale digest must NOT be honored as certified even if the row says CERTIFIED"
+        );
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    /// 0093 review HIGH #1: certification invalidation is a TABLE invariant, not
+    /// an app convention. A DIRECT covered-field SQL UPDATE (as the real `mnt_rt`
+    /// runtime role) on a CERTIFIED row must leave the STORED
+    /// certification_status = UNCERTIFIED_DRAFT with artifact/digest cleared —
+    /// proving migration 0094's `enforce_settlement_certification_reset()` BEFORE
+    /// UPDATE trigger fires for ANY write path, not just the two app statements.
+    /// This asserts the STORED row (not merely the read-path demotion).
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn direct_covered_field_update_resets_stored_certification(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("upsert failed: {err:?}"))?;
+
+        // Certify as mnt_rt: this UPDATE touches ONLY the three certification
+        // columns (none certification-covered), so the trigger leaves it intact.
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::LaborAttorney,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "a".repeat(64),
+            reviewer_reference: "노무법인 검증 2026-9".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind("b".repeat(64))
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("certify failed: {err}"))?;
+
+        let before: String = sqlx::query_scalar(
+            "SELECT certification_status FROM employee_exit_settlement_packages WHERE org_id = $1 AND id = $2",
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("read pre-update status failed: {err}"))?;
+        assert_eq!(
+            before, "CERTIFIED",
+            "certification must persist before the covered write"
+        );
+
+        // DIRECT covered-field UPDATE that does NOT touch any certification column.
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET severance_pay_won = severance_pay_won + 1
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("direct covered-field update failed: {err}"))?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT certification_status,
+                   certification_artifact IS NULL AS artifact_null,
+                   certified_package_digest IS NULL AS digest_null
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("reload row failed: {err}"))?;
+        let status: String = row
+            .try_get("certification_status")
+            .map_err(|err| format!("read status failed: {err}"))?;
+        let artifact_null: bool = row
+            .try_get("artifact_null")
+            .map_err(|err| format!("read artifact_null failed: {err}"))?;
+        let digest_null: bool = row
+            .try_get("digest_null")
+            .map_err(|err| format!("read digest_null failed: {err}"))?;
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+
+        assert_eq!(
+            status, "UNCERTIFIED_DRAFT",
+            "the DB trigger must reset STORED certification on ANY covered-field UPDATE"
+        );
+        assert!(
+            artifact_null,
+            "trigger must clear the STORED certification_artifact"
+        );
+        assert!(
+            digest_null,
+            "trigger must clear the STORED certified_package_digest"
+        );
+        Ok(())
+    }
+
+    /// GUARD (0093 pre-mortem #4): a human must never be able to file an
+    /// uncertified severance figure with MOEL/NHIS because a label was
+    /// missing from one of the generated documents. This FAILS if either
+    /// generated payload (insurance-loss or approval) omits the effective
+    /// certification status while the package is UNCERTIFIED_DRAFT, and
+    /// FAILS if either payload fails to flip to CERTIFIED once a matching
+    /// digest is recorded — proving the marker derives from the single
+    /// effective-status computation rather than being hand-placed per payload.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn generated_payloads_carry_the_uncertified_draft_marker(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let package_id = upsert_exit_settlement_package(
+            &mut tx,
+            org_id,
+            case_id,
+            Some(sample_settlement_input()),
+        )
+        .await
+        .map_err(|err| format!("upsert failed: {err:?}"))?;
+
+        // Persist an approval_payload the way the approval-draft handler does,
+        // so both generated payloads (not just insurance-loss) are covered.
+        let context = load_exit_case_context(&mut tx, org_id, case_id, false)
+            .await
+            .map_err(|err| format!("load context failed: {err:?}"))?;
+        let approval_payload = build_exit_approval_payload(&context, None);
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET approval_payload = $3
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(&approval_payload)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("persist approval payload failed: {err}"))?;
+
+        let uncertified = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (uncertified) failed: {err:?}"))?;
+        let package = uncertified
+            .settlement_package
+            .as_ref()
+            .ok_or("settlement package must exist after upsert")?;
+        assert_eq!(package.certification_status, "UNCERTIFIED_DRAFT");
+        assert_eq!(
+            package.insurance_loss_payload.get("certification_status"),
+            Some(&Value::String("UNCERTIFIED_DRAFT".to_owned())),
+            "insurance-loss payload must carry the draft marker when uncertified"
+        );
+        assert_eq!(
+            package.approval_payload.get("certification_status"),
+            Some(&Value::String("UNCERTIFIED_DRAFT".to_owned())),
+            "approval payload must carry the draft marker when uncertified"
+        );
+
+        // Certify with a digest that binds the CURRENT numbers and verify both
+        // payloads flip to CERTIFIED too.
+        let covered = sqlx::query(
+            r#"
+            SELECT severance_pay_won, statutory_basis, insurance_loss_payload, approval_payload,
+                   average_wage_period_start::TEXT AS average_wage_period_start,
+                   average_wage_period_end::TEXT AS average_wage_period_end,
+                   average_wage_calendar_days, average_wage_total_won,
+                   average_daily_wage_milliwon, service_days,
+                   monthly_ordinary_wage_won, ordinary_daily_wage_won,
+                   statutory_daily_wage_milliwon
+            FROM employee_exit_settlement_packages
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| format!("load covered fields failed: {err}"))?;
+        let severance_pay_won: Option<i64> = covered
+            .try_get("severance_pay_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_basis: Value = covered
+            .try_get("statutory_basis")
+            .map_err(|err| format!("{err}"))?;
+        let insurance_loss_payload: Value = covered
+            .try_get("insurance_loss_payload")
+            .map_err(|err| format!("{err}"))?;
+        let approval_payload: Value = covered
+            .try_get("approval_payload")
+            .map_err(|err| format!("{err}"))?;
+        let period_start: Option<String> = covered
+            .try_get("average_wage_period_start")
+            .map_err(|err| format!("{err}"))?;
+        let period_end: Option<String> = covered
+            .try_get("average_wage_period_end")
+            .map_err(|err| format!("{err}"))?;
+        let calendar_days: Option<i32> = covered
+            .try_get("average_wage_calendar_days")
+            .map_err(|err| format!("{err}"))?;
+        let total_won: Option<i64> = covered
+            .try_get("average_wage_total_won")
+            .map_err(|err| format!("{err}"))?;
+        let daily_milliwon: Option<i64> = covered
+            .try_get("average_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
+        let service_days: Option<i32> = covered
+            .try_get("service_days")
+            .map_err(|err| format!("{err}"))?;
+        let monthly_ordinary_wage_won: Option<i64> = covered
+            .try_get("monthly_ordinary_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let ordinary_daily_wage_won: Option<i64> = covered
+            .try_get("ordinary_daily_wage_won")
+            .map_err(|err| format!("{err}"))?;
+        let statutory_daily_wage_milliwon: Option<i64> = covered
+            .try_get("statutory_daily_wage_milliwon")
+            .map_err(|err| format!("{err}"))?;
+        let matching_digest = compute_certified_package_digest(
+            severance_pay_won,
+            &statutory_basis,
+            &insurance_loss_payload,
+            &approval_payload,
+            period_start.as_deref(),
+            period_end.as_deref(),
+            calendar_days,
+            total_won,
+            daily_milliwon,
+            service_days,
+            monthly_ordinary_wage_won,
+            ordinary_daily_wage_won,
+            statutory_daily_wage_milliwon,
+        );
+        let validation = ProfessionalValidation {
+            reviewer_kind: ProfessionalReviewerKind::LaborAttorney,
+            reviewed_on: time::macros::date!(2026 - 07 - 03),
+            artifact_sha256: "d".repeat(64),
+            reviewer_reference: "노무법인 검증 2026-3".to_owned(),
+        };
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_settlement_packages
+            SET certification_status = 'CERTIFIED',
+                certification_artifact = $3,
+                certified_package_digest = $4
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(package_id)
+        .bind(certification_artifact_json(&validation))
+        .bind(&matching_digest)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("certify with matching digest failed: {err}"))?;
+
+        let certified = load_exit_case_by_id(&mut tx, org_id, case_id)
+            .await
+            .map_err(|err| format!("load case (certified) failed: {err:?}"))?;
+        let package = certified
+            .settlement_package
+            .as_ref()
+            .ok_or("settlement package must exist after certification")?;
+        assert_eq!(package.certification_status, "CERTIFIED");
+        assert_eq!(
+            package.insurance_loss_payload.get("certification_status"),
+            Some(&Value::String("CERTIFIED".to_owned())),
+            "insurance-loss payload must reflect CERTIFIED once the digest matches"
+        );
+        assert_eq!(
+            package.approval_payload.get("certification_status"),
+            Some(&Value::String("CERTIFIED".to_owned())),
+            "approval payload must reflect CERTIFIED once the digest matches"
+        );
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    async fn seed_exit_confirmer(
+        pool: &sqlx::PgPool,
+        org_id: Uuid,
+        role: &str,
+    ) -> Result<Uuid, String> {
+        let user_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY[$3]::TEXT[], true, $4)",
+        )
+        .bind(user_id)
+        .bind(format!("Exit {role}"))
+        .bind(role)
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed confirmer failed: {err}"))?;
+        Ok(user_id)
+    }
+
+    /// US-005 two-tier separation of duties, pure decision function: HQ
+    /// confirmation is gated on stored state + a distinct actor, never the
+    /// client `hq_confirmation` boolean alone.
+    #[test]
+    fn exit_confirmation_hq_tier_enforces_state_and_distinct_actor() -> Result<(), String> {
+        let hr_actor = Uuid::new_v4();
+        let hq_actor = Uuid::new_v4();
+
+        let reject = |status: &str, hr_by: Option<Uuid>, actor: Uuid, label: &str| {
+            match authorize_exit_confirmation_hq_tier(status, hr_by, actor) {
+                Ok(()) => Err(format!("{label} should have been rejected")),
+                Err(err) => Ok(err),
+            }
+        };
+
+        // (a) the actor who recorded the HR confirmation cannot also HQ-confirm.
+        let same_actor = reject("HR_CONFIRMED", Some(hr_actor), hr_actor, "same-actor HQ")?;
+        assert_eq!(same_actor.status, StatusCode::FORBIDDEN);
+
+        // (b) HQ confirmation attempted while the case is still REPORTED (no HR
+        // confirmation yet) is rejected out of order.
+        let out_of_order = reject("REPORTED", None, hq_actor, "HQ-before-HR")?;
+        assert_eq!(out_of_order.code, "invalid_transition");
+
+        // An HR_CONFIRMED status with no recorded confirmer is still refused.
+        let missing_hr = reject(
+            "HR_CONFIRMED",
+            None,
+            hq_actor,
+            "HQ with no recorded HR confirmer",
+        )?;
+        assert_eq!(missing_hr.code, "invalid_transition");
+
+        // (c) happy path: a DISTINCT HQ actor on an HR_CONFIRMED case is allowed.
+        authorize_exit_confirmation_hq_tier("HR_CONFIRMED", Some(hr_actor), hq_actor)
+            .map_err(|err| format!("distinct HQ actor was rejected: {}", err.message))?;
+        Ok(())
+    }
+
+    /// US-005 per-endpoint capability matrix, checked as capabilities against a
+    /// real case's branch as `mnt_rt`: a role lacking each new capability is
+    /// rejected on the corresponding endpoint's gate.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn exit_endpoints_reject_roles_lacking_the_new_capabilities(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        use mnt_platform_authz::Role;
+
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        let context = load_exit_case_context(&mut tx, org_id, case_id, false)
+            .await
+            .map_err(|err| format!("load context failed: {err:?}"))?;
+        let branch = context.branch_id;
+        let branch_scope = branch.map_or_else(BranchScope::none, |b| {
+            BranchScope::single(BranchId::from_uuid(b))
+        });
+        let scoped = |role: Role, scope: BranchScope| {
+            Principal::new(UserId::new(), OrgId::knl(), BTreeSet::from([role]), scope)
+        };
+
+        // MECHANIC holds none of the exit-workflow capabilities.
+        let mechanic = scoped(Role::Mechanic, branch_scope.clone());
+        for feature in [
+            Feature::ExitCaseReport,
+            Feature::ExitCaseHrConfirm,
+            Feature::ExitCaseHqConfirm,
+            Feature::ExitSettlementManage,
+        ] {
+            assert!(
+                authorize_hr_scoped_write(&mechanic, feature, branch).is_err(),
+                "MECHANIC must be rejected for {feature:?}"
+            );
+        }
+
+        // Branch ADMIN holds report / HR-confirm / settlement, but NOT HQ-confirm.
+        let admin = scoped(Role::Admin, branch_scope);
+        for feature in [
+            Feature::ExitCaseReport,
+            Feature::ExitCaseHrConfirm,
+            Feature::ExitSettlementManage,
+        ] {
+            authorize_hr_scoped_write(&admin, feature, branch)
+                .map_err(|err| format!("ADMIN unexpectedly rejected for {feature:?}: {err:?}"))?;
+        }
+        assert!(
+            authorize_hr_scoped_write(&admin, Feature::ExitCaseHqConfirm, branch).is_err(),
+            "a branch ADMIN must NOT hold the HQ confirmation capability"
+        );
+
+        // Org-wide EXECUTIVE holds HQ-confirm, but NOT the HR-manager write tier.
+        let executive = scoped(Role::Executive, BranchScope::All);
+        authorize_hr_scoped_write(&executive, Feature::ExitCaseHqConfirm, branch)
+            .map_err(|err| format!("EXECUTIVE unexpectedly rejected for HQ confirm: {err:?}"))?;
+        for feature in [
+            Feature::ExitCaseReport,
+            Feature::ExitCaseHrConfirm,
+            Feature::ExitSettlementManage,
+        ] {
+            assert!(
+                authorize_hr_scoped_write(&executive, feature, branch).is_err(),
+                "EXECUTIVE (read/oversight tier) must NOT hold {feature:?}"
+            );
+        }
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    /// US-005 two-tier enforcement against REAL stored state read as `mnt_rt`:
+    /// the decision derives from the persisted status + `hr_confirmed_by`, not
+    /// the client flag. Covers (a) same-actor HQ rejected, (b) out-of-order HQ
+    /// (still REPORTED) rejected, (c) a distinct HQ actor allowed.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn exit_confirmation_two_tier_uses_stored_state_not_client_flag(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, case_id) = seed_exit_case(&pool).await?;
+        let hr_actor = seed_exit_confirmer(&pool, org_id, "ADMIN").await?;
+        let hq_actor = seed_exit_confirmer(&pool, org_id, "EXECUTIVE").await?;
+
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+
+        // Record the first-tier (HR) confirmation on the seeded HR_CONFIRMED case
+        // as mnt_rt (proves the runtime role can write the case under RLS).
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_cases
+            SET hr_confirmed_by = $3, hr_confirmed_at = now()
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(case_id)
+        .bind(hr_actor)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("record HR confirmer failed: {err}"))?;
+
+        // Read the authoritative state back as mnt_rt (proves RLS + the new
+        // hr_confirmed_by column read on the load path).
+        let confirmed = load_exit_case_context(&mut tx, org_id, case_id, true)
+            .await
+            .map_err(|err| format!("load HR_CONFIRMED context failed: {err:?}"))?;
+        assert_eq!(confirmed.status, "HR_CONFIRMED");
+        assert_eq!(confirmed.hr_confirmed_by, Some(hr_actor));
+
+        // (a) the HR confirmer cannot also HQ-confirm the same case.
+        let same_actor = match authorize_exit_confirmation_hq_tier(
+            &confirmed.status,
+            confirmed.hr_confirmed_by,
+            hr_actor,
+        ) {
+            Ok(()) => {
+                return Err(
+                    "the HR confirmer must not be able to HQ-confirm the same case".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
+        assert_eq!(same_actor.status, StatusCode::FORBIDDEN);
+
+        // (c) a distinct HQ actor may HQ-confirm the HR-confirmed case.
+        authorize_exit_confirmation_hq_tier(&confirmed.status, confirmed.hr_confirmed_by, hq_actor)
+            .map_err(|err| format!("distinct HQ actor was rejected: {}", err.message))?;
+
+        // (b) reset the case to REPORTED with no HR confirmer and prove an HQ
+        // attempt is rejected out of order.
+        sqlx::query(
+            r#"
+            UPDATE employee_exit_cases
+            SET status = 'REPORTED', hr_confirmed_by = NULL, hr_confirmed_at = NULL
+            WHERE org_id = $1 AND id = $2
+            "#,
+        )
+        .bind(org_id)
+        .bind(case_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| format!("reset to REPORTED failed: {err}"))?;
+
+        let reported = load_exit_case_context(&mut tx, org_id, case_id, true)
+            .await
+            .map_err(|err| format!("load REPORTED context failed: {err:?}"))?;
+        assert_eq!(reported.status, "REPORTED");
+        let out_of_order = match authorize_exit_confirmation_hq_tier(
+            &reported.status,
+            reported.hr_confirmed_by,
+            hq_actor,
+        ) {
+            Ok(()) => {
+                return Err(
+                    "HQ confirmation before any HR confirmation must be rejected".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
+        assert_eq!(out_of_order.code, "invalid_transition");
+
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------
+    // US-006: tenant isolation, audit coverage, and materializer discipline.
+    // ---------------------------------------------------------------------
+
+    /// Begin a transaction already dropped to the `mnt_rt` runtime role with the
+    /// org GUC armed — the ONLY correct way to exercise RLS here, since the test
+    /// pool logs in as the superuser/BYPASSRLS migration role and `mnt_rt` is
+    /// NOLOGIN (cannot be a login pool).
+    async fn armed_tx(
+        pool: &sqlx::PgPool,
+        org_id: Uuid,
+    ) -> Result<sqlx::Transaction<'_, Postgres>, String> {
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|err| format!("begin failed: {err}"))?;
+        arm_mnt_rt(&mut tx, org_id).await?;
+        Ok(tx)
+    }
+
+    /// Seed one fully-formed org (region + branch + ACTIVE employee + a user) as
+    /// the superuser pool role. Returns `(org_id, branch_id, employee_id,
+    /// user_id)`. Seeding deliberately bypasses RLS; the isolation checks run in
+    /// a separate `mnt_rt` transaction.
+    async fn seed_g009_base(pool: &sqlx::PgPool) -> Result<(Uuid, Uuid, Uuid, Uuid), String> {
+        let org_id = Uuid::new_v4();
+        let region_id = Uuid::new_v4();
+        let branch_id = Uuid::new_v4();
+        let employee_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(org_id)
+            .bind(format!("g009-{}", &org_id.to_string()[..8]))
+            .bind("G009 Isolation Test")
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed organization failed: {err}"))?;
+        sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
+            .bind(region_id)
+            .bind("이탈지역")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed region failed: {err}"))?;
+        sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
+            .bind(branch_id)
+            .bind(region_id)
+            .bind("본사")
+            .bind(org_id)
+            .execute(pool)
+            .await
+            .map_err(|err| format!("seed branch failed: {err}"))?;
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, $2, ARRAY['ADMIN']::TEXT[], true, $3)",
+        )
+        .bind(user_id)
+        .bind("G009 Reporter")
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed user failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employees (
+                id, org_id, company, name, employee_number, hire_date,
+                source_filename, source_sheet, source_row, source_key, raw_row, source_metadata
+            )
+            VALUES ($1, $2, '테스트', '홍길동', 'E-001', '2020-01-01',
+                    'employees.xlsx', '직원', 2, 'employee-row-2', '{}', '{}')
+            "#,
+        )
+        .bind(employee_id)
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed employee failed: {err}"))?;
+        Ok((org_id, branch_id, employee_id, user_id))
+    }
+
+    /// Seed one row into each of the three G009 tenant tables for `org_id`.
+    /// Returns `(alert_id, case_id, package_id)`.
+    async fn seed_g009_rows(
+        pool: &sqlx::PgPool,
+        org_id: Uuid,
+        branch_id: Uuid,
+        employee_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(Uuid, Uuid, Uuid), String> {
+        let alert_id = Uuid::new_v4();
+        let case_id = Uuid::new_v4();
+        let package_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO employee_absence_alerts (id, org_id, employee_id, branch_id, work_date)
+            VALUES ($1, $2, $3, $4, '2026-07-01')
+            "#,
+        )
+        .bind(alert_id)
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed absence alert failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employee_exit_cases (
+                id, org_id, employee_id, branch_id, status,
+                effective_exit_date, site_manager_note, reported_by
+            )
+            VALUES ($1, $2, $3, $4, 'REPORTED', '2026-06-30', '무단결근 확인', $5)
+            "#,
+        )
+        .bind(case_id)
+        .bind(org_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed exit case failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO employee_exit_settlement_packages (id, org_id, exit_case_id, employee_id)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(package_id)
+        .bind(org_id)
+        .bind(case_id)
+        .bind(employee_id)
+        .execute(pool)
+        .await
+        .map_err(|err| format!("seed settlement package failed: {err}"))?;
+        Ok((alert_id, case_id, package_id))
+    }
+
+    /// Every G009 tenant table is invisible AND un-writable across orgs when
+    /// queried as the real `mnt_rt` runtime role armed to a different tenant.
+    /// Seeding runs as the superuser pool role; the assertions run strictly as
+    /// `mnt_rt` (via `arm_mnt_rt`), so a broken `org_isolation` policy cannot be
+    /// masked by BYPASSRLS.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn g009_tables_isolate_tenants_as_mnt_rt(pool: sqlx::PgPool) -> Result<(), String> {
+        let (org_a, branch_a, emp_a, user_a) = seed_g009_base(&pool).await?;
+        seed_g009_rows(&pool, org_a, branch_a, emp_a, user_a).await?;
+        let (org_b, branch_b, emp_b, user_b) = seed_g009_base(&pool).await?;
+        let (alert_b, case_b, pkg_b) =
+            seed_g009_rows(&pool, org_b, branch_b, emp_b, user_b).await?;
+
+        // Reads + filtered updates, as mnt_rt armed to org A.
+        let mut tx = armed_tx(&pool, org_a).await?;
+        for (table, b_id) in [
+            ("employee_absence_alerts", alert_b),
+            ("employee_exit_cases", case_b),
+            ("employee_exit_settlement_packages", pkg_b),
+        ] {
+            // sqlx 0.9 only accepts `&'static str` in `query`; dynamic table
+            // names go through QueryBuilder (the file's own idiom).
+            let visible: i64 =
+                QueryBuilder::<Postgres>::new(format!("SELECT COUNT(*) FROM {table}"))
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await
+                    .map_err(|err| format!("{table}: count as mnt_rt failed: {err}"))?;
+            assert_eq!(
+                visible, 1,
+                "{table}: org A must see only its own row under RLS"
+            );
+
+            let mut b_lookup =
+                QueryBuilder::<Postgres>::new(format!("SELECT COUNT(*) FROM {table} WHERE id = "));
+            b_lookup.push_bind(b_id);
+            let b_visible: i64 = b_lookup
+                .build_query_scalar()
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(|err| format!("{table}: org B lookup failed: {err}"))?;
+            assert_eq!(
+                b_visible, 0,
+                "{table}: an org B row must be invisible to org A"
+            );
+
+            let mut cross_org_update = QueryBuilder::<Postgres>::new(format!(
+                "UPDATE {table} SET updated_at = now() WHERE id = "
+            ));
+            cross_org_update.push_bind(b_id);
+            let updated = cross_org_update
+                .build()
+                .execute(tx.as_mut())
+                .await
+                .map_err(|err| format!("{table}: cross-org update failed: {err}"))?;
+            assert_eq!(
+                updated.rows_affected(),
+                0,
+                "{table}: org A must not update an org B row (RLS USING filters it out)"
+            );
+        }
+        tx.rollback()
+            .await
+            .map_err(|err| format!("rollback failed: {err}"))?;
+
+        // Cross-org INSERTs must be rejected by the RLS WITH CHECK. A failed
+        // statement aborts its transaction, so each runs in its own armed tx.
+        {
+            let mut tx = armed_tx(&pool, org_a).await?;
+            let res = sqlx::query(
+                "INSERT INTO employee_absence_alerts (org_id, employee_id, branch_id, work_date) VALUES ($1, $2, $3, '2026-07-09')",
+            )
+            .bind(org_b)
+            .bind(emp_b)
+            .bind(branch_b)
+            .execute(tx.as_mut())
+            .await;
+            assert!(
+                res.is_err(),
+                "org A (mnt_rt) must not INSERT an org B absence alert"
+            );
+            let _ = tx.rollback().await;
+        }
+        {
+            let mut tx = armed_tx(&pool, org_a).await?;
+            let res = sqlx::query(
+                "INSERT INTO employee_exit_cases (org_id, employee_id, branch_id, status, effective_exit_date, site_manager_note, reported_by) VALUES ($1, $2, $3, 'REPORTED', '2026-06-30', 'x', $4)",
+            )
+            .bind(org_b)
+            .bind(emp_b)
+            .bind(branch_b)
+            .bind(user_b)
+            .execute(tx.as_mut())
+            .await;
+            assert!(
+                res.is_err(),
+                "org A (mnt_rt) must not INSERT an org B exit case"
+            );
+            let _ = tx.rollback().await;
+        }
+        {
+            let mut tx = armed_tx(&pool, org_a).await?;
+            let res = sqlx::query(
+                "INSERT INTO employee_exit_settlement_packages (org_id, exit_case_id, employee_id) VALUES ($1, $2, $3)",
+            )
+            .bind(org_b)
+            .bind(case_b)
+            .bind(emp_b)
+            .execute(tx.as_mut())
+            .await;
+            assert!(
+                res.is_err(),
+                "org A (mnt_rt) must not INSERT an org B settlement package"
+            );
+            let _ = tx.rollback().await;
+        }
+        Ok(())
+    }
+
+    /// Every G009 state-mutation handler routes its write through `with_audit`,
+    /// so an `audit_events` row lands for the exit report, HR confirmation, HQ
+    /// confirmation, and approval draft + submission. The settlement upsert is a
+    /// side effect INSIDE the confirm/approval-draft audited transaction (there
+    /// is no standalone settlement endpoint), so those events cover it, and the
+    /// certification-bearing approval-draft event captures the resulting
+    /// certification state. This drives the real handlers through the test pool
+    /// role (audit emission is role-independent); the RLS proof is the dedicated
+    /// `mnt_rt` test above.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn exit_workflow_handlers_emit_audit_events(pool: sqlx::PgPool) -> Result<(), String> {
+        use mnt_platform_authz::Role;
+
+        let (org_id, branch_id, employee_id, hr_user) = seed_g009_base(&pool).await?;
+        let hq_user = seed_exit_confirmer(&pool, org_id, "EXECUTIVE").await?;
+        let org = OrgId::from_uuid(org_id);
+        let state = HrState::new(pool.clone(), None);
+
+        let hr_principal = Principal::new(
+            UserId::from_uuid(hr_user),
+            org,
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(BranchId::from_uuid(branch_id)),
+        );
+        let hq_principal = Principal::new(
+            UserId::from_uuid(hq_user),
+            org,
+            BTreeSet::from([Role::Executive]),
+            BranchScope::All,
+        );
+
+        // (1) site-manager exit report.
+        let reported = report_employee_exit_case(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Json(ReportEmployeeExitCaseRequest {
+                employee_id,
+                branch_id: Some(branch_id),
+                absence_alert_id: None,
+                effective_exit_date: "2026-06-30".to_owned(),
+                site_manager_note: "무단결근 3일 — 이탈 보고".to_owned(),
+            }),
+        )
+        .await
+        .map_err(|err| format!("report failed: {err:?}"))?;
+        let case_id = reported.0.id;
+
+        // (2) HR confirmation (no wage source yet, so the case stays HR_CONFIRMED
+        // for the HQ tier rather than being bumped to SETTLEMENT_READY).
+        let _ = confirm_employee_exit_case(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Path(case_id),
+            Json(ConfirmEmployeeExitCaseRequest {
+                decision: None,
+                hq_confirmation: false,
+                note: None,
+                settlement_input: None,
+            }),
+        )
+        .await
+        .map_err(|err| format!("HR confirm failed: {err:?}"))?;
+
+        // (3) HQ confirmation by a DISTINCT actor.
+        let _ = confirm_employee_exit_case(
+            State(state.clone()),
+            Extension(hq_principal.clone()),
+            Path(case_id),
+            Json(ConfirmEmployeeExitCaseRequest {
+                decision: None,
+                hq_confirmation: true,
+                note: None,
+                settlement_input: None,
+            }),
+        )
+        .await
+        .map_err(|err| format!("HQ confirm failed: {err:?}"))?;
+
+        // (4) approval draft — the wage source arrives here and the severance is
+        // computed, then (5) submission of the same ready package.
+        let _ = draft_employee_exit_approval(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Path(case_id),
+            Json(DraftEmployeeExitApprovalRequest {
+                submit: false,
+                note: None,
+                settlement_input: Some(sample_settlement_input()),
+            }),
+        )
+        .await
+        .map_err(|err| format!("approval draft failed: {err:?}"))?;
+        let _ = draft_employee_exit_approval(
+            State(state.clone()),
+            Extension(hr_principal.clone()),
+            Path(case_id),
+            Json(DraftEmployeeExitApprovalRequest {
+                submit: true,
+                note: None,
+                settlement_input: None,
+            }),
+        )
+        .await
+        .map_err(|err| format!("approval submission failed: {err:?}"))?;
+
+        let report_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.report'",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count report audit failed: {err}"))?;
+        assert_eq!(report_events, 1, "exit report must write one audit event");
+
+        let hr_confirm_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.confirm' AND actor = $2",
+        )
+        .bind(org_id)
+        .bind(hr_user)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count HR confirm audit failed: {err}"))?;
+        assert_eq!(
+            hr_confirm_events, 1,
+            "HR confirmation must write one audit event for the HR actor"
+        );
+
+        let hq_confirm_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.confirm' AND actor = $2",
+        )
+        .bind(org_id)
+        .bind(hq_user)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count HQ confirm audit failed: {err}"))?;
+        assert_eq!(
+            hq_confirm_events, 1,
+            "HQ confirmation must write one audit event for the distinct HQ actor"
+        );
+
+        let draft_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.approval_draft'",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("count approval draft audit failed: {err}"))?;
+        assert_eq!(
+            draft_events, 2,
+            "approval draft + submission must each write an audit event"
+        );
+
+        // Certification-bearing path: the approval-draft audit captures the
+        // certification state of the figure being drafted/submitted.
+        let cert_state: Option<String> = sqlx::query_scalar(
+            "SELECT after_snap->>'certification_status' FROM audit_events WHERE org_id = $1 AND action = 'employee.exit.approval_draft' LIMIT 1",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("read approval-draft snapshot failed: {err}"))?;
+        assert_eq!(
+            cert_state.as_deref(),
+            Some("UNCERTIFIED_DRAFT"),
+            "the approval-draft audit must record the certification state of the drafted figure"
+        );
+
+        // The settlement upsert (side effect of the audited confirm/draft
+        // transactions) persisted an uncertified package for this case.
+        let pkg_cert: String = sqlx::query_scalar(
+            "SELECT certification_status FROM employee_exit_settlement_packages WHERE org_id = $1 AND exit_case_id = $2",
+        )
+        .bind(org_id)
+        .bind(case_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("read settlement certification failed: {err}"))?;
+        assert_eq!(pkg_cert, "UNCERTIFIED_DRAFT");
+        Ok(())
+    }
+
+    /// The dashboard-path absence-alert materializer is idempotent AND
+    /// write-bounded. Run twice over the SAME imported attendance facts (as
+    /// `mnt_rt`): the second pass creates no duplicate alert (UNIQUE(org_id,
+    /// employee_id, work_date, source)) AND rewrites no existing row (the
+    /// IS DISTINCT FROM guard on the ON CONFLICT UPDATE), proving a repeated
+    /// dashboard GET cannot write-storm.
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn absence_alert_materializer_is_idempotent_and_write_bounded(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        let (org_id, branch_id, employee_id, _user_id) = seed_g009_base(&pool).await?;
+        let run_id = Uuid::new_v4();
+        let source_sha256 = "a".repeat(64);
+        sqlx::query(
+            r#"
+            INSERT INTO data_import_runs (
+                id, org_id, entity_type, status, source_filename, source_format,
+                source_sha256, mapping_profile, input_rows, candidate_rows, preserved_rows
+            )
+            VALUES ($1, $2, 'attendance_direct', 'DRY_RUN', 'attendance.csv', 'csv', $3, '{}', 2, 2, 0)
+            "#,
+        )
+        .bind(run_id)
+        .bind(org_id)
+        .bind(&source_sha256)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed import run failed: {err}"))?;
+        for (idx, work_date) in ["2026-07-01", "2026-07-02"].into_iter().enumerate() {
+            let import_row_id = Uuid::new_v4();
+            let source_key = format!("sheet:CSV|row:{}", idx + 2);
+            sqlx::query(
+                r#"
+                INSERT INTO data_import_rows (
+                    id, org_id, run_id, source_sheet, source_row, source_key,
+                    row_status, raw_row, canonical_row, validation
+                )
+                VALUES ($1, $2, $3, 'CSV', $4, $5, 'CANDIDATE', '{}', '{}',
+                        '{"status":"ok","errors":[],"warnings":[]}')
+                "#,
+            )
+            .bind(import_row_id)
+            .bind(org_id)
+            .bind(run_id)
+            .bind(idx as i32 + 2)
+            .bind(&source_key)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed import row failed: {err}"))?;
+            sqlx::query(
+                r#"
+                INSERT INTO attendance_direct_import_events (
+                    org_id, run_id, import_row_id, employee_id, branch_id,
+                    source_sheet, source_row, source_key, source_sha256, fact_key,
+                    employee_name, branch_name, work_date,
+                    check_in_at, check_out_at, minutes_worked
+                )
+                VALUES ($1, $2, $3, $4, $5, 'CSV', $6, $7, $8, $9,
+                        '홍길동', '본사', $10, NULL, NULL, 0)
+                "#,
+            )
+            .bind(org_id)
+            .bind(run_id)
+            .bind(import_row_id)
+            .bind(employee_id)
+            .bind(branch_id)
+            .bind(idx as i32 + 2)
+            .bind(&source_key)
+            .bind(&source_sha256)
+            .bind(format!("fact-{idx}-{work_date}"))
+            .bind(work_date)
+            .execute(&pool)
+            .await
+            .map_err(|err| format!("seed attendance event failed: {err}"))?;
+        }
+
+        let fingerprint = |pool: sqlx::PgPool, org: Uuid| async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT COALESCE(string_agg(xmin::text, ',' ORDER BY id), '') FROM employee_absence_alerts WHERE org_id = $1",
+            )
+            .bind(org)
+            .fetch_one(&pool)
+            .await
+            .map_err(|err| format!("fingerprint failed: {err}"))
+        };
+
+        // First materialization pass, as mnt_rt.
+        {
+            let mut tx = armed_tx(&pool, org_id).await?;
+            materialize_absence_alerts_from_imports(&mut tx, org_id, &BranchScope::All)
+                .await
+                .map_err(|err| format!("first materialize failed: {err:?}"))?;
+            tx.commit()
+                .await
+                .map_err(|err| format!("commit first pass failed: {err}"))?;
+        }
+        let count_first: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM employee_absence_alerts WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("count after first pass failed: {err}"))?;
+        assert_eq!(count_first, 2, "one alert per absent work-date");
+        let fingerprint_first = fingerprint(pool.clone(), org_id).await?;
+
+        // Second pass over the identical facts, as mnt_rt.
+        {
+            let mut tx = armed_tx(&pool, org_id).await?;
+            materialize_absence_alerts_from_imports(&mut tx, org_id, &BranchScope::All)
+                .await
+                .map_err(|err| format!("second materialize failed: {err:?}"))?;
+            tx.commit()
+                .await
+                .map_err(|err| format!("commit second pass failed: {err}"))?;
+        }
+        let count_second: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM employee_absence_alerts WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| format!("count after second pass failed: {err}"))?;
+        assert_eq!(
+            count_second, 2,
+            "re-materializing the same facts must not create duplicate alerts"
+        );
+        let fingerprint_second = fingerprint(pool.clone(), org_id).await?;
+        assert_eq!(
+            fingerprint_first, fingerprint_second,
+            "second materialization must rewrite no row (bounded write set — no write-storm)"
+        );
+        Ok(())
+    }
+
+    /// 0093 review MEDIUM #5: the dashboard-path materializer mutates the audited
+    /// `employee_absence_alerts` table, so the FIRST (changed) dashboard read must
+    /// emit an audit event that records the changed row count/ids + source facts.
+    /// A SECOND read over unchanged imports must emit NO further event, so the
+    /// idempotency / write-storm guard is preserved (audit real mutations only).
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn dashboard_materializer_emits_audit_on_changed_facts(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        use mnt_platform_authz::Role;
+
+        let (org_id, branch_id, employee_id, user_id) = seed_g009_base(&pool).await?;
+
+        // Seed one absent imported attendance fact so the first read materializes.
+        let run_id = Uuid::new_v4();
+        let source_sha256 = "a".repeat(64);
+        sqlx::query(
+            r#"
+            INSERT INTO data_import_runs (
+                id, org_id, entity_type, status, source_filename, source_format,
+                source_sha256, mapping_profile, input_rows, candidate_rows, preserved_rows
+            )
+            VALUES ($1, $2, 'attendance_direct', 'DRY_RUN', 'attendance.csv', 'csv', $3, '{}', 1, 1, 0)
+            "#,
+        )
+        .bind(run_id)
+        .bind(org_id)
+        .bind(&source_sha256)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed import run failed: {err}"))?;
+        let import_row_id = Uuid::new_v4();
+        let source_key = "sheet:CSV|row:2".to_owned();
+        sqlx::query(
+            r#"
+            INSERT INTO data_import_rows (
+                id, org_id, run_id, source_sheet, source_row, source_key,
+                row_status, raw_row, canonical_row, validation
+            )
+            VALUES ($1, $2, $3, 'CSV', 2, $4, 'CANDIDATE', '{}', '{}',
+                    '{"status":"ok","errors":[],"warnings":[]}')
+            "#,
+        )
+        .bind(import_row_id)
+        .bind(org_id)
+        .bind(run_id)
+        .bind(&source_key)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed import row failed: {err}"))?;
+        sqlx::query(
+            r#"
+            INSERT INTO attendance_direct_import_events (
+                org_id, run_id, import_row_id, employee_id, branch_id,
+                source_sheet, source_row, source_key, source_sha256, fact_key,
+                employee_name, branch_name, work_date,
+                check_in_at, check_out_at, minutes_worked
+            )
+            VALUES ($1, $2, $3, $4, $5, 'CSV', 2, $6, $7, 'fact-1',
+                    '홍길동', '본사', '2026-07-01', NULL, NULL, 0)
+            "#,
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .bind(import_row_id)
+        .bind(employee_id)
+        .bind(branch_id)
+        .bind(&source_key)
+        .bind(&source_sha256)
+        .execute(&pool)
+        .await
+        .map_err(|err| format!("seed attendance event failed: {err}"))?;
+
+        let org = OrgId::from_uuid(org_id);
+        let state = HrState::new(pool.clone(), None);
+        // Executive + org-wide scope: `authorize_org_wide` limits built-in
+        // org-wide reads to SUPER_ADMIN/EXECUTIVE, so a branch-scoped ADMIN
+        // cannot drive the org-wide dashboard read.
+        let principal = Principal::new(
+            UserId::from_uuid(user_id),
+            org,
+            BTreeSet::from([Role::Executive]),
+            BranchScope::All,
+        );
+        let query = || AbsenceExitDashboardQuery {
+            limit: None,
+            offset: None,
+            employee_id: None,
+        };
+
+        // First read: materializes one alert → one audit event.
+        let _ = get_absence_exit_dashboard(
+            State(state.clone()),
+            Extension(principal.clone()),
+            Query(query()),
+        )
+        .await
+        .map_err(|err| format!("first dashboard read failed: {err:?}"))?;
+
+        let (event_count, changed_count): (i64, Option<i64>) = {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.absence_alert.materialize'",
+            )
+            .bind(org_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|err| format!("count materialize audit failed: {err}"))?;
+            let changed: Option<i64> = sqlx::query_scalar(
+                "SELECT (after_snap->>'changed_count')::BIGINT FROM audit_events WHERE org_id = $1 AND action = 'employee.absence_alert.materialize' LIMIT 1",
+            )
+            .bind(org_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|err| format!("read changed_count failed: {err}"))?;
+            (count, changed)
+        };
+        assert_eq!(
+            event_count, 1,
+            "first materialization must emit exactly one audit event"
+        );
+        assert_eq!(
+            changed_count,
+            Some(1),
+            "the audit event must record the changed row count"
+        );
+
+        // Second read over the identical facts: no change → no new audit event.
+        let _ = get_absence_exit_dashboard(
+            State(state.clone()),
+            Extension(principal.clone()),
+            Query(query()),
+        )
+        .await
+        .map_err(|err| format!("second dashboard read failed: {err:?}"))?;
+
+        let event_count_after_second: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE org_id = $1 AND action = 'employee.absence_alert.materialize'",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| format!("recount materialize audit failed: {err}"))?;
+        assert_eq!(
+            event_count_after_second, 1,
+            "an unchanged dashboard read must not emit a second audit event (write-storm guard preserved)"
+        );
+        Ok(())
     }
 }

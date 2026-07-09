@@ -1,26 +1,6 @@
-import { readFileSync } from "node:fs";
+import { createTextGate } from "./lib/text-gate.mjs";
 
-const checks = [];
-
-function read(path) {
-  return readFileSync(path, "utf8");
-}
-
-function requireIncludes(path, needle, label) {
-  const text = read(path);
-  if (!text.includes(needle)) {
-    throw new Error(`${label}: expected ${path} to include ${JSON.stringify(needle)}`);
-  }
-  checks.push(label);
-}
-
-function requireNotIncludes(path, needle, label) {
-  const text = read(path);
-  if (text.includes(needle)) {
-    throw new Error(`${label}: ${path} must not include ${JSON.stringify(needle)}`);
-  }
-  checks.push(label);
-}
+const { requireIncludes, requireNotIncludes, reportGate } = createTextGate();
 
 requireIncludes(
   "docs/specs/cx-reporting-bi.md",
@@ -126,4 +106,4 @@ for (const path of [
   requireNotIncludes(path, "아직 제공되지", `${path} has no backend-missing copy`);
 }
 
-console.log(`CX/reporting maturity gate passed (${checks.length} checks)`);
+reportGate("CX/reporting maturity gate passed");

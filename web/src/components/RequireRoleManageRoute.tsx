@@ -1,18 +1,20 @@
 import { Navigate, Outlet } from "react-router-dom";
 
 import { useAuth } from "../context/auth";
-import { FEATURES, hasAnyFeatureGrant, hasAnyRole, ROLES } from "./shell/nav";
+import { hasAnyRole, ROLES } from "./shell/nav";
 
-/** Built-in RoleManage matrix grants SUPER_ADMIN; custom roles can add RoleManage. */
+/**
+ * RoleManage is an elevated/system-only capability until the Cedar PBAC cutover
+ * provides an authoritative elevated-decision source. The backend intentionally
+ * strips RoleManage from runtime-effective custom-role grants, so a stale
+ * `feature_grants: ["role_manage"]` claim must not open RoleManage-tier pages.
+ */
 const ROLE_MANAGE_ROLES = [ROLES.SUPER_ADMIN] as const;
-const ROLE_MANAGE_FEATURES = [FEATURES.ROLE_MANAGE] as const;
 
-/** Route guard for the Policy Studio surface. Backend re-checks RoleManage. */
+/** Route guard for RoleManage-tier surfaces. Backend re-checks RoleManage where applicable. */
 export function RequireRoleManageRoute() {
   const { session } = useAuth();
-  const canManageRoles =
-    hasAnyRole(session?.roles, ROLE_MANAGE_ROLES) ||
-    hasAnyFeatureGrant(session?.feature_grants, ROLE_MANAGE_FEATURES);
+  const canManageRoles = hasAnyRole(session?.roles, ROLE_MANAGE_ROLES);
 
   if (!canManageRoles) {
     return <Navigate to="/work-hub" replace />;

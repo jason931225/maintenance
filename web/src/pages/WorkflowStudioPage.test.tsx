@@ -48,6 +48,8 @@ vi.mock("../auth/webauthn", () => ({
 const server = setupServer();
 const publishRequests: unknown[] = [];
 const createRequests: unknown[] = [];
+const updateRequests: unknown[] = [];
+const archiveRequests: unknown[] = [];
 const lifecycleRequests: Array<{ action: string; body: unknown }> = [];
 
 beforeAll(() => {
@@ -57,6 +59,8 @@ beforeAll(() => {
 beforeEach(() => {
   publishRequests.length = 0;
   createRequests.length = 0;
+  updateRequests.length = 0;
+  archiveRequests.length = 0;
   lifecycleRequests.length = 0;
   mockAssertPasskeyStepUp.mockResolvedValue(mockStepUpAssertion);
 });
@@ -125,6 +129,13 @@ const catalogResponse = {
   ],
   templates: [
     {
+      template_key: "equipment_location_access_policy",
+      display_name: "장비·위치 접근 정책",
+      object_type: "equipment",
+      required_approval_line: true,
+      required_payment_line: false,
+    },
+    {
       template_key: "maintenance_completion_approval",
       display_name: "정비 완료 승인",
       object_type: "work_order",
@@ -153,6 +164,13 @@ const baseDefinition = {
   updated_at: "2026-06-29T09:00:00Z",
 };
 
+const secondaryDefinition = {
+  ...baseDefinition,
+  id: "44444444-4444-4444-8444-444444444444",
+  workflow_key: "work_order.safety_review",
+  display_name: "안전 점검 승인",
+};
+
 const definitionsResponse = {
   items: [baseDefinition],
 };
@@ -168,6 +186,17 @@ const historyResponse = {
       actor_display_name: "개발자",
       summary: "초안 생성",
       created_at: "2026-06-29T09:00:00Z",
+    },
+  ],
+};
+
+const secondaryHistoryResponse = {
+  items: [
+    {
+      ...historyResponse.items[0],
+      id: "55555555-5555-4555-8555-555555555555",
+      definition_id: secondaryDefinition.id,
+      summary: "안전 점검 초안 생성",
     },
   ],
 };
@@ -312,6 +341,263 @@ describe("WorkflowStudioPage", () => {
       await screen.findByText("워크플로 초안을 생성했습니다."),
     ).toBeInTheDocument();
   }, 15000);
+
+  it("creates a fixed no-code policy decision draft from the equipment location template", async () => {
+    installBaseHandlers();
+    server.use(
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        const body = await request.json();
+        createRequests.push(body);
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: "55555555-5555-4555-8555-555555555555",
+          workflow_key: (body as { workflow_key: string }).workflow_key,
+          display_name: (body as { display_name: string }).display_name,
+          object_type: (body as { object_type: string }).object_type,
+          definition: (body as { definition: unknown }).definition,
+          required_approval_line: true,
+          approval_line: [
+            {
+              step_key: "policy_owner",
+              approver_role: "MAINTENANCE_MANAGER",
+              required: true,
+            },
+          ],
+          action_allowlist: [
+            {
+              connector_key: "internal.audit",
+              action_key: "append_timeline_event",
+            },
+          ],
+        });
+      }),
+    );
+
+    renderApp();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "장비·위치 접근 정책" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    await waitFor(() => {
+      expect(createRequests).toHaveLength(1);
+    });
+    expect(createRequests[0]).toMatchObject({
+      workflow_key: "equipment.equipment_location_access_policy",
+      display_name: "장비·위치 접근 정책",
+      object_type: "equipment",
+      required_approval_line: true,
+      required_payment_line: false,
+      definition: {
+        schema_version: "workflow.definition.v1",
+        policy_decision: {
+          template_key: "equipment_location_access",
+          effect: "allow",
+          action: "maintenance:StartWorkOrder",
+          resource: { type: "equipment", id: "EQ-BOILER-17" },
+          context: expect.objectContaining({
+            subject_role: "MAINTENANCE_MANAGER",
+            passkey_step_up_satisfied: true,
+          }),
+          scope: {
+            org_id: "org_demo_001",
+            location_id: "loc_plant_2",
+          },
+          requirements: {
+            passkey_step_up: true,
+            audit_event: "workflow_definition.publish",
+          },
+        },
+      },
+      approval_line: [
+        {
+          step_key: "policy_owner",
+          approver_role: "MAINTENANCE_MANAGER",
+          required: true,
+        },
+      ],
+      action_allowlist: [
+        {
+          connector_key: "internal.audit",
+          action_key: "append_timeline_event",
+        },
+      ],
+      notification_rules: [],
+    });
+  });
+
+  it("resets policy fields when switching back to a standard catalog template", async () => {
+    installBaseHandlers();
+    server.use(
+      http.post("*/api/v1/workflow-studio/definitions", async ({ request }) => {
+        const body = await request.json();
+        createRequests.push(body);
+        return HttpResponse.json({
+          ...baseDefinition,
+          id: "66666666-6666-4666-8666-666666666666",
+          workflow_key: (body as { workflow_key: string }).workflow_key,
+          display_name: (body as { display_name: string }).display_name,
+          object_type: (body as { object_type: string }).object_type,
+          definition: (body as { definition: unknown }).definition,
+          approval_line: (body as { approval_line: unknown }).approval_line,
+          action_allowlist: (body as { action_allowlist: unknown })
+            .action_allowlist,
+        });
+      }),
+    );
+
+    renderApp();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "장비·위치 접근 정책" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "정비 완료 승인" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "초안 생성" }));
+
+    await waitFor(() => {
+      expect(createRequests).toHaveLength(1);
+    });
+    expect(createRequests[0]).toMatchObject({
+      workflow_key: "work_order.maintenance_completion_approval",
+      definition: {
+        schema_version: "workflow.definition.v1",
+        template_key: "maintenance_completion_approval",
+        object_type: "work_order",
+        trigger: "work_order.maintenance_completion_approval",
+      },
+      approval_line: [
+        { step_key: "manager", approver_role: "MANAGER", required: true },
+      ],
+      action_allowlist: expect.arrayContaining([
+        { connector_key: "internal.approvals", action_key: "request_approval" },
+      ]),
+      notification_rules: [
+        {
+          event: "approved",
+          connector_key: "internal.notifications",
+          action_key: "send_push",
+        },
+      ],
+    });
+    expect(
+      (createRequests[0] as { definition: Record<string, unknown> }).definition,
+    ).not.toHaveProperty("policy_decision");
+  });
+
+  it("updates a draft from the canvas authoring form", async () => {
+    installBaseHandlers();
+    server.use(
+      http.patch(
+        "*/api/v1/workflow-studio/definitions/:id",
+        async ({ request }) => {
+          const body = await request.json();
+          updateRequests.push(body);
+          return HttpResponse.json({
+            ...baseDefinition,
+            ...(body as object),
+            latest_version: 2,
+          });
+        },
+      ),
+    );
+
+    renderApp();
+
+    const row = await screen.findByRole("row", { name: /작업 완료 승인/ });
+    await userEvent.click(within(row).getByRole("button", { name: "편집" }));
+    await userEvent.clear(screen.getByLabelText("이름"));
+    await userEvent.type(screen.getByLabelText("이름"), "작업 완료 승인 수정");
+    await userEvent.click(screen.getByRole("button", { name: "초안 저장" }));
+
+    await waitFor(() => {
+      expect(updateRequests).toHaveLength(1);
+    });
+    expect(updateRequests[0]).toMatchObject({
+      display_name: "작업 완료 승인 수정",
+      required_approval_line: false,
+      required_payment_line: false,
+      definition: {},
+      approval_line: [],
+      payment_line: [],
+      notification_rules: [],
+      action_allowlist: [],
+    });
+    expect(
+      (updateRequests[0] as { workflow_key?: unknown }).workflow_key,
+    ).toBeUndefined();
+    expect(
+      await screen.findByText("워크플로 초안을 저장했습니다."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("이름")).toHaveValue("작업 완료 승인 수정");
+    expect(
+      screen.queryByRole("button", { name: "편집 취소" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("archives a draft with passkey step-up and selects remaining history", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let archived = false;
+    const historyRequests: string[] = [];
+    server.use(
+      http.get("*/api/v1/workflow-studio/catalog", () =>
+        HttpResponse.json(catalogResponse),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions", () =>
+        HttpResponse.json({
+          items: archived
+            ? [secondaryDefinition]
+            : [baseDefinition, secondaryDefinition],
+        }),
+      ),
+      http.get(
+        "*/api/v1/workflow-studio/definitions/:id/history",
+        ({ params }) => {
+          const definitionId = String(params.id);
+          historyRequests.push(definitionId);
+          return HttpResponse.json(
+            definitionId === secondaryDefinition.id
+              ? secondaryHistoryResponse
+              : historyResponse,
+          );
+        },
+      ),
+      http.delete(
+        "*/api/v1/workflow-studio/definitions/:id",
+        async ({ request }) => {
+          const body = await request.json();
+          archiveRequests.push(body);
+          archived = true;
+          return HttpResponse.json({ ...baseDefinition, status: "RETIRED" });
+        },
+      ),
+    );
+
+    renderApp();
+
+    const row = await screen.findByRole("row", { name: /작업 완료 승인/ });
+    await userEvent.click(within(row).getByRole("button", { name: "삭제" }));
+
+    await waitFor(() => {
+      expect(mockAssertPasskeyStepUp).toHaveBeenCalledTimes(1);
+    });
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "이 초안을 삭제하시겠습니까? 변경 이력은 감사 목적으로 보존됩니다.",
+    );
+    expect(archiveRequests).toEqual([{ step_up: mockStepUpAssertion }]);
+    expect(
+      await screen.findByText("워크플로 초안을 삭제했습니다."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("작업 완료 승인")).not.toBeInTheDocument();
+    const remainingRow = screen.getByRole("row", { name: /안전 점검 승인/ });
+    expect(remainingRow).toHaveClass("bg-signal/10");
+    expect(await screen.findByText("안전 점검 초안 생성")).toBeInTheDocument();
+    expect(historyRequests).toContain(secondaryDefinition.id);
+
+    confirmSpy.mockRestore();
+  });
 
   it("blocks saving when edited draft metadata would make the canonical graph inconsistent", async () => {
     installBaseHandlers();

@@ -4,6 +4,11 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import {
+  buildNonAuthoritativePolicyProjection,
+  policyProjectionCanAuthorize,
+  projectionHasElevatedHint,
+} from "../auth/policyProjection";
 import { AuthProvider, useAuth } from "./auth";
 
 // A minimal access JWT (header.payload.signature) whose payload decodes to a
@@ -75,6 +80,29 @@ function FeatureGrantsProbe() {
   return (
     <div data-testid="feature-grants">
       {(session?.feature_grants ?? []).join(",") || "-"}
+    </div>
+  );
+}
+
+function PolicyProjectionProbe() {
+  const { session, restoring } = useAuth();
+  if (restoring) return <div data-testid="policy-projection">restoring</div>;
+  const projection = buildNonAuthoritativePolicyProjection({
+    feature_grants: session?.feature_grants,
+    policy_projection: session?.policy_projection,
+  });
+  return (
+    <div data-testid="policy-projection">
+      {[
+        projection?.authority ?? "-",
+        `stale:${String(projection?.stale ?? false)}`,
+        `elevated:${String(
+          projectionHasElevatedHint(projection, "role_manage"),
+        )}`,
+        `authorize:${String(
+          policyProjectionCanAuthorize(projection, "role_manage"),
+        )}`,
+      ].join("|")}
     </div>
   );
 }
@@ -250,6 +278,50 @@ describe("AuthProvider boot silent refresh", () => {
     await waitFor(() => {
       expect(screen.getByTestId("feature-grants")).toHaveTextContent(
         "mail_use,role_manage",
+      );
+    });
+  });
+
+
+
+  it("decodes Cedar policy projection as advisory-only session data", async () => {
+    const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+    const payload = btoa(
+      JSON.stringify({
+        sub: "00000000-0000-4000-8000-000000000001",
+        roles: ["MEMBER"],
+        feature_grants: ["mail_use", "role_manage"],
+        policy_projection: {
+          policy_version: "old",
+          subject_version: "old",
+          engine_mode: "cedar_shadow_legacy_enforce",
+          stale: true,
+          feature_grants: ["role_manage"],
+          elevated_decisions: ["role_manage"],
+        },
+      }),
+    );
+    const access = `${header}.${payload}.sig`;
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({
+          access_token: access,
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-19T00:00:00Z",
+        }),
+      ),
+    );
+
+    render(
+      <AuthProvider>
+        <PolicyProjectionProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("policy-projection")).toHaveTextContent(
+        "advisory_ui_only|stale:true|elevated:true|authorize:false",
       );
     });
   });

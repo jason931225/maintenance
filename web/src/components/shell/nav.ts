@@ -130,6 +130,11 @@ export function isPendingMember(
 
 
 const ADMIN_ROLES: readonly Role[] = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
+/**
+ * Elevated RoleManage-tier pages are system-only until Cedar PBAC emits a
+ * signed/evaluated elevated decision. Do not unlock these from `feature_grants`;
+ * the backend strips RoleManage from custom-role runtime grants.
+ */
 const ROLE_MANAGE_ROLES: readonly Role[] = [ROLES.SUPER_ADMIN];
 /**
  * The five operational tenant roles (every role except the no-grant MEMBER).
@@ -303,8 +308,6 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["leave-management", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["insurance-assist", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["payroll", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
-  ["policy", [FEATURES.ROLE_MANAGE]],
-  ["workflows", [FEATURES.ROLE_MANAGE]],
   ["equipment", [FEATURES.WORK_ORDER_READ_ALL]],
   ["equipment-manage", [FEATURES.EQUIPMENT_MANAGE]],
   ["catalog", [FEATURES.SALES_MANAGE]],

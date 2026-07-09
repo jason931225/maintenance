@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { createConsoleApiClient } from "../api/client";
 import type { KpiReport, WorkOrderListItem } from "../api/types";
+import { useAuth } from "../context/auth";
 import { WallBoard } from "../features/kpi/WallBoard";
 import { getDefaultKpiPeriod, getWallboardRefreshIntervalMs } from "../features/kpi/kpi-format";
 
 export function WallBoardPage() {
-  // Wallboard is kiosk-mode: no auth required, uses anonymous client
-  const anonApi = useMemo(() => createConsoleApiClient(), []);
+  // Wallboard is shell-less kiosk UI, but its work-order/KPI data is tenant
+  // scoped. AppRouter gates this page with ProtectedRoute before it mounts.
+  const { api } = useAuth();
   const [workOrders, setWorkOrders] = useState<WorkOrderListItem[]>([]);
   const [kpiReport, setKpiReport] = useState<KpiReport>();
   const [isLoading, setIsLoading] = useState(true);
@@ -19,10 +20,10 @@ export function WallBoardPage() {
       // sense — instead fetch every page so the exception/SLA counts reflect the
       // whole queue, not just the first 100 (which silently undercounts).
       const collectAllWorkOrders = async () => {
-        const pageSize = 200;
+        const pageSize = 100;
         const collected: WorkOrderListItem[] = [];
         for (let offset = 0; ; offset += pageSize) {
-          const response = await anonApi.GET("/api/v1/work-orders", {
+          const response = await api.GET("/api/v1/work-orders", {
             params: { query: { limit: pageSize, offset } },
           });
           const items = response.data?.items ?? [];
@@ -35,7 +36,7 @@ export function WallBoardPage() {
 
       const [allWorkOrders, kpiResponse] = await Promise.all([
         collectAllWorkOrders(),
-        anonApi.GET("/api/v1/kpi", {
+        api.GET("/api/v1/kpi", {
           params: { query: { period: getDefaultKpiPeriod() } },
         }),
       ]);
@@ -44,7 +45,7 @@ export function WallBoardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [anonApi]);
+  }, [api]);
 
   useEffect(() => {
     void Promise.resolve().then(loadData);

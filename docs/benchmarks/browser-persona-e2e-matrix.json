@@ -72,8 +72,10 @@
       "e2eSpecs": [
         "e2e/specs/admin-sadmin-elevated.spec.ts",
         "e2e/specs/admin-21-work-hub.spec.ts",
-        "e2e/specs/admin-25-policy-studio.spec.ts"
+        "e2e/specs/admin-25-policy-studio.spec.ts",
+        "e2e/specs/hr-30-absence-exit-settlement.spec.ts"
       ],
+      "exitWorkflowCapabilities": ["exit_case_hq_confirm"],
       "denialPaths": ["outside-group subsidiary denial", "policy edit without step-up denial", "org-switch private-data boundary"],
       "uiStates": ["loading", "empty", "error", "permission-denied"],
       "screenshotTraceEvidence": "Required screenshot and trace: group-all overview, selected subsidiary scope, and denied outside-group operation.",
@@ -108,8 +110,10 @@
       "e2eSpecs": [
         "e2e/specs/admin-24-hr-core.spec.ts",
         "e2e/specs/admin-01-03-users.spec.ts",
-        "e2e/specs/admin-27-data-import-governance.spec.ts"
+        "e2e/specs/admin-27-data-import-governance.spec.ts",
+        "e2e/specs/hr-30-absence-exit-settlement.spec.ts"
       ],
+      "exitWorkflowCapabilities": ["exit_case_report", "exit_case_hr_confirm", "exit_settlement_manage"],
       "denialPaths": ["payroll sensitive field denial", "cross-org employee denial", "terminated-user destructive-delete denial"],
       "uiStates": ["loading", "empty", "error", "permission-denied"],
       "screenshotTraceEvidence": "Required screenshot and trace: employee lifecycle list, import mapping preview, and masked payroll/PII denial.",

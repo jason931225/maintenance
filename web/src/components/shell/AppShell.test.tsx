@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
@@ -12,6 +12,7 @@ import { ko } from "../../i18n/ko";
 import { PageHeader } from "./PageHeader";
 import { AppShell } from "./AppShell";
 import { FEATURES } from "./nav";
+import { CONSOLE_TOAST_EVENT } from "./useConsoleToast";
 
 const server = setupServer();
 
@@ -20,6 +21,7 @@ beforeAll(() => {
 });
 afterEach(() => {
   server.resetHandlers();
+  vi.useRealTimers();
 });
 afterAll(() => {
   server.close();
@@ -58,7 +60,11 @@ function StubPage({ title, marker }: { title: string; marker: string }) {
   );
 }
 
-function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: string[] = []) {
+function renderShell(
+  roles: string[],
+  initialPath: string | { pathname: string; state?: unknown } = "/dispatch",
+  featureGrants: string[] = [],
+) {
   return render(
     <AuthContext.Provider value={makeAuthContext(roles, featureGrants)}>
       <MemoryRouter initialEntries={[initialPath]}>
@@ -111,6 +117,52 @@ describe("AppShell navigation fabric", () => {
     );
   });
 
+  it("seeds breadcrumbs from command-palette navigation across shell remounts", async () => {
+    renderShell(["ADMIN"], {
+      pathname: "/equipment",
+      state: {
+        backStackSeed: {
+          href: "/work-hub",
+          pathname: "/work-hub",
+          label: "forged label",
+        },
+      },
+    });
+
+    expect(await screen.findByText("equipment page")).toBeVisible();
+    const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
+    expect(within(breadcrumbs).queryByText("forged label")).not.toBeInTheDocument();
+    expect(within(breadcrumbs).getByRole("link", { name: "업무 허브" })).toHaveAttribute(
+      "href",
+      "/work-hub",
+    );
+    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("ignores unsafe breadcrumb seed links from location state", async () => {
+    renderShell(["ADMIN"], {
+      pathname: "/equipment",
+      state: {
+        backStackSeed: {
+          href: "https://example.invalid/work-hub",
+          pathname: "/work-hub",
+          label: "업무 허브",
+        },
+      },
+    });
+
+    expect(await screen.findByText("equipment page")).toBeVisible();
+    const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
+    expect(within(breadcrumbs).queryByRole("link", { name: "업무 허브" })).not.toBeInTheDocument();
+    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
   it("uses the same role-gated nav registry for command visibility", () => {
     renderShell(["MECHANIC"]);
 
@@ -146,6 +198,16 @@ describe("AppShell navigation fabric", () => {
     expect(
       within(dialog).getByRole("button", { name: /권한 정책/ }),
     ).toBeVisible();
+  });
+
+  it("does not surface RoleManage-tier commands from stale feature_grants alone", () => {
+    renderShell(["MEMBER"], "/dispatch", [FEATURES.ROLE_MANAGE]);
+
+    const dialog = openCommandPalette();
+
+    expect(
+      within(dialog).queryByRole("button", { name: /권한 정책/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows unread messenger, mail, support, and e-approval counts in the left nav", async () => {
@@ -260,5 +322,24 @@ describe("AppShell navigation fabric", () => {
         screen.queryByRole("dialog", { name: "명령 팔레트" }),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("hosts console toasts and lets undo close the toast", async () => {
+    const user = userEvent.setup();
+    const undo = vi.fn();
+    renderShell(["ADMIN"]);
+
+    window.dispatchEvent(
+      new CustomEvent(CONSOLE_TOAST_EVENT, {
+        detail: { message: "AP-3124 상신 완료", onUndo: undo },
+      }),
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent("AP-3124 상신 완료");
+
+    await user.click(screen.getByRole("button", { name: ko.console.toast.undo }));
+
+    expect(undo).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

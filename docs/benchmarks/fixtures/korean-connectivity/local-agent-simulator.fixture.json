@@ -1,0 +1,12 @@
+{
+  "fixture_id": "local-agent-simulator-v1",
+  "policy": "fixture-only local signing/session proof; no real 공동인증서, private key, PFX, certificate password, OTP, cookie, browser storage, or institution session material",
+  "visible_user_prompt": {
+    "institution_id": "nhis_edi_loss_report",
+    "workflow_id": "local_agent.signed_challenge.fixture",
+    "side_effect_class": "read_only",
+    "consent_id": "fixture-consent-001"
+  },
+  "allowed_return_fields": ["proof_type", "signature_algorithm", "signed_challenge", "intent_hash", "attestation", "allowed_artifacts"],
+  "forbidden_return_fields": ["pfx", "privateKey", "signPri.key", "signCert.der", "certPassword", "certificate_password", "otp", "security_card", "session_cookie", "localStorage", "sessionStorage"]
+}

@@ -1,0 +1,45 @@
+{
+  "fixture_id": "kftc-open-banking-fixture-v1",
+  "auth_mode": "official_oauth_fixture_shape",
+  "credential_policy": "no real access_token, refresh_token, bank password, OTP, security-card value, or session cookie",
+  "source_urls": [
+    "https://openapi.kftc.or.kr/service/openBanking",
+    "https://developers.kftc.or.kr/dev/openapi/open-banking/transaction"
+  ],
+  "output": {
+    "accounts": [
+      {
+        "bank_code_std": "097",
+        "bank_name": "Fixture Bank",
+        "account_alias": "운영계좌 fixture",
+        "fintech_use_num": "199999999057999999999999",
+        "masked_account_num": "123-***-789012",
+        "account_holder_type": "corporate_fixture",
+        "currency": "KRW",
+        "available_balance": "1234567.00"
+      }
+    ],
+    "transactions": [
+      {
+        "transaction_id": "fixture-trx-001",
+        "fintech_use_num": "199999999057999999999999",
+        "posted_at": "2026-07-03T00:00:00+09:00",
+        "direction": "deposit",
+        "amount": "55000.00",
+        "currency": "KRW",
+        "summary": "fixture payroll reimbursement",
+        "balance_after": "1234567.00"
+      },
+      {
+        "transaction_id": "fixture-trx-002",
+        "fintech_use_num": "199999999057999999999999",
+        "posted_at": "2026-07-03T01:00:00+09:00",
+        "direction": "withdrawal",
+        "amount": "12000.00",
+        "currency": "KRW",
+        "summary": "fixture bank fee",
+        "balance_after": "1222567.00"
+      }
+    ]
+  }
+}

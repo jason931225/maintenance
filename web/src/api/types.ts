@@ -108,6 +108,8 @@ export type WorkflowSimulationResponse =
   components["schemas"]["WorkflowSimulationResponse"];
 export type WorkflowStepUpRequest =
   components["schemas"]["WorkflowStepUpRequest"];
+export type UpdateWorkflowDefinitionRequest =
+  components["schemas"]["UpdateWorkflowDefinitionRequest"];
 export type CollaborationScopeType =
   components["schemas"]["CollaborationScopeType"];
 export type CalendarEventResponse =
@@ -258,6 +260,160 @@ export type ListingKind = components["schemas"]["ListingKind"];
 export type ListingCondition = components["schemas"]["ListingCondition"];
 export type ListingType = components["schemas"]["ListingType"];
 export type ListingStatus = components["schemas"]["ListingStatus"];
+
+export interface AbsenceExitDashboardResponse {
+  summary: AbsenceExitSummary;
+  alerts: EmployeeAbsenceAlert[];
+  exit_cases: EmployeeExitCase[];
+}
+
+export interface AbsenceExitSummary {
+  open_absence_alerts: number;
+  exit_cases_pending_hr: number;
+  settlement_needs_source: number;
+  settlement_ready: number;
+  approval_drafts: number;
+  submitted: number;
+}
+
+export type EmployeeAbsenceAlertStatus =
+  | "OPEN"
+  | "ACKNOWLEDGED"
+  | "LINKED_EXIT"
+  | "RESOLVED";
+
+export type EmployeeExitCaseStatus =
+  | "REPORTED"
+  | "HR_CONFIRMED"
+  | "HQ_CONFIRMED"
+  | "SETTLEMENT_READY"
+  | "APPROVAL_DRAFTED"
+  | "SUBMITTED"
+  | "REJECTED"
+  | "CANCELLED";
+
+export type EmployeeExitSettlementPackageStatus =
+  | "NEEDS_SOURCE"
+  | "READY_FOR_APPROVAL"
+  | "APPROVAL_DRAFTED"
+  | "SUBMITTED";
+
+export type SettlementCertificationStatus = "CERTIFIED" | "UNCERTIFIED_DRAFT";
+
+export interface EmployeeAbsenceAlert {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  employee_number?: string | null;
+  company: string;
+  org_unit?: string | null;
+  worksite_name?: string | null;
+  branch_id?: string | null;
+  branch_name?: string | null;
+  work_date: string;
+  source: string;
+  status: EmployeeAbsenceAlertStatus;
+  severity: string;
+  audience_roles: string[];
+  signal_payload: Record<string, unknown>;
+  notification_title: string;
+  notification_message: string;
+  link_href: string;
+  exit_case_id?: string | null;
+  detected_at: string;
+}
+
+export interface ReportEmployeeExitCaseRequest {
+  employee_id: string;
+  branch_id?: string | null;
+  absence_alert_id?: string | null;
+  effective_exit_date: string;
+  site_manager_note: string;
+}
+
+export interface ConfirmEmployeeExitCaseRequest {
+  decision?: "CONFIRM" | "REJECT";
+  hq_confirmation?: boolean;
+  note?: string;
+  settlement_input?: ExitSettlementInput;
+}
+
+export interface DraftEmployeeExitApprovalRequest {
+  submit?: boolean;
+  note?: string;
+  settlement_input?: ExitSettlementInput;
+}
+
+export interface ExitSettlementInput {
+  average_wage_period_start: string;
+  average_wage_period_end: string;
+  average_wage_calendar_days: number;
+  average_wage_total_won: number;
+  // Monthly 통상임금 (ordinary wage) in won — mandatory on the backend (no serde
+  // default) so the statutory 통상임금 floor is never silently skipped.
+  monthly_ordinary_wage_won: number;
+}
+
+export interface EmployeeExitCase {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  employee_number?: string | null;
+  company: string;
+  org_unit?: string | null;
+  worksite_name?: string | null;
+  branch_id?: string | null;
+  branch_name?: string | null;
+  absence_alert_id?: string | null;
+  status: EmployeeExitCaseStatus;
+  effective_exit_date: string;
+  site_manager_note: string;
+  reported_by: string;
+  reported_at: string;
+  hr_confirmed_by?: string | null;
+  hr_confirmed_at?: string | null;
+  hq_confirmed_by?: string | null;
+  hq_confirmed_at?: string | null;
+  approval_submitted_by?: string | null;
+  approval_submitted_at?: string | null;
+  settlement_package?: EmployeeExitSettlementPackage | null;
+  next_actions: ExitCaseNextAction[];
+}
+
+export interface EmployeeExitSettlementPackage {
+  id: string;
+  status: EmployeeExitSettlementPackageStatus;
+  service_days?: number | null;
+  average_wage_period_start?: string | null;
+  average_wage_period_end?: string | null;
+  average_wage_calendar_days?: number | null;
+  average_wage_total_won?: number | null;
+  average_daily_wage_milliwon?: number | null;
+  severance_pay_won?: number | null;
+  // 통상임금 (ordinary-wage) statutory basis: the monthly ordinary wage a
+  // reviewer signs, the 통상일급 derived from it (209h/8h rule), and the daily
+  // wage that actually governed severance = max(average, ordinary). Auditable
+  // money trail; digest-bound on the backend.
+  monthly_ordinary_wage_won?: number | null;
+  ordinary_daily_wage_won?: number | null;
+  statutory_daily_wage_milliwon?: number | null;
+  missing_source_fields: string[];
+  statutory_basis: Record<string, unknown>;
+  insurance_loss_payload: Record<string, unknown>;
+  approval_payload: Record<string, unknown>;
+  // EFFECTIVE certification state — the single source the "산정 초안 — 노무사
+  // 검증 전" draft label derives from on every rendering surface.
+  certification_status: SettlementCertificationStatus;
+  generated_at: string;
+  submitted_by?: string | null;
+  submitted_at?: string | null;
+}
+
+export interface ExitCaseNextAction {
+  key: string;
+  label: string;
+  href: string;
+}
 export type InquiryTopic = components["schemas"]["InquiryTopic"];
 export type InquiryStatus = components["schemas"]["InquiryStatus"];
 export type ListingMediaView = components["schemas"]["ListingMediaView"];

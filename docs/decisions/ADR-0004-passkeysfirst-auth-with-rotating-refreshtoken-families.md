@@ -24,4 +24,4 @@ webauthn-rs (server) passkey ceremonies for registration/login on all surfaces; 
 − Passkey UX requires per-user enrollment logistics (provisioning task T0.12) and careful native-origin configuration (top failure mode — documented in plan §2.7).
 
 ## Alternatives considered
-Password-first + optional passkeys (rejected: weakest path becomes default); OIDC via external IdP (rejected: no corporate IdP exists; Bitween identity arrives later through a port, ADR-0010).
+Password-first + optional passkeys (rejected: weakest path becomes default); OIDC via external IdP (rejected: no corporate IdP exists, and maintenance owns identity locally; see ADR-0022).

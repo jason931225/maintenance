@@ -946,6 +946,21 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/users`.
     /// - Remark: Generated from `#/paths//api/v1/users/post(createUser)`.
     func createUser(_ input: Operations.CreateUser.Input) async throws -> Operations.CreateUser.Output
+    /// List the authenticated user's notifications, newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)`.
+    func listMyNotifications(_ input: Operations.ListMyNotifications.Input) async throws -> Operations.ListMyNotifications.Output
+    /// Mark all of the authenticated user's unread notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/read-all`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)`.
+    func markAllMyNotificationsRead(_ input: Operations.MarkAllMyNotificationsRead.Input) async throws -> Operations.MarkAllMyNotificationsRead.Output
+    /// Mark one of the authenticated user's notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
+    func markMyNotificationRead(_ input: Operations.MarkMyNotificationRead.Input) async throws -> Operations.MarkMyNotificationRead.Output
     /// Get the authenticated user's own profile
     ///
     /// - Remark: HTTP `GET /api/v1/users/me`.
@@ -956,6 +971,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PATCH /api/v1/users/me`.
     /// - Remark: Generated from `#/paths//api/v1/users/me/patch(updateCurrentUser)`.
     func updateCurrentUser(_ input: Operations.UpdateCurrentUser.Input) async throws -> Operations.UpdateCurrentUser.Output
+    /// Get the authenticated user's console workspace layout
+    ///
+    /// Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)`.
+    func getCurrentUserWorkspace(_ input: Operations.GetCurrentUserWorkspace.Input) async throws -> Operations.GetCurrentUserWorkspace.Output
+    /// Upsert the authenticated user's console workspace layout
+    ///
+    /// Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)`.
+    func putCurrentUserWorkspace(_ input: Operations.PutCurrentUserWorkspace.Input) async throws -> Operations.PutCurrentUserWorkspace.Output
     /// Get a user by id within the caller's branch scope
     ///
     /// - Remark: HTTP `GET /api/v1/users/{id}`.
@@ -1233,6 +1262,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/post(createWorkflowDefinition)`.
     func createWorkflowDefinition(_ input: Operations.CreateWorkflowDefinition.Input) async throws -> Operations.CreateWorkflowDefinition.Output
+    /// Update a draft workflow definition
+    ///
+    /// Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/workflow-studio/definitions/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)`.
+    func updateWorkflowDefinition(_ input: Operations.UpdateWorkflowDefinition.Input) async throws -> Operations.UpdateWorkflowDefinition.Output
+    /// Delete a draft workflow definition
+    ///
+    /// Soft-deletes a DRAFT workflow definition by moving the mutable pointer to RETIRED while preserving append-only versions, change events, and audit evidence. Requires a fresh passkey step-up assertion.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/workflow-studio/definitions/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)`.
+    func archiveWorkflowDefinition(_ input: Operations.ArchiveWorkflowDefinition.Input) async throws -> Operations.ArchiveWorkflowDefinition.Output
     /// List append-only workflow definition change history
     ///
     /// - Remark: HTTP `GET /api/v1/workflow-studio/definitions/{id}/history`.
@@ -1267,6 +1310,55 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/workflow-studio/definitions/{id}/clone`.
     /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/clone/post(cloneWorkflowDefinition)`.
     func cloneWorkflowDefinition(_ input: Operations.CloneWorkflowDefinition.Input) async throws -> Operations.CloneWorkflowDefinition.Output
+    /// Finalize an approval document (author or delegate)
+    ///
+    /// Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/finalize`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)`.
+    func finalizeWorkflowTask(_ input: Operations.FinalizeWorkflowTask.Input) async throws -> Operations.FinalizeWorkflowTask.Output
+    /// Create a compensating post-finalization rejection (사후 반려)
+    ///
+    /// Records a compensating document linked to an already-finalized run and notifies the whole approval line. The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead. Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-runs/{run_id}/post-finalization-rejection`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)`.
+    func createWorkflowPostFinalizationRejection(_ input: Operations.CreateWorkflowPostFinalizationRejection.Input) async throws -> Operations.CreateWorkflowPostFinalizationRejection.Output
+    /// Start a workflow run (idempotent)
+    ///
+    /// Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)`.
+    func startWorkflowRun(_ input: Operations.StartWorkflowRun.Input) async throws -> Operations.StartWorkflowRun.Output
+    /// List the runs the caller initiated (submission box)
+    ///
+    /// Returns runs where initiated_by is the caller, optionally filtered by status/object_type. Final-approved but not-yet-finalized runs are still WAITING (non-terminal) and remain visible.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs/mine`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/mine/get(listMyWorkflowRuns)`.
+    func listMyWorkflowRuns(_ input: Operations.ListMyWorkflowRuns.Input) async throws -> Operations.ListMyWorkflowRuns.Output
+    /// List approval-inbox waiting tasks (group or personal)
+    ///
+    /// Group inbox via role_key, personal inbox via assignee=me. Policy-bearing rows are gated legacy-enforce with an inert Cedar shadow and denied rows are OMITTED (deny-by-omission), never returned as a 403. Requires role_key or assignee=me.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-tasks`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/get(listWorkflowTasks)`.
+    func listWorkflowTasks(_ input: Operations.ListWorkflowTasks.Input) async throws -> Operations.ListWorkflowTasks.Output
+    /// Claim an OPEN waiting task
+    ///
+    /// Transitions an OPEN task to CLAIMED for the caller. A same-user replay is a 200 no-op; a task claimed by another user, or in a terminal/cancelled/expired state, is a 409. Audits workflow_task.claim.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/claim`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)`.
+    func claimWorkflowTask(_ input: Operations.ClaimWorkflowTask.Input) async throws -> Operations.ClaimWorkflowTask.Output
+    /// Decide a waiting task (approve/reject/return)
+    ///
+    /// Completes a non-finalize approval task. approve advances the run to the next node (a human task parks WAITING; no successor closes the run SUCCEEDED). reject and return require a non-empty comment (422 otherwise) and cancel the run — a resubmission is a new run, never a terminal reopen. Idempotent on idempotency_key. Audits workflow_task.decide.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/decide`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)`.
+    func decideWorkflowTask(_ input: Operations.DecideWorkflowTask.Input) async throws -> Operations.DecideWorkflowTask.Output
     /// List tenant-scoped collaboration calendar events
     ///
     /// Returns server-filtered collaboration calendar events for the caller's tenant. Personal events are visible only to the creator, while org/team/department scopes carry explicit server policy metadata for future PBAC/ABAC expansion.
@@ -3490,6 +3582,39 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// List the authenticated user's notifications, newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)`.
+    public func listMyNotifications(
+        query: Operations.ListMyNotifications.Input.Query = .init(),
+        headers: Operations.ListMyNotifications.Input.Headers = .init()
+    ) async throws -> Operations.ListMyNotifications.Output {
+        try await listMyNotifications(Operations.ListMyNotifications.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Mark all of the authenticated user's unread notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/read-all`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)`.
+    public func markAllMyNotificationsRead(headers: Operations.MarkAllMyNotificationsRead.Input.Headers = .init()) async throws -> Operations.MarkAllMyNotificationsRead.Output {
+        try await markAllMyNotificationsRead(Operations.MarkAllMyNotificationsRead.Input(headers: headers))
+    }
+    /// Mark one of the authenticated user's notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
+    public func markMyNotificationRead(
+        path: Operations.MarkMyNotificationRead.Input.Path,
+        headers: Operations.MarkMyNotificationRead.Input.Headers = .init()
+    ) async throws -> Operations.MarkMyNotificationRead.Output {
+        try await markMyNotificationRead(Operations.MarkMyNotificationRead.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// Get the authenticated user's own profile
     ///
     /// - Remark: HTTP `GET /api/v1/users/me`.
@@ -3506,6 +3631,30 @@ extension APIProtocol {
         body: Operations.UpdateCurrentUser.Input.Body
     ) async throws -> Operations.UpdateCurrentUser.Output {
         try await updateCurrentUser(Operations.UpdateCurrentUser.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Get the authenticated user's console workspace layout
+    ///
+    /// Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)`.
+    public func getCurrentUserWorkspace(headers: Operations.GetCurrentUserWorkspace.Input.Headers = .init()) async throws -> Operations.GetCurrentUserWorkspace.Output {
+        try await getCurrentUserWorkspace(Operations.GetCurrentUserWorkspace.Input(headers: headers))
+    }
+    /// Upsert the authenticated user's console workspace layout
+    ///
+    /// Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)`.
+    public func putCurrentUserWorkspace(
+        headers: Operations.PutCurrentUserWorkspace.Input.Headers = .init(),
+        body: Operations.PutCurrentUserWorkspace.Input.Body
+    ) async throws -> Operations.PutCurrentUserWorkspace.Output {
+        try await putCurrentUserWorkspace(Operations.PutCurrentUserWorkspace.Input(
             headers: headers,
             body: body
         ))
@@ -4083,6 +4232,40 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// Update a draft workflow definition
+    ///
+    /// Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/workflow-studio/definitions/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)`.
+    public func updateWorkflowDefinition(
+        path: Operations.UpdateWorkflowDefinition.Input.Path,
+        headers: Operations.UpdateWorkflowDefinition.Input.Headers = .init(),
+        body: Operations.UpdateWorkflowDefinition.Input.Body
+    ) async throws -> Operations.UpdateWorkflowDefinition.Output {
+        try await updateWorkflowDefinition(Operations.UpdateWorkflowDefinition.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Delete a draft workflow definition
+    ///
+    /// Soft-deletes a DRAFT workflow definition by moving the mutable pointer to RETIRED while preserving append-only versions, change events, and audit evidence. Requires a fresh passkey step-up assertion.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/workflow-studio/definitions/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)`.
+    public func archiveWorkflowDefinition(
+        path: Operations.ArchiveWorkflowDefinition.Input.Path,
+        headers: Operations.ArchiveWorkflowDefinition.Input.Headers = .init(),
+        body: Operations.ArchiveWorkflowDefinition.Input.Body
+    ) async throws -> Operations.ArchiveWorkflowDefinition.Output {
+        try await archiveWorkflowDefinition(Operations.ArchiveWorkflowDefinition.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
     /// List append-only workflow definition change history
     ///
     /// - Remark: HTTP `GET /api/v1/workflow-studio/definitions/{id}/history`.
@@ -4170,6 +4353,119 @@ extension APIProtocol {
         body: Operations.CloneWorkflowDefinition.Input.Body
     ) async throws -> Operations.CloneWorkflowDefinition.Output {
         try await cloneWorkflowDefinition(Operations.CloneWorkflowDefinition.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Finalize an approval document (author or delegate)
+    ///
+    /// Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/finalize`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)`.
+    public func finalizeWorkflowTask(
+        path: Operations.FinalizeWorkflowTask.Input.Path,
+        headers: Operations.FinalizeWorkflowTask.Input.Headers = .init(),
+        body: Operations.FinalizeWorkflowTask.Input.Body
+    ) async throws -> Operations.FinalizeWorkflowTask.Output {
+        try await finalizeWorkflowTask(Operations.FinalizeWorkflowTask.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Create a compensating post-finalization rejection (사후 반려)
+    ///
+    /// Records a compensating document linked to an already-finalized run and notifies the whole approval line. The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead. Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-runs/{run_id}/post-finalization-rejection`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)`.
+    public func createWorkflowPostFinalizationRejection(
+        path: Operations.CreateWorkflowPostFinalizationRejection.Input.Path,
+        headers: Operations.CreateWorkflowPostFinalizationRejection.Input.Headers = .init(),
+        body: Operations.CreateWorkflowPostFinalizationRejection.Input.Body
+    ) async throws -> Operations.CreateWorkflowPostFinalizationRejection.Output {
+        try await createWorkflowPostFinalizationRejection(Operations.CreateWorkflowPostFinalizationRejection.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Start a workflow run (idempotent)
+    ///
+    /// Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)`.
+    public func startWorkflowRun(
+        headers: Operations.StartWorkflowRun.Input.Headers = .init(),
+        body: Operations.StartWorkflowRun.Input.Body
+    ) async throws -> Operations.StartWorkflowRun.Output {
+        try await startWorkflowRun(Operations.StartWorkflowRun.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// List the runs the caller initiated (submission box)
+    ///
+    /// Returns runs where initiated_by is the caller, optionally filtered by status/object_type. Final-approved but not-yet-finalized runs are still WAITING (non-terminal) and remain visible.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs/mine`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/mine/get(listMyWorkflowRuns)`.
+    public func listMyWorkflowRuns(
+        query: Operations.ListMyWorkflowRuns.Input.Query = .init(),
+        headers: Operations.ListMyWorkflowRuns.Input.Headers = .init()
+    ) async throws -> Operations.ListMyWorkflowRuns.Output {
+        try await listMyWorkflowRuns(Operations.ListMyWorkflowRuns.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// List approval-inbox waiting tasks (group or personal)
+    ///
+    /// Group inbox via role_key, personal inbox via assignee=me. Policy-bearing rows are gated legacy-enforce with an inert Cedar shadow and denied rows are OMITTED (deny-by-omission), never returned as a 403. Requires role_key or assignee=me.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-tasks`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/get(listWorkflowTasks)`.
+    public func listWorkflowTasks(
+        query: Operations.ListWorkflowTasks.Input.Query = .init(),
+        headers: Operations.ListWorkflowTasks.Input.Headers = .init()
+    ) async throws -> Operations.ListWorkflowTasks.Output {
+        try await listWorkflowTasks(Operations.ListWorkflowTasks.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Claim an OPEN waiting task
+    ///
+    /// Transitions an OPEN task to CLAIMED for the caller. A same-user replay is a 200 no-op; a task claimed by another user, or in a terminal/cancelled/expired state, is a 409. Audits workflow_task.claim.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/claim`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)`.
+    public func claimWorkflowTask(
+        path: Operations.ClaimWorkflowTask.Input.Path,
+        headers: Operations.ClaimWorkflowTask.Input.Headers = .init(),
+        body: Operations.ClaimWorkflowTask.Input.Body
+    ) async throws -> Operations.ClaimWorkflowTask.Output {
+        try await claimWorkflowTask(Operations.ClaimWorkflowTask.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Decide a waiting task (approve/reject/return)
+    ///
+    /// Completes a non-finalize approval task. approve advances the run to the next node (a human task parks WAITING; no successor closes the run SUCCEEDED). reject and return require a non-empty comment (422 otherwise) and cancel the run — a resubmission is a new run, never a terminal reopen. Idempotent on idempotency_key. Audits workflow_task.decide.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/decide`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)`.
+    public func decideWorkflowTask(
+        path: Operations.DecideWorkflowTask.Input.Path,
+        headers: Operations.DecideWorkflowTask.Input.Headers = .init(),
+        body: Operations.DecideWorkflowTask.Input.Body
+    ) async throws -> Operations.DecideWorkflowTask.Output {
+        try await decideWorkflowTask(Operations.DecideWorkflowTask.Input(
             path: path,
             headers: headers,
             body: body
@@ -7602,17 +7898,991 @@ public enum Components {
                 case requiredPaymentLine = "required_payment_line"
             }
         }
+        /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskRequest`.
+        public struct FinalizeWorkflowTaskRequest: Codable, Hashable, Sendable {
+            /// author = the initiating author closes; delegate = a policy-authorized delegate closes and must give a reason.
+            ///
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskRequest/mode`.
+            @frozen public enum ModePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case author = "author"
+                case delegate = "delegate"
+            }
+            /// author = the initiating author closes; delegate = a policy-authorized delegate closes and must give a reason.
+            ///
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskRequest/mode`.
+            public var mode: Components.Schemas.FinalizeWorkflowTaskRequest.ModePayload
+            /// Required and non-empty when mode is delegate.
+            ///
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskRequest/reason`.
+            public var reason: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskRequest/idempotency_key`.
+            public var idempotencyKey: Swift.String
+            /// Creates a new `FinalizeWorkflowTaskRequest`.
+            ///
+            /// - Parameters:
+            ///   - mode: author = the initiating author closes; delegate = a policy-authorized delegate closes and must give a reason.
+            ///   - reason: Required and non-empty when mode is delegate.
+            ///   - idempotencyKey:
+            public init(
+                mode: Components.Schemas.FinalizeWorkflowTaskRequest.ModePayload,
+                reason: Swift.String? = nil,
+                idempotencyKey: Swift.String
+            ) {
+                self.mode = mode
+                self.reason = reason
+                self.idempotencyKey = idempotencyKey
+            }
+            public enum CodingKeys: String, CodingKey {
+                case mode
+                case reason
+                case idempotencyKey = "idempotency_key"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowTask`.
+        public struct FinalizedWorkflowTask: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowTask/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowTask/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowTask/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowTask/completed_by`.
+            public var completedBy: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowTask/decision_payload`.
+            public struct DecisionPayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `DecisionPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowTask/decision_payload`.
+            public var decisionPayload: Components.Schemas.FinalizedWorkflowTask.DecisionPayloadPayload
+            /// Creates a new `FinalizedWorkflowTask`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - runId:
+            ///   - status:
+            ///   - completedBy:
+            ///   - decisionPayload:
+            public init(
+                id: Components.Schemas.Uuid,
+                runId: Components.Schemas.Uuid,
+                status: Swift.String,
+                completedBy: Components.Schemas.Uuid? = nil,
+                decisionPayload: Components.Schemas.FinalizedWorkflowTask.DecisionPayloadPayload
+            ) {
+                self.id = id
+                self.runId = runId
+                self.status = status
+                self.completedBy = completedBy
+                self.decisionPayload = decisionPayload
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case runId = "run_id"
+                case status
+                case completedBy = "completed_by"
+                case decisionPayload = "decision_payload"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowRun`.
+        public struct FinalizedWorkflowRun: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowRun/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/FinalizedWorkflowRun/status`.
+            public var status: Swift.String
+            /// Creates a new `FinalizedWorkflowRun`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - status:
+            public init(
+                id: Components.Schemas.Uuid,
+                status: Swift.String
+            ) {
+                self.id = id
+                self.status = status
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case status
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskResponse`.
+        public struct FinalizeWorkflowTaskResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskResponse/task`.
+            public var task: Components.Schemas.FinalizedWorkflowTask
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskResponse/run`.
+            public var run: Components.Schemas.FinalizedWorkflowRun
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskResponse/archive_ref`.
+            public struct ArchiveRefPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ArchiveRefPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/FinalizeWorkflowTaskResponse/archive_ref`.
+            public var archiveRef: Components.Schemas.FinalizeWorkflowTaskResponse.ArchiveRefPayload?
+            /// Creates a new `FinalizeWorkflowTaskResponse`.
+            ///
+            /// - Parameters:
+            ///   - task:
+            ///   - run:
+            ///   - archiveRef:
+            public init(
+                task: Components.Schemas.FinalizedWorkflowTask,
+                run: Components.Schemas.FinalizedWorkflowRun,
+                archiveRef: Components.Schemas.FinalizeWorkflowTaskResponse.ArchiveRefPayload? = nil
+            ) {
+                self.task = task
+                self.run = run
+                self.archiveRef = archiveRef
+            }
+            public enum CodingKeys: String, CodingKey {
+                case task
+                case run
+                case archiveRef = "archive_ref"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionRequest`.
+        public struct PostFinalizationRejectionRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionRequest/reason`.
+            public var reason: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionRequest/idempotency_key`.
+            public var idempotencyKey: Swift.String
+            /// Creates a new `PostFinalizationRejectionRequest`.
+            ///
+            /// - Parameters:
+            ///   - reason:
+            ///   - idempotencyKey:
+            public init(
+                reason: Swift.String,
+                idempotencyKey: Swift.String
+            ) {
+                self.reason = reason
+                self.idempotencyKey = idempotencyKey
+            }
+            public enum CodingKeys: String, CodingKey {
+                case reason
+                case idempotencyKey = "idempotency_key"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionDocument`.
+        public struct PostFinalizationRejectionDocument: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionDocument/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionDocument/original_run_id`.
+            public var originalRunId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionDocument/reason`.
+            public var reason: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionDocument/created_by`.
+            public var createdBy: Components.Schemas.Uuid
+            /// Creates a new `PostFinalizationRejectionDocument`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - originalRunId:
+            ///   - reason:
+            ///   - createdBy:
+            public init(
+                id: Components.Schemas.Uuid,
+                originalRunId: Components.Schemas.Uuid,
+                reason: Swift.String,
+                createdBy: Components.Schemas.Uuid
+            ) {
+                self.id = id
+                self.originalRunId = originalRunId
+                self.reason = reason
+                self.createdBy = createdBy
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case originalRunId = "original_run_id"
+                case reason
+                case createdBy = "created_by"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionResponse`.
+        public struct PostFinalizationRejectionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionResponse/compensation`.
+            public var compensation: Components.Schemas.PostFinalizationRejectionDocument
+            /// - Remark: Generated from `#/components/schemas/PostFinalizationRejectionResponse/run`.
+            public var run: Components.Schemas.FinalizedWorkflowRun
+            /// Creates a new `PostFinalizationRejectionResponse`.
+            ///
+            /// - Parameters:
+            ///   - compensation:
+            ///   - run:
+            public init(
+                compensation: Components.Schemas.PostFinalizationRejectionDocument,
+                run: Components.Schemas.FinalizedWorkflowRun
+            ) {
+                self.compensation = compensation
+                self.run = run
+            }
+            public enum CodingKeys: String, CodingKey {
+                case compensation
+                case run
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest`.
+        public struct StartWorkflowRunRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// Pin a specific version; omitted uses the definition's active version.
+            ///
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/definition_version`.
+            public var definitionVersion: Swift.Int32?
+            /// Must be provided together with object_id.
+            ///
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/object_type`.
+            public var objectType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/object_id`.
+            public var objectId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/trigger_type`.
+            @frozen public enum TriggerTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case manual = "MANUAL"
+                case schedule = "SCHEDULE"
+                case objectEvent = "OBJECT_EVENT"
+                case importEvent = "IMPORT_EVENT"
+                case mailEvent = "MAIL_EVENT"
+                case messengerEvent = "MESSENGER_EVENT"
+                case calendarEvent = "CALENDAR_EVENT"
+                case pollEvent = "POLL_EVENT"
+                case api = "API"
+            }
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/trigger_type`.
+            public var triggerType: Components.Schemas.StartWorkflowRunRequest.TriggerTypePayload
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/idempotency_key`.
+            public var idempotencyKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/correlation_id`.
+            public var correlationId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/input_payload`.
+            public struct InputPayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `InputPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/input_payload`.
+            public var inputPayload: Components.Schemas.StartWorkflowRunRequest.InputPayloadPayload?
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/context_payload`.
+            public struct ContextPayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ContextPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunRequest/context_payload`.
+            public var contextPayload: Components.Schemas.StartWorkflowRunRequest.ContextPayloadPayload?
+            /// Creates a new `StartWorkflowRunRequest`.
+            ///
+            /// - Parameters:
+            ///   - definitionId:
+            ///   - definitionVersion: Pin a specific version; omitted uses the definition's active version.
+            ///   - objectType: Must be provided together with object_id.
+            ///   - objectId:
+            ///   - triggerType:
+            ///   - idempotencyKey:
+            ///   - correlationId:
+            ///   - inputPayload:
+            ///   - contextPayload:
+            public init(
+                definitionId: Components.Schemas.Uuid,
+                definitionVersion: Swift.Int32? = nil,
+                objectType: Swift.String? = nil,
+                objectId: Components.Schemas.Uuid? = nil,
+                triggerType: Components.Schemas.StartWorkflowRunRequest.TriggerTypePayload,
+                idempotencyKey: Swift.String,
+                correlationId: Swift.String? = nil,
+                inputPayload: Components.Schemas.StartWorkflowRunRequest.InputPayloadPayload? = nil,
+                contextPayload: Components.Schemas.StartWorkflowRunRequest.ContextPayloadPayload? = nil
+            ) {
+                self.definitionId = definitionId
+                self.definitionVersion = definitionVersion
+                self.objectType = objectType
+                self.objectId = objectId
+                self.triggerType = triggerType
+                self.idempotencyKey = idempotencyKey
+                self.correlationId = correlationId
+                self.inputPayload = inputPayload
+                self.contextPayload = contextPayload
+            }
+            public enum CodingKeys: String, CodingKey {
+                case definitionId = "definition_id"
+                case definitionVersion = "definition_version"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case triggerType = "trigger_type"
+                case idempotencyKey = "idempotency_key"
+                case correlationId = "correlation_id"
+                case inputPayload = "input_payload"
+                case contextPayload = "context_payload"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary`.
+        public struct WorkflowRunSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/definition_version`.
+            public var definitionVersion: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/object_type`.
+            public var objectType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/object_id`.
+            public var objectId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/initiated_by`.
+            public var initiatedBy: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunSummary/started_at`.
+            public var startedAt: Components.Schemas.Timestamp
+            /// Creates a new `WorkflowRunSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - status:
+            ///   - definitionId:
+            ///   - definitionVersion:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - initiatedBy:
+            ///   - startedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                status: Swift.String,
+                definitionId: Components.Schemas.Uuid,
+                definitionVersion: Swift.Int32,
+                objectType: Swift.String? = nil,
+                objectId: Components.Schemas.Uuid? = nil,
+                initiatedBy: Components.Schemas.Uuid? = nil,
+                startedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.status = status
+                self.definitionId = definitionId
+                self.definitionVersion = definitionVersion
+                self.objectType = objectType
+                self.objectId = objectId
+                self.initiatedBy = initiatedBy
+                self.startedAt = startedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case status
+                case definitionId = "definition_id"
+                case definitionVersion = "definition_version"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case initiatedBy = "initiated_by"
+                case startedAt = "started_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary`.
+        public struct WorkflowTaskSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/task_id`.
+            public var taskId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/waiting_key`.
+            public var waitingKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/assignee_role_key`.
+            public var assigneeRoleKey: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/required_policy`.
+            public var requiredPolicy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/object_type`.
+            public var objectType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/object_id`.
+            public var objectId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/claimed_by`.
+            public var claimedBy: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/due_at`.
+            public var dueAt: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/form_payload`.
+            public struct FormPayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `FormPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskSummary/form_payload`.
+            public var formPayload: Components.Schemas.WorkflowTaskSummary.FormPayloadPayload
+            /// Creates a new `WorkflowTaskSummary`.
+            ///
+            /// - Parameters:
+            ///   - taskId:
+            ///   - runId:
+            ///   - waitingKey:
+            ///   - title:
+            ///   - assigneeRoleKey:
+            ///   - requiredPolicy:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - status:
+            ///   - claimedBy:
+            ///   - dueAt:
+            ///   - formPayload:
+            public init(
+                taskId: Components.Schemas.Uuid,
+                runId: Components.Schemas.Uuid,
+                waitingKey: Swift.String,
+                title: Swift.String,
+                assigneeRoleKey: Swift.String? = nil,
+                requiredPolicy: Swift.String? = nil,
+                objectType: Swift.String? = nil,
+                objectId: Components.Schemas.Uuid? = nil,
+                status: Swift.String,
+                claimedBy: Components.Schemas.Uuid? = nil,
+                dueAt: Components.Schemas.Timestamp? = nil,
+                formPayload: Components.Schemas.WorkflowTaskSummary.FormPayloadPayload
+            ) {
+                self.taskId = taskId
+                self.runId = runId
+                self.waitingKey = waitingKey
+                self.title = title
+                self.assigneeRoleKey = assigneeRoleKey
+                self.requiredPolicy = requiredPolicy
+                self.objectType = objectType
+                self.objectId = objectId
+                self.status = status
+                self.claimedBy = claimedBy
+                self.dueAt = dueAt
+                self.formPayload = formPayload
+            }
+            public enum CodingKeys: String, CodingKey {
+                case taskId = "task_id"
+                case runId = "run_id"
+                case waitingKey = "waiting_key"
+                case title
+                case assigneeRoleKey = "assignee_role_key"
+                case requiredPolicy = "required_policy"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case status
+                case claimedBy = "claimed_by"
+                case dueAt = "due_at"
+                case formPayload = "form_payload"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/StartWorkflowRunResponse`.
+        public struct StartWorkflowRunResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunResponse/run`.
+            public var run: Components.Schemas.WorkflowRunSummary
+            /// - Remark: Generated from `#/components/schemas/StartWorkflowRunResponse/next_task`.
+            public var nextTask: Components.Schemas.WorkflowTaskSummary?
+            /// Creates a new `StartWorkflowRunResponse`.
+            ///
+            /// - Parameters:
+            ///   - run:
+            ///   - nextTask:
+            public init(
+                run: Components.Schemas.WorkflowRunSummary,
+                nextTask: Components.Schemas.WorkflowTaskSummary? = nil
+            ) {
+                self.run = run
+                self.nextTask = nextTask
+            }
+            public enum CodingKeys: String, CodingKey {
+                case run
+                case nextTask = "next_task"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowTaskListResponse`.
+        public struct WorkflowTaskListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowTaskListResponse/items`.
+            public var items: [Components.Schemas.WorkflowTaskSummary]
+            /// Creates a new `WorkflowTaskListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.WorkflowTaskSummary]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem`.
+        public struct WorkflowRunListItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/definition_id`.
+            public var definitionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/definition_version`.
+            public var definitionVersion: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/object_type`.
+            public var objectType: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/object_id`.
+            public var objectId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/initiated_by`.
+            public var initiatedBy: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/started_at`.
+            public var startedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListItem/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `WorkflowRunListItem`.
+            ///
+            /// - Parameters:
+            ///   - runId:
+            ///   - status:
+            ///   - definitionId:
+            ///   - definitionVersion:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - initiatedBy:
+            ///   - startedAt:
+            ///   - updatedAt:
+            public init(
+                runId: Components.Schemas.Uuid,
+                status: Swift.String,
+                definitionId: Components.Schemas.Uuid,
+                definitionVersion: Swift.Int32,
+                objectType: Swift.String? = nil,
+                objectId: Components.Schemas.Uuid? = nil,
+                initiatedBy: Components.Schemas.Uuid? = nil,
+                startedAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.runId = runId
+                self.status = status
+                self.definitionId = definitionId
+                self.definitionVersion = definitionVersion
+                self.objectType = objectType
+                self.objectId = objectId
+                self.initiatedBy = initiatedBy
+                self.startedAt = startedAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case runId = "run_id"
+                case status
+                case definitionId = "definition_id"
+                case definitionVersion = "definition_version"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case initiatedBy = "initiated_by"
+                case startedAt = "started_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkflowRunListResponse`.
+        public struct WorkflowRunListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkflowRunListResponse/items`.
+            public var items: [Components.Schemas.WorkflowRunListItem]
+            /// Creates a new `WorkflowRunListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.WorkflowRunListItem]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ClaimWorkflowTaskRequest`.
+        public struct ClaimWorkflowTaskRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClaimWorkflowTaskRequest/idempotency_key`.
+            public var idempotencyKey: Swift.String
+            /// Creates a new `ClaimWorkflowTaskRequest`.
+            ///
+            /// - Parameters:
+            ///   - idempotencyKey:
+            public init(idempotencyKey: Swift.String) {
+                self.idempotencyKey = idempotencyKey
+            }
+            public enum CodingKeys: String, CodingKey {
+                case idempotencyKey = "idempotency_key"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ClaimedWorkflowTask`.
+        public struct ClaimedWorkflowTask: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClaimedWorkflowTask/task_id`.
+            public var taskId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ClaimedWorkflowTask/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ClaimedWorkflowTask/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ClaimedWorkflowTask/claimed_by`.
+            public var claimedBy: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/ClaimedWorkflowTask/claimed_at`.
+            public var claimedAt: Components.Schemas.Timestamp?
+            /// Creates a new `ClaimedWorkflowTask`.
+            ///
+            /// - Parameters:
+            ///   - taskId:
+            ///   - runId:
+            ///   - status:
+            ///   - claimedBy:
+            ///   - claimedAt:
+            public init(
+                taskId: Components.Schemas.Uuid,
+                runId: Components.Schemas.Uuid,
+                status: Swift.String,
+                claimedBy: Components.Schemas.Uuid? = nil,
+                claimedAt: Components.Schemas.Timestamp? = nil
+            ) {
+                self.taskId = taskId
+                self.runId = runId
+                self.status = status
+                self.claimedBy = claimedBy
+                self.claimedAt = claimedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case taskId = "task_id"
+                case runId = "run_id"
+                case status
+                case claimedBy = "claimed_by"
+                case claimedAt = "claimed_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ClaimWorkflowTaskResponse`.
+        public struct ClaimWorkflowTaskResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ClaimWorkflowTaskResponse/task`.
+            public var task: Components.Schemas.ClaimedWorkflowTask
+            /// Creates a new `ClaimWorkflowTaskResponse`.
+            ///
+            /// - Parameters:
+            ///   - task:
+            public init(task: Components.Schemas.ClaimedWorkflowTask) {
+                self.task = task
+            }
+            public enum CodingKeys: String, CodingKey {
+                case task
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskRequest`.
+        public struct DecideWorkflowTaskRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskRequest/decision`.
+            @frozen public enum DecisionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case approve = "approve"
+                case reject = "reject"
+                case _return = "return"
+            }
+            /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskRequest/decision`.
+            public var decision: Components.Schemas.DecideWorkflowTaskRequest.DecisionPayload
+            /// Required and non-empty when decision is reject or return.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskRequest/comment`.
+            public var comment: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskRequest/idempotency_key`.
+            public var idempotencyKey: Swift.String
+            /// Creates a new `DecideWorkflowTaskRequest`.
+            ///
+            /// - Parameters:
+            ///   - decision:
+            ///   - comment: Required and non-empty when decision is reject or return.
+            ///   - idempotencyKey:
+            public init(
+                decision: Components.Schemas.DecideWorkflowTaskRequest.DecisionPayload,
+                comment: Swift.String? = nil,
+                idempotencyKey: Swift.String
+            ) {
+                self.decision = decision
+                self.comment = comment
+                self.idempotencyKey = idempotencyKey
+            }
+            public enum CodingKeys: String, CodingKey {
+                case decision
+                case comment
+                case idempotencyKey = "idempotency_key"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DecidedWorkflowTask`.
+        public struct DecidedWorkflowTask: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DecidedWorkflowTask/task_id`.
+            public var taskId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/DecidedWorkflowTask/run_id`.
+            public var runId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/DecidedWorkflowTask/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DecidedWorkflowTask/decision_payload`.
+            public struct DecisionPayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `DecisionPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/DecidedWorkflowTask/decision_payload`.
+            public var decisionPayload: Components.Schemas.DecidedWorkflowTask.DecisionPayloadPayload
+            /// Creates a new `DecidedWorkflowTask`.
+            ///
+            /// - Parameters:
+            ///   - taskId:
+            ///   - runId:
+            ///   - status:
+            ///   - decisionPayload:
+            public init(
+                taskId: Components.Schemas.Uuid,
+                runId: Components.Schemas.Uuid,
+                status: Swift.String,
+                decisionPayload: Components.Schemas.DecidedWorkflowTask.DecisionPayloadPayload
+            ) {
+                self.taskId = taskId
+                self.runId = runId
+                self.status = status
+                self.decisionPayload = decisionPayload
+            }
+            public enum CodingKeys: String, CodingKey {
+                case taskId = "task_id"
+                case runId = "run_id"
+                case status
+                case decisionPayload = "decision_payload"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskResponse`.
+        public struct DecideWorkflowTaskResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskResponse/task`.
+            public var task: Components.Schemas.DecidedWorkflowTask
+            /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskResponse/run`.
+            public var run: Components.Schemas.FinalizedWorkflowRun
+            /// - Remark: Generated from `#/components/schemas/DecideWorkflowTaskResponse/next_task`.
+            public var nextTask: Components.Schemas.WorkflowTaskSummary?
+            /// Creates a new `DecideWorkflowTaskResponse`.
+            ///
+            /// - Parameters:
+            ///   - task:
+            ///   - run:
+            ///   - nextTask:
+            public init(
+                task: Components.Schemas.DecidedWorkflowTask,
+                run: Components.Schemas.FinalizedWorkflowRun,
+                nextTask: Components.Schemas.WorkflowTaskSummary? = nil
+            ) {
+                self.task = task
+                self.run = run
+                self.nextTask = nextTask
+            }
+            public enum CodingKeys: String, CodingKey {
+                case task
+                case run
+                case nextTask = "next_task"
+            }
+        }
+        /// Partial update for a DRAFT workflow definition. Workflow key and object type are immutable.
+        ///
+        /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest`.
+        public struct UpdateWorkflowDefinitionRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/display_name`.
+            public var displayName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/definition`.
+            public struct DefinitionPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `DefinitionPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/definition`.
+            public var definition: Components.Schemas.UpdateWorkflowDefinitionRequest.DefinitionPayload?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/ApprovalLinePayload`.
+            public struct ApprovalLinePayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `ApprovalLinePayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/approval_line`.
+            public typealias ApprovalLinePayload = [Components.Schemas.UpdateWorkflowDefinitionRequest.ApprovalLinePayloadPayload]
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/approval_line`.
+            public var approvalLine: Components.Schemas.UpdateWorkflowDefinitionRequest.ApprovalLinePayload?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/PaymentLinePayload`.
+            public struct PaymentLinePayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `PaymentLinePayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/payment_line`.
+            public typealias PaymentLinePayload = [Components.Schemas.UpdateWorkflowDefinitionRequest.PaymentLinePayloadPayload]
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/payment_line`.
+            public var paymentLine: Components.Schemas.UpdateWorkflowDefinitionRequest.PaymentLinePayload?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/NotificationRulesPayload`.
+            public struct NotificationRulesPayloadPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `NotificationRulesPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/notification_rules`.
+            public typealias NotificationRulesPayload = [Components.Schemas.UpdateWorkflowDefinitionRequest.NotificationRulesPayloadPayload]
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/notification_rules`.
+            public var notificationRules: Components.Schemas.UpdateWorkflowDefinitionRequest.NotificationRulesPayload?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/action_allowlist`.
+            public var actionAllowlist: [Components.Schemas.WorkflowActionAllowlistEntry]?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/required_approval_line`.
+            public var requiredApprovalLine: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/UpdateWorkflowDefinitionRequest/required_payment_line`.
+            public var requiredPaymentLine: Swift.Bool?
+            /// Creates a new `UpdateWorkflowDefinitionRequest`.
+            ///
+            /// - Parameters:
+            ///   - displayName:
+            ///   - definition:
+            ///   - approvalLine:
+            ///   - paymentLine:
+            ///   - notificationRules:
+            ///   - actionAllowlist:
+            ///   - requiredApprovalLine:
+            ///   - requiredPaymentLine:
+            public init(
+                displayName: Swift.String? = nil,
+                definition: Components.Schemas.UpdateWorkflowDefinitionRequest.DefinitionPayload? = nil,
+                approvalLine: Components.Schemas.UpdateWorkflowDefinitionRequest.ApprovalLinePayload? = nil,
+                paymentLine: Components.Schemas.UpdateWorkflowDefinitionRequest.PaymentLinePayload? = nil,
+                notificationRules: Components.Schemas.UpdateWorkflowDefinitionRequest.NotificationRulesPayload? = nil,
+                actionAllowlist: [Components.Schemas.WorkflowActionAllowlistEntry]? = nil,
+                requiredApprovalLine: Swift.Bool? = nil,
+                requiredPaymentLine: Swift.Bool? = nil
+            ) {
+                self.displayName = displayName
+                self.definition = definition
+                self.approvalLine = approvalLine
+                self.paymentLine = paymentLine
+                self.notificationRules = notificationRules
+                self.actionAllowlist = actionAllowlist
+                self.requiredApprovalLine = requiredApprovalLine
+                self.requiredPaymentLine = requiredPaymentLine
+            }
+            public enum CodingKeys: String, CodingKey {
+                case displayName = "display_name"
+                case definition
+                case approvalLine = "approval_line"
+                case paymentLine = "payment_line"
+                case notificationRules = "notification_rules"
+                case actionAllowlist = "action_allowlist"
+                case requiredApprovalLine = "required_approval_line"
+                case requiredPaymentLine = "required_payment_line"
+            }
+        }
         /// Fresh passkey step-up assertion for a sensitive Workflow Studio mutation.
         ///
         /// - Remark: Generated from `#/components/schemas/WorkflowStepUpRequest`.
         public struct WorkflowStepUpRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/WorkflowStepUpRequest/step_up`.
-            public var stepUp: Components.Schemas.PasskeyStepUpAssertion?
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion
             /// Creates a new `WorkflowStepUpRequest`.
             ///
             /// - Parameters:
             ///   - stepUp:
-            public init(stepUp: Components.Schemas.PasskeyStepUpAssertion? = nil) {
+            public init(stepUp: Components.Schemas.PasskeyStepUpAssertion) {
                 self.stepUp = stepUp
             }
             public enum CodingKeys: String, CodingKey {
@@ -13832,6 +15102,206 @@ public enum Components {
                 case updatedAt = "updated_at"
             }
         }
+        /// Deep-link target — an object reference (kind + id) or a bare app screen.
+        ///
+        /// - Remark: Generated from `#/components/schemas/NotificationLink`.
+        @frozen public enum NotificationLink: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case1`.
+            public struct Case1Payload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/type`.
+                @frozen public enum _TypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case object = "object"
+                }
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/type`.
+                public var _type: Components.Schemas.NotificationLink.Case1Payload._TypePayload
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/kind`.
+                public var kind: Swift.String
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/id`.
+                public var id: Swift.String
+                /// Creates a new `Case1Payload`.
+                ///
+                /// - Parameters:
+                ///   - _type:
+                ///   - kind:
+                ///   - id:
+                public init(
+                    _type: Components.Schemas.NotificationLink.Case1Payload._TypePayload,
+                    kind: Swift.String,
+                    id: Swift.String
+                ) {
+                    self._type = _type
+                    self.kind = kind
+                    self.id = id
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case _type = "type"
+                    case kind
+                    case id
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case1`.
+            case case1(Components.Schemas.NotificationLink.Case1Payload)
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case2`.
+            public struct Case2Payload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case2/type`.
+                @frozen public enum _TypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case screen = "screen"
+                }
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case2/type`.
+                public var _type: Components.Schemas.NotificationLink.Case2Payload._TypePayload
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case2/screen`.
+                public var screen: Swift.String
+                /// Creates a new `Case2Payload`.
+                ///
+                /// - Parameters:
+                ///   - _type:
+                ///   - screen:
+                public init(
+                    _type: Components.Schemas.NotificationLink.Case2Payload._TypePayload,
+                    screen: Swift.String
+                ) {
+                    self._type = _type
+                    self.screen = screen
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case _type = "type"
+                    case screen
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case2`.
+            case case2(Components.Schemas.NotificationLink.Case2Payload)
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self = .case1(try .init(from: decoder))
+                    return
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self = .case2(try .init(from: decoder))
+                    return
+                } catch {
+                    errors.append(error)
+                }
+                throw Swift.DecodingError.failedToDecodeOneOfSchema(
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                switch self {
+                case let .case1(value):
+                    try value.encode(to: encoder)
+                case let .case2(value):
+                    try value.encode(to: encoder)
+                }
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NotificationSummary`.
+        public struct NotificationSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/recipient_user_id`.
+            public var recipientUserId: Components.Schemas.Uuid
+            /// Extensible category (결재/멘션/문서/공지/근태/급여 and beyond).
+            ///
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/category`.
+            public var category: Swift.String
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/text`.
+            public var text: Swift.String
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/link`.
+            public var link: Components.Schemas.NotificationLink
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/unread`.
+            public var unread: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// When the notification was first marked read; null while unread.
+            ///
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/read_at`.
+            public var readAt: Foundation.Date?
+            /// Creates a new `NotificationSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - recipientUserId:
+            ///   - category: Extensible category (결재/멘션/문서/공지/근태/급여 and beyond).
+            ///   - text:
+            ///   - link:
+            ///   - unread:
+            ///   - createdAt:
+            ///   - readAt: When the notification was first marked read; null while unread.
+            public init(
+                id: Components.Schemas.Uuid,
+                recipientUserId: Components.Schemas.Uuid,
+                category: Swift.String,
+                text: Swift.String,
+                link: Components.Schemas.NotificationLink,
+                unread: Swift.Bool,
+                createdAt: Components.Schemas.Timestamp,
+                readAt: Foundation.Date? = nil
+            ) {
+                self.id = id
+                self.recipientUserId = recipientUserId
+                self.category = category
+                self.text = text
+                self.link = link
+                self.unread = unread
+                self.createdAt = createdAt
+                self.readAt = readAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case recipientUserId = "recipient_user_id"
+                case category
+                case text
+                case link
+                case unread
+                case createdAt = "created_at"
+                case readAt = "read_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NotificationPage`.
+        public struct NotificationPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NotificationPage/items`.
+            public var items: [Components.Schemas.NotificationSummary]
+            /// - Remark: Generated from `#/components/schemas/NotificationPage/next_cursor`.
+            public var nextCursor: Swift.String?
+            /// Creates a new `NotificationPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - nextCursor:
+            public init(
+                items: [Components.Schemas.NotificationSummary],
+                nextCursor: Swift.String? = nil
+            ) {
+                self.items = items
+                self.nextCursor = nextCursor
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case nextCursor = "next_cursor"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NotificationReadAllResponse`.
+        public struct NotificationReadAllResponse: Codable, Hashable, Sendable {
+            /// The number of notifications marked read.
+            ///
+            /// - Remark: Generated from `#/components/schemas/NotificationReadAllResponse/marked`.
+            public var marked: Swift.Int64
+            /// Creates a new `NotificationReadAllResponse`.
+            ///
+            /// - Parameters:
+            ///   - marked: The number of notifications marked read.
+            public init(marked: Swift.Int64) {
+                self.marked = marked
+            }
+            public enum CodingKeys: String, CodingKey {
+                case marked
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/EquipmentStatus`.
         @frozen public enum EquipmentStatus: String, Codable, Hashable, Sendable, CaseIterable {
             case rented = "rented"
@@ -17930,6 +19400,80 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case displayName = "display_name"
                 case phone
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceResponse`.
+        public struct WorkspaceResponse: Codable, Hashable, Sendable {
+            /// Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceResponse/layout`.
+            public struct LayoutPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `LayoutPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceResponse/layout`.
+            public var layout: Components.Schemas.WorkspaceResponse.LayoutPayload
+            /// Creates a new `WorkspaceResponse`.
+            ///
+            /// - Parameters:
+            ///   - layout: Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`.
+            public init(layout: Components.Schemas.WorkspaceResponse.LayoutPayload) {
+                self.layout = layout
+            }
+            public enum CodingKeys: String, CodingKey {
+                case layout
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceUpsertRequest`.
+        public struct WorkspaceUpsertRequest: Codable, Hashable, Sendable {
+            /// Opaque, frontend-owned console layout object to store verbatim.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceUpsertRequest/layout`.
+            public struct LayoutPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `LayoutPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// Opaque, frontend-owned console layout object to store verbatim.
+            ///
+            /// - Remark: Generated from `#/components/schemas/WorkspaceUpsertRequest/layout`.
+            public var layout: Components.Schemas.WorkspaceUpsertRequest.LayoutPayload
+            /// Creates a new `WorkspaceUpsertRequest`.
+            ///
+            /// - Parameters:
+            ///   - layout: Opaque, frontend-owned console layout object to store verbatim.
+            public init(layout: Components.Schemas.WorkspaceUpsertRequest.LayoutPayload) {
+                self.layout = layout
+            }
+            public enum CodingKeys: String, CodingKey {
+                case layout
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreateRegionRequest`.
@@ -53110,6 +54654,635 @@ public enum Operations {
             }
         }
     }
+    /// List the authenticated user's notifications, newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)`.
+    public enum ListMyNotifications {
+        public static let id: Swift.String = "listMyNotifications"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// When true, return only unread notifications.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query/unread`.
+                public var unread: Swift.Bool?
+                /// Keyset cursor; return notifications strictly older than this id.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query/before`.
+                public var before: Components.Schemas.Uuid?
+                /// Page size (clamped server-side to 1..=200; default 50).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - unread: When true, return only unread notifications.
+                ///   - before: Keyset cursor; return notifications strictly older than this id.
+                ///   - limit: Page size (clamped server-side to 1..=200; default 50).
+                public init(
+                    unread: Swift.Bool? = nil,
+                    before: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.unread = unread
+                    self.before = before
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMyNotifications.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyNotifications.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyNotifications.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyNotifications.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMyNotifications.Input.Query = .init(),
+                headers: Operations.ListMyNotifications.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.NotificationPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.NotificationPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyNotifications.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyNotifications.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// A page of the caller's notifications.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyNotifications.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyNotifications.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyNotifications.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyNotifications.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListMyNotifications.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListMyNotifications.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mark all of the authenticated user's unread notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/read-all`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)`.
+    public enum MarkAllMyNotificationsRead {
+        public static let id: Swift.String = "markAllMyNotificationsRead"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkAllMyNotificationsRead.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkAllMyNotificationsRead.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.MarkAllMyNotificationsRead.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.MarkAllMyNotificationsRead.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.NotificationReadAllResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.NotificationReadAllResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkAllMyNotificationsRead.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkAllMyNotificationsRead.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The number of notifications marked read.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.MarkAllMyNotificationsRead.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.MarkAllMyNotificationsRead.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mark one of the authenticated user's notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
+    public enum MarkMyNotificationRead {
+        public static let id: Swift.String = "markMyNotificationRead"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.MarkMyNotificationRead.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkMyNotificationRead.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkMyNotificationRead.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.MarkMyNotificationRead.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.MarkMyNotificationRead.Input.Path,
+                headers: Operations.MarkMyNotificationRead.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.NotificationSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.NotificationSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkMyNotificationRead.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkMyNotificationRead.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The updated notification.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.MarkMyNotificationRead.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.MarkMyNotificationRead.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkMyNotificationRead.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkMyNotificationRead.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.MarkMyNotificationRead.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.MarkMyNotificationRead.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// Get the authenticated user's own profile
     ///
     /// - Remark: HTTP `GET /api/v1/users/me`.
@@ -53492,6 +55665,412 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.UpdateCurrentUser.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get the authenticated user's console workspace layout
+    ///
+    /// Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)`.
+    public enum GetCurrentUserWorkspace {
+        public static let id: Swift.String = "getCurrentUserWorkspace"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetCurrentUserWorkspace.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetCurrentUserWorkspace.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetCurrentUserWorkspace.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.GetCurrentUserWorkspace.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkspaceResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkspaceResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetCurrentUserWorkspace.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetCurrentUserWorkspace.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The caller's workspace layout.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetCurrentUserWorkspace.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetCurrentUserWorkspace.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/get(getCurrentUserWorkspace)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetCurrentUserWorkspace.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Upsert the authenticated user's console workspace layout
+    ///
+    /// Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/me/workspace`.
+    /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)`.
+    public enum PutCurrentUserWorkspace {
+        public static let id: Swift.String = "putCurrentUserWorkspace"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PutCurrentUserWorkspace.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PutCurrentUserWorkspace.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PutCurrentUserWorkspace.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.WorkspaceUpsertRequest)
+            }
+            public var body: Operations.PutCurrentUserWorkspace.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PutCurrentUserWorkspace.Input.Headers = .init(),
+                body: Operations.PutCurrentUserWorkspace.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkspaceResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkspaceResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PutCurrentUserWorkspace.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PutCurrentUserWorkspace.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The stored workspace layout.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PutCurrentUserWorkspace.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PutCurrentUserWorkspace.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/workspace/PUT/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):
@@ -62562,6 +65141,542 @@ public enum Operations {
             }
         }
     }
+    /// Update a draft workflow definition
+    ///
+    /// Updates an existing DRAFT workflow definition by appending a new draft version. Workflow key and object type remain immutable; archived, active, and paused definitions are rejected.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/workflow-studio/definitions/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)`.
+    public enum UpdateWorkflowDefinition {
+        public static let id: Swift.String = "updateWorkflowDefinition"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/PATCH/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.UpdateWorkflowDefinition.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkflowDefinition.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkflowDefinition.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateWorkflowDefinition.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.UpdateWorkflowDefinitionRequest)
+            }
+            public var body: Operations.UpdateWorkflowDefinition.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdateWorkflowDefinition.Input.Path,
+                headers: Operations.UpdateWorkflowDefinition.Input.Headers = .init(),
+                body: Operations.UpdateWorkflowDefinition.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/PATCH/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/PATCH/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowDefinitionResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowDefinitionResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateWorkflowDefinition.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateWorkflowDefinition.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated draft workflow definition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdateWorkflowDefinition.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdateWorkflowDefinition.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/patch(updateWorkflowDefinition)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Delete a draft workflow definition
+    ///
+    /// Soft-deletes a DRAFT workflow definition by moving the mutable pointer to RETIRED while preserving append-only versions, change events, and audit evidence. Requires a fresh passkey step-up assertion.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/workflow-studio/definitions/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)`.
+    public enum ArchiveWorkflowDefinition {
+        public static let id: Swift.String = "archiveWorkflowDefinition"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.ArchiveWorkflowDefinition.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ArchiveWorkflowDefinition.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ArchiveWorkflowDefinition.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ArchiveWorkflowDefinition.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/requestBody/content/application\/json`.
+                case json(Components.Schemas.WorkflowStepUpRequest)
+            }
+            public var body: Operations.ArchiveWorkflowDefinition.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.ArchiveWorkflowDefinition.Input.Path,
+                headers: Operations.ArchiveWorkflowDefinition.Input.Headers = .init(),
+                body: Operations.ArchiveWorkflowDefinition.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowDefinitionResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowDefinitionResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ArchiveWorkflowDefinition.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ArchiveWorkflowDefinition.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Archived workflow definition draft.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ArchiveWorkflowDefinition.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ArchiveWorkflowDefinition.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/responses/428/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/DELETE/responses/428/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ArchiveWorkflowDefinition.Output.PreconditionRequired.Body
+                /// Creates a new `PreconditionRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ArchiveWorkflowDefinition.Output.PreconditionRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Fresh passkey step-up is required.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/delete(archiveWorkflowDefinition)/responses/428`.
+            ///
+            /// HTTP response code: `428 preconditionRequired`.
+            case preconditionRequired(Operations.ArchiveWorkflowDefinition.Output.PreconditionRequired)
+            /// The associated value of the enum case if `self` is `.preconditionRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionRequired`.
+            /// - SeeAlso: `.preconditionRequired`.
+            public var preconditionRequired: Operations.ArchiveWorkflowDefinition.Output.PreconditionRequired {
+                get throws {
+                    switch self {
+                    case let .preconditionRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// List append-only workflow definition change history
     ///
     /// - Remark: HTTP `GET /api/v1/workflow-studio/definitions/{id}/history`.
@@ -64061,6 +67176,1692 @@ public enum Operations {
             /// Request failed validation.
             ///
             /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/clone/post(cloneWorkflowDefinition)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Finalize an approval document (author or delegate)
+    ///
+    /// Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/finalize`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)`.
+    public enum FinalizeWorkflowTask {
+        public static let id: Swift.String = "finalizeWorkflowTask"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/finalize/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/finalize/POST/path/task_id`.
+                public var taskId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - taskId:
+                public init(taskId: Components.Schemas.Uuid) {
+                    self.taskId = taskId
+                }
+            }
+            public var path: Operations.FinalizeWorkflowTask.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/finalize/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.FinalizeWorkflowTask.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.FinalizeWorkflowTask.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.FinalizeWorkflowTask.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/finalize/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/finalize/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.FinalizeWorkflowTaskRequest)
+            }
+            public var body: Operations.FinalizeWorkflowTask.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.FinalizeWorkflowTask.Input.Path,
+                headers: Operations.FinalizeWorkflowTask.Input.Headers = .init(),
+                body: Operations.FinalizeWorkflowTask.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/finalize/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/finalize/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.FinalizeWorkflowTaskResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.FinalizeWorkflowTaskResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.FinalizeWorkflowTask.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.FinalizeWorkflowTask.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Finalization recorded (replays return the recorded result).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.FinalizeWorkflowTask.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.FinalizeWorkflowTask.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/finalize/post(finalizeWorkflowTask)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a compensating post-finalization rejection (사후 반려)
+    ///
+    /// Records a compensating document linked to an already-finalized run and notifies the whole approval line. The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead. Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-runs/{run_id}/post-finalization-rejection`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)`.
+    public enum CreateWorkflowPostFinalizationRejection {
+        public static let id: Swift.String = "createWorkflowPostFinalizationRejection"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/post-finalization-rejection/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/post-finalization-rejection/POST/path/run_id`.
+                public var runId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - runId:
+                public init(runId: Components.Schemas.Uuid) {
+                    self.runId = runId
+                }
+            }
+            public var path: Operations.CreateWorkflowPostFinalizationRejection.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/post-finalization-rejection/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateWorkflowPostFinalizationRejection.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateWorkflowPostFinalizationRejection.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateWorkflowPostFinalizationRejection.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/post-finalization-rejection/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/post-finalization-rejection/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.PostFinalizationRejectionRequest)
+            }
+            public var body: Operations.CreateWorkflowPostFinalizationRejection.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.CreateWorkflowPostFinalizationRejection.Input.Path,
+                headers: Operations.CreateWorkflowPostFinalizationRejection.Input.Headers = .init(),
+                body: Operations.CreateWorkflowPostFinalizationRejection.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/post-finalization-rejection/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-runs/{run_id}/post-finalization-rejection/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PostFinalizationRejectionResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PostFinalizationRejectionResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateWorkflowPostFinalizationRejection.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateWorkflowPostFinalizationRejection.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Compensating document created (replays return the recorded result).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.CreateWorkflowPostFinalizationRejection.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.CreateWorkflowPostFinalizationRejection.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/{run_id}/post-finalization-rejection/post(createWorkflowPostFinalizationRejection)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Start a workflow run (idempotent)
+    ///
+    /// Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-runs`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)`.
+    public enum StartWorkflowRun {
+        public static let id: Swift.String = "startWorkflowRun"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartWorkflowRun.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartWorkflowRun.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.StartWorkflowRun.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.StartWorkflowRunRequest)
+            }
+            public var body: Operations.StartWorkflowRun.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.StartWorkflowRun.Input.Headers = .init(),
+                body: Operations.StartWorkflowRun.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-runs/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.StartWorkflowRunResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.StartWorkflowRunResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.StartWorkflowRun.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.StartWorkflowRun.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Run started (or replayed) with its current first WAITING task, if any.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.StartWorkflowRun.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.StartWorkflowRun.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/post(startWorkflowRun)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the runs the caller initiated (submission box)
+    ///
+    /// Returns runs where initiated_by is the caller, optionally filtered by status/object_type. Final-approved but not-yet-finalized runs are still WAITING (non-terminal) and remain visible.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-runs/mine`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-runs/mine/get(listMyWorkflowRuns)`.
+    public enum ListMyWorkflowRuns {
+        public static let id: Swift.String = "listMyWorkflowRuns"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/mine/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Comma-separated run statuses (e.g. WAITING,SUCCEEDED). Omitted returns all statuses.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/mine/GET/query/status`.
+                public var status: Swift.String?
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/mine/GET/query/object_type`.
+                public var objectType: Swift.String?
+                /// Reserved free-text filter (not yet applied).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/mine/GET/query/q`.
+                public var q: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - status: Comma-separated run statuses (e.g. WAITING,SUCCEEDED). Omitted returns all statuses.
+                ///   - objectType:
+                ///   - q: Reserved free-text filter (not yet applied).
+                public init(
+                    status: Swift.String? = nil,
+                    objectType: Swift.String? = nil,
+                    q: Swift.String? = nil
+                ) {
+                    self.status = status
+                    self.objectType = objectType
+                    self.q = q
+                }
+            }
+            public var query: Operations.ListMyWorkflowRuns.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/workflow-runs/mine/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyWorkflowRuns.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyWorkflowRuns.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyWorkflowRuns.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMyWorkflowRuns.Input.Query = .init(),
+                headers: Operations.ListMyWorkflowRuns.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-runs/mine/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-runs/mine/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowRunListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowRunListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyWorkflowRuns.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyWorkflowRuns.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The caller's submission box.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/mine/get(listMyWorkflowRuns)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyWorkflowRuns.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyWorkflowRuns.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/mine/get(listMyWorkflowRuns)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/mine/get(listMyWorkflowRuns)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-runs/mine/get(listMyWorkflowRuns)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List approval-inbox waiting tasks (group or personal)
+    ///
+    /// Group inbox via role_key, personal inbox via assignee=me. Policy-bearing rows are gated legacy-enforce with an inert Cedar shadow and denied rows are OMITTED (deny-by-omission), never returned as a 403. Requires role_key or assignee=me.
+    ///
+    /// - Remark: HTTP `GET /api/v1/workflow-tasks`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/get(listWorkflowTasks)`.
+    public enum ListWorkflowTasks {
+        public static let id: Swift.String = "listWorkflowTasks"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Group-inbox filter matched against assignee_role_key.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/GET/query/role_key`.
+                public var roleKey: Swift.String?
+                /// Set to "me" for the personal inbox (the caller's CLAIMED tasks plus claimable OPEN ones).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/GET/query/assignee`.
+                public var assignee: Swift.String?
+                /// Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/GET/query/status`.
+                public var status: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - roleKey: Group-inbox filter matched against assignee_role_key.
+                ///   - assignee: Set to "me" for the personal inbox (the caller's CLAIMED tasks plus claimable OPEN ones).
+                ///   - status: Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN.
+                public init(
+                    roleKey: Swift.String? = nil,
+                    assignee: Swift.String? = nil,
+                    status: Swift.String? = nil
+                ) {
+                    self.roleKey = roleKey
+                    self.assignee = assignee
+                    self.status = status
+                }
+            }
+            public var query: Operations.ListWorkflowTasks.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowTasks.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkflowTasks.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListWorkflowTasks.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListWorkflowTasks.Input.Query = .init(),
+                headers: Operations.ListWorkflowTasks.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkflowTaskListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkflowTaskListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListWorkflowTasks.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListWorkflowTasks.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The visible waiting tasks.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/get(listWorkflowTasks)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListWorkflowTasks.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListWorkflowTasks.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/get(listWorkflowTasks)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/get(listWorkflowTasks)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/get(listWorkflowTasks)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Claim an OPEN waiting task
+    ///
+    /// Transitions an OPEN task to CLAIMED for the caller. A same-user replay is a 200 no-op; a task claimed by another user, or in a terminal/cancelled/expired state, is a 409. Audits workflow_task.claim.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/claim`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)`.
+    public enum ClaimWorkflowTask {
+        public static let id: Swift.String = "claimWorkflowTask"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/claim/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/claim/POST/path/task_id`.
+                public var taskId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - taskId:
+                public init(taskId: Components.Schemas.Uuid) {
+                    self.taskId = taskId
+                }
+            }
+            public var path: Operations.ClaimWorkflowTask.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/claim/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ClaimWorkflowTask.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ClaimWorkflowTask.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ClaimWorkflowTask.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/claim/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/claim/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ClaimWorkflowTaskRequest)
+            }
+            public var body: Operations.ClaimWorkflowTask.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.ClaimWorkflowTask.Input.Path,
+                headers: Operations.ClaimWorkflowTask.Input.Headers = .init(),
+                body: Operations.ClaimWorkflowTask.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/claim/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/claim/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ClaimWorkflowTaskResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ClaimWorkflowTaskResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ClaimWorkflowTask.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ClaimWorkflowTask.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Task claimed (replays return the current claim).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ClaimWorkflowTask.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ClaimWorkflowTask.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/claim/post(claimWorkflowTask)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Decide a waiting task (approve/reject/return)
+    ///
+    /// Completes a non-finalize approval task. approve advances the run to the next node (a human task parks WAITING; no successor closes the run SUCCEEDED). reject and return require a non-empty comment (422 otherwise) and cancel the run — a resubmission is a new run, never a terminal reopen. Idempotent on idempotency_key. Audits workflow_task.decide.
+    ///
+    /// - Remark: HTTP `POST /api/v1/workflow-tasks/{task_id}/decide`.
+    /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)`.
+    public enum DecideWorkflowTask {
+        public static let id: Swift.String = "decideWorkflowTask"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/decide/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/decide/POST/path/task_id`.
+                public var taskId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - taskId:
+                public init(taskId: Components.Schemas.Uuid) {
+                    self.taskId = taskId
+                }
+            }
+            public var path: Operations.DecideWorkflowTask.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/decide/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DecideWorkflowTask.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DecideWorkflowTask.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DecideWorkflowTask.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/decide/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/decide/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.DecideWorkflowTaskRequest)
+            }
+            public var body: Operations.DecideWorkflowTask.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.DecideWorkflowTask.Input.Path,
+                headers: Operations.DecideWorkflowTask.Input.Headers = .init(),
+                body: Operations.DecideWorkflowTask.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/decide/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/workflow-tasks/{task_id}/decide/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DecideWorkflowTaskResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.DecideWorkflowTaskResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DecideWorkflowTask.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DecideWorkflowTask.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Decision recorded (replays return the recorded result).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.DecideWorkflowTask.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.DecideWorkflowTask.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-tasks/{task_id}/decide/post(decideWorkflowTask)/responses/422`.
             ///
             /// HTTP response code: `422 unprocessableContent`.
             case unprocessableContent(Components.Responses.ValidationError)

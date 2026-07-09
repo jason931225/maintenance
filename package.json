@@ -11,7 +11,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "gen:api:ts": "openapi-typescript backend/openapi/openapi.yaml -o clients/ts/src/schema.d.ts",
+    "gen:api:ts": "node scripts/generate-ts-client.mjs",
     "gen:api:kotlin": "node scripts/generate-kotlin-client.mjs",
     "gen:api:swift": "node scripts/generate-swift-client.mjs",
     "gen:api:portable": "npm run gen:api:ts && npm run gen:api:kotlin",
@@ -22,10 +22,15 @@
     "check:openapi-app": "node scripts/check-openapi-app.mjs",
     "check:dispatch-map": "node scripts/check-dispatch-map.mjs",
     "check:foundation-gates": "node scripts/check-foundation-gates.mjs",
+    "test:text-gate": "node --test scripts/lib/text-gate.test.mjs",
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
     "test:contract": "tsx scripts/contract-roundtrip.ts",
     "web:dev": "npm --workspace web run dev",
+    "dev:doctor": "node scripts/dev-up.mjs doctor",
+    "dev:up": "node scripts/dev-up.mjs up",
+    "dev:bootstrap": "node scripts/dev-up.mjs bootstrap",
+    "dev:down": "node scripts/dev-up.mjs down",
     "web:build": "npm --workspace web run build",
     "web:lint": "npm --workspace web run lint",
     "web:test": "npm --workspace web run test",
@@ -48,10 +53,18 @@
     "check:g007-collaboration-mobile-lifecycle": "node scripts/check-g007-collaboration-mobile-lifecycle.mjs",
     "check:g008-payroll-readiness": "node scripts/check-g008-payroll-readiness.mjs",
     "check:workflow-runtime-spine": "node scripts/check-workflow-runtime-spine.mjs",
-    "check:mailbox-core": "node scripts/check-mailbox-core.mjs"
+    "check:workflow-runtime-m2-strangler": "node scripts/check-workflow-runtime-m2-strangler.mjs",
+    "check:workflow-runtime-m2-cedar-guards": "node scripts/check-workflow-runtime-m2-cedar-guards.mjs",
+    "check:workflow-runtime-m2-runtime": "node scripts/check-workflow-runtime-m2-runtime.mjs",
+    "check:workflow-runtime-m2-drainer": "node scripts/check-workflow-runtime-m2-drainer.mjs",
+    "check:mailbox-core": "node scripts/check-mailbox-core.mjs",
+    "check:api-atomicity": "npm run check:openapi-app && npm run check:api-drift:portable && npm run check:kotlin && npm run check:api-drift:swift && npm run check:swift",
+    "check:korean-institutional-connectivity": "node scripts/check-korean-institutional-connectivity.mjs",
+    "kic:scrape-public-docs": "node scripts/korean-connectivity/public-doc-scraper.mjs",
+    "kic:generate-nhis-loss-report-fixture": "node scripts/korean-connectivity/nhis-edi-loss-report.mjs",
+    "kic:local-cert-login-fixture": "node scripts/korean-connectivity/local-certificate-agent.mjs"
   },
   "dependencies": {
-    "openapi-fetch": "0.17.0",
     "pg": "8.21.0"
   },
   "devDependencies": {

@@ -33,8 +33,8 @@ import ContactPage from "./pages/ContactPage";
 import PrivacyNoticePage from "./pages/PrivacyNoticePage";
 import PlatformFsmPage from "./pages/PlatformFsmPage";
 
-// Authenticated-shell pages are code-split so the login / wallboard / public
-// intake fast paths don't pay for them. Each module uses a named export, so we
+// Authenticated-shell pages are code-split so the login / public intake fast
+// paths don't pay for them. Each module uses a named export, so we
 // re-map it to the `default` shape React.lazy expects.
 const OnboardingPage = lazy(() =>
   import("./pages/OnboardingPage").then((m) => ({ default: m.OnboardingPage })),
@@ -42,11 +42,10 @@ const OnboardingPage = lazy(() =>
 const PendingPage = lazy(() =>
   import("./pages/PendingPage").then((m) => ({ default: m.PendingPage })),
 );
-const WorkHubPage = lazy(() =>
-  import("./pages/WorkHubPage").then((m) => ({ default: m.WorkHubPage })),
-);
-const AttendancePage = lazy(() =>
-  import("./pages/AttendancePage").then((m) => ({ default: m.AttendancePage })),
+// ConsoleShell hosts the mounted-persistent /work-hub and /attendance screens
+// (UI-M1b). It imports those pages directly, so they are no longer lazy here.
+const ConsoleShell = lazy(() =>
+  import("./components/shell/ConsoleShell").then((m) => ({ default: m.ConsoleShell })),
 );
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
@@ -240,10 +239,13 @@ export function AppRouter() {
         <Route path="/support/new" element={<CustomerIntakePage />} />
       </Route>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/wallboard" element={<WallBoardPage />} />
 
       {/* Auth guard — redirects to /login when unauthenticated */}
       <Route element={<ProtectedRoute />}>
+        {/* Shell-less wallboard. It reads tenant work-order/KPI data, so route
+            through the auth guard before the page starts protected API calls. */}
+        <Route path="/wallboard" element={<WallBoardPage />} />
+
         {/* Shell-less initial-settings passkey enrollment (first OTP sign-in).
             Renders outside the shell, so it needs its own error boundary to
             contain a crash rather than falling through to the blank top-level
@@ -301,13 +303,25 @@ export function AppRouter() {
             storefront home (#6); authenticated entry lands on /work-hub via the
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
+        {/* ConsoleShell (UI-M1b) — the new window-engine shell hosting the
+            mounted-persistent /work-hub and /attendance screens. It is a layout
+            route with two pathless children so the shell instance is preserved
+            across /work-hub <-> /attendance navigation (mounted persistence);
+            ConsoleShell reads the location itself and does not use <Outlet />.
+            Nav-visibility gating lives inside ConsoleShell. Every other route
+            stays on AppShell below (two-shell coexistence). */}
+        <Route
+          element={
+            <Suspense fallback={<PageSpinner />}>
+              <ConsoleShell />
+            </Suspense>
+          }
+        >
+          <Route path="/work-hub" element={null} />
+          <Route path="/attendance" element={null} />
+        </Route>
+
         <Route element={<AppShell />}>
-          <Route element={<RequireNavItemRoute itemKey="work-hub" />}>
-            <Route path="/work-hub" element={<WorkHubPage />} />
-          </Route>
-          <Route element={<RequireNavItemRoute itemKey="my-attendance" />}>
-            <Route path="/attendance" element={<AttendancePage />} />
-          </Route>
           <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
             <Route path="/dispatch" element={<DispatchPage />} />
             {/* Work-order detail (read gate is WorkOrderReadAll). Write controls

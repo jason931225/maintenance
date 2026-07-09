@@ -17,7 +17,9 @@ members = [
   "crates/sales/*",
   "crates/support/*",
   "crates/workorder/*",
+  "crates/workflow/*",
   "crates/messenger/*",
+  "crates/notifications/*",
   "crates/comms/*",
   "crates/payroll/*",
   "crates/erp/*",
@@ -184,10 +186,17 @@ mnt-workorder-domain = { path = "crates/workorder/domain" }
 mnt-workorder-application = { path = "crates/workorder/application" }
 mnt-workorder-adapter-postgres = { path = "crates/workorder/adapter-postgres" }
 mnt-workorder-rest = { path = "crates/workorder/rest" }
+mnt-workflow-domain = { path = "crates/workflow/domain" }
+mnt-workflow-runtime = { path = "crates/workflow/runtime" }
+mnt-workflow-runtime-adapter-postgres = { path = "crates/workflow/adapter-postgres" }
 mnt-messenger-domain = { path = "crates/messenger/domain" }
 mnt-messenger-application = { path = "crates/messenger/application" }
 mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }
 mnt-messenger-rest = { path = "crates/messenger/rest" }
+mnt-notifications-domain = { path = "crates/notifications/domain" }
+mnt-notifications-application = { path = "crates/notifications/application" }
+mnt-notifications-adapter-postgres = { path = "crates/notifications/adapter-postgres" }
+mnt-notifications-rest = { path = "crates/notifications/rest" }
 mnt-comms-domain = { path = "crates/comms/domain" }
 mnt-comms-credential-cipher = { path = "crates/comms/credential-cipher" }
 mnt-comms-application = { path = "crates/comms/application" }
@@ -222,3 +231,12 @@ unsafe_code = "forbid"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+
+[patch.crates-io]
+# Temporary RUSTSEC-2026-0194/RUSTSEC-2026-0195 unblock: upstream calamine
+# 0.35.0 and umya-spreadsheet 3.0.0 still constrain quick-xml below the fixed
+# 0.41 line. Keep these path patches only until crates.io releases can resolve
+# quick-xml >=0.41 without local compatibility shims.
+calamine = { path = "vendor/calamine-0.35.0-quickxml41" }
+quick-xml = { path = "vendor/quick-xml-0.41.0-compat" }
+umya-spreadsheet = { path = "vendor/umya-spreadsheet-3.0.0-quickxml41" }

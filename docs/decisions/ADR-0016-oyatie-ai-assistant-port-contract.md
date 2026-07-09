@@ -54,5 +54,9 @@ adapter arrives.
 + The seam follows existing application-port precedent and keeps layer-gate
   direction intact.
 + No oyatie feature can appear accidentally because no adapter or route exists.
++ Ponytail cleanup issue #121 keeps `AiAssistantPort` in code as the explicit
+  ADR-0010 exception: the compile-time contract is intentional, but adapter
+  stubs, mock implementations, routes, and UI affordances remain forbidden until
+  production oyatie adapter work is scheduled.
 - If a dedicated `inspection` application crate lands later, this contract may
   need to move or be re-exported with a migration ADR.

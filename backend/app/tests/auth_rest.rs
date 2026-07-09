@@ -1104,6 +1104,87 @@ async fn cookie_mode_login_then_refresh_reads_and_rotates_cookie(pool: PgPool) {
     assert_eq!(after_logout.status(), StatusCode::UNAUTHORIZED);
 }
 
+/// Browser hard navigations drop the in-memory access token and rebuild the
+/// session from the HttpOnly refresh cookie on each document load. That normal
+/// pattern must have a wider refresh budget than OTP/passkey credential
+/// submission, while still retaining a bounded per-device refresh limiter.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn cookie_mode_refresh_allows_rapid_navigation_burst_with_device_id(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Refresh Nav Region", "Refresh Nav Branch").await;
+    let user_id = seed_user_with_branch(
+        &pool,
+        "Refresh Nav User",
+        "010-7500-0000",
+        "SUPER_ADMIN",
+        branch_id,
+    )
+    .await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OrgId::knl(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+    let redeem = post_cookie_mode(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+    )
+    .await;
+    assert_eq!(redeem.status(), StatusCode::OK);
+    let access_token = body_json(redeem).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let credential_id = enroll_passkey(&service, &mut authenticator, &access_token).await;
+
+    let login = cookie_mode_usernameless_login(&service, &mut authenticator, &credential_id).await;
+    let login_cookie =
+        mnt_refresh_set_cookie(&login).expect("cookie-mode login must set an mnt_refresh cookie");
+    let mut cookie_value = cookie_token(&login_cookie).to_owned();
+
+    for attempt in 1..=12 {
+        let refreshed = post_cookie_mode_with_device_id(
+            service.clone(),
+            "/api/v1/auth/token/refresh",
+            Some(&cookie_value),
+            "browser-nav-device-01",
+            json!({}),
+        )
+        .await;
+        assert_eq!(
+            refreshed.status(),
+            StatusCode::OK,
+            "refresh attempt {attempt} should stay within the normal browser navigation budget"
+        );
+        let rotated_cookie = mnt_refresh_set_cookie(&refreshed)
+            .expect("cookie-mode refresh must rotate the mnt_refresh cookie");
+        cookie_value = cookie_token(&rotated_cookie).to_owned();
+        assert!(body_json(refreshed).await["refresh_token"].is_null());
+    }
+}
+
 /// MOBILE (no transport header) is unchanged: refresh and logout read the token
 /// from the request BODY, the response carries the refresh token in the body, and
 /// NO Set-Cookie header is emitted.
@@ -1444,6 +1525,31 @@ async fn post_cookie_mode(
         .method("POST")
         .header(header::CONTENT_TYPE, "application/json")
         .header("x-auth-transport", "cookie");
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, format!("mnt_refresh={cookie}"));
+    }
+    service
+        .oneshot(builder.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap()
+}
+
+/// Same as `post_cookie_mode`, but includes a browser `X-Device-Id` header so
+/// tests exercise the per-device auth rate-limit bucket that the web console
+/// sends on every request.
+async fn post_cookie_mode_with_device_id(
+    service: axum::Router,
+    uri: &str,
+    cookie: Option<&str>,
+    device_id: &str,
+    body: Value,
+) -> http::Response<Body> {
+    let mut builder = Request::builder()
+        .uri(uri)
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-auth-transport", "cookie")
+        .header("x-device-id", device_id);
     if let Some(cookie) = cookie {
         builder = builder.header(header::COOKIE, format!("mnt_refresh={cookie}"));
     }

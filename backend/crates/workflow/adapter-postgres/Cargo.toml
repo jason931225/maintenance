@@ -1,0 +1,29 @@
+[package]
+name = "mnt-workflow-runtime-adapter-postgres"
+version = "0.1.0"
+description = "Postgres adapter for the workflow runtime spine (0077/0078): implements the domain WorkflowRuntimePort over with_audit/with_audits/with_org_conn, arming app.current_org as mnt_rt. The only crate that touches the spine tables + sqlx."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-kernel-core = { workspace = true }
+mnt-notifications-application = { workspace = true }
+mnt-notifications-domain = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-workflow-domain = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+mnt-notifications-adapter-postgres = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

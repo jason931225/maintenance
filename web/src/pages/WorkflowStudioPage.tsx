@@ -5,8 +5,10 @@ import {
   GitBranch,
   History,
   PauseCircle,
+  Pencil,
   PlugZap,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 import {
   useCallback,
@@ -57,6 +59,7 @@ import {
 
 type ReadState = "loading" | "idle" | "error";
 type FeedbackKind = "success" | "error";
+type DefinitionMode = "canvas" | "fixed-template";
 type DraftForm = {
   workflowKey: string;
   displayName: string;
@@ -152,6 +155,47 @@ function createLeaveApprovalDraftForm(): DraftForm {
   };
 }
 
+const POLICY_TEMPLATE_KEY = "equipment_location_access_policy";
+
+function workflowTemplateDefinition(
+  template: WorkflowTemplateDescriptor,
+): Record<string, unknown> {
+  return {
+    schema_version: "workflow.definition.v1",
+    template_key: template.template_key,
+    object_type: template.object_type,
+    trigger: `${template.object_type}.${template.template_key}`,
+    steps: [{ key: "review", type: "approval", source: "approval_line" }],
+  };
+}
+
+function equipmentLocationPolicyDefinition(): Record<string, unknown> {
+  return {
+    schema_version: "workflow.definition.v1",
+    trigger: "workflow.policy_simulation_requested",
+    policy_decision: {
+      template_key: "equipment_location_access",
+      effect: "allow",
+      action: "maintenance:StartWorkOrder",
+      resource: { type: "equipment", id: "EQ-BOILER-17" },
+      context: {
+        org_id: "org_demo_001",
+        location_id: "loc_plant_2",
+        subject_role: "MAINTENANCE_MANAGER",
+        passkey_step_up_satisfied: true,
+      },
+      scope: {
+        org_id: "org_demo_001",
+        location_id: "loc_plant_2",
+      },
+      requirements: {
+        passkey_step_up: true,
+        audit_event: "workflow_definition.publish",
+      },
+    },
+  };
+}
+
 export function WorkflowStudioPage() {
   const { api } = useAuth();
   const [readState, setReadState] = useState<ReadState>("loading");
@@ -167,6 +211,8 @@ export function WorkflowStudioPage() {
   const [feedbackKind, setFeedbackKind] = useState<FeedbackKind>("success");
   const [busyDefinitionId, setBusyDefinitionId] = useState<string>();
   const [draftForm, setDraftForm] = useState<DraftForm>(DEFAULT_DRAFT_FORM);
+  const [editingDefinitionId, setEditingDefinitionId] = useState<string>();
+  const [definitionMode, setDefinitionMode] = useState<DefinitionMode>("canvas");
   const [canvasDefinition, setCanvasDefinition] =
     useState<WorkflowDefinitionV1>(createDefaultCanvasDefinition);
   const [selectedCanvasNodeId, setSelectedCanvasNodeId] = useState<string>();
@@ -186,8 +232,11 @@ export function WorkflowStudioPage() {
   );
 
   const canvasFindings = useMemo(
-    () => validateWorkflowDefinition(canvasDefinition),
-    [canvasDefinition],
+    () =>
+      definitionMode === "canvas"
+        ? validateWorkflowDefinition(canvasDefinition)
+        : [],
+    [canvasDefinition, definitionMode],
   );
   const canvasHasBlockers = canvasFindings.some(
     (finding) => finding.severity === "error",
@@ -211,25 +260,51 @@ export function WorkflowStudioPage() {
 
 
   const loadCanvasDefinition = useCallback(
-    (definition: WorkflowDefinitionResponse | undefined) => {
-      if (!definition || !isWorkflowDefinitionV1(definition.definition)) {
+    (
+      definition: WorkflowDefinitionResponse | undefined,
+      options: { syncDraftForm?: boolean } = {},
+    ) => {
+      if (!definition) {
         return;
       }
-      const loaded = withValidationResult(definition.definition);
+      const rawDefinition = definition.definition;
+      const isCanvasDefinition = isWorkflowDefinitionV1(rawDefinition);
+      if (!isCanvasDefinition && !options.syncDraftForm) {
+        return;
+      }
+      const loaded = isCanvasDefinition
+        ? withValidationResult(rawDefinition)
+        : createEmptyWorkflowDefinition({
+            name: definition.display_name,
+            objectType: definition.object_type,
+          });
+      setDefinitionMode(
+        isCanvasDefinition ? "canvas" : "fixed-template",
+      );
       setCanvasDefinition(loaded);
-      setDraftForm((current) => ({
-        ...current,
-        workflowKey: definition.workflow_key,
-        displayName: definition.display_name,
-        objectType: definition.object_type,
-        definitionJson: JSON.stringify(loaded, null, 2),
-        requiredApprovalLine: definition.required_approval_line,
-        requiredPaymentLine: definition.required_payment_line,
-        approvalLineJson: JSON.stringify(definition.approval_line, null, 2),
-        paymentLineJson: JSON.stringify(definition.payment_line, null, 2),
-        notificationRulesJson: JSON.stringify(definition.notification_rules, null, 2),
-        actionAllowlistJson: JSON.stringify(definition.action_allowlist, null, 2),
-      }));
+      if (options.syncDraftForm || isCanvasDefinition) {
+        setDraftForm((current) => ({
+          ...current,
+          workflowKey: definition.workflow_key,
+          displayName: definition.display_name,
+          objectType: definition.object_type,
+          definitionJson: JSON.stringify(definition.definition, null, 2),
+          requiredApprovalLine: definition.required_approval_line,
+          requiredPaymentLine: definition.required_payment_line,
+          approvalLineJson: JSON.stringify(definition.approval_line, null, 2),
+          paymentLineJson: JSON.stringify(definition.payment_line, null, 2),
+          notificationRulesJson: JSON.stringify(
+            definition.notification_rules,
+            null,
+            2,
+          ),
+          actionAllowlistJson: JSON.stringify(
+            definition.action_allowlist,
+            null,
+            2,
+          ),
+        }));
+      }
       const sourceNode = loaded.graph.nodes.at(0);
       const targetNode = loaded.graph.nodes.at(1);
       setSelectedCanvasNodeId(sourceNode?.id);
@@ -296,49 +371,102 @@ export function WorkflowStudioPage() {
     setCreatingDraft(true);
     setFeedback(undefined);
     try {
-      const definitionForSave = withValidationResult({
-        ...canvasDefinition,
-        metadata: {
-          ...canvasDefinition.metadata,
-          name: draftForm.displayName,
-          object_type: draftForm.objectType,
-        },
-      });
-      if (
-        validateWorkflowDefinition(definitionForSave).some(
-          (finding) => finding.severity === "error",
-        )
-      ) {
-        setCanvasDefinition(definitionForSave);
-        showError(ko.workflowStudio.canvas.fixValidationBeforeSave);
-        return;
+      const definitionForSave =
+        definitionMode === "canvas"
+          ? withValidationResult({
+              ...canvasDefinition,
+              metadata: {
+                ...canvasDefinition.metadata,
+                name: draftForm.displayName,
+                object_type: draftForm.objectType,
+              },
+            })
+          : parseJsonObject(draftForm.definitionJson);
+      if (definitionMode === "canvas") {
+        const validationErrors = validateWorkflowDefinition(
+          definitionForSave as WorkflowDefinitionV1,
+        ).some((finding) => finding.severity === "error");
+        if (validationErrors) {
+          setCanvasDefinition(definitionForSave as WorkflowDefinitionV1);
+          showError(ko.workflowStudio.canvas.fixValidationBeforeSave);
+          return;
+        }
       }
-      const response = await api.POST("/api/v1/workflow-studio/definitions", {
-        body: {
-          workflow_key: draftForm.workflowKey,
-          display_name: draftForm.displayName,
-          object_type: draftForm.objectType,
-          definition: definitionForSave,
-          approval_line: parseJsonArray(draftForm.approvalLineJson),
-          payment_line: parseJsonArray(draftForm.paymentLineJson),
-          notification_rules: parseJsonArray(draftForm.notificationRulesJson),
-          action_allowlist: parseActionAllowlist(draftForm.actionAllowlistJson),
-          required_approval_line: draftForm.requiredApprovalLine,
-          required_payment_line: draftForm.requiredPaymentLine,
-        },
-      });
-      if (!response.data) throw new Error("workflow draft create failed");
-      const created = response.data;
-      setDefinitions((items) => [created, ...items]);
-      setSelectedDefinitionId(created.id);
-      loadCanvasDefinition(created);
-      await loadHistory(created.id);
-      showSuccess(ko.workflowStudio.createSuccess);
+      const payload = {
+        display_name: draftForm.displayName,
+        definition: definitionForSave,
+        approval_line: parseJsonArray(draftForm.approvalLineJson),
+        payment_line: parseJsonArray(draftForm.paymentLineJson),
+        notification_rules: parseJsonArray(draftForm.notificationRulesJson),
+        action_allowlist: parseActionAllowlist(draftForm.actionAllowlistJson),
+        required_approval_line: draftForm.requiredApprovalLine,
+        required_payment_line: draftForm.requiredPaymentLine,
+      };
+      if (editingDefinitionId) {
+        const response = await api.PATCH(
+          "/api/v1/workflow-studio/definitions/{id}",
+          {
+            params: { path: { id: editingDefinitionId } },
+            body: payload,
+          },
+        );
+        if (!response.data) throw new Error("workflow draft update failed");
+        const updated = response.data;
+        setDefinitions((items) =>
+          items.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        setSelectedDefinitionId(updated.id);
+        setEditingDefinitionId(undefined);
+        loadCanvasDefinition(updated);
+        await loadHistory(updated.id);
+        showSuccess(ko.workflowStudio.updateSuccess);
+      } else {
+        const response = await api.POST("/api/v1/workflow-studio/definitions", {
+          body: {
+            workflow_key: draftForm.workflowKey,
+            object_type: draftForm.objectType,
+            ...payload,
+          },
+        });
+        if (!response.data) throw new Error("workflow draft create failed");
+        const created = response.data;
+        setDefinitions((items) => [created, ...items]);
+        setSelectedDefinitionId(created.id);
+        loadCanvasDefinition(created);
+        await loadHistory(created.id);
+        showSuccess(ko.workflowStudio.createSuccess);
+      }
     } catch {
       showError(ko.workflowStudio.createFailed);
     } finally {
       setCreatingDraft(false);
     }
+  }
+
+  async function startEditingDefinition(definition: WorkflowDefinitionResponse) {
+    if (definition.status !== "DRAFT") return;
+    setEditingDefinitionId(definition.id);
+    setSelectedDefinitionId(definition.id);
+    loadCanvasDefinition(definition, { syncDraftForm: true });
+    try {
+      await loadHistory(definition.id);
+    } catch {
+      showError(ko.workflowStudio.actionFailed);
+    }
+  }
+
+  function cancelEditingDefinition() {
+    setEditingDefinitionId(undefined);
+    const blank = createDefaultCanvasDefinition();
+    setDefinitionMode("canvas");
+    setDraftForm(DEFAULT_DRAFT_FORM);
+    setCanvasDefinition(blank);
+    setSelectedCanvasNodeId(undefined);
+    setConnectionSourceId("");
+    setConnectionSourcePort("");
+    setConnectionTargetId("");
+    setConnectionTargetPort("");
+    setConnectionError(undefined);
   }
 
   async function publishDefinition(definition: WorkflowDefinitionResponse) {
@@ -418,9 +546,24 @@ export function WorkflowStudioPage() {
     });
   }
 
+  async function archiveDefinition(definition: WorkflowDefinitionResponse) {
+    if (!window.confirm(ko.workflowStudio.archiveConfirm)) return;
+    await sensitiveDefinitionAction(definition, "archive", async (stepUp) => {
+      const response = await api.DELETE(
+        "/api/v1/workflow-studio/definitions/{id}",
+        {
+          params: { path: { id: definition.id } },
+          body: { step_up: stepUp },
+        },
+      );
+      if (!response.data) throw new Error("workflow archive failed");
+      return response.data;
+    });
+  }
+
   async function sensitiveDefinitionAction(
     definition: WorkflowDefinitionResponse,
-    action: "publish" | "pause" | "rollback" | "clone",
+    action: "publish" | "pause" | "rollback" | "clone" | "archive",
     request: (
       stepUp: Awaited<ReturnType<typeof assertPasskeyStepUp>>,
     ) => Promise<WorkflowDefinitionResponse>,
@@ -430,6 +573,22 @@ export function WorkflowStudioPage() {
     try {
       const stepUp = await assertPasskeyStepUp(api);
       const updated = await request(stepUp);
+      if (action === "archive") {
+        const remainingDefinitions = definitions.filter(
+          (item) => item.id !== definition.id,
+        );
+        const nextSelected =
+          remainingDefinitions.find((item) => item.id === selectedDefinitionId)
+            ?.id ?? remainingDefinitions[0]?.id;
+        setDefinitions(remainingDefinitions);
+        setSelectedDefinitionId(nextSelected);
+        await loadHistory(nextSelected);
+        if (editingDefinitionId === definition.id) {
+          cancelEditingDefinition();
+        }
+        showSuccess(ko.workflowStudio.success.archive);
+        return;
+      }
       setDefinitions((items) =>
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
@@ -471,9 +630,16 @@ export function WorkflowStudioPage() {
   }
 
   function applyTemplate(template: WorkflowTemplateDescriptor) {
-    const nextDefinition = createDefaultCanvasDefinition();
-    nextDefinition.metadata.name = template.display_name;
-    nextDefinition.metadata.object_type = template.object_type;
+    const isPolicyTemplate = template.template_key === POLICY_TEMPLATE_KEY;
+    const nextDefinition = createEmptyWorkflowDefinition({
+      name: template.display_name,
+      objectType: template.object_type,
+    });
+    const fixedTemplateDefinition = isPolicyTemplate
+      ? equipmentLocationPolicyDefinition()
+      : workflowTemplateDefinition(template);
+    setEditingDefinitionId(undefined);
+    setDefinitionMode("fixed-template");
     setCanvasDefinition(nextDefinition);
     setSelectedCanvasNodeId(undefined);
     setConnectionSourceId("");
@@ -486,9 +652,28 @@ export function WorkflowStudioPage() {
       workflowKey: `${template.object_type}.${template.template_key}`,
       displayName: template.display_name,
       objectType: template.object_type,
-      definitionJson: JSON.stringify(nextDefinition, null, 2),
+      definitionJson: JSON.stringify(
+        fixedTemplateDefinition,
+        null,
+        2,
+      ),
       requiredApprovalLine: template.required_approval_line,
       requiredPaymentLine: template.required_payment_line,
+      approvalLineJson: isPolicyTemplate
+        ? JSON.stringify(
+            [
+              {
+                step_key: "policy_owner",
+                approver_role: "MAINTENANCE_MANAGER",
+                required: true,
+              },
+            ],
+            null,
+            2,
+          )
+        : template.required_approval_line
+          ? DEFAULT_DRAFT_FORM.approvalLineJson
+          : "[]",
       paymentLineJson: template.required_payment_line
         ? JSON.stringify(
             [{ step_key: "finance", approver_role: "FINANCE", required: true }],
@@ -496,6 +681,21 @@ export function WorkflowStudioPage() {
             2,
           )
         : "[]",
+      actionAllowlistJson: isPolicyTemplate
+        ? JSON.stringify(
+            [
+              {
+                connector_key: "internal.audit",
+                action_key: "append_timeline_event",
+              },
+            ],
+            null,
+            2,
+          )
+        : DEFAULT_DRAFT_FORM.actionAllowlistJson,
+      notificationRulesJson: isPolicyTemplate
+        ? "[]"
+        : DEFAULT_DRAFT_FORM.notificationRulesJson,
     }));
   }
 
@@ -504,6 +704,8 @@ export function WorkflowStudioPage() {
       name: ko.workflowStudio.canvas.defaultCanvasName,
       objectType: "leave_request",
     });
+    setEditingDefinitionId(undefined);
+    setDefinitionMode("canvas");
     setDraftForm(createLeaveApprovalDraftForm());
     setCanvasDefinition(nextDefinition);
     setSelectedCanvasNodeId("node-approval");
@@ -519,6 +721,8 @@ export function WorkflowStudioPage() {
 
   function startBlankCanvas() {
     const blank = createDefaultCanvasDefinition();
+    setEditingDefinitionId(undefined);
+    setDefinitionMode("canvas");
     setDraftForm(DEFAULT_DRAFT_FORM);
     setCanvasDefinition(blank);
     setSelectedCanvasNodeId(undefined);
@@ -530,14 +734,21 @@ export function WorkflowStudioPage() {
   }
 
   function addCanvasNode(type: WorkflowNodeType) {
-    const nextDefinition = addNodeToWorkflow(canvasDefinition, type);
-    const addedNode = nextDefinition.graph.nodes.at(-1);
-    setCanvasDefinition(nextDefinition);
-    setSelectedCanvasNodeId(addedNode?.id);
-    setConnectionSourceId((current) => current || addedNode?.id || "");
-    setConnectionSourcePort((current) => current || addedNode?.output_ports.at(0)?.key || "");
-    setConnectionTargetId((current) => current || addedNode?.id || "");
-    setConnectionTargetPort((current) => current || addedNode?.input_ports.at(0)?.key || "");
+    setDefinitionMode("canvas");
+    setCanvasDefinition((currentDefinition) => {
+      const nextDefinition = addNodeToWorkflow(currentDefinition, type);
+      const addedNode = nextDefinition.graph.nodes.at(-1);
+      setSelectedCanvasNodeId(addedNode?.id);
+      setConnectionSourceId((current) => current || addedNode?.id || "");
+      setConnectionSourcePort(
+        (current) => current || addedNode?.output_ports.at(0)?.key || "",
+      );
+      setConnectionTargetId((current) => current || addedNode?.id || "");
+      setConnectionTargetPort(
+        (current) => current || addedNode?.input_ports.at(0)?.key || "",
+      );
+      return nextDefinition;
+    });
     setConnectionError(undefined);
   }
 
@@ -571,6 +782,7 @@ export function WorkflowStudioPage() {
   }
 
   function updateCanvasDefinition(nextDefinition: WorkflowDefinitionV1) {
+    setDefinitionMode("canvas");
     setCanvasDefinition(nextDefinition);
     setDraftForm((current) => ({
       ...current,
@@ -659,6 +871,8 @@ export function WorkflowStudioPage() {
                     void rollbackDefinition(definition)
                   }
                   onClone={(definition) => void cloneDefinition(definition)}
+                  onEdit={(definition) => void startEditingDefinition(definition)}
+                  onArchive={(definition) => void archiveDefinition(definition)}
                 />
               )}
             </Card>
@@ -674,6 +888,8 @@ export function WorkflowStudioPage() {
               connectionTargetId={connectionTargetId}
               connectionTargetPort={connectionTargetPort}
               connectionError={connectionError}
+              editingDefinitionId={editingDefinitionId}
+              definitionMode={definitionMode}
               creatingDraft={creatingDraft}
               hasBlockers={canvasHasBlockers}
               onChange={setDraftForm}
@@ -689,7 +905,8 @@ export function WorkflowStudioPage() {
               onConnectionTargetPortChange={setConnectionTargetPort}
               onAddConnection={addCanvasConnection}
               onSimulate={simulateCanvasDraft}
-              onCreate={() => void createDraft()}
+              onSubmit={() => void createDraft()}
+              onCancelEdit={cancelEditingDefinition}
             />
           </div>
 
@@ -765,6 +982,8 @@ function WorkflowDefinitionTable({
   onPause,
   onRollback,
   onClone,
+  onEdit,
+  onArchive,
 }: {
   definitions: WorkflowDefinitionResponse[];
   selectedDefinitionId: string | undefined;
@@ -775,6 +994,8 @@ function WorkflowDefinitionTable({
   onPause: (definition: WorkflowDefinitionResponse) => void;
   onRollback: (definition: WorkflowDefinitionResponse) => void;
   onClone: (definition: WorkflowDefinitionResponse) => void;
+  onEdit: (definition: WorkflowDefinitionResponse) => void;
+  onArchive: (definition: WorkflowDefinitionResponse) => void;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -894,6 +1115,22 @@ function WorkflowDefinitionTable({
                         onClone(definition);
                       }}
                     />
+                    <IconActionButton
+                      label={ko.workflowStudio.edit}
+                      icon={<Pencil size={14} aria-hidden="true" />}
+                      disabled={busy || definition.status !== "DRAFT"}
+                      onClick={() => {
+                        onEdit(definition);
+                      }}
+                    />
+                    <IconActionButton
+                      label={ko.workflowStudio.delete}
+                      icon={<Trash2 size={14} aria-hidden="true" />}
+                      disabled={busy || definition.status !== "DRAFT"}
+                      onClick={() => {
+                        onArchive(definition);
+                      }}
+                    />
                   </div>
                 </td>
               </tr>
@@ -916,6 +1153,8 @@ function WorkflowCanvasAuthoringCard({
   connectionTargetId,
   connectionTargetPort,
   connectionError,
+  editingDefinitionId,
+  definitionMode,
   creatingDraft,
   hasBlockers,
   onChange,
@@ -931,7 +1170,8 @@ function WorkflowCanvasAuthoringCard({
   onConnectionTargetPortChange,
   onAddConnection,
   onSimulate,
-  onCreate,
+  onSubmit,
+  onCancelEdit,
 }: {
   catalog: WorkflowStudioCatalogResponse;
   draftForm: DraftForm;
@@ -943,6 +1183,8 @@ function WorkflowCanvasAuthoringCard({
   connectionTargetId: string;
   connectionTargetPort: string;
   connectionError: string | undefined;
+  editingDefinitionId: string | undefined;
+  definitionMode: DefinitionMode;
   creatingDraft: boolean;
   hasBlockers: boolean;
   onChange: (form: DraftForm) => void;
@@ -958,9 +1200,12 @@ function WorkflowCanvasAuthoringCard({
   onConnectionTargetPortChange: (port: string) => void;
   onAddConnection: () => void;
   onSimulate: () => void;
-  onCreate: () => void;
+  onSubmit: () => void;
+  onCancelEdit: () => void;
 }) {
   const blockingCount = findings.filter((finding) => finding.severity === "error").length;
+  const isEditing = Boolean(editingDefinitionId);
+  const isFixedTemplate = definitionMode === "fixed-template";
   const selectedNode = canvasDefinition.graph.nodes.find(
     (node) => node.id === selectedNodeId,
   );
@@ -986,7 +1231,9 @@ function WorkflowCanvasAuthoringCard({
               <AlertTriangle size={18} className="text-amber-600" aria-hidden="true" />
             )}
             <h2 className="text-lg font-semibold text-ink">
-              {ko.workflowStudio.canvas.title}
+              {isEditing
+                ? ko.workflowStudio.authoring.editTitle
+                : ko.workflowStudio.canvas.title}
             </h2>
           </div>
           <p className="mt-1 text-sm text-steel">
@@ -994,6 +1241,11 @@ function WorkflowCanvasAuthoringCard({
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
+          {isEditing ? (
+            <Button type="button" variant="secondary" onClick={onCancelEdit}>
+              {ko.workflowStudio.authoring.cancelEdit}
+            </Button>
+          ) : null}
           <Badge className={blockingCount === 0 ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal" : "border-amber-200 bg-amber-50 text-amber-700"}>
             {ko.workflowStudio.canvas.blockerSummary(blockingCount)}
           </Badge>
@@ -1002,14 +1254,23 @@ function WorkflowCanvasAuthoringCard({
           </Button>
           <Button
             type="button"
-            onClick={onCreate}
+            onClick={onSubmit}
             disabled={creatingDraft || hasBlockers}
             title={hasBlockers ? ko.workflowStudio.canvas.fixValidationBeforeSave : undefined}
           >
-            {ko.workflowStudio.authoring.create}
+            {isEditing
+              ? ko.workflowStudio.authoring.update
+              : ko.workflowStudio.authoring.create}
           </Button>
         </div>
       </div>
+
+      {isFixedTemplate ? (
+        <FeedbackBanner
+          kind="success"
+          message={ko.workflowStudio.canvas.generatedDefinition}
+        />
+      ) : null}
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Button type="button" variant="secondary" onClick={onApplyLeaveTemplate}>
@@ -1037,6 +1298,7 @@ function WorkflowCanvasAuthoringCard({
         <Field
           label={ko.workflowStudio.authoring.workflowKey}
           value={draftForm.workflowKey}
+          disabled={isEditing}
           onChange={(value) => {
             setField("workflowKey", value);
           }}
@@ -1051,6 +1313,7 @@ function WorkflowCanvasAuthoringCard({
         <Field
           label={ko.workflowStudio.authoring.objectType}
           value={draftForm.objectType}
+          disabled={isEditing}
           onChange={(value) => {
             setField("objectType", value);
           }}
@@ -1363,10 +1626,12 @@ function WorkflowValidationPanel({
 function Field({
   label,
   value,
+  disabled = false,
   onChange,
 }: {
   label: string;
   value: string;
+  disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -1374,10 +1639,11 @@ function Field({
       <span>{label}</span>
       <input
         value={value}
+        disabled={disabled}
         onChange={(event) => {
           onChange(event.currentTarget.value);
         }}
-        className="rounded-lg border border-line px-3 py-2 font-normal text-ink focus:border-ink focus:outline-none"
+        className="rounded-lg border border-line px-3 py-2 font-normal text-ink focus:border-ink focus:outline-none disabled:cursor-not-allowed disabled:bg-muted-panel"
       />
     </label>
   );
@@ -1438,6 +1704,14 @@ function missingRequiredLines(definition: WorkflowDefinitionResponse): boolean {
 
 function countArray(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error("expected JSON object");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function parseJsonArray(value: string): Record<string, unknown>[] {

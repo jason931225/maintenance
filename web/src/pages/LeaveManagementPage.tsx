@@ -18,12 +18,6 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { leaveManagementKo as copy } from "../i18n/hrWorkflows";
-import {
-  devEmployeeDirectoryPage,
-  devHrReadinessSummary,
-  devLeaveBalancePage,
-  isDevPreviewEnabled,
-} from "../lib/dev-preview";
 import type { Tone } from "../lib/semantic";
 import { toneBadgeClass } from "../lib/semantic";
 import { formatListCount } from "../lib/utils";
@@ -85,14 +79,6 @@ export function LeaveManagementPage() {
       !leaveResponse?.data ||
       !readinessResponse?.data
     ) {
-      if (isDevPreviewEnabled()) {
-        const devEmployees = devEmployeeDirectoryPage();
-        setEmployees(devEmployees.items);
-        setLeaveBalances(devLeaveBalancePage());
-        setReadinessSummary(devHrReadinessSummary());
-        setState("idle");
-        return;
-      }
       setState("error");
       return;
     }

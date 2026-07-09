@@ -29,6 +29,7 @@ use mnt_platform_storage::{
     PresignedUpload, ProcessingStatus, S3ObjectStore, StagingUploadCommand, StorageError,
     WormReplicaStatus,
 };
+use mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore;
 use mnt_workorder_adapter_postgres::{PgWorkOrderError, PgWorkOrderStore};
 use mnt_workorder_application::{
     AssignmentInput, CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
@@ -53,6 +54,12 @@ use time::format_description::well_known::Rfc3339;
 // OpenAPI `Date` contract (`type: string, format: date`) and rejects the ISO
 // strings the web/mobile clients send. This module aligns the wire format.
 time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
+
+/// M2 workflow-runtime strangler seam. `pub` so the app's outbox drain worker can
+/// call the crash-recovery reconciler ([`m2_strangler::reconcile_completion_tails`])
+/// and so the completion tail can be driven directly in integration tests; the REST
+/// entry (`drive_completion_if_enabled`) stays crate-private.
+pub mod m2_strangler;
 
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";
@@ -82,6 +89,11 @@ pub const MAX_SYNC_BATCH_OPERATIONS: usize = 200;
 pub struct WorkOrderRestState {
     store: PgWorkOrderStore,
     jwt_verifier: Option<JwtVerifier>,
+    /// M2 workflow-runtime store for the completion strangler (design §Strangler).
+    /// `None` disables the runtime path entirely (pure legacy). Even when `Some`,
+    /// the per-tenant `workflow_runtime_m2_strangler` flag gates it, and it ships
+    /// dark, so production stays on the legacy path byte-for-byte.
+    workflow_runtime: Option<PgWorkflowRuntimeStore>,
 }
 
 impl WorkOrderRestState {
@@ -90,7 +102,18 @@ impl WorkOrderRestState {
         Self {
             store,
             jwt_verifier,
+            workflow_runtime: None,
         }
+    }
+
+    /// Attach the M2 workflow-runtime store that backs the completion strangler.
+    #[must_use]
+    pub fn with_workflow_runtime(
+        mut self,
+        workflow_runtime: Option<PgWorkflowRuntimeStore>,
+    ) -> Self {
+        self.workflow_runtime = workflow_runtime;
+        self
     }
 }
 
@@ -2966,6 +2989,33 @@ async fn approve_work_order(
         })
         .await
         .map_err(RestError::from_store)?;
+
+    // M2 completion strangler (design §Strangler, step 7). Only the executive
+    // approval that reaches FINAL_COMPLETED is a candidate — admin → AdminReview
+    // never touches the runtime. The legacy completion above already committed
+    // (work_orders status + audit) in its own transaction; this is a purely
+    // additive, flag-gated record step. Legacy-first ordering means a runtime
+    // failure never fails a request the tenant already saw succeed — it is logged
+    // and the payroll draft is eventually restaged by the outbox drainer. Flag OFF
+    // (the dark default for every tenant) is a single read-only SELECT that writes
+    // nothing, so the completion path stays byte-identical to legacy.
+    if summary.status == WorkOrderStatus::FinalCompleted
+        && let Some(runtime) = state.workflow_runtime.as_ref()
+        && let Err(err) = m2_strangler::drive_completion_if_enabled(
+            runtime,
+            &principal,
+            summary.branch_id,
+            work_order_id,
+        )
+        .await
+    {
+        tracing::warn!(
+            error = %err.message,
+            work_order_id = %work_order_id,
+            "m2 strangler: runtime completion record failed (completion already persisted; drainer will restage payroll)"
+        );
+    }
+
     Ok(Json(summary))
 }
 

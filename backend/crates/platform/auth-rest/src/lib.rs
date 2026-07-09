@@ -78,6 +78,10 @@ pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
 pub const GROUP_ADMIN_GROUPS_PATH: &str = "/api/v1/group-admin/groups";
 pub const GROUP_ADMIN_TENANT_CONTEXT_PATH: &str = "/api/v1/group-admin/tenant-context";
 pub const GROUP_ADMIN_TENANT_CONTEXT_EXIT_PATH: &str = "/api/v1/group-admin/tenant-context/exit";
+/// Local-dev-only role-switch endpoint. The const itself only exists when the
+/// `dev-auth` feature is compiled in — see the `dev_auth` module docs.
+#[cfg(feature = "dev-auth")]
+pub const DEV_AUTH_SESSION_PATH: &str = "/api/v1/dev-auth/session";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
     SIGNUP_PATH,
     PASSKEY_REGISTER_START_PATH,
@@ -285,7 +289,7 @@ pub enum AuthRestConfigError {
 }
 
 pub fn router(state: AuthRestState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route(SIGNUP_PATH, post(signup))
         .route(PASSKEY_REGISTER_START_PATH, post(start_registration))
         .route(PASSKEY_REGISTER_FINISH_PATH, post(finish_registration))
@@ -316,8 +320,10 @@ pub fn router(state: AuthRestState) -> Router {
         .route(
             GROUP_ADMIN_TENANT_CONTEXT_EXIT_PATH,
             post(exit_group_admin_tenant_context),
-        )
-        .with_state(state)
+        );
+    #[cfg(feature = "dev-auth")]
+    let router = router.route(DEV_AUTH_SESSION_PATH, post(dev_auth_session));
+    router.with_state(state)
 }
 
 #[derive(Debug, Deserialize)]
@@ -2183,6 +2189,12 @@ async fn start_group_admin_tenant_context(
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                // Deferred (SLICE-2): the short-lived group-admin tenant-context
+                // token does not source freshness yet. Safe 0 baseline; not
+                // consulted by any decision on the still-unreachable Cedar path.
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: now,
             },
             group_id,
@@ -2237,6 +2249,176 @@ async fn exit_group_admin_tenant_context(
     Ok(Json(GroupAdminTenantContextExitResponse { ended: true }))
 }
 
+// ---------------------------------------------------------------------------
+// dev-auth: local role-switch endpoint (feature-gated, NOT in default/release
+// builds — see `mnt-gate-dev-auth-absence` and `Cargo.toml`'s `[features]`).
+//
+// # Why not `platform-rest`'s `view_as.rs`
+//
+// `view_as.rs` already mints real signed tokens through the same
+// `mnt_platform_auth` issuance this endpoint uses, so its underlying primitive
+// IS reused (see below) — but its HANDLER is the wrong shape for dev-auth, and
+// deliberately not reused, for two independent reasons:
+//
+// 1. **Entry point vs. escalation.** `start_view_as` runs behind the PLATFORM
+//    extractor: only an already-authenticated platform operator can reach it.
+//    dev-auth must be the FIRST thing a developer calls with zero prior
+//    session — an unauthenticated bootstrap like `otp/redeem`, not an
+//    escalation of an existing one. Routing dev-auth through the platform
+//    tier would mean either minting a fake platform token to satisfy that
+//    extractor (defeats its entire "only platform tier can start" guarantee)
+//    or weakening the extractor itself — both unacceptable.
+// 2. **Read-only vs. read-write.** Every `view_as` token is permanently
+//    mutation-blocked by `with_view_as_read_only_gate`, a BLANKET method gate
+//    applied unconditionally to the tenant router (not itself feature-gated).
+//    The role-switcher's whole point is exercising real CRUD as any role, so a
+//    dev-auth session must carry `view_as = false`. Reusing `view_as`'s claim
+//    shape would make every role-switch session permanently read-only.
+//
+// What IS reused: the one JWT issuance path every session-minting endpoint in
+// this file already shares (`issue_token_pair` / `AccessTokenInput`, same
+// signing keys, same `AccessClaims`) — no parallel signer, no new claim shape.
+// The other reused piece is the `mnt-platform-provisioning` crate's user
+// upsert pattern (`DevPrincipalProvisioner`, modeled on `apply_roster_tx`),
+// because unlike `view_as` (which targets a REAL existing tenant role) a
+// role-switch persona may not exist yet, and branch scope is re-resolved from
+// a REAL `user_branches` row on every subsequent request.
+// ---------------------------------------------------------------------------
+
+/// POST /api/v1/dev-auth/session request body.
+#[cfg(feature = "dev-auth")]
+#[derive(Debug, Deserialize)]
+struct DevAuthSessionRequest {
+    org_id: Uuid,
+    /// Canonical role code, e.g. `ADMIN` / `MECHANIC`.
+    role: String,
+    #[serde(default)]
+    branch_ids: Vec<Uuid>,
+    /// UI-gating hint only (exactly like the ordinary session's `feature_grants`
+    /// claim) — backend authorization always re-resolves custom policy from the
+    /// database per request and never trusts this claim.
+    #[serde(default)]
+    feature_grants: Vec<String>,
+    #[serde(default)]
+    display_name: Option<String>,
+}
+
+#[cfg(feature = "dev-auth")]
+const DEV_AUTH_MAX_BRANCHES: usize = 32;
+#[cfg(feature = "dev-auth")]
+const DEV_AUTH_MAX_FEATURE_GRANTS: usize = 32;
+#[cfg(feature = "dev-auth")]
+const DEV_AUTH_MAX_FEATURE_GRANT_LEN: usize = 100;
+#[cfg(feature = "dev-auth")]
+const DEV_AUTH_MAX_DISPLAY_NAME_LEN: usize = 200;
+
+/// Mint a local role-switch session for any role/org/branch/feature-grant
+/// combo. Unauthenticated by design (like `otp/redeem`/`signup`): it IS the
+/// entry point, gated instead by not existing in a release build. Fails closed
+/// on every input; never reachable unless the crate/binary was built with
+/// `--features dev-auth`.
+#[cfg(feature = "dev-auth")]
+async fn dev_auth_session(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<DevAuthSessionRequest>,
+) -> Result<Response, RestError> {
+    let services = state.services()?;
+
+    let org_id = OrgId::from_uuid(body.org_id);
+    if org_id == OrgId::platform() {
+        return Err(RestError::bad_request(
+            "dev-auth cannot mint a platform-tier session",
+        ));
+    }
+    let role =
+        Role::from_str(&body.role).map_err(|_| RestError::bad_request("unknown role code"))?;
+    if body.branch_ids.len() > DEV_AUTH_MAX_BRANCHES {
+        return Err(RestError::bad_request("too many branch_ids"));
+    }
+    if body.feature_grants.len() > DEV_AUTH_MAX_FEATURE_GRANTS
+        || body
+            .feature_grants
+            .iter()
+            .any(|grant| grant.is_empty() || grant.len() > DEV_AUTH_MAX_FEATURE_GRANT_LEN)
+    {
+        return Err(RestError::bad_request("invalid feature_grants"));
+    }
+    let display_name = body
+        .display_name
+        .unwrap_or_else(|| format!("dev:{}", role.as_str()));
+    let display_name = display_name.trim();
+    if display_name.is_empty() || display_name.len() > DEV_AUTH_MAX_DISPLAY_NAME_LEN {
+        return Err(RestError::bad_request(
+            "display_name must be 1-200 characters",
+        ));
+    }
+
+    let branch_ids: Vec<BranchId> = body
+        .branch_ids
+        .iter()
+        .copied()
+        .map(BranchId::from_uuid)
+        .collect();
+    let now = OffsetDateTime::now_utc();
+    let principal = mnt_platform_provisioning::DevPrincipalProvisioner
+        .upsert(
+            &state.pool,
+            mnt_platform_provisioning::DevPrincipalRequest {
+                org_id,
+                display_name: display_name.to_owned(),
+                role: role.as_str().to_owned(),
+                branch_ids: branch_ids.clone(),
+            },
+            now,
+        )
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    let user = UserAuthContext {
+        user_id: UserId::from_uuid(principal.user_id),
+        org_id,
+        display_name: display_name.to_owned(),
+        username: display_name.to_owned(),
+        roles: vec![role.as_str().to_owned()],
+        branches: branch_ids,
+        group_roles: Vec::new(),
+        feature_grants: body.feature_grants.clone(),
+        // dev-auth builds the context without a DB read, so leave the safe 0
+        // baseline. This is a dev-only build path and freshness is not consulted
+        // by any decision in SLICE-2 anyway.
+        authz_subject_version: 0,
+        authz_policy_version: 0,
+        session_generation: 0,
+    };
+    let tokens = issue_token_pair(&state.pool, services, &user).await?;
+
+    // Loud by design: a dev-auth mint is a security-relevant event even in a
+    // local/dev-only build, so it must never be silent.
+    tracing::warn!(
+        org_id = %body.org_id,
+        role = role.as_str(),
+        user_id = %principal.user_id,
+        "dev-auth: minted a local role-switch session (dev-auth build only)"
+    );
+    record_auth_audit(
+        &state.pool,
+        *user.user_id.as_uuid(),
+        "dev_auth.session.mint",
+        serde_json::json!({
+            "role": role.as_str(),
+            "branch_ids": body.branch_ids,
+        }),
+    )
+    .await?;
+
+    Ok(token_pair_response(
+        tokens,
+        &headers,
+        services.cookie_secure,
+    ))
+}
+
 impl AuthRestState {
     fn services(&self) -> Result<&AuthServices, RestError> {
         self.services.as_ref().ok_or_else(|| {
@@ -2261,6 +2443,14 @@ struct UserAuthContext {
     /// for UI gating hints. Backend request authorization ignores the JWT hint
     /// and re-resolves custom policy from the database on every request.
     feature_grants: Vec<String>,
+    /// Subject authorization freshness snapshot resolved from the DB at
+    /// login/refresh time (Cedar/PBAC activation, ADR-0021), stamped into the
+    /// access token so a later Cedar slice can deny a stale subject. SLICE-2 only
+    /// sources these; no authorization decision consults them yet. Mint paths
+    /// that do not resolve them (dev-auth) leave the safe `0` baseline.
+    authz_subject_version: u64,
+    authz_policy_version: u64,
+    session_generation: u64,
 }
 
 #[derive(Debug)]
@@ -2302,6 +2492,12 @@ async fn issue_token_pair(
         // DISPLAY-ONLY identity for the topbar; never used for authz.
         display_name: Some(user.display_name.clone()),
         feature_grants: user.feature_grants.clone(),
+        // Subject authorization freshness snapshot (Cedar/PBAC, ADR-0021),
+        // resolved from the DB when the context was loaded. SLICE-2: sourced onto
+        // the token, not yet consulted by any decision.
+        authz_subject_version: user.authz_subject_version,
+        authz_policy_version: user.authz_policy_version,
+        session_generation: user.session_generation,
         issued_at: now,
     };
     let access_token = if user.group_roles.is_empty() {
@@ -2354,6 +2550,12 @@ fn issue_access_token(
         // every refresh so a renamed user's token reflects it. Never authz.
         display_name: Some(user.display_name.clone()),
         feature_grants: user.feature_grants.clone(),
+        // Subject authorization freshness snapshot (Cedar/PBAC, ADR-0021),
+        // re-resolved from the DB on every refresh so a rotated token carries the
+        // current values. SLICE-2: sourced, not yet consulted.
+        authz_subject_version: user.authz_subject_version,
+        authz_policy_version: user.authz_policy_version,
+        session_generation: user.session_generation,
         issued_at: OffsetDateTime::now_utc(),
     };
     if user.group_roles.is_empty() {
@@ -2504,6 +2706,53 @@ async fn load_user_auth_context_tx(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Snapshot the subject authorization freshness for the access token
+    // (Cedar/PBAC activation, ADR-0021). The `app.current_org` GUC is already
+    // armed by the caller, so these RLS-scoped reads only ever see this tenant's
+    // rows. An absent row is the "no bump yet" baseline and reads as 0, matching
+    // the token default. SLICE-2 sources these onto the token; no authorization
+    // decision consults them yet.
+    let subject_versions_row = sqlx::query(
+        r#"
+        SELECT version, session_generation
+        FROM subject_authz_versions
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(tx.as_mut())
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    let (authz_subject_version, session_generation) = match subject_versions_row {
+        Some(row) => {
+            let version: i64 = row
+                .try_get("version")
+                .map_err(|err| RestError::internal(err.to_string()))?;
+            let session_generation: i64 = row
+                .try_get("session_generation")
+                .map_err(|err| RestError::internal(err.to_string()))?;
+            (
+                u64::try_from(version).unwrap_or(0),
+                u64::try_from(session_generation).unwrap_or(0),
+            )
+        }
+        None => (0, 0),
+    };
+    let policy_version: Option<i64> = sqlx::query_scalar(
+        r#"
+        SELECT version
+        FROM policy_versions
+        WHERE org_id = $1
+        "#,
+    )
+    .bind(*org_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    let authz_policy_version = policy_version
+        .map(|version| u64::try_from(version).unwrap_or(0))
+        .unwrap_or(0);
+
     Ok(UserAuthContext {
         user_id: UserId::from_uuid(user_id),
         org_id,
@@ -2513,6 +2762,9 @@ async fn load_user_auth_context_tx(
         branches,
         group_roles,
         feature_grants: Vec::new(),
+        authz_subject_version,
+        authz_policy_version,
+        session_generation,
     })
 }
 
@@ -2985,6 +3237,11 @@ impl RateLimitEndpoint {
             // Polling is expected while a desktop waits for a phone approval; use
             // a wider bucket than credential submission while keeping a bound.
             Self::DeviceLoginPoll => (60, 60, 1_000),
+            // Refresh requires possession of an opaque rotating token; legitimate
+            // browser hard navigations/reloads can perform many boot refreshes in
+            // one minute because the access token is memory-only. Keep refresh
+            // bounded, but do not reuse the much tighter credential-submission cap.
+            Self::Refresh => (60, 60, 1_000),
             _ => (RATE_LIMIT_PER_IP, RATE_LIMIT_PER_DEVICE, RATE_LIMIT_GLOBAL),
         }
     }

@@ -43,6 +43,8 @@ use mnt_kernel_core::{
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
+use mnt_notifications_adapter_postgres::PgNotificationStore;
+use mnt_notifications_rest::NotificationRestState;
 use mnt_platform_auth::{
     AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
     JwtVerifier, PasskeyService, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH,
@@ -62,7 +64,8 @@ use mnt_platform_push::{
     SolapiConfig,
 };
 use mnt_platform_realtime::{
-    PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, RealtimeRestState,
+    PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, PostgresNotificationNotifier,
+    RealtimeRestState,
 };
 use mnt_platform_rest::PlatformRestState;
 use mnt_platform_storage::{
@@ -98,6 +101,7 @@ use url::Url;
 mod collaboration;
 mod hr;
 mod mail_sync;
+mod workflow_drain;
 mod workflow_studio;
 
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
@@ -811,7 +815,8 @@ pub struct AppState {
     realtime_bridge: Option<PostgresBridgeHandle>,
     /// The webmail master-key cipher (envelope AEAD for SMTP/IMAP credentials).
     /// `None` when `MNT_MAIL_MASTER_KEY` is absent at boot — the app STILL boots
-    /// and the mail router still mounts, but every mail endpoint returns a clear
+    /// and the mail router still mounts. Read-only mail endpoints degrade to a
+    /// clean no-account/empty state; credential-using endpoints return a clear
     /// `503 email_not_configured`. The cipher feature is lazily/optionally init'd
     /// so a missing key is never a panic.
     mail_cipher: Option<Arc<EnvelopeCredentialCipher>>,
@@ -964,14 +969,15 @@ impl AppState {
         // Webmail master key (envelope AEAD KEK) — GRACEFULLY OPTIONAL. When
         // `MNT_MAIL_MASTER_KEY` is present + valid it arms the webmail credential
         // cipher; when it is absent the app STILL boots and the mail router still
-        // mounts (so the OpenAPI paths exist), but every mail endpoint returns a
-        // clear 503. A malformed key is a real misconfiguration → surfaced as a
+        // mounts (so the OpenAPI paths exist). Read-only mail endpoints degrade to
+        // a clean no-account/empty state; credential-using endpoints return a clear
+        // `503 email_not_configured`. If it is present but malformed, that's a
         // boot error so it is caught immediately rather than at first use.
         match EnvelopeCredentialCipher::from_env() {
             Ok(cipher) => state.mail_cipher = Some(Arc::new(cipher)),
             Err(_) if std::env::var(mnt_comms_credential_cipher::MASTER_KEY_ENV).is_err() => {
                 tracing::info!(
-                    "MNT_MAIL_MASTER_KEY unset: webmail is unavailable (endpoints return 503); the app boots normally"
+                    "MNT_MAIL_MASTER_KEY unset: credential-using webmail endpoints are unavailable; read paths stay clean and the app boots normally"
                 );
             }
             Err(_) => {
@@ -1293,6 +1299,8 @@ pub fn build_router(state: AppState) -> Router {
                 .unwrap_or_else(|| Arc::new(PgRealtimeHub::new(pool.clone(), Default::default())));
             let messenger_store = PgMessengerStore::new(pool.clone())
                 .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())));
+            let notification_store = PgNotificationStore::new(pool.clone())
+                .with_notifier(Arc::new(PostgresNotificationNotifier::new(pool.clone())));
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());
@@ -1389,10 +1397,14 @@ pub fn build_router(state: AppState) -> Router {
                     kpi_repository,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
-                    work_order_store.clone(),
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_workorder_rest::router(
+                    WorkOrderRestState::new(work_order_store.clone(), state.jwt_verifier.clone())
+                        .with_workflow_runtime(Some(
+                            mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore::new(
+                                pool.clone(),
+                            ),
+                        )),
+                ))
                 .merge(mnt_workorder_rest::mobile_router(
                     MobileRestState::new(
                         pool.clone(),
@@ -1406,9 +1418,14 @@ pub fn build_router(state: AppState) -> Router {
                     messenger_store,
                     state.jwt_verifier.clone(),
                 )))
+                .merge(mnt_notifications_rest::router(NotificationRestState::new(
+                    notification_store,
+                    state.jwt_verifier.clone(),
+                )))
                 // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the
                 // OpenAPI paths exist and the app boots without the master key;
-                // when `state.mail_cipher` is `None` every endpoint returns 503.
+                // when `state.mail_cipher` is `None`, read paths degrade cleanly
+                // while credential-using endpoints return 503.
                 // The inbound-attachment object store (presigned GET) is wired
                 // from the same storage config the evidence pipeline uses; `None`
                 // when storage is unconfigured (download then 503s).
@@ -2013,6 +2030,9 @@ impl TelemetryGuard {
 }
 
 pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
+    if let DatabaseDependency::Postgres(pool) = &state.database {
+        assert_no_dev_auth_personas(pool).await?;
+    }
     match config.role {
         AppRole::Api => serve_api(config, state).await,
         AppRole::Worker => run_dispatch_worker(config, state).await,
@@ -2020,6 +2040,38 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
         // wiring); it is dispatched in `main` before `from_config` runs.
         AppRole::Migrate => run_migrations(&config).await,
     }
+}
+
+/// Refuse to boot (api or worker role) if a dev-auth persona row leaked into
+/// this database. `dev-auth:<org>:<role>` is the synthetic `phone` key
+/// `DevPrincipalProvisioner` (mnt-platform-provisioning) upserts for the
+/// local role-switch endpoint; that endpoint only exists in a build compiled
+/// with `--features dev-auth`, so any such row in a build WITHOUT that
+/// feature means a dev database dump (or a devved-up environment's data)
+/// reached somewhere it should not have. Compiled out entirely under
+/// `dev-auth` (a dev-auth build is expected to have these rows).
+///
+/// `pub` (rather than private) so `backend/app/tests/*` can exercise both cfg
+/// bodies directly without booting a full HTTP server.
+#[cfg(not(feature = "dev-auth"))]
+pub async fn assert_no_dev_auth_personas(pool: &sqlx::PgPool) -> Result<(), AppError> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE phone LIKE 'dev-auth:%'")
+        .fetch_one(pool)
+        .await
+        .map_err(AppError::Database)?;
+    if count > 0 {
+        return Err(AppError::Internal(format!(
+            "refusing to start: {count} dev-auth:* persona row(s) found in `users` — a dev-only \
+             database dump reached a build without the dev-auth feature. Purge them before \
+             starting this environment: DELETE FROM users WHERE phone LIKE 'dev-auth:%';"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "dev-auth")]
+pub async fn assert_no_dev_auth_personas(_pool: &sqlx::PgPool) -> Result<(), AppError> {
+    Ok(())
 }
 
 /// Apply the embedded schema migrations against `DATABASE_URL`, then return.
@@ -2171,6 +2223,11 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         queue = "mnt.dispatch",
         "starting mnt-app worker"
     );
+    // M2 workflow-runtime payroll outbox drainer (design §B/§F). Runs alongside
+    // the apalis dispatch worker on the same `mnt_rt` pool, re-arming
+    // `app.current_org` per tenant each tick. Lands dark: no tenant is enrolled in
+    // a shipped migration/seed, so it finds no work in production.
+    let workflow_drain_handle = workflow_drain::spawn(pool.clone());
     let alimtalk_policy = if config.solapi.is_some() {
         AlimtalkEscalationPolicy::enabled()
     } else {
@@ -2234,6 +2291,7 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     .await
     .map_err(|err| AppError::Worker(err.to_string()));
 
+    workflow_drain_handle.shutdown();
     health_server.abort();
     result
 }

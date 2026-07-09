@@ -11,6 +11,21 @@ mirrors the lead's merge protocol: each merged surface is independently
 re-verified (fmt, clippy, tests, the four Rust gates, and — when client-facing
 surfaces move — the drift/parity/contract gates) before it lands on `main`.
 
+## Review evidence gate
+
+For user-facing features, PR/review evidence must prove the shipped workflow, not
+just the transport seam. API endpoint tests, handler tests, or generated-client
+round trips are necessary contract evidence, but they are **not sufficient** for
+UI feature claims. When UI is involved, reviewers must require browser/E2E or
+equivalent real-surface proof that walks the user story: sign-up, organization
+onboarding, passkey setup, and the actual domain workflow.
+
+The product guardrail is CRUD-first SaaS: database-backed create/read/update/
+delete UI and normal editing workflows come before upload/import/Excel paths.
+Upload/import/build requests from non-technical staff are product inputs, not
+product authority; reviewers should reframe or reject them when they weaken SaaS
+maturity or bypass first-class CRUD workflows.
+
 ## How to run the full suite locally
 
 ```bash
@@ -140,6 +155,21 @@ Regenerates the clients from `openapi.yaml` and runs `git diff --exit-code`. Any
 drift between the committed generated code and a fresh regeneration fails. (Hand-
 editing generated client files therefore fails the gate — regenerate instead.)
 `check:ts` / `check:kotlin` / `check:swift` additionally compile each client.
+
+Generated-client source-control policy for cleanup issue #108:
+- `backend/openapi/openapi.yaml` is the reviewed source of truth for generated
+  clients. Keep generated TypeScript, Kotlin, and Swift client output committed
+  and versioned atomically with OpenAPI changes so web/mobile consumers have
+  reproducible source and CI can fail on drift.
+- Regenerate clients with `npm run gen:api:portable` and `npm run gen:api:swift`;
+  do not hand-edit `clients/ts/src/schema.d.ts`, `clients/kotlin/**`, or
+  `clients/swift/Sources/MaintenanceAPIClient/Generated/**`.
+- Code review and audit de-emphasize generated hunks and instead review
+  `backend/openapi/openapi.yaml`, generator scripts/configuration, and the drift
+  gate output for intent.
+- This policy can change only after a replacement release path proves consumer
+  builds, package publishing, and drift checks without committed generated
+  clients.
 
 ### 9. `check:openapi-app` — spec covers mounted routes
 

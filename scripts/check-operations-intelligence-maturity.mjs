@@ -1,26 +1,6 @@
-import { readFileSync } from "node:fs";
+import { createTextGate } from "./lib/text-gate.mjs";
 
-const checks = [];
-
-function read(path) {
-  return readFileSync(path, "utf8");
-}
-
-function requireIncludes(path, needle, label) {
-  const text = read(path);
-  if (!text.includes(needle)) {
-    throw new Error(`${label}: expected ${path} to include ${JSON.stringify(needle)}`);
-  }
-  checks.push(label);
-}
-
-function requireNotIncludes(path, needle, label) {
-  const text = read(path);
-  if (text.includes(needle)) {
-    throw new Error(`${label}: ${path} must not include ${JSON.stringify(needle)}`);
-  }
-  checks.push(label);
-}
+const { requireIncludes, requireNotIncludes, reportGate } = createTextGate();
 
 requireIncludes(
   "docs/specs/operations-intelligence.md",
@@ -184,4 +164,4 @@ for (const path of [
   requireNotIncludes(path, "직접 변경합니다", `${path} does not claim direct mutation`);
 }
 
-console.log(`operations intelligence maturity gate passed (${checks.length} checks)`);
+reportGate("operations intelligence maturity gate passed");

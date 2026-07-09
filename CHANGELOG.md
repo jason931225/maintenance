@@ -1,5 +1,107 @@
 # Changelog
 
+## [0.1.44](https://github.com/jason931225/maintenance/compare/v0.1.43...v0.1.44) (2026-07-09)
+
+
+### Features
+
+* **console:** UI-M1b — ConsoleShell window engine + server-side workspace persistence ([#196](https://github.com/jason931225/maintenance/issues/196)) ([4ad7aa3](https://github.com/jason931225/maintenance/commit/4ad7aa3684f0d28f8d07f7fd7e23459cdc1c5f5c))
+* **console:** UI-M2a core — object registry + @/#/! token grammar (standalone modules) ([#194](https://github.com/jason931225/maintenance/issues/194)) ([aff9dc9](https://github.com/jason931225/maintenance/commit/aff9dc92837d542152fe06f77addb17167b1d717))
+* **notifications:** notification center backend — outbox drain, REST, realtime fan-out ([#198](https://github.com/jason931225/maintenance/issues/198)) ([8db3d17](https://github.com/jason931225/maintenance/commit/8db3d1770f9754c94977416512c2cbc6fac9a387))
+
+## [0.1.43](https://github.com/jason931225/maintenance/compare/v0.1.42...v0.1.43) (2026-07-08)
+
+
+### Features
+
+* **cedar:** PBAC activation — role_manage shadow lane (dark, shadow-only) ([#182](https://github.com/jason931225/maintenance/issues/182)) ([950ada8](https://github.com/jason931225/maintenance/commit/950ada8778940bb090469c6baf4d5fa201483ffb))
+* **console:** UI-M0 — Oyatie design-system foundation (tokens, icons, primitives, list grammar) ([#184](https://github.com/jason931225/maintenance/issues/184)) ([6970700](https://github.com/jason931225/maintenance/commit/6970700c576bdc4c8c300ac46190d4d62da944ee))
+* **console:** UI-M1a — Oyatie shared chrome re-skin (sidebar/topbar/toast) + storefront visual guard ([#186](https://github.com/jason931225/maintenance/issues/186)) ([027c26e](https://github.com/jason931225/maintenance/commit/027c26ed36e9e7ef3a0a866c49236cad87e4adca))
+* **relay:** add non-OCI Talos iMessage prep ([#188](https://github.com/jason931225/maintenance/issues/188)) ([76d71ce](https://github.com/jason931225/maintenance/commit/76d71cec13e354c99b5b51a4ff110e32d4e93e2a))
+* **workflow:** Engine-Gen — generalized electronic-approval platform (instance REST, 8 templates, finalization/compensation) ([#187](https://github.com/jason931225/maintenance/issues/187)) ([fc67eb2](https://github.com/jason931225/maintenance/commit/fc67eb2b1266dcd87fa6fd14a3b3d1889428ff3f))
+
+
+### Bug Fixes
+
+* **image:** include embedded docs specs in backend build ([#190](https://github.com/jason931225/maintenance/issues/190)) ([d574432](https://github.com/jason931225/maintenance/commit/d574432e7d9b45dcd5fff4dc3a82e4f3da7f3768))
+
+## [0.1.42](https://github.com/jason931225/maintenance/compare/v0.1.41...v0.1.42) (2026-07-04)
+
+
+### Features
+
+* **workflow-m2:** workflow runtime engine (dark, codex-approved) ([#179](https://github.com/jason931225/maintenance/issues/179)) ([7a8a5cb](https://github.com/jason931225/maintenance/commit/7a8a5cb4ab974f7a553b0b784d9c92bcb284401e))
+
+## [0.1.41](https://github.com/jason931225/maintenance/compare/v0.1.40...v0.1.41) (2026-07-04)
+
+
+### Features
+
+* **authz:** add Cedar PBAC baseline ([#171](https://github.com/jason931225/maintenance/issues/171)) ([299a983](https://github.com/jason931225/maintenance/commit/299a98302fcbca16608085f6fdab3ae71172d945))
+* **hr:** complete G009 absence→exit→severance-settlement (completes [#166](https://github.com/jason931225/maintenance/issues/166)) ([#170](https://github.com/jason931225/maintenance/issues/170)) ([5989aba](https://github.com/jason931225/maintenance/commit/5989abaa98ca7f65cce9781dbd83800b058350f5))
+* **kic:** Korean institutional connectivity coverage factory (fixture-only) ([#173](https://github.com/jason931225/maintenance/issues/173)) ([c68b2b7](https://github.com/jason931225/maintenance/commit/c68b2b7a9ea9f21a573b6ecdcfab2712e7b0c798))
+
+
+### Bug Fixes
+
+* **auth:** give token refresh its own wider rate bucket for hard navigation ([#178](https://github.com/jason931225/maintenance/issues/178)) ([ea9380b](https://github.com/jason931225/maintenance/commit/ea9380b67d918692a622c2c24c624c607e98ef55))
+* **wallboard:** move /wallboard behind the auth guard (security) ([#177](https://github.com/jason931225/maintenance/issues/177)) ([67d831e](https://github.com/jason931225/maintenance/commit/67d831ef6617af7ea0fbd8f737060425b05d79cb))
+* **webmail:** degrade read-only mail endpoints to empty state when key absent ([#176](https://github.com/jason931225/maintenance/issues/176)) ([7b62768](https://github.com/jason931225/maintenance/commit/7b627685ace44acdc7c45875746ed728ba025b46))
+
+## [0.1.40](https://github.com/jason931225/maintenance/compare/v0.1.39...v0.1.40) (2026-07-03)
+
+
+### Features
+
+* **workflow:** add no-code policy template ([#164](https://github.com/jason931225/maintenance/issues/164)) ([80a10bc](https://github.com/jason931225/maintenance/commit/80a10bc2712232ffd94d9f6912274c0277188744))
+
+## [0.1.39](https://github.com/jason931225/maintenance/compare/v0.1.38...v0.1.39) (2026-07-03)
+
+
+### Bug Fixes
+
+* **ci:** run release-probe on arm64 runner to match arm64-only images ([#162](https://github.com/jason931225/maintenance/issues/162)) ([8061db4](https://github.com/jason931225/maintenance/commit/8061db4e5e5fbb1db82898395150f068f724bcfe))
+
+## [0.1.38](https://github.com/jason931225/maintenance/compare/v0.1.37...v0.1.38) (2026-07-03)
+
+
+### Features
+
+* **auth:** compile-time dev-auth role-switcher, delete dev-preview fixtures ([#156](https://github.com/jason931225/maintenance/issues/156)) ([87368bb](https://github.com/jason931225/maintenance/commit/87368bb70a006d231175681c4a518f6c0e9d9cf0))
+
+## [0.1.37](https://github.com/jason931225/maintenance/compare/v0.1.36...v0.1.37) (2026-07-03)
+
+
+### Features
+
+* **dev:** add local full-stack dev-up orchestrator ([#155](https://github.com/jason931225/maintenance/issues/155)) ([6d42736](https://github.com/jason931225/maintenance/commit/6d427367c8f8cef904444ac9575be1ee5c41ee66))
+
+
+### Bug Fixes
+
+* **docker:** include backend/vendor in mnt-app build context ([#159](https://github.com/jason931225/maintenance/issues/159)) ([8cab093](https://github.com/jason931225/maintenance/commit/8cab0936dc3fab9cb63f9a1501feb8af71fbb513))
+
+## [0.1.36](https://github.com/jason931225/maintenance/compare/v0.1.35...v0.1.36) (2026-07-03)
+
+
+### Bug Fixes
+
+* **web:** attendance 비고 column + financial-test stabilization ([#154](https://github.com/jason931225/maintenance/issues/154)) ([aa62bff](https://github.com/jason931225/maintenance/commit/aa62bffc38a42ee9f53a1c58fd1fd5f4e7e192da))
+
+## [0.1.35](https://github.com/jason931225/maintenance/compare/v0.1.34...v0.1.35) (2026-07-03)
+
+
+### Bug Fixes
+
+* **api:** make generated client refreshes atomic ([#145](https://github.com/jason931225/maintenance/issues/145)) ([42dc86f](https://github.com/jason931225/maintenance/commit/42dc86fc6581c6d372d06300e04e47310c15c2de))
+* **policy:** hide deferred AI assistant permission ([#146](https://github.com/jason931225/maintenance/issues/146)) ([373241a](https://github.com/jason931225/maintenance/commit/373241adc87f6e856b267ef2d0a22d27673527dc))
+* **security:** unblock quick-xml RUSTSEC audit ([#151](https://github.com/jason931225/maintenance/issues/151)) ([9619e4d](https://github.com/jason931225/maintenance/commit/9619e4d7b2377badd1e37f1c961acd2b4295c19e))
+
+
+### Performance Improvements
+
+* **web:** add tenant-safe SWR read cache ([#149](https://github.com/jason931225/maintenance/issues/149)) ([4b713e5](https://github.com/jason931225/maintenance/commit/4b713e5fdc441be839bde943ae55a4e4acca6f13))
+
 ## [0.1.34](https://github.com/jason931225/maintenance/compare/v0.1.33...v0.1.34) (2026-07-02)
 
 

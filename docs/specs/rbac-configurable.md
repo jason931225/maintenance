@@ -8,6 +8,10 @@
 > additive custom-role grants for supported ordinary tenant features. Unsupported/elevated/scope-widening
 > policy remains inert until re-reviewed before P1/P2 cutover. The G002 pattern: kill the HIGHs pre-code.
 > **Parent:** `SPEC.md`, `docs/specs/knl-business-os.md`, `docs/specs/org-hierarchy.md`.
+> **Cedar/PBAC target baseline:** `docs/decisions/ADR-0021-cedar-pbac-authorization-strangler.md`
+> and `docs/specs/cedar-pbac-cutover.md` govern the next authorization substrate. This spec remains the
+> shipped custom-role bridge until Cedar-enrolled actions are explicitly promoted; UI policy projections remain
+> non-authoritative and live routes remain server-authorized.
 > **Trigger:** user directive 2026-06-24 — *"should allow new / custom roles with
 > configurable permissions / policy"*, generalizing the *"add an org-admin grant"*
 > decision into a data-driven RBAC. **Quality bar:** Palantir-grade, enterprise-production.
@@ -226,15 +230,18 @@ fails.
   per-request `EffectiveFeatureGrant`s resolved from active assigned custom roles. `permission_for(role, feature)`
   remains the **system-role floor** and migration seed.
 - Future P1/P2 target: move additional ABAC/PBAC attributes and no-lockout/escalation closure into the same
-  resolver without changing call-site authorization semantics.
-- Resolution is **per-request, RLS-armed, and cached** with the cache keyed by **`(org_id,
+  resolver without changing call-site authorization semantics. The Cedar/PBAC target baseline is a typed
+  `AuthzEngine` boundary: built-in/custom roles become subject inputs or generated policy-bundle material,
+  Cedar evaluates capabilities/actions, and Postgres `mnt_rt`/RLS remains the hard row boundary.
+- Current bridge resolution is **per-request, RLS-armed, and cached** with the cache keyed by **`(org_id,
   policy_version)`** (**R4** — *not* TTL/`org_id`-only): every `RoleManage` write bumps the per-org
   `policy_version` (an RLS-armed row) **synchronously before the write returns**; resolution reads the
   version (one cheap armed read; deny on read failure) and treats a version mismatch as a cache miss, so
   a revoke is globally effective on the next request across all replicas with no inter-node messaging.
   The hot path stays O(1) and never does an unarmed read. The Principal carries resolved built-in roles plus
   additive custom-role feature grants; the effective capability set is the union over built-in + assigned custom
-  roles, most-permissive per feature.
+  roles, most-permissive per feature. Cedar v1 may cache compiled bundle material only, keyed by immutable
+  policy/schema/bundle/source versions; it must not cache cross-request allow decisions.
 - **Fail-closed:** unknown feature string, missing policy row, unarmed read, or cache miss under load →
   **deny**, never allow. Default for any (role,feature) not present = `Deny`.
 
@@ -258,7 +265,10 @@ fails.
    unchanged: only 대표/CEO + `SUPER_ADMIN` may self-approve (see [[operations-through-console-only]]).
 6. **Platform tier untouched.** No bridge from `PlatformFeature` to `Feature`; platform principals carry
    no role/policy.
-7. **Everything audited.** Every role create/edit/retire/assign/unassign emits an `AuditEvent`
+7. **UI projections are non-authoritative.** Policy Studio/navigation may display effective access previews,
+   but stale/elevated projection data cannot unlock `RoleManage`-tier routes or grant API access; protected
+   routes and endpoints reauthorize server-side.
+8. **Everything audited.** Every role create/edit/retire/assign/unassign emits an `AuditEvent`
    `.with_org(org)` (arms the GUC) — through the console API, never direct SQL.
 
 ## 5. New capabilities (compose the existing catalog)

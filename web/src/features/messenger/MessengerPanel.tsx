@@ -33,15 +33,6 @@ import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { SkeletonCards } from "../../components/states/Skeleton";
 import { MentionText } from "../../components/text/MentionText";
-import {
-  createDevMessengerMessage,
-  createDevMessengerThread,
-  devMessengerMembers,
-  devMessengerMessagePage,
-  devMessengerThreads,
-  isDevPreviewEnabled,
-  searchDevMessengerMessages,
-} from "../../lib/dev-preview";
 import { cn, safeLabel } from "../../lib/utils";
 import { publishNotificationCountsInvalidated } from "../../lib/notification-events";
 import { ko } from "../../i18n/ko";
@@ -92,6 +83,7 @@ export function MessengerPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [attachment, setAttachment] = useState<File>();
   const [sendError, setSendError] = useState<string>();
+  const [searchError, setSearchError] = useState<string>();
   const [isSending, setIsSending] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -102,7 +94,6 @@ export function MessengerPanel({
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [createError, setCreateError] = useState<string>();
-  const devPreview = isDevPreviewEnabled();
   const newThreadTitleId = useId();
   const cursorRef = useRef<string | undefined>(undefined);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -143,28 +134,17 @@ export function MessengerPanel({
 
   const markRead = useCallback(
     async (threadId: string, messageId: string) => {
-      if (devPreview) {
-        publishNotificationCountsInvalidated();
-        return;
-      }
       await api.PUT("/api/messenger/threads/{threadId}/read-receipt", {
         params: { path: { threadId } },
         body: { last_read_message_id: messageId },
       });
       publishNotificationCountsInvalidated();
     },
-    [api, devPreview],
+    [api],
   );
 
   const loadMessages = useCallback(
     async (threadId: string, beforeMessageId?: string | null) => {
-      if (devPreview) {
-        const page = devMessengerMessagePage(threadId);
-        dispatch({ type: "messagesPageLoaded", threadId, page });
-        dispatch({ type: "threadRead", threadId });
-        publishNotificationCountsInvalidated();
-        return;
-      }
       const response = await api.GET(
         "/api/messenger/threads/{threadId}/messages",
         {
@@ -191,7 +171,18 @@ export function MessengerPanel({
         dispatch({ type: "threadRead", threadId });
       }
     },
-    [api, devPreview, markRead],
+    [api, markRead],
+  );
+
+  const handleLoadMessagesError = useCallback(() => {
+    setLoadState("error");
+  }, []);
+
+  const loadMessagesSafely = useCallback(
+    (threadId: string, beforeMessageId?: string | null) => {
+      void loadMessages(threadId, beforeMessageId).catch(handleLoadMessagesError);
+    },
+    [handleLoadMessagesError, loadMessages],
   );
 
   const loadThreads = useCallback(async () => {
@@ -200,16 +191,6 @@ export function MessengerPanel({
     }
     setLoadState("loading");
     try {
-      if (devPreview) {
-        const threads = devMessengerThreads();
-        dispatch({ type: "threadsLoaded", threads });
-        const selectedId = threads.at(0)?.id;
-        if (selectedId !== undefined) {
-          await loadMessages(selectedId);
-        }
-        setLoadState("idle");
-        return;
-      }
       const response = await api.GET("/api/messenger/threads", {
         params: { query: { limit: 50 } },
       });
@@ -225,7 +206,7 @@ export function MessengerPanel({
     } catch {
       setLoadState("error");
     }
-  }, [accessToken, api, devPreview, loadMessages]);
+  }, [accessToken, api, loadMessages]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -238,9 +219,6 @@ export function MessengerPanel({
 
   useEffect(() => {
     if (!accessToken) {
-      return undefined;
-    }
-    if (devPreview) {
       return undefined;
     }
 
@@ -262,9 +240,14 @@ export function MessengerPanel({
             currentUserId,
           });
           if (event.message.thread_id === selectedThreadId) {
-            void markRead(event.message.thread_id, event.message.id).then(() => {
-              dispatch({ type: "threadRead", threadId: event.message.thread_id });
-            });
+            void markRead(event.message.thread_id, event.message.id)
+              .then(() => {
+                dispatch({ type: "threadRead", threadId: event.message.thread_id });
+              })
+              .catch(() => {
+                // Read receipts are best-effort; never let a realtime ack failure
+                // become an unhandled promise rejection.
+              });
           }
         },
         onDisconnect: () => {
@@ -285,33 +268,33 @@ export function MessengerPanel({
       }
       connection?.close();
     };
-  }, [accessToken, apiBaseUrl, currentUserId, devPreview, markRead]);
+  }, [accessToken, apiBaseUrl, currentUserId, markRead]);
 
   async function handleSearch() {
     const query = searchQuery.trim();
     if (!query) {
       setHasSearched(false);
+      setSearchError(undefined);
       dispatch({ type: "searchResultsLoaded", results: [] });
       return;
     }
     setIsSearching(true);
+    setSearchError(undefined);
     try {
-      if (devPreview) {
-        dispatch({
-          type: "searchResultsLoaded",
-          results: searchDevMessengerMessages(query),
-        });
-        setHasSearched(true);
-        return;
-      }
       const response = await api.GET("/api/messenger/search", {
         params: { query: { q: query, limit: 20 } },
       });
+      if (!response.data) {
+        throw new Error("messenger search response missing data");
+      }
       dispatch({
         type: "searchResultsLoaded",
-        results: response.data?.items ?? [],
+        results: response.data.items,
       });
       setHasSearched(true);
+    } catch {
+      setHasSearched(false);
+      setSearchError(ko.messenger.searchFailed);
     } finally {
       setIsSearching(false);
     }
@@ -325,10 +308,6 @@ export function MessengerPanel({
     setMembers([]);
     if (!branchId) {
       setCreateError(ko.messenger.branchRequired);
-      return;
-    }
-    if (devPreview) {
-      setMembers(devMessengerMembers());
       return;
     }
     setIsLoadingMembers(true);
@@ -368,18 +347,6 @@ export function MessengerPanel({
     setIsCreatingThread(true);
     try {
       const subject = newSubject.trim();
-      if (devPreview) {
-        dispatch({
-          type: "threadCreated",
-          thread: createDevMessengerThread({
-            branchId,
-            memberIds: selectedMemberIds,
-            title: subject,
-          }),
-        });
-        setIsComposingThread(false);
-        return;
-      }
       const response = await api.POST("/api/messenger/threads", {
         body: {
           branch_id: branchId,
@@ -407,18 +374,6 @@ export function MessengerPanel({
     setSendError(undefined);
     setIsSending(true);
     try {
-      if (devPreview) {
-        const message = createDevMessengerMessage({
-          thread: selectedThread,
-          body: composer.trim(),
-        });
-        dispatch({ type: "messageSent", message });
-        dispatch({ type: "threadRead", threadId: selectedThread.id });
-        publishNotificationCountsInvalidated();
-        setComposer("");
-        setAttachment(undefined);
-        return;
-      }
       const attachmentEvidenceIds = attachment
         ? [await uploadWorkOrderAttachment(selectedThread, attachment)]
         : [];
@@ -436,10 +391,16 @@ export function MessengerPanel({
         throw new Error("send messenger message response missing data");
       }
       dispatch({ type: "messageSent", message: response.data });
-      await markRead(selectedThread.id, response.data.id);
-      dispatch({ type: "threadRead", threadId: selectedThread.id });
       setComposer("");
       setAttachment(undefined);
+      void markRead(selectedThread.id, response.data.id)
+        .then(() => {
+          dispatch({ type: "threadRead", threadId: selectedThread.id });
+        })
+        .catch(() => {
+          // The message is already sent; read tracking must not surface as a
+          // send failure or block composer cleanup.
+        });
     } catch {
       setSendError(ko.messenger.sendFailed);
     } finally {
@@ -545,6 +506,11 @@ export function MessengerPanel({
               {ko.messenger.searching}
             </p>
           ) : null}
+          {searchError ? (
+            <p role="alert" className="text-sm font-semibold text-red-700">
+              {searchError}
+            </p>
+          ) : null}
           {!isSearching && hasSearched ? (
             <div className="grid gap-2">
               <h3 className="text-sm font-semibold text-steel">
@@ -580,7 +546,7 @@ export function MessengerPanel({
                                   type: "threadSelected",
                                   threadId: sourceThread.id,
                                 });
-                                void loadMessages(sourceThread.id);
+                                loadMessagesSafely(sourceThread.id);
                               }}
                             >
                               {ko.messenger.openThread}
@@ -619,7 +585,7 @@ export function MessengerPanel({
               aria-pressed={state.selectedThreadId === thread.id}
               onClick={() => {
                 dispatch({ type: "threadSelected", threadId: thread.id });
-                void loadMessages(thread.id);
+                loadMessagesSafely(thread.id);
               }}
             >
               <span className="flex items-center justify-between gap-2">
@@ -663,7 +629,7 @@ export function MessengerPanel({
                       type="button"
                       variant="secondary"
                       onClick={() => {
-                        void loadMessages(
+                        loadMessagesSafely(
                           selectedThread.id,
                           state.nextCursorByThread[selectedThread.id],
                         );

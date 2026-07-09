@@ -15,6 +15,13 @@ path = "src/main.rs"
 name = "mnt_app"
 path = "src/lib.rs"
 
+[features]
+# Local role-switch dev-auth endpoint. NOT in `default` (there is no `default`
+# key here, so cargo's implicit default feature set is empty) and MUST NEVER be
+# added to one — `mnt-gate-dev-auth-absence` asserts this via `cargo metadata`
+# and is wired into CI as a blocking gate.
+dev-auth = ["mnt-platform-auth-rest/dev-auth"]
+
 [dependencies]
 axum = { workspace = true }
 calamine = { workspace = true }
@@ -42,6 +49,8 @@ mnt-sales-rest = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-messenger-adapter-postgres = { workspace = true }
 mnt-messenger-rest = { workspace = true }
+mnt-notifications-adapter-postgres = { workspace = true }
+mnt-notifications-rest = { workspace = true }
 mnt-payroll-domain = { workspace = true }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
@@ -63,6 +72,9 @@ mnt-dispatch-adapter-postgres = { workspace = true }
 mnt-dispatch-domain = { workspace = true }
 mnt-dispatch-rest = { workspace = true }
 mnt-dispatch-worker = { workspace = true }
+mnt-workflow-domain = { workspace = true }
+mnt-workflow-runtime = { workspace = true }
+mnt-workflow-runtime-adapter-postgres = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
 mnt-workorder-rest = { workspace = true }
 opentelemetry = { workspace = true }

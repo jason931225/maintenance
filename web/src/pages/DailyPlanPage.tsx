@@ -1,8 +1,10 @@
-import { Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
+import type { ConsoleApiClient } from "../api/client";
 import type {
+  AbsenceExitDashboardResponse,
   CreateDailyPlanRequest,
   DailyPlanStatus,
   DailyPlanSummary,
@@ -20,7 +22,7 @@ import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
-import { todayInSeoul } from "../lib/utils";
+import { formatListCount, todayInSeoul } from "../lib/utils";
 
 /** DailyPlanRequest holders (backend matrix: MECHANIC/ADMIN/SUPER_ADMIN). */
 const PLAN_REQUEST_ROLES = [
@@ -33,6 +35,13 @@ const PLAN_REQUEST_ROLES = [
 const PLAN_REVIEW_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 
 type WriteState = "idle" | "busy" | "error";
+
+type DailyPlanApi = ConsoleApiClient & {
+  GET(
+    path: "/api/v1/hr/absence-exit-dashboard",
+    options?: { params?: { query?: { limit?: number; offset?: number } } },
+  ): Promise<{ data?: AbsenceExitDashboardResponse }>;
+};
 
 interface PlanItem {
   description: string;
@@ -95,8 +104,79 @@ function formatDailyPlanItem(item: DailyPlanItemSummary): string {
   return source ? `${source} — ${item.description}` : item.description;
 }
 
+function DailyPlanAbsenceWarningPanel({
+  dashboard,
+}: {
+  dashboard: AbsenceExitDashboardResponse;
+}) {
+  const alerts = dashboard.alerts.slice(0, 3);
+  return (
+    <Card className="grid gap-3 border-amber-300 bg-amber-50/60">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle
+            size={20}
+            className="mt-0.5 text-amber-700"
+            aria-hidden="true"
+          />
+          <div>
+            <h2 className="text-base font-semibold text-ink">
+              {ko.dailyPlan.absenceWarning.title}
+            </h2>
+            <p className="text-sm text-steel">
+              {ko.dailyPlan.absenceWarning.description}
+            </p>
+          </div>
+        </div>
+        <Badge>{formatListCount(dashboard.summary.open_absence_alerts)}</Badge>
+      </div>
+
+      <ul className="grid gap-2">
+        {alerts.map((alert) => (
+          <li
+            key={alert.id}
+            className="grid gap-2 rounded border border-amber-200 bg-white p-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="font-semibold text-ink">
+                  {alert.employee_name} · {alert.work_date}
+                </p>
+                <p className="text-xs text-steel">
+                  {display(alert.company)} /{" "}
+                  {display(alert.branch_name ?? alert.worksite_name)}
+                </p>
+              </div>
+              <Badge>{alert.severity}</Badge>
+            </div>
+            <p className="text-sm text-steel">{alert.notification_message}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="xs" variant="secondary">
+                <Link to={`/hr/insurance?alert=${alert.id}`}>
+                  {ko.dailyPlan.absenceWarning.proceedExit}
+                </Link>
+              </Button>
+              <Button asChild size="xs" variant="ghost">
+                <Link to={`/payroll?employee=${alert.employee_id}`}>
+                  {ko.dailyPlan.absenceWarning.payrollImpact}
+                </Link>
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function display(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "-";
+  return String(value);
+}
+
 export function DailyPlanPage() {
   const { api, session } = useAuth();
+  const dailyPlanApi = api as DailyPlanApi;
   const [searchParams] = useSearchParams();
   const branchId = session?.branches?.[0];
   const canRequest = hasAnyRole(session?.roles, PLAN_REQUEST_ROLES);
@@ -116,6 +196,8 @@ export function DailyPlanPage() {
   const [reviewMemo, setReviewMemo] = useState("");
   const [plan, setPlan] = useState<DailyPlanWithItems>();
   const [plans, setPlans] = useState<DailyPlanWithItems[]>([]);
+  const [absenceExitDashboard, setAbsenceExitDashboard] =
+    useState<AbsenceExitDashboardResponse>();
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [errorKey, setErrorKey] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -123,6 +205,22 @@ export function DailyPlanPage() {
     setNotice(undefined);
   }, []);
   useAutoDismiss(notice, clearNotice, SUCCESS_DISMISS_MS);
+
+  const loadAbsenceExitDashboard = useCallback(async () => {
+    const response = await dailyPlanApi
+      .GET("/api/v1/hr/absence-exit-dashboard", {
+        params: { query: { limit: 10, offset: 0 } },
+      })
+      .catch(() => undefined);
+    if (response?.data) {
+      setAbsenceExitDashboard(response.data);
+    }
+  }, [dailyPlanApi]);
+
+  useEffect(() => {
+    if (!canRequest && !canReview) return;
+    void Promise.resolve().then(loadAbsenceExitDashboard);
+  }, [canRequest, canReview, loadAbsenceExitDashboard]);
 
   const loadMechanics = useCallback(async () => {
     // Managers/reviewers can read the branch roster to plan for any mechanic.
@@ -350,6 +448,10 @@ export function DailyPlanPage() {
         description={ko.dailyPlan.description}
       />
       <div className="grid gap-5 max-w-3xl">
+        {absenceExitDashboard?.alerts.length ? (
+          <DailyPlanAbsenceWarningPanel dashboard={absenceExitDashboard} />
+        ) : null}
+
         {canRequest ? (
           <Card className="grid gap-4">
             <h2 className="text-lg font-semibold text-ink">

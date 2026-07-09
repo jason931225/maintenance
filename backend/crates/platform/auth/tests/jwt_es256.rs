@@ -54,6 +54,9 @@ fn es256_access_token_round_trips_with_expected_claims() {
             read_only: false,
             display_name: None,
             feature_grants: Vec::new(),
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
             issued_at: now,
         })
         .unwrap();
@@ -94,6 +97,9 @@ fn es256_access_token_carries_feature_grant_ui_hints() {
             read_only: false,
             display_name: None,
             feature_grants: vec!["mail_use".to_owned(), "role_manage".to_owned()],
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap();
@@ -117,6 +123,9 @@ fn es256_access_token_carries_optional_display_name_claim() {
             read_only: false,
             display_name: Some("홍길동".to_owned()),
             feature_grants: Vec::new(),
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap();
@@ -146,6 +155,9 @@ fn es256_access_token_can_carry_group_roles_without_widening_scope() {
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: OffsetDateTime::now_utc(),
             },
             vec!["GROUP_ADMIN".to_owned()],
@@ -178,6 +190,9 @@ fn group_admin_tenant_context_token_is_bounded_and_distinct_from_super_admin() {
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: OffsetDateTime::now_utc(),
             },
             group_id,
@@ -209,6 +224,9 @@ fn group_admin_tenant_context_token_rejects_super_admin_role() {
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: OffsetDateTime::now_utc(),
             },
             uuid::Uuid::new_v4(),
@@ -239,6 +257,9 @@ fn es256_access_token_round_trips_explicit_access_scope_claims() {
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: OffsetDateTime::now_utc(),
             },
             scope,
@@ -269,6 +290,9 @@ fn es256_scoped_token_rejects_unknown_group_role_on_issue() {
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: OffsetDateTime::now_utc(),
             },
             AccessScope::legacy_org(OrgId::knl()),
@@ -304,6 +328,9 @@ fn es256_scoped_token_rejects_unknown_group_role_on_verify() {
         tenant_context: None,
         group_context_id: None,
         feature_grants: Vec::new(),
+        authz_subject_version: 0,
+        authz_policy_version: 0,
+        session_generation: 0,
         alg: "ES256".to_owned(),
     };
     let token = jsonwebtoken::encode(
@@ -333,6 +360,9 @@ fn es256_view_as_token_refuses_group_roles() {
                 read_only: true,
                 display_name: None,
                 feature_grants: Vec::new(),
+                authz_subject_version: 0,
+                authz_policy_version: 0,
+                session_generation: 0,
                 issued_at: OffsetDateTime::now_utc(),
             },
             AccessScope::legacy_org(OrgId::knl()),
@@ -369,6 +399,9 @@ fn access_scope_claims_must_be_a_complete_pair() {
         tenant_context: None,
         group_context_id: None,
         feature_grants: Vec::new(),
+        authz_subject_version: 0,
+        authz_policy_version: 0,
+        session_generation: 0,
         alg: "ES256".to_owned(),
     };
 
@@ -377,4 +410,70 @@ fn access_scope_claims_must_be_a_complete_pair() {
         err.to_string()
             .contains("scope claims must include both scope_level and scope_node")
     );
+}
+
+// Cedar/PBAC activation (ADR-0021): the access token carries a subject
+// authorization freshness snapshot. SLICE-2 sources it; no decision consults it.
+#[test]
+fn es256_access_token_stamps_subject_authz_freshness() {
+    let issuer = es256_issuer();
+    let now = OffsetDateTime::now_utc();
+
+    let token = issuer
+        .issue_access_token(AccessTokenInput {
+            subject: UserId::new(),
+            org_id: OrgId::knl(),
+            roles: vec!["SUPER_ADMIN".to_owned()],
+            branches: Vec::new(),
+            platform: false,
+            view_as: false,
+            read_only: false,
+            display_name: None,
+            feature_grants: Vec::new(),
+            authz_subject_version: 7,
+            authz_policy_version: 3,
+            session_generation: 5,
+            issued_at: now,
+        })
+        .unwrap();
+
+    let claims = issuer.verify_access_token(&token).unwrap();
+    assert_eq!(claims.authz_subject_version, 7);
+    assert_eq!(claims.authz_policy_version, 3);
+    assert_eq!(claims.session_generation, 5);
+}
+
+// A token minted before the freshness claims existed simply omits them on the
+// wire. #[serde(default)] must accept it and default all three to 0, so old
+// tokens keep their exact meaning on every live path (a 0-carrying token is only
+// ever denied on the still-unreachable Cedar path).
+#[test]
+fn legacy_access_token_without_freshness_claims_defaults_to_zero() {
+    let (issuer, private_pem, _) = es256_material();
+    let now = OffsetDateTime::now_utc();
+
+    let legacy = serde_json::json!({
+        "iss": "mnt-platform-auth",
+        "aud": "mnt-api",
+        "sub": UserId::new().to_string(),
+        "iat": now.unix_timestamp(),
+        "nbf": now.unix_timestamp(),
+        "exp": (now + Duration::minutes(15)).unix_timestamp(),
+        "jti": uuid::Uuid::new_v4().to_string(),
+        "org": OrgId::knl().to_string(),
+        "roles": ["MECHANIC"],
+        "branches": [],
+        "alg": "ES256",
+    });
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256),
+        &legacy,
+        &jsonwebtoken::EncodingKey::from_ec_pem(private_pem.as_bytes()).unwrap(),
+    )
+    .unwrap();
+
+    let claims = issuer.verify_access_token(&token).unwrap();
+    assert_eq!(claims.authz_subject_version, 0);
+    assert_eq!(claims.authz_policy_version, 0);
+    assert_eq!(claims.session_generation, 0);
 }

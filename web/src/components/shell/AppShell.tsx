@@ -9,8 +9,10 @@ import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { PageSpinner } from "../states/PageSpinner";
 import { BackStackBreadcrumbs } from "./BackStackBreadcrumbs";
 import { CommandPalette } from "./CommandPalette";
+import { ConsoleToast } from "../console/primitives";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { useConsoleToast } from "./useConsoleToast";
 
 export function AppShell() {
   return (
@@ -27,6 +29,7 @@ function AppShellContent() {
   const { session } = useAuth();
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
+  const { toast, closeToast, undoToast } = useConsoleToast();
 
   // Move focus to the main content region after each navigation so keyboard
   // and screen-reader users land on the new page content.
@@ -65,7 +68,7 @@ function AppShellContent() {
       {/* Skip-to-main */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-md focus:outline-2 focus:outline-ink"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-console-surface focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-console-ink focus:shadow-md focus:outline-2 focus:outline-console-ink"
       >
         {ko.shell.skipToContent}
       </a>
@@ -107,6 +110,13 @@ function AppShellContent() {
       </div>
       {commandPaletteOpen ? (
         <CommandPalette onClose={() => { setCommandPaletteOpen(false); }} />
+      ) : null}
+      {toast ? (
+        <ConsoleToast
+          message={toast.message}
+          onUndo={toast.onUndo ? undoToast : undefined}
+          onClose={closeToast}
+        />
       ) : null}
     </div>
   );

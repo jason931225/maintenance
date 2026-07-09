@@ -4,19 +4,76 @@ import {
   SALES_PHONE_DISPLAY,
   SALES_PHONE_HREF,
 } from "../lib/contact";
+import {
+  exitCaseStatusLabels,
+  uncertifiedSettlementDraftLabel,
+} from "./hrWorkflows";
 
 export const ko = {
-  devPreview: {
-    adminName: "로컬 미리보기 관리자",
-    messengerThreadTitle: "정비팀 메신저",
-    fieldTechnicianName: "김현장",
-    fieldTechnicianTeam: "정비1팀",
-    dispatcherName: "박배차",
-    dispatcherTeam: "운영지원",
-    messengerIncoming: "오늘 오전 정비 일정 확인했습니다.",
-    messengerReply: "확인했습니다. 현장 도착 후 사진도 같이 올려주세요.",
-    messengerReadProgressProbe:
-      "읽음 카운트가 실시간 메시지와 동일하게 표시되는지 확인용입니다.",
+  console: {
+    search: {
+      label: "검색",
+      placeholder: "검색어 입력",
+      clear: "검색어 지우기",
+    },
+    toast: {
+      undo: "실행 취소",
+      close: "닫기",
+    },
+    workspace: {
+      bodyLabel: "화면 본문",
+      placeholder: "빈 화면 — 상세를 끌어다 고정",
+      pin: {
+        label: "{title} 상세 고정",
+      },
+      panel: {
+        minimize: "최소화",
+        popout: "창으로 분리",
+        close: "닫기",
+        open: "원본 열기",
+      },
+      field: {
+        kind: "유형",
+        detail: "내용",
+        due: "기한",
+        status: "상태",
+        occurredAt: "발생 시각",
+        stateAfter: "이후 상태",
+        note: "비고",
+      },
+      tray: {
+        label: "작업 트레이",
+        empty: "최소화한 상세가 없습니다",
+        restore: "{title} 복원",
+        restoreDefault: "기본 배치",
+      },
+      zone: {
+        tl: "좌상",
+        tr: "우상",
+        bl: "좌하",
+        br: "우하",
+        top: "상단",
+        bottom: "하단",
+        left: "좌측",
+        right: "우측",
+        center: "중앙 (고정 안 함)",
+      },
+    },
+    // UI-M2a object registry (lib/objectRegistry.ts) — kind labels for
+    // accessible names/aria-labels on reference chips and token-grammar links.
+    objectKinds: {
+      approval: "결재",
+      workOrder: "정비/배차",
+      support: "회신",
+      attendance: "근태 예외",
+      payroll: "급여 회차",
+      contract: "계약",
+      journal: "업무일지",
+      intake: "접수",
+      person: "사람",
+      org: "조직",
+
+    },
   },
   nav: {
     "work-hub": "업무 허브",
@@ -170,6 +227,32 @@ export const ko = {
           "인건비, 가동률, 결근/지각, 휴가 사용률, 부서별 인력 부하를 KPI와 보고서 원천으로 연결합니다.",
       },
     ],
+    exitSettlement: {
+      summary: {
+        absenceWarnings: "결근 경고",
+        sourceNeeded: "임금 원천 필요",
+        ready: "상신 준비",
+        submitted: "상신 완료",
+      },
+      title: "퇴직금·상실신고 정산",
+      description:
+        "HR 확인된 퇴사 케이스의 평균임금 원천, 퇴직금 산출액, 4대보험 상실신고 자료를 함께 확인합니다.",
+      insuranceLink: "상실신고 보조",
+      empty: "결근 경고에서 이어진 퇴사 정산 케이스가 없습니다.",
+      fields: {
+        serviceDays: "근속일",
+        averageWage: "평균임금",
+        ordinaryDailyWage: "통상일급",
+        severancePay: "퇴직금 산출액",
+        insuranceForms: "상실신고 서식",
+        uncertifiedDraftLabel: uncertifiedSettlementDraftLabel,
+      },
+      formCount: (count: number) => `${String(count)}종`,
+      trackApproval: "전자결제 추적",
+      handleInInsurance: "정산·상신 처리",
+      status: exitCaseStatusLabels,
+      won: (value: string) => `${value}원`,
+    },
   },
   intelligence: {
     title: "운영 인텔리전스",
@@ -440,9 +523,14 @@ export const ko = {
     pause: "정지",
     rollback: "롤백",
     clone: "복제",
+    edit: "편집",
+    delete: "삭제",
+    archiveConfirm:
+      "이 초안을 삭제하시겠습니까? 변경 이력은 감사 목적으로 보존됩니다.",
     publishBlocked: "승인라인과 결제라인을 먼저 지정해야 합니다.",
     publishSuccess: "워크플로를 게시했습니다.",
     createSuccess: "워크플로 초안을 생성했습니다.",
+    updateSuccess: "워크플로 초안을 저장했습니다.",
     createFailed:
       "초안 생성에 실패했습니다. 캔버스 설정과 허용 커넥터를 확인하세요.",
     simulationReady: "게시 가능한 워크플로입니다.",
@@ -452,13 +540,17 @@ export const ko = {
       pause: "워크플로를 정지했습니다.",
       rollback: "워크플로를 롤백했습니다.",
       clone: "워크플로를 복제했습니다.",
+      archive: "워크플로 초안을 삭제했습니다.",
     },
     defaultDraftName: "작업 완료 승인",
     cloneSuffix: "복제본",
     authoring: {
       title: "초안 작성",
+      editTitle: "초안 편집",
       help: "템플릿, 운영 객체, 라인, 허용 커넥터를 지정해 게시 가능한 워크플로 초안을 만듭니다.",
       create: "초안 생성",
+      update: "초안 저장",
+      cancelEdit: "편집 취소",
       workflowKey: "워크플로 키",
       displayName: "이름",
       objectType: "업무 객체",
@@ -795,6 +887,31 @@ export const ko = {
     phoneApproving: "승인 중",
     phoneApproveDone: "PC 로그인을 승인했습니다.",
     phoneApproveFailed: "PC 로그인 승인에 실패했습니다.",
+    roleSwitcher: {
+      reveal: "[개발용] 역할 전환 로그인",
+      title: "로컬 역할 전환",
+      description:
+        "선택한 조직·역할·지점으로 실제 백엔드에 로그인합니다 (dev-auth 빌드에서만 동작).",
+      roleLabel: "역할",
+      // One entry per dev-auth ROLE_OPTIONS value (RoleSwitcher.tsx) — kept
+      // complete here (rather than borrowed from platform.viewAs.roles) so
+      // TypeScript's structural typing guarantees every option has a real
+      // label, never a raw role code.
+      roles: {
+        SUPER_ADMIN: "최고 관리자",
+        ADMIN: "관리자",
+        EXECUTIVE: "임원",
+        MECHANIC: "정비사",
+        RECEPTIONIST: "접수 담당",
+        MEMBER: "일반 멤버",
+      },
+      orgLabel: "조직 ID",
+      branchLabel: "지점 ID (쉼표로 구분, 관리자 외 역할은 필수)",
+      submit: "역할로 로그인",
+      submitting: "로그인 중",
+      orgRequired: "조직 ID를 입력하세요.",
+      failed: "역할 전환 로그인에 실패했습니다.",
+    },
   },
   onboarding: {
     title: "패스키 등록",
@@ -986,6 +1103,7 @@ export const ko = {
     duplicateReplay: "이미 저장된 근태 기록을 다시 확인했습니다.",
     linked: "연결됨",
     linkPending: "연결 대기",
+    noNote: "비고 없음",
     actions: {
       CLOCK_IN: "출근 기록",
       OUT_FOR_WORK: "외출 기록",
@@ -1010,8 +1128,10 @@ export const ko = {
       kind: "구분",
       occurredAt: "기록 시각",
       stateAfter: "이후 상태",
+      note: "비고",
       payroll: "급여자료",
     },
+    pinColumn: "상세 고정",
   },
   employees: {
     title: "인사·조직 관리",
@@ -2868,6 +2988,7 @@ export const ko = {
     searchResults: "검색 결과",
     searching: "검색 중",
     searchEmpty: "검색 결과가 없습니다.",
+    searchFailed: "메시지를 검색하지 못했습니다.",
     openThread: "대화 열기",
     openSearchResult: (threadTitle: string) => `${threadTitle} 대화 열기`,
     memberCount: "명",
@@ -3346,6 +3467,13 @@ export const ko = {
     refresh: "새로고침",
     open: "열기",
     selectedPlan: "선택한 계획",
+    absenceWarning: {
+      title: "결근 이상징후 경고",
+      description:
+        "결근 발생 시 사업장 관리자, 담당 HR, HQ HR, 급여, 4대보험 상실 신고자에게 이어지는 후속 조치입니다.",
+      proceedExit: "퇴사 확인 진행",
+      payrollImpact: "급여 영향 확인",
+    },
     statuses: {
       DRAFT: "작성 중",
       REQUESTED: "검토 요청됨",

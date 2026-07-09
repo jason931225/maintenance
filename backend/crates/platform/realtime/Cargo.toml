@@ -11,6 +11,8 @@ publish.workspace = true
 axum = { workspace = true, features = ["ws"] }
 mnt-kernel-core = { workspace = true }
 mnt-messenger-application = { workspace = true }
+mnt-notifications-application = { workspace = true }
+mnt-notifications-domain = { workspace = true }
 mnt-platform-auth = { workspace = true }
 mnt-platform-db = { workspace = true }
 mnt-platform-request-context = { workspace = true }
