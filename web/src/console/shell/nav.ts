@@ -173,7 +173,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
         screen: "policy",
         labelKey: "console.shell.nav.policy",
         icon: "shieldCheck",
-        gate: g(ROLE_MANAGE_ROLES, [FEATURES.ROLE_MANAGE]),
+        gate: g(ROLE_MANAGE_ROLES),
       },
       {
         screen: "compliance",
@@ -201,8 +201,8 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   {
     labelKey: "console.shell.nav.groups.automation",
     items: [
-      { screen: "workflow", labelKey: "console.shell.nav.workflow", icon: "workflow", gate: g(ROLE_MANAGE_ROLES, [FEATURES.ROLE_MANAGE]) },
-      { screen: "scheduled", labelKey: "console.shell.nav.scheduled", icon: "repeat", gate: g(ROLE_MANAGE_ROLES, [FEATURES.ROLE_MANAGE]) },
+      { screen: "workflow", labelKey: "console.shell.nav.workflow", icon: "workflow", gate: g(ROLE_MANAGE_ROLES) },
+      { screen: "scheduled", labelKey: "console.shell.nav.scheduled", icon: "repeat", gate: g(ROLE_MANAGE_ROLES) },
     ],
   },
   {

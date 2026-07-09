@@ -134,7 +134,6 @@ export const ko = {
         label: "범위 선택",
         list: "운영 범위",
         all: "그룹 전체",
-        loading: "범위 불러오는 중",
       },
       user: {
         menu: "내 계정",
@@ -153,7 +152,6 @@ export const ko = {
         label: "검색 팔레트",
         placeholder: "사람·업무·문서 검색",
         close: "팔레트 닫기",
-        empty: "검색어를 입력하세요",
       },
       rail: {
         label: "커뮤니케이션",
