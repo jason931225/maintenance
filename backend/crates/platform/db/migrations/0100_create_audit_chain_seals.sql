@@ -40,14 +40,6 @@ CREATE TABLE audit_chain_seals (
     UNIQUE (org_id, prev_seal_hash)
 );
 
--- The seal worker and verifier scan tenant-visible audit rows in canonical
--- `(created_at, id)` order under audit_events' org RLS predicate. Existing
--- audit indexes serve target/actor/branch/occurred_at reads, not this append-only
--- seal cursor, so add the covering tenant cursor index here with the seal feature.
-CREATE INDEX idx_audit_events_org_seal_cursor
-    ON audit_events (org_id, created_at ASC, id ASC)
-    WHERE org_id IS NOT NULL;
-
 ALTER TABLE audit_chain_seals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_chain_seals FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON audit_chain_seals
