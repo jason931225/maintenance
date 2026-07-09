@@ -127,7 +127,6 @@ pub async fn observe_parity(
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct RuntimeFlagCacheKey {
-    pool: usize,
     org: String,
     flag: &'static str,
 }
@@ -137,13 +136,11 @@ static RUNTIME_FLAG_CACHE: OnceLock<Mutex<BTreeMap<RuntimeFlagCacheKey, (bool, I
 const RUNTIME_FLAG_CACHE_TTL: Duration = Duration::from_secs(30);
 
 async fn runtime_flag_enabled_cached(
-    pool: &PgPool,
     store: &PgOrgStore,
     org: OrgId,
     flag_key: &'static str,
 ) -> Result<bool, String> {
     let key = RuntimeFlagCacheKey {
-        pool: pool as *const PgPool as usize,
         org: org.as_uuid().to_string(),
         flag: flag_key,
     };
@@ -188,7 +185,7 @@ async fn try_observe_parity(
     // DARK switch: absent/false flag ⇒ do nothing. Cache the short-lived
     // per-process result so hot paths do not pay a DB flag read on every request
     // while preserving per-tenant DB control once the cache expires.
-    if !runtime_flag_enabled_cached(pool, &store, org, flag_key).await? {
+    if !runtime_flag_enabled_cached(&store, org, flag_key).await? {
         return Ok(());
     }
 
