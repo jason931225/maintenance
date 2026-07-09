@@ -39,6 +39,12 @@ export interface TokenComposerProps {
   /** Clicking a resolved chip in the live preview. */
   onOpenObject?: (kind: ObjectKind, code: string) => void;
   disabled?: boolean;
+  /** Show the live chip preview under the field. Off for compact inputs (e.g.
+   * the messenger composer) where the sent message already renders chips. */
+  showPreview?: boolean;
+  /** Extra classes for the textarea — tailwind-merge lets a caller override
+   * sizing (e.g. a compact single-line messenger composer). */
+  textareaClassName?: string;
 }
 
 function keyFor(kind: ObjectKind, code: string): string {
@@ -69,6 +75,8 @@ export function TokenComposer({
   onKeyDown,
   onOpenObject,
   disabled = false,
+  showPreview = true,
+  textareaClassName,
 }: TokenComposerProps) {
   const {
     inputRef,
@@ -192,6 +200,7 @@ export function TokenComposer({
         className={cn(
           "min-h-[64px] w-full resize-y rounded-[8px] border bg-console-canvas px-3 py-2 text-[13px] text-console-ink placeholder:text-console-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-signal",
           dragOver ? "border-console-signal ring-2 ring-console-signal" : "border-console-border",
+          textareaClassName,
         )}
       />
 
@@ -205,7 +214,7 @@ export function TokenComposer({
         />
       ) : null}
 
-      {value.trim() ? (
+      {showPreview && value.trim() ? (
         <div
           data-testid="token-composer-preview"
           className="mt-2 rounded-[8px] border border-console-border-soft bg-console-surface px-3 py-2 text-[13px] text-console-ink"

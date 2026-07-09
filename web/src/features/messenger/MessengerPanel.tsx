@@ -10,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -30,9 +31,10 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
-import { Textarea } from "../../components/ui/textarea";
 import { SkeletonCards } from "../../components/states/Skeleton";
 import { MentionText } from "../../components/text/MentionText";
+import { TokenComposer } from "../../components/console/TokenComposer";
+import { createPersonCandidateProvider } from "../../lib/objectCandidates";
 import { cn, safeLabel } from "../../lib/utils";
 import { publishNotificationCountsInvalidated } from "../../lib/notification-events";
 import { ko } from "../../i18n/ko";
@@ -96,7 +98,6 @@ export function MessengerPanel({
   const [createError, setCreateError] = useState<string>();
   const newThreadTitleId = useId();
   const cursorRef = useRef<string | undefined>(undefined);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
   const latestMessageRef = useRef<HTMLElement | null>(null);
   const selectedThreadIdRef = useRef<string | undefined>(undefined);
   const selectedThread = state.threads.find(
@@ -122,15 +123,15 @@ export function MessengerPanel({
     latestMessage?.focus({ preventScroll: true });
   }, [latestMessageId, state.selectedThreadId]);
 
-  // Auto-grow the chat composer from one line up to its CSS max-height, so a
-  // short message stays compact but a longer draft expands instead of forcing
-  // an inner scrollbar from the first character.
-  useEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${String(el.scrollHeight)}px`;
-  }, [composer]);
+  // `@`-mention candidates for the composer — the branch-scoped member
+  // directory, so a mention resolves to a real recipient the message-post
+  // fan-out notifies (DESIGN §4.7-7). No provider without a branch.
+  // ponytail: composer auto-grow dropped with the swap to TokenComposer; the
+  // compact field scrolls within max-h-32 — add resize back if users ask.
+  const mentionProvider = useMemo(
+    () => (branchId ? createPersonCandidateProvider(api, branchId) : undefined),
+    [api, branchId],
+  );
 
   const markRead = useCallback(
     async (threadId: string, messageId: string) => {
@@ -675,15 +676,14 @@ export function MessengerPanel({
                     />
                   </label>
                 ) : null}
-                <Textarea
-                  ref={composerRef}
-                  aria-label={ko.messenger.composer}
+                <TokenComposer
+                  ariaLabel={ko.messenger.composer}
                   rows={1}
-                  className="min-h-9 max-h-32 resize-none"
+                  showPreview={false}
+                  textareaClassName="min-h-9 max-h-32 resize-none"
+                  providers={{ "@": mentionProvider }}
                   value={composer}
-                  onChange={(event) => {
-                    setComposer(event.currentTarget.value);
-                  }}
+                  onChange={setComposer}
                   onKeyDown={handleComposerKeyDown}
                 />
                 {sendError ? (
