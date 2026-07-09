@@ -20,6 +20,7 @@ members = [
   "crates/workflow/*",
   "crates/messenger/*",
   "crates/notifications/*",
+  "crates/inbox/*",
   "crates/todos/*",
   "crates/comms/*",
   "crates/payroll/*",
@@ -209,6 +210,10 @@ mnt-notifications-domain = { path = "crates/notifications/domain" }
 mnt-notifications-application = { path = "crates/notifications/application" }
 mnt-notifications-adapter-postgres = { path = "crates/notifications/adapter-postgres" }
 mnt-notifications-rest = { path = "crates/notifications/rest" }
+mnt-inbox-domain = { path = "crates/inbox/domain" }
+mnt-inbox-application = { path = "crates/inbox/application" }
+mnt-inbox-adapter-postgres = { path = "crates/inbox/adapter-postgres" }
+mnt-inbox-rest = { path = "crates/inbox/rest" }
 mnt-todos-domain = { path = "crates/todos/domain" }
 mnt-todos-application = { path = "crates/todos/application" }
 mnt-todos-adapter-postgres = { path = "crates/todos/adapter-postgres" }

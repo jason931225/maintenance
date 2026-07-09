@@ -4,6 +4,7 @@ use mnt_app::objects::OBJECT_ROUTE_PATHS;
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
 use mnt_compliance_rest::COMPLIANCE_ROUTE_PATHS;
 use mnt_identity_rest::IDENTITY_ROUTE_PATHS;
+use mnt_inbox_rest::INBOX_ROUTE_PATHS;
 use mnt_inspection_rest::INSPECTION_ROUTE_PATHS;
 use mnt_messenger_rest::MESSENGER_ROUTE_PATHS;
 use mnt_platform_auth_rest::AUTH_ROUTE_PATHS;
@@ -66,9 +67,16 @@ async fn openapi_yaml_covers_mounted_auth_routes() -> Result<(), Box<dyn std::er
     for path in TODOS_ROUTE_PATHS {
         assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
     }
+    for path in INBOX_ROUTE_PATHS {
+        assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
+    }
     assert!(
         yaml.contains(mnt_dispatch_rest::ME_DISPATCH_OFFERS_PATH),
         "OpenAPI YAML is missing /api/v1/me/dispatch-offers"
+    );
+    assert!(
+        yaml.contains(mnt_app::action_inbox::ME_ACTION_INBOX_PATH),
+        "OpenAPI YAML is missing /api/v1/me/action-inbox"
     );
     assert!(
         yaml.contains("/api/v1/ws"),

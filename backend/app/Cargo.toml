@@ -46,6 +46,8 @@ mnt-identity-rest = { workspace = true }
 mnt-inspection-adapter-postgres = { workspace = true }
 mnt-inspection-rest = { workspace = true }
 mnt-support-adapter-postgres = { workspace = true }
+mnt-support-application = { workspace = true }
+mnt-support-domain = { workspace = true }
 mnt-support-rest = { workspace = true }
 mnt-sales-adapter-postgres = { workspace = true }
 mnt-sales-rest = { workspace = true }
@@ -54,6 +56,8 @@ mnt-messenger-adapter-postgres = { workspace = true }
 mnt-messenger-rest = { workspace = true }
 mnt-notifications-adapter-postgres = { workspace = true }
 mnt-notifications-rest = { workspace = true }
+mnt-inbox-adapter-postgres = { workspace = true }
+mnt-inbox-rest = { workspace = true }
 mnt-todos-adapter-postgres = { workspace = true }
 mnt-todos-rest = { workspace = true }
 mnt-payroll-domain = { workspace = true }
