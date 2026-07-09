@@ -66,6 +66,10 @@ const WindowEngineHarness = lazy(() =>
 const ModuleHarness = lazy(() =>
   import("./console/module/ModuleHarness").then((m) => ({ default: m.ModuleHarness })),
 );
+// Dev-only lifecycle-card capture harness (P0.5). Standalone, shell-less.
+const LifecycleHarness = lazy(() =>
+  import("./console/lifecycle/harness").then((m) => ({ default: m.LifecycleHarness })),
+);
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
@@ -380,6 +384,19 @@ export function AppRouter() {
             <RouteErrorBoundary>
               <Suspense fallback={<PageSpinner />}>
                 <ModuleHarness />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+
+        {/* Dev-only lifecycle-card capture harness (P0.5). Shell-less like
+            /console; own error boundary so a crash is contained. */}
+        <Route
+          path="/console-dev/lifecycle"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <LifecycleHarness />
               </Suspense>
             </RouteErrorBoundary>
           }
