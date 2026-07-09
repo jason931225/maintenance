@@ -56,6 +56,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   const location = useLocation();
   const titleId = useId();
   const sectionId = useId();
+  const resultsId = `${sectionId}-results`;
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -145,6 +146,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   }, []);
 
   const boundedActiveIndex = Math.min(activeIndex, Math.max(0, rows.length - 1));
+  const activeRowId = rows.length > 0 ? rowDomId(sectionId, rows[boundedActiveIndex]) : undefined;
 
   function close() {
     onClose();
@@ -246,13 +248,18 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
           onKeyDown={onInputKeyDown}
           placeholder={ko.shell.commandPalette.placeholder}
           aria-label={ko.shell.commandPalette.searchLabel}
+          aria-activedescendant={activeRowId}
+          aria-controls={resultsId}
+          aria-expanded={rows.length > 0}
+          aria-autocomplete="list"
+          role="combobox"
           className="min-h-9 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-steel"
         />
         <kbd className="hidden rounded border border-line bg-muted-panel px-2 py-1 text-[10px] font-semibold text-steel sm:inline">
           Esc
         </kbd>
       </div>
-      <div className="max-h-96 overflow-y-auto p-2">
+      <div id={resultsId} aria-label={ko.shell.commandPalette.resultsLabel} className="max-h-96 overflow-y-auto p-2">
         {rows.length === 0 ? (
           <p className="px-3 py-8 text-center text-sm text-steel">
             {ko.shell.commandPalette.empty}
@@ -267,6 +274,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
               {screenRows.map((row) => (
                 <ScreenRowButton
                   key={row.key}
+                  id={rowDomId(sectionId, row)}
                   command={row.command}
                   active={rows[boundedActiveIndex]?.key === row.key}
                   currentPath={location.pathname}
@@ -287,6 +295,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
               {workRows.map((row) => (
                 <ObjectRowButton
                   key={row.key}
+                  id={rowDomId(sectionId, row)}
                   candidate={row.candidate}
                   active={rows[boundedActiveIndex]?.key === row.key}
                   onHover={() => {
@@ -306,6 +315,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
               {peopleRows.map((row) => (
                 <ObjectRowButton
                   key={row.key}
+                  id={rowDomId(sectionId, row)}
                   candidate={row.candidate}
                   active={rows[boundedActiveIndex]?.key === row.key}
                   onHover={() => {
@@ -322,6 +332,10 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
       </div>
     </Dialog>
   );
+}
+
+function rowDomId(prefix: string, row: PaletteRow): string {
+  return `${prefix}-row-${row.key.replace(/[^A-Za-z0-9_-]/g, "-")}`;
 }
 
 // One labeled section: heading (a real <p>) sits OUTSIDE the <ul>, which then
@@ -350,12 +364,14 @@ function PaletteSection({
 }
 
 function ScreenRowButton({
+  id,
   command,
   active,
   currentPath,
   onHover,
   onRun,
 }: {
+  id: string;
   command: ScreenCommand;
   active: boolean;
   currentPath: string;
@@ -365,6 +381,7 @@ function ScreenRowButton({
   return (
     <li>
       <button
+        id={id}
         type="button"
         aria-current={command.nav.href === currentPath ? "page" : undefined}
         onMouseEnter={onHover}
@@ -392,11 +409,13 @@ function ScreenRowButton({
 }
 
 function ObjectRowButton({
+  id,
   candidate,
   active,
   onHover,
   onRun,
 }: {
+  id: string;
   candidate: ObjectCandidate;
   active: boolean;
   onHover: () => void;
@@ -406,6 +425,7 @@ function ObjectRowButton({
   return (
     <li>
       <button
+        id={id}
         type="button"
         onMouseEnter={onHover}
         onClick={onRun}

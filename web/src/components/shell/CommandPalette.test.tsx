@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
+import { ko } from "../../i18n/ko";
 import { branchId, workOrderListItems } from "../../test/fixtures";
 import { CommandPalette } from "./CommandPalette";
 
@@ -130,5 +131,30 @@ describe("CommandPalette (UI-M2a)", () => {
     // No object sections when both providers error.
     expect(screen.queryByText("대기 업무")).not.toBeInTheDocument();
     expect(screen.queryByText("사람")).not.toBeInTheDocument();
+  });
+
+  it("announces the active keyboard result through aria-activedescendant", async () => {
+    server.use(
+      http.get("*/api/v1/work-orders", () => HttpResponse.json({ items: [], limit: 100, offset: 0, total: 0 })),
+      http.get("*/api/messenger/members", () => HttpResponse.json({ items: [] })),
+    );
+
+    renderPalette();
+
+    const input = screen.getByRole("combobox", {
+      name: ko.shell.commandPalette.searchLabel,
+    });
+    const firstActiveId = input.getAttribute("aria-activedescendant");
+    expect(firstActiveId).toBeTruthy();
+    expect(document.getElementById(firstActiveId ?? "")).not.toBeNull();
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+
+    await waitFor(() => {
+      expect(input.getAttribute("aria-activedescendant")).not.toBe(firstActiveId);
+    });
+    const nextActiveId = input.getAttribute("aria-activedescendant");
+    expect(nextActiveId).toBeTruthy();
+    expect(document.getElementById(nextActiveId ?? "")).not.toBeNull();
   });
 });
