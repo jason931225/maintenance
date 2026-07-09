@@ -17,7 +17,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
 use axum::{Extension, Json, Router};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
 };
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Feature, PermissionLevel, Principal, permission_for};
@@ -32,13 +33,22 @@ pub const OBJECT_LINKS_PATH: &str = "/api/v1/object-links";
 pub const OBJECT_LINK_BY_ID_PATH_TEMPLATE: &str = "/api/v1/object-links/{id}";
 pub const OBJECT_RESOLVE_PATH_TEMPLATE: &str = "/api/objects/{kind}/{id}";
 pub const OBJECT_GRAPH_PATH_TEMPLATE: &str = "/api/objects/{kind}/{id}/graph";
+pub const SEARCH_PATH: &str = "/api/v1/search";
 
 pub const OBJECT_ROUTE_PATHS: &[&str] = &[
     OBJECT_LINKS_PATH,
     OBJECT_LINK_BY_ID_PATH_TEMPLATE,
     OBJECT_RESOLVE_PATH_TEMPLATE,
     OBJECT_GRAPH_PATH_TEMPLATE,
+    SEARCH_PATH,
 ];
+
+/// Max hits returned per object kind (the palette groups by kind). A single
+/// bounded, ordered, `LIMIT`ed query runs per kind, so the total is bounded by
+/// `SEARCHABLE kinds × limit`.
+const SEARCH_LIMIT_DEFAULT: i64 = 20;
+const SEARCH_LIMIT_MAX: i64 = 50;
+const SEARCH_QUERY_MAX_LEN: usize = 200;
 
 /// Bounds on the graph walk: depth is clamped into `1..=GRAPH_MAX_DEPTH`, and
 /// the returned node set is capped at `GRAPH_MAX_NODES` (a maintenance
@@ -52,20 +62,97 @@ pub const OBJECT_ROUTE_PATHS: &[&str] = &[
 const GRAPH_MAX_DEPTH: i64 = 5;
 const GRAPH_MAX_NODES: usize = 200;
 
-/// Object kinds the resolve endpoint can dereference today (single-table
-/// lookups reusing the domain's tenant + branch scoping). Other seeded kinds
-/// resolve as unknown (404) until their resolver ships.
-const RESOLVABLE_KINDS: &[&str] = &[
-    "work_order",
-    "equipment",
-    "support_ticket",
-    "org_unit",
-    "person",
-    "approval_run",
-    "account",
-    "passkey",
-    "consent",
+/// Defense-in-depth caps on the two otherwise-unbounded `object_links` scans.
+/// Neither is an expected ceiling — a real object's neighborhood is tiny — they
+/// bound a pathological fan-out so a single densely-linked object cannot
+/// materialize an unbounded row set before the node cap / list trims.
+/// `OBJECT_LINK_LIST_MAX` caps each direction of `list_object_links` (which has
+/// no pagination params), matching sibling list caps and `GRAPH_MAX_NODES`;
+/// `GRAPH_MAX_LINKS_PER_LEVEL` caps one BFS level's link fetch — set well above
+/// any realistic frontier's edge count so a normal graph is never trimmed.
+const OBJECT_LINK_LIST_MAX: i64 = 200;
+const GRAPH_MAX_LINKS_PER_LEVEL: i64 = 1000;
+
+/// The authorization a resolvable kind requires, DECLARED per kind rather than
+/// hand-checked at each call site. `Feature(f)` = the caller must hold feature
+/// `f` (parity with the domain read endpoint the head aggregates);
+/// `MembershipOnly` = any authenticated tenant member (the base
+/// `authorize_object_member` gate already applied — no extra feature);
+/// `SelfScoped` = the resolver itself filters to the caller's own rows
+/// (passkey/consent), so membership is enough at this layer.
+#[derive(Debug, Clone, Copy)]
+enum RequiredAuth {
+    Feature(Feature),
+    MembershipOnly,
+    SelfScoped,
+}
+
+/// SINGLE SOURCE OF TRUTH for the resolve layer: every kind it can dereference,
+/// paired with the auth that kind requires. A kind absent from this table is
+/// unresolvable — a direct resolve is 404, a graph node is omitted — and there
+/// is no fall-through-to-Login default, so a NEW resolvable kind cannot ship
+/// without an explicit auth decision here. (That fall-through was the recurring
+/// bug: #220 work_order+equipment and #239 account each shipped gated only at
+/// Login until caught, because the guard was a hand-maintained special case,
+/// not a declared property of the kind.) Both the 404-for-unknown-kind check
+/// and the per-call feature gates derive from this table.
+///
+/// SECURITY (B3 interaction): adding a currently-NON-resolvable kind here makes
+/// pre-existing `object_links` to objects of that kind — created under B3's
+/// "non-resolvable kinds skip the endpoint-visibility gate" pass-through —
+/// RETROACTIVELY resolvable, with NO backfill re-check. Auditing existing links
+/// of the kind is part of adding it.
+const RESOLVABLE_KIND_AUTH: &[(&str, RequiredAuth)] = &[
+    (
+        "work_order",
+        RequiredAuth::Feature(Feature::WorkOrderReadAll),
+    ),
+    (
+        "equipment",
+        RequiredAuth::Feature(Feature::WorkOrderReadAll),
+    ),
+    ("account", RequiredAuth::Feature(Feature::UserManage)),
+    ("support_ticket", RequiredAuth::MembershipOnly),
+    ("org_unit", RequiredAuth::MembershipOnly),
+    ("person", RequiredAuth::MembershipOnly),
+    ("approval_run", RequiredAuth::MembershipOnly),
+    ("passkey", RequiredAuth::SelfScoped),
+    ("consent", RequiredAuth::SelfScoped),
 ];
+
+/// The declared auth for `kind`, or `None` if the kind is not resolvable at all.
+fn required_auth_for_kind(kind: &str) -> Option<RequiredAuth> {
+    RESOLVABLE_KIND_AUTH
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, auth)| *auth)
+}
+
+/// Whether the caller satisfies a kind's declared auth. `MembershipOnly` and
+/// `SelfScoped` are satisfied by any member (the base gate / the resolver's own
+/// caller filter carry them); a `Feature` requirement is satisfied only when the
+/// caller holds that feature (precomputed in `satisfied_features`).
+fn auth_satisfied(auth: RequiredAuth, satisfied_features: &[Feature]) -> bool {
+    match auth {
+        RequiredAuth::Feature(feature) => satisfied_features.contains(&feature),
+        RequiredAuth::MembershipOnly | RequiredAuth::SelfScoped => true,
+    }
+}
+
+/// The subset of features named in `RESOLVABLE_KIND_AUTH` that this caller
+/// actually holds, computed ONCE per request and threaded into every
+/// `resolve_head` call so each kind's declared `Feature` gate is a set lookup,
+/// not a repeated permission scan.
+fn satisfied_features(principal: &Principal) -> Vec<Feature> {
+    RESOLVABLE_KIND_AUTH
+        .iter()
+        .filter_map(|(_, auth)| match auth {
+            RequiredAuth::Feature(feature) => Some(*feature),
+            RequiredAuth::MembershipOnly | RequiredAuth::SelfScoped => None,
+        })
+        .filter(|feature| authorize_object_feature(principal, *feature).is_ok())
+        .collect()
+}
 
 const ID_MAX: usize = 200;
 
@@ -93,6 +180,7 @@ pub fn router(state: ObjectState) -> Router {
         .route(OBJECT_LINK_BY_ID_PATH_TEMPLATE, delete(delete_object_link))
         .route(OBJECT_RESOLVE_PATH_TEMPLATE, get(resolve_object))
         .route(OBJECT_GRAPH_PATH_TEMPLATE, get(object_graph))
+        .route(SEARCH_PATH, get(search_objects))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -162,6 +250,17 @@ async fn create_object_link(
     let org = principal.org_id;
     let actor = principal.user_id;
     let now = OffsetDateTime::now_utc();
+    // Same per-kind visibility inputs resolve_object threads into resolve_head,
+    // so the endpoint-existence guard below denies exactly what a direct resolve
+    // would (B3).
+    let scope = principal.branch_scope.clone();
+    let caller = *principal.user_id.as_uuid();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
     let audit_after = json!({
         "id": link_id,
         "src_kind": link.src_kind,
@@ -185,6 +284,29 @@ async fn create_object_link(
         Box::pin(async move {
             // Both kinds must be known (clean 422 rather than a raw FK 500).
             ensure_kinds_exist(tx, &link.src_kind, &link.dst_kind).await?;
+            // B3: both endpoints must resolve for the caller — an edge can only
+            // connect objects it can actually see. Same tx as the insert, so the
+            // check and the write are atomic.
+            ensure_endpoint_resolvable(
+                tx,
+                &scope,
+                caller,
+                &held_role_keys,
+                &satisfied,
+                &link.src_kind,
+                &link.src_id,
+            )
+            .await?;
+            ensure_endpoint_resolvable(
+                tx,
+                &scope,
+                caller,
+                &held_role_keys,
+                &satisfied,
+                &link.dst_kind,
+                &link.dst_id,
+            )
+            .await?;
             let insert = sqlx::query(
                 r#"
                 INSERT INTO object_links (
@@ -224,6 +346,11 @@ async fn delete_object_link(
     Path(link_id): Path<Uuid>,
 ) -> Result<StatusCode, ObjectError> {
     authorize_object_member(&principal)?;
+    // A link is an audited (often governance) edge, so deletion is NOT open to
+    // every member the way create/list are: only the edge's own creator, or a
+    // UserManage-tier admin, may remove it. `created_by` is the stored author
+    // (NULL for system-planted rows -> only an admin can delete those).
+    let can_manage = authorize_object_feature(&principal, Feature::UserManage).is_ok();
     let org = principal.org_id;
     let actor = principal.user_id;
     let now = OffsetDateTime::now_utc();
@@ -249,6 +376,16 @@ async fn delete_object_link(
                 return Err(ObjectError::not_found("object link not found"));
             };
             let before = object_link_from_row(&row)?;
+            // Authorize deletion against the loaded row. The row is already
+            // org-RLS-scoped, so a cross-org id was 404 above — this 403 only
+            // fires for an in-org link the caller can already see via list, so
+            // it reveals no existence the list did not.
+            let is_creator = before.created_by == Some(*actor.as_uuid());
+            if !is_creator && !can_manage {
+                return Err(ObjectError::from_kernel(KernelError::forbidden(
+                    "only the link's creator or a user-manager may delete it",
+                )));
+            }
             sqlx::query("DELETE FROM object_links WHERE id = $1")
                 .bind(link_id)
                 .execute(tx.as_mut())
@@ -289,10 +426,12 @@ async fn list_object_links(
                 FROM object_links
                 WHERE src_kind = $1 AND src_id = $2
                 ORDER BY created_at DESC, id DESC
+                LIMIT $3
                 "#,
             )
             .bind(&kind)
             .bind(&id)
+            .bind(OBJECT_LINK_LIST_MAX)
             .fetch_all(tx.as_mut())
             .await?;
             let incoming_rows = sqlx::query(
@@ -302,10 +441,12 @@ async fn list_object_links(
                 FROM object_links
                 WHERE dst_kind = $1 AND dst_id = $2
                 ORDER BY created_at DESC, id DESC
+                LIMIT $3
                 "#,
             )
             .bind(&kind)
             .bind(&id)
+            .bind(OBJECT_LINK_LIST_MAX)
             .fetch_all(tx.as_mut())
             .await?;
             let outgoing = outgoing_rows
@@ -373,9 +514,43 @@ struct GraphQuery {
 struct ObjectGraphResponse {
     nodes: Vec<ObjectHead>,
     edges: Vec<ObjectLinkResponse>,
-    /// `true` if `GRAPH_MAX_NODES` was hit before the walk exhausted `depth`
-    /// — the response is a partial (but still correctly scoped) neighborhood.
+    /// `true` if the walk returned a partial (but still correctly scoped)
+    /// neighborhood: either `GRAPH_MAX_NODES` was hit before `depth` was
+    /// exhausted, or a level's link fetch hit `GRAPH_MAX_LINKS_PER_LEVEL` (edges
+    /// beyond the cap were dropped).
     truncated: bool,
+}
+
+/// The `person.view` audit a DIRECT lookup of a person card emits — shared by
+/// `resolve_object` and the `object_graph` ROOT (both are direct lookups). One
+/// event iff the target is a NON-SELF person that actually resolved (mirrors
+/// get_member); empty otherwise. A WALKED graph node never calls this:
+/// traversal is not a card view.
+fn person_view_events(
+    kind: &str,
+    id: &str,
+    resolved: &Option<ResolvedHead>,
+    caller: Uuid,
+    actor: UserId,
+    org: OrgId,
+) -> Result<Vec<AuditEvent>, ObjectError> {
+    if kind != "person" || resolved.is_none() {
+        return Ok(Vec::new());
+    }
+    let Some(subject) = parse_uuid(id).filter(|s| *s != caller) else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![
+        AuditEvent::new(
+            Some(actor),
+            AuditAction::new("person.view")?,
+            "person",
+            subject.to_string(),
+            TraceContext::generate(),
+            OffsetDateTime::now_utc(),
+        )
+        .with_org(org),
+    ])
 }
 
 async fn resolve_object(
@@ -384,31 +559,23 @@ async fn resolve_object(
     Path((kind, id)): Path<(String, String)>,
 ) -> Result<Json<ObjectHead>, ObjectError> {
     authorize_object_member(&principal)?;
-    // A malformed slug is a client error; a well-formed unknown kind is 404.
+    // A malformed slug is a client error; a well-formed unregistered kind is 404.
     let kind = normalize_kind(&kind, "kind")?;
-    if !RESOLVABLE_KINDS.contains(&kind.as_str()) {
+    let Some(required) = required_auth_for_kind(&kind) else {
         return Err(ObjectError::not_found("unknown object kind"));
-    }
-    // Feature parity with the domain read endpoints: work_order and equipment
-    // GETs require WorkOrderReadAll (workorder/rest get_work_order, registry/rest
-    // authorize_read_access); account GETs require UserManage (identity/rest
-    // get_user/list_users/deactivate_user), so the generic head must too —
-    // otherwise a MEMBER (Login-only) could read heads its role is denied
-    // (an account head leaks display_name + active/inactive lifecycle status).
-    // The deny is kind-level, independent of the id, so it cannot become an
-    // existence oracle. This is the LOUD form (403) for a directly-requested
-    // top-level kind; resolve_head (shared with object_graph) carries the quiet
-    // per-node form of the same guard (omit, not error) for kinds discovered
-    // mid-walk.
-    let can_read_work_order =
-        authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
-    let can_manage_users = authorize_object_feature(&principal, Feature::UserManage).is_ok();
-    if matches!(kind.as_str(), "work_order" | "equipment") && !can_read_work_order {
-        return Err(ObjectError::from_kernel(KernelError::forbidden(
-            "insufficient permission for this object kind",
-        )));
-    }
-    if kind.as_str() == "account" && !can_manage_users {
+    };
+    // Feature parity with the domain read endpoints, DECLARED per kind in
+    // RESOLVABLE_KIND_AUTH (e.g. work_order/equipment -> WorkOrderReadAll like
+    // workorder/registry rest, account -> UserManage like identity rest) instead
+    // of hand-maintained special cases — otherwise a MEMBER (Login-only) could
+    // read heads its role is denied (an account head leaks display_name +
+    // active/inactive lifecycle status). The deny is kind-level, independent of
+    // the id, so it cannot become an existence oracle. This is the LOUD form
+    // (403) for a directly-requested top-level kind; resolve_head (shared with
+    // object_graph) carries the quiet per-node form of the same declared gate
+    // (omit, not error) for kinds discovered mid-walk.
+    let satisfied = satisfied_features(&principal);
+    if !auth_satisfied(required, &satisfied) {
         return Err(ObjectError::from_kernel(KernelError::forbidden(
             "insufficient permission for this object kind",
         )));
@@ -425,25 +592,24 @@ async fn resolve_object(
         crate::workflow_studio::guard_branch(&principal),
     );
 
+    let actor = principal.user_id;
+
     // Every resolver reads under the caller's armed org (RLS) and, for
     // branch-scoped kinds, drops rows outside the caller's branch scope — so an
-    // out-of-scope object is indistinguishable from a missing one.
-    let resolved = with_org_conn::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
+    // out-of-scope object is indistinguishable from a missing one. Run through
+    // with_audits so a NON-SELF person card view records its person.view (B1) in
+    // the SAME read tx (get_member's guarantee); every other kind commits with an
+    // empty events vec, which is byte-identical to with_org_conn.
+    let resolved = with_audits::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
         let kind = kind.clone();
         let id = id.clone();
         move |tx| {
             Box::pin(async move {
-                resolve_head(
-                    tx,
-                    &scope,
-                    caller,
-                    &held_role_keys,
-                    can_read_work_order,
-                    can_manage_users,
-                    &kind,
-                    &id,
-                )
-                .await
+                let head =
+                    resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id)
+                        .await?;
+                let events = person_view_events(&kind, &id, &head, caller, actor, org)?;
+                Ok((head, events))
             })
         }
     })
@@ -455,40 +621,48 @@ async fn resolve_object(
 /// Dispatch a single (kind, id) to its per-kind resolver. Shared by
 /// `resolve_object` (one object, 404/403 up front) and `object_graph` (many
 /// nodes; an unregistered/unresolvable/insufficiently-privileged kind is just
-/// omitted, never an error) — the SAME visibility guards (the WorkOrderReadAll
-/// feature gate `can_read_work_order` for work_order/equipment, and the
-/// UserManage gate `can_manage_users` for account), so a node in the graph can
-/// never be more visible than a direct resolve of that node would be.
-#[allow(clippy::too_many_arguments)] // per-kind guard inputs, threaded not bundled
+/// omitted, never an error). The kind's DECLARED auth (`RESOLVABLE_KIND_AUTH`)
+/// is the single visibility gate here, applied identically to both callers, so
+/// a node in the graph can never be more visible than a direct resolve of that
+/// node would be. `resolve_object` raises the same unmet `Feature` as a LOUD
+/// 403; this shared path stays quiet (omit) for kinds discovered mid-walk.
 async fn resolve_head(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     scope: &BranchScope,
     caller: Uuid,
     held_role_keys: &[String],
-    can_read_work_order: bool,
-    can_manage_users: bool,
+    satisfied_features: &[Feature],
     kind: &str,
     id: &str,
 ) -> Result<Option<ResolvedHead>, ObjectError> {
+    // An unmapped kind, or one whose declared Feature the caller lacks, is
+    // invisible: Ok(None) is byte-identical to "not found"/"not visible", so no
+    // existence oracle. Membership-only and self-scoped kinds pass this gate
+    // (their scoping lives inside the resolver / the base member check).
+    let Some(required) = required_auth_for_kind(kind) else {
+        return Ok(None);
+    };
+    if !auth_satisfied(required, satisfied_features) {
+        return Ok(None);
+    }
     match kind {
-        "work_order" if can_read_work_order => resolve_work_order(tx, scope, id).await,
-        "equipment" if can_read_work_order => resolve_equipment(tx, scope, id).await,
+        "work_order" => resolve_work_order(tx, scope, id).await,
+        "equipment" => resolve_equipment(tx, scope, id).await,
         "support_ticket" => resolve_support_ticket(tx, scope, id).await,
         "org_unit" => resolve_org_unit(tx, scope, id).await,
         "person" => resolve_person(tx, scope, id).await,
         "approval_run" => resolve_approval_run(tx, caller, held_role_keys, id).await,
         // Identity kinds (Identity Console UI-M13 / charter G-b). account =
         // person's branch-membership visibility (lifecycle object, so it shows
-        // deactivated in-scope accounts + status), gated on UserManage to match
-        // the identity domain endpoints; passkey/consent are self-owned (only
-        // the caller resolves their own credential/consent).
-        "account" if can_manage_users => resolve_account(tx, scope, id).await,
+        // deactivated in-scope accounts + status); passkey/consent are self-owned
+        // (only the caller resolves their own credential/consent). Their auth is
+        // declared in RESOLVABLE_KIND_AUTH and already checked above.
+        "account" => resolve_account(tx, scope, id).await,
         "passkey" => resolve_passkey(tx, caller, id).await,
         "consent" => resolve_consent(tx, caller, id).await,
-        // work_order/equipment without WorkOrderReadAll, account without
-        // UserManage, any other kind (including ones not in RESOLVABLE_KINDS):
-        // no resolver applies -> treated identically to "not found"/"not
-        // visible".
+        // A kind declared in RESOLVABLE_KIND_AUTH but with no arm here (or vice
+        // versa) resolves as invisible — deny by default. The tests assert the
+        // two stay in sync.
         _ => Ok(None),
     }
 }
@@ -534,13 +708,12 @@ async fn object_graph(
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
     let caller = *principal.user_id.as_uuid();
-    // Same feature gates resolve_object enforces loudly (403) for a directly-
-    // requested work_order/equipment (WorkOrderReadAll) or account (UserManage)
-    // kind; here they are quiet (a node the caller lacks the gating feature for
-    // is simply omitted from the walk, never a 403 for the whole graph request).
-    let can_read_work_order =
-        authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
-    let can_manage_users = authorize_object_feature(&principal, Feature::UserManage).is_ok();
+    let actor = principal.user_id;
+    // Same declared per-kind gates resolve_object enforces loudly (403) for a
+    // directly-requested kind; here they are quiet (a node the caller lacks the
+    // required feature for is simply omitted from the walk, never a 403 for the
+    // whole graph request).
+    let satisfied = satisfied_features(&principal);
     let held_role_keys = crate::workflow_studio::held_authority_role_keys(
         &principal,
         org,
@@ -556,61 +729,53 @@ async fn object_graph(
     // itself: a node that does not resolve is OMITTED (never a stub) and the
     // walk never expands through it, so the caller only ever sees their own
     // visible subgraph.
-    let (nodes, edges, truncated) =
-        with_org_conn::<_, _, ObjectError>(&state.pool, org, move |tx| {
-            Box::pin(async move {
-                let root_key = (kind.clone(), id.clone());
-                let mut seen: HashSet<(String, String)> = HashSet::new();
-                seen.insert(root_key.clone());
+    let (nodes, edges, truncated) = with_audits::<_, _, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let root_key = (kind.clone(), id.clone());
+            let mut seen: HashSet<(String, String)> = HashSet::new();
+            seen.insert(root_key.clone());
 
-                let mut nodes: Vec<ObjectHead> = Vec::new();
-                // Raw edges touched while walking the frontier, keyed by link
-                // id to dedupe re-fetches across levels; filtered down to the
-                // resolved-only induced subgraph once the walk finishes.
-                let mut edges_by_id: HashMap<Uuid, ObjectLinkResponse> = HashMap::new();
-                let mut truncated = false;
+            let mut nodes: Vec<ObjectHead> = Vec::new();
+            // Raw edges touched while walking the frontier, keyed by link
+            // id to dedupe re-fetches across levels; filtered down to the
+            // resolved-only induced subgraph once the walk finishes.
+            let mut edges_by_id: HashMap<Uuid, ObjectLinkResponse> = HashMap::new();
+            let mut truncated = false;
 
-                let root_resolved = resolve_head(
-                    tx,
-                    &scope,
-                    caller,
-                    &held_role_keys,
-                    can_read_work_order,
-                    can_manage_users,
-                    &kind,
-                    &id,
-                )
-                .await?;
-                let Some(root_fields) = root_resolved else {
-                    // The root itself is invisible/absent: an empty graph,
-                    // never a stub — matches resolve_object's own
-                    // deny-by-omission guarantee for this same (kind, id).
-                    return Ok((Vec::new(), Vec::new(), false));
-                };
-                nodes.push(object_head_from_resolved(
-                    kind.clone(),
-                    id.clone(),
-                    Some(root_fields),
-                ));
+            let root_resolved =
+                resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id).await?;
+            // The ROOT is a direct lookup, so a non-self person root audits
+            // exactly like resolve_object (B1). Only the root — walked nodes
+            // below never build events. Computed before root_fields is moved.
+            let root_events = person_view_events(&kind, &id, &root_resolved, caller, actor, org)?;
+            let Some(root_fields) = root_resolved else {
+                // The root itself is invisible/absent: an empty graph,
+                // never a stub — matches resolve_object's own
+                // deny-by-omission guarantee for this same (kind, id).
+                return Ok(((Vec::new(), Vec::new(), false), Vec::new()));
+            };
+            nodes.push(object_head_from_resolved(
+                kind.clone(),
+                id.clone(),
+                Some(root_fields),
+            ));
 
-                // `frontier` = nodes resolved in the PREVIOUS round whose
-                // links have not been fetched yet.
-                let mut frontier: Vec<(String, String)> = vec![root_key];
+            // `frontier` = nodes resolved in the PREVIOUS round whose
+            // links have not been fetched yet.
+            let mut frontier: Vec<(String, String)> = vec![root_key];
 
-                for _hop in 0..depth {
-                    if frontier.is_empty() || nodes.len() >= GRAPH_MAX_NODES {
-                        if nodes.len() >= GRAPH_MAX_NODES {
-                            truncated = true;
-                        }
-                        break;
+            for _hop in 0..depth {
+                if frontier.is_empty() || nodes.len() >= GRAPH_MAX_NODES {
+                    if nodes.len() >= GRAPH_MAX_NODES {
+                        truncated = true;
                     }
+                    break;
+                }
 
-                    let frontier_kinds: Vec<String> =
-                        frontier.iter().map(|(k, _)| k.clone()).collect();
-                    let frontier_ids: Vec<String> =
-                        frontier.iter().map(|(_, i)| i.clone()).collect();
-                    let link_rows = sqlx::query(
-                        r#"
+                let frontier_kinds: Vec<String> = frontier.iter().map(|(k, _)| k.clone()).collect();
+                let frontier_ids: Vec<String> = frontier.iter().map(|(_, i)| i.clone()).collect();
+                let link_rows = sqlx::query(
+                    r#"
                         SELECT l.id, l.src_kind, l.src_id, l.dst_kind, l.dst_id, l.link_type,
                                l.created_by, l.created_at
                         FROM object_links l
@@ -619,88 +784,345 @@ async fn object_graph(
                             WHERE (l.src_kind = f.kind AND l.src_id = f.id)
                                OR (l.dst_kind = f.kind AND l.dst_id = f.id)
                         )
+                        ORDER BY l.created_at DESC, l.id DESC
+                        LIMIT $3
                         "#,
-                    )
-                    .bind(&frontier_kinds)
-                    .bind(&frontier_ids)
-                    .fetch_all(tx.as_mut())
-                    .await?;
-
-                    // Every link touching the frontier is recorded (even one
-                    // between two already-resolved nodes — a cross edge, not
-                    // just BFS-tree edges); candidate neighbors not yet seen
-                    // are queued for resolution below.
-                    let mut candidates: Vec<(String, String)> = Vec::new();
-                    for row in &link_rows {
-                        let link = object_link_from_row(row)?;
-                        let src = (link.src_kind.clone(), link.src_id.clone());
-                        let dst = (link.dst_kind.clone(), link.dst_id.clone());
-                        edges_by_id.insert(link.id, link);
-                        for candidate in [src, dst] {
-                            if seen.insert(candidate.clone()) {
-                                candidates.push(candidate);
-                            }
-                        }
-                    }
-
-                    let mut next_frontier: Vec<(String, String)> = Vec::new();
-                    for (node_kind, node_id) in candidates {
-                        if nodes.len() >= GRAPH_MAX_NODES {
-                            truncated = true;
-                            break;
-                        }
-                        let resolved = resolve_head(
-                            tx,
-                            &scope,
-                            caller,
-                            &held_role_keys,
-                            can_read_work_order,
-                            can_manage_users,
-                            &node_kind,
-                            &node_id,
-                        )
-                        .await?;
-                        // Unresolved: dropped here — omitted from `nodes`,
-                        // never added to `next_frontier` (never expanded),
-                        // and any edge touching it is pruned in the filter
-                        // below.
-                        if let Some(fields) = resolved {
-                            nodes.push(object_head_from_resolved(
-                                node_kind.clone(),
-                                node_id.clone(),
-                                Some(fields),
-                            ));
-                            next_frontier.push((node_kind, node_id));
-                        }
-                    }
-                    frontier = next_frontier;
+                )
+                .bind(&frontier_kinds)
+                .bind(&frontier_ids)
+                .bind(GRAPH_MAX_LINKS_PER_LEVEL)
+                .fetch_all(tx.as_mut())
+                .await?;
+                // NOTE: this LIMIT clips RAW links — before resolve_head
+                // visibility filtering AND before seen-dedup — so the graph is a
+                // best-effort BOUNDED view: truncated=true means "incomplete",
+                // NOT "the complete visible set minus N". A clipped level can
+                // drop any edge, including a cross-edge between two nodes both in
+                // the result. Completeness under adversarial edge-flooding (an
+                // actor crowding a shared frontier node to bury a victim's edge)
+                // is a SEPARATE follow-up, not solved here.
+                if link_rows.len() as i64 >= GRAPH_MAX_LINKS_PER_LEVEL {
+                    truncated = true;
                 }
 
-                // Keep only edges where BOTH endpoints resolved: an edge
-                // touching an omitted node is omitted too, never leaked as a
-                // dangling reference to something the caller cannot see.
-                let resolved_keys: HashSet<(String, String)> = nodes
-                    .iter()
-                    .map(|n| (n.kind.clone(), n.id.clone()))
-                    .collect();
-                let edges: Vec<ObjectLinkResponse> = edges_by_id
-                    .into_values()
-                    .filter(|e| {
-                        resolved_keys.contains(&(e.src_kind.clone(), e.src_id.clone()))
-                            && resolved_keys.contains(&(e.dst_kind.clone(), e.dst_id.clone()))
-                    })
-                    .collect();
+                // Every link touching the frontier is recorded (even one
+                // between two already-resolved nodes — a cross edge, not
+                // just BFS-tree edges); candidate neighbors not yet seen
+                // are queued for resolution below.
+                let mut candidates: Vec<(String, String)> = Vec::new();
+                for row in &link_rows {
+                    let link = object_link_from_row(row)?;
+                    let src = (link.src_kind.clone(), link.src_id.clone());
+                    let dst = (link.dst_kind.clone(), link.dst_id.clone());
+                    edges_by_id.insert(link.id, link);
+                    for candidate in [src, dst] {
+                        if seen.insert(candidate.clone()) {
+                            candidates.push(candidate);
+                        }
+                    }
+                }
 
-                Ok((nodes, edges, truncated))
-            })
+                let mut next_frontier: Vec<(String, String)> = Vec::new();
+                for (node_kind, node_id) in candidates {
+                    if nodes.len() >= GRAPH_MAX_NODES {
+                        truncated = true;
+                        break;
+                    }
+                    let resolved = resolve_head(
+                        tx,
+                        &scope,
+                        caller,
+                        &held_role_keys,
+                        &satisfied,
+                        &node_kind,
+                        &node_id,
+                    )
+                    .await?;
+                    // Unresolved: dropped here — omitted from `nodes`,
+                    // never added to `next_frontier` (never expanded),
+                    // and any edge touching it is pruned in the filter
+                    // below.
+                    if let Some(fields) = resolved {
+                        nodes.push(object_head_from_resolved(
+                            node_kind.clone(),
+                            node_id.clone(),
+                            Some(fields),
+                        ));
+                        next_frontier.push((node_kind, node_id));
+                    }
+                }
+                frontier = next_frontier;
+            }
+
+            // Keep only edges where BOTH endpoints resolved: an edge
+            // touching an omitted node is omitted too, never leaked as a
+            // dangling reference to something the caller cannot see.
+            let resolved_keys: HashSet<(String, String)> = nodes
+                .iter()
+                .map(|n| (n.kind.clone(), n.id.clone()))
+                .collect();
+            let edges: Vec<ObjectLinkResponse> = edges_by_id
+                .into_values()
+                .filter(|e| {
+                    resolved_keys.contains(&(e.src_kind.clone(), e.src_id.clone()))
+                        && resolved_keys.contains(&(e.dst_kind.clone(), e.dst_id.clone()))
+                })
+                .collect();
+
+            Ok(((nodes, edges, truncated), root_events))
         })
-        .await?;
+    })
+    .await?;
 
     Ok(Json(ObjectGraphResponse {
         nodes,
         edges,
         truncated,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Search: GET /api/v1/search?q=&limit= -> cross-kind + person-directory hits.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct SearchQuery {
+    q: String,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchResponse {
+    /// Caller-visible hits grouped by kind (person first, then work items). Each
+    /// hit is an ObjectHead identical in scoping to what `resolveObject` returns
+    /// for that (kind, id) — a hit the caller could not resolve never appears.
+    results: Vec<ObjectHead>,
+}
+
+/// `GET /api/v1/search?q=` — global object + person search backing the ⌘K
+/// palette, compose target picker, explore search, and token-grammar dropdowns.
+///
+/// Searches the same object kinds `resolveObject` serves that have a
+/// human-searchable name/code (work_order, equipment, support_ticket, org_unit)
+/// plus the person directory (messenger member semantics: active + shared
+/// branch). Every hit is produced under the EXACT per-kind visibility guard
+/// `resolve_head` uses — the WorkOrderReadAll feature gate for
+/// work_order/equipment (a caller lacking it gets zero hits of those kinds:
+/// unauthorized-kind omission), and the `branch_visible` branch predicate for
+/// every branch-scoped kind — applied inside the SQL so the `LIMIT` counts only
+/// visible rows. Org isolation is FORCE-RLS via `with_org_conn`'s armed
+/// `app.current_org`. Deny-by-omission throughout: no 403 for a kind the caller
+/// cannot see, just absence.
+async fn search_objects(
+    State(state): State<ObjectState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<SearchResponse>, ObjectError> {
+    authorize_object_member(&principal)?;
+    let raw = query.q.trim();
+    if raw.is_empty() {
+        // An empty query has no matches; return an empty page rather than 422 so
+        // the palette can call it eagerly without special-casing.
+        return Ok(Json(SearchResponse { results: vec![] }));
+    }
+    if raw.chars().count() > SEARCH_QUERY_MAX_LEN {
+        return Err(ObjectError::validation(format!(
+            "q must be {SEARCH_QUERY_MAX_LEN} characters or less"
+        )));
+    }
+    let limit = query
+        .limit
+        .unwrap_or(SEARCH_LIMIT_DEFAULT)
+        .clamp(1, SEARCH_LIMIT_MAX);
+    // Case-insensitive substring match with LIKE metacharacters escaped so a `%`
+    // or `_` in user input is a literal, not a wildcard.
+    let pattern = format!("%{}%", escape_like(raw));
+
+    let org = principal.org_id;
+    let scope = principal.branch_scope.clone();
+    // Same feature gate `resolve_head` applies to work_order/equipment. When the
+    // caller lacks it those kinds are not queried at all (unauthorized-kind
+    // omission) — never a 403 for the whole search.
+    let can_read_work_order =
+        authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
+    let (scope_all, branch_ids) = branch_scope_params(&scope);
+
+    let results = with_org_conn::<_, Vec<ObjectHead>, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let mut hits: Vec<ObjectHead> = Vec::new();
+            // person directory (messenger member semantics: active + shared branch).
+            hits.extend(search_persons(tx, scope_all, &branch_ids, &pattern, limit).await?);
+            if can_read_work_order {
+                hits.extend(
+                    search_branch_kind(
+                        tx,
+                        "work_order",
+                        "SELECT id, request_no AS code, NULL::text AS title, status \
+                         FROM work_orders \
+                         WHERE request_no ILIKE $1 \
+                           AND ($2 OR branch_id = ANY($3) OR branch_id IS NULL) \
+                         ORDER BY request_no ASC LIMIT $4",
+                        scope_all,
+                        &branch_ids,
+                        &pattern,
+                        limit,
+                    )
+                    .await?,
+                );
+                hits.extend(
+                    search_branch_kind(
+                        tx,
+                        "equipment",
+                        "SELECT id, equipment_no AS code, manager_name AS title, status \
+                         FROM registry_equipment \
+                         WHERE (equipment_no ILIKE $1 OR model ILIKE $1 OR manager_name ILIKE $1) \
+                           AND ($2 OR branch_id = ANY($3) OR branch_id IS NULL) \
+                         ORDER BY equipment_no ASC LIMIT $4",
+                        scope_all,
+                        &branch_ids,
+                        &pattern,
+                        limit,
+                    )
+                    .await?,
+                );
+            }
+            hits.extend(
+                search_branch_kind(
+                    tx,
+                    "support_ticket",
+                    "SELECT id, NULL::text AS code, title, status \
+                     FROM support_tickets \
+                     WHERE title ILIKE $1 \
+                       AND ($2 OR branch_id = ANY($3) OR branch_id IS NULL) \
+                     ORDER BY created_at DESC LIMIT $4",
+                    scope_all,
+                    &branch_ids,
+                    &pattern,
+                    limit,
+                )
+                .await?,
+            );
+            hits.extend(
+                search_branch_kind(
+                    tx,
+                    "org_unit",
+                    // org_unit IS a branch: its own id is the branch-scope key
+                    // (never NULL), so the predicate has no IS NULL arm.
+                    "SELECT id, NULL::text AS code, name AS title, NULL::text AS status \
+                     FROM branches \
+                     WHERE name ILIKE $1 AND ($2 OR id = ANY($3)) \
+                     ORDER BY name ASC LIMIT $4",
+                    scope_all,
+                    &branch_ids,
+                    &pattern,
+                    limit,
+                )
+                .await?,
+            );
+            Ok(hits)
+        })
+    })
+    .await?;
+
+    Ok(Json(SearchResponse { results }))
+}
+
+/// Escape SQL-LIKE metacharacters so caller input matches literally.
+fn escape_like(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// `(scope_all, branch_ids)` for the SQL branch predicate, mirroring
+/// [`branch_visible`]: `All` → `(true, [])` (predicate always passes), a bounded
+/// scope → `(false, [branches])`.
+fn branch_scope_params(scope: &BranchScope) -> (bool, Vec<Uuid>) {
+    match scope {
+        BranchScope::All => (true, Vec::new()),
+        BranchScope::Branches(set) => (false, set.iter().map(|b| *b.as_uuid()).collect()),
+    }
+}
+
+/// Person-directory search: EXACTLY `resolve_person`'s guard (is_active = true
+/// AND shares a branch with the caller's scope), applied to a name prefix/
+/// substring match. A cross-branch or inactive user produces no row — no
+/// cross-branch PII/existence leak.
+async fn search_persons(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope_all: bool,
+    branch_ids: &[Uuid],
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<ObjectHead>, ObjectError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT u.id, u.display_name
+        FROM users u
+        LEFT JOIN user_branches ub ON ub.user_id = u.id
+        WHERE u.is_active
+          AND u.display_name ILIKE $1
+          AND ($2 OR ub.branch_id = ANY($3))
+        ORDER BY u.display_name ASC
+        LIMIT $4
+        "#,
+    )
+    .bind(pattern)
+    .bind(scope_all)
+    .bind(branch_ids)
+    .bind(limit)
+    .fetch_all(tx.as_mut())
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let id: Uuid = row.try_get("id")?;
+            Ok(ObjectHead {
+                kind: "person".to_owned(),
+                id: id.to_string(),
+                code: None,
+                title: row.try_get("display_name")?,
+                status: None,
+                exists: true,
+            })
+        })
+        .collect()
+}
+
+/// Branch-scoped domain-kind search. The SQL supplied by the caller MUST select
+/// `id`, `code`, `title`, `status` and apply the `($2 OR branch_id = ANY($3) …)`
+/// branch predicate — the exact `branch_visible` guard, in SQL, so the `LIMIT`
+/// counts only rows the caller may actually resolve.
+async fn search_branch_kind(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    kind: &str,
+    sql: &'static str,
+    scope_all: bool,
+    branch_ids: &[Uuid],
+    pattern: &str,
+    limit: i64,
+) -> Result<Vec<ObjectHead>, ObjectError> {
+    let rows = sqlx::query(sql)
+        .bind(pattern)
+        .bind(scope_all)
+        .bind(branch_ids)
+        .bind(limit)
+        .fetch_all(tx.as_mut())
+        .await?;
+    rows.iter()
+        .map(|row| {
+            let id: Uuid = row.try_get("id")?;
+            Ok(ObjectHead {
+                kind: kind.to_owned(),
+                id: id.to_string(),
+                code: row.try_get("code")?,
+                title: row.try_get("title")?,
+                status: row.try_get("status")?,
+                exists: true,
+            })
+        })
+        .collect()
 }
 
 async fn resolve_work_order(
@@ -1036,6 +1458,47 @@ fn branch_visible(scope: &BranchScope, branch_id: Option<Uuid>) -> bool {
 // Helpers.
 // ---------------------------------------------------------------------------
 
+/// Deny creating a link whose endpoint the caller cannot actually see (B3):
+/// once a link is stored, slice-2 denormalized-title / graph-traversal surfaces
+/// turn it into a trust edge, so an edge must only ever connect objects the
+/// caller can resolve. Reuses `resolve_head` — the SAME per-kind visibility/RLS
+/// gate the resolve endpoint applies — so a missing OR out-of-scope endpoint is
+/// rejected with one indistinguishable message (deny-by-omission: no
+/// "absent" vs "not visible" oracle).
+///
+/// A kind with NO resolver (document/voucher/… — registered purely as a link
+/// target) has no title/graph exposure to leak and cannot be visibility-checked
+/// at this layer, so it passes through unchanged, exactly as before this guard.
+async fn ensure_endpoint_resolvable(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    caller: Uuid,
+    held_role_keys: &[String],
+    satisfied_features: &[Feature],
+    kind: &str,
+    id: &str,
+) -> Result<(), ObjectError> {
+    if required_auth_for_kind(kind).is_none() {
+        return Ok(());
+    }
+    let resolved = resolve_head(
+        tx,
+        scope,
+        caller,
+        held_role_keys,
+        satisfied_features,
+        kind,
+        id,
+    )
+    .await?;
+    if resolved.is_none() {
+        return Err(ObjectError::validation(
+            "src and dst must reference objects you can access",
+        ));
+    }
+    Ok(())
+}
+
 /// Confirm both link endpoints reference a seeded kind, inside the write tx so
 /// the check and the insert are atomic. Runs on `tx.as_mut()` (armed), never a
 /// bare pool.
@@ -1269,5 +1732,40 @@ mod tests {
         assert!(normalize_kind("1bad", "src_kind").is_err());
         assert!(normalize_kind("work_order", "src_kind").is_ok());
         assert!(normalize_object_id("  ", "id").is_err());
+    }
+
+    /// Every kind `resolve_head` can dispatch MUST have a declared auth in
+    /// `RESOLVABLE_KIND_AUTH`, and every declared kind must be dispatchable —
+    /// the two cannot drift. This is the structural guarantee that a new
+    /// resolvable kind cannot ship gated only at Login by a default fall-through
+    /// (the #220 / #239 bug class): visibility now requires a declared auth
+    /// decision, and this test fails loudly if a resolver arm is added without
+    /// one (or a declaration is added without a resolver).
+    #[test]
+    fn resolvable_kinds_and_declared_auth_stay_in_sync() {
+        // Mirror of resolve_head's dispatch arms.
+        const DISPATCHED_KINDS: &[&str] = &[
+            "work_order",
+            "equipment",
+            "support_ticket",
+            "org_unit",
+            "person",
+            "approval_run",
+            "account",
+            "passkey",
+            "consent",
+        ];
+        for kind in DISPATCHED_KINDS {
+            assert!(
+                required_auth_for_kind(kind).is_some(),
+                "dispatchable kind `{kind}` has no RESOLVABLE_KIND_AUTH entry"
+            );
+        }
+        for (kind, _) in RESOLVABLE_KIND_AUTH {
+            assert!(
+                DISPATCHED_KINDS.contains(kind),
+                "RESOLVABLE_KIND_AUTH declares `{kind}` but resolve_head has no arm"
+            );
+        }
     }
 }

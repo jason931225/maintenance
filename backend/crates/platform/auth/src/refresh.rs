@@ -240,6 +240,7 @@ impl RefreshTokenStore {
             .await?;
             insert_audit_in_tx(
                 &mut tx,
+                OrgId::from_uuid(org_uuid),
                 user_id,
                 family_id,
                 "auth.refresh.absolute_ttl_revoked",
@@ -259,6 +260,7 @@ impl RefreshTokenStore {
             revoke_family_for_reuse(&mut tx, family_id, token_id, now).await?;
             insert_audit_in_tx(
                 &mut tx,
+                OrgId::from_uuid(org_uuid),
                 user_id,
                 family_id,
                 "auth.refresh.reuse_detected",
@@ -321,6 +323,7 @@ impl RefreshTokenStore {
 
         insert_audit_in_tx(
             &mut tx,
+            OrgId::from_uuid(org_uuid),
             user_id,
             family_id,
             "auth.refresh",
@@ -437,6 +440,7 @@ impl RefreshTokenStore {
 
         insert_audit_in_tx(
             &mut tx,
+            OrgId::from_uuid(org_uuid),
             user_id,
             family_id,
             "auth.logout",
@@ -508,6 +512,7 @@ async fn revoke_family_for_reuse(
 
 async fn insert_audit_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org: OrgId,
     user_id: Uuid,
     family_id: Uuid,
     action: &str,
@@ -522,14 +527,20 @@ async fn insert_audit_in_tx(
         TraceContext::generate(),
         now,
     )
+    .with_org(org)
     .with_snapshots(None, Some(after));
 
+    // Stamp `org_id` on the row (the enclosing tx already armed `app.current_org`
+    // to this org before the RLS-gated read). Omitting it lands the row with
+    // NULL org_id — which the FORCE-RLS WITH CHECK still permits, but then a
+    // tenant-scoped `/api/audit` read (RLS `USING (org_id = app.current_org)`)
+    // can never see these refresh/logout events.
     sqlx::query(
         r#"
         INSERT INTO audit_events (
             id, actor, action, target_type, target_id, branch_id,
-            before_snap, after_snap, trace_id, span_id, occurred_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            before_snap, after_snap, trace_id, span_id, occurred_at, org_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(*event.id.as_uuid())
@@ -543,6 +554,7 @@ async fn insert_audit_in_tx(
     .bind(event.trace.trace_id())
     .bind(event.trace.span_id())
     .bind(event.occurred_at)
+    .bind(event.org_id.map(|org_id| *org_id.as_uuid()))
     .execute(tx.as_mut())
     .await?;
 

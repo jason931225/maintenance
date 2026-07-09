@@ -9,8 +9,8 @@
 //! (NOSUPERUSER, NOBYPASSRLS, FORCE RLS): SEED as the owner, GENERATE/UPDATE/
 //! CONFIRM as `mnt_rt` under the armed GUC.
 
-use mnt_kernel_core::{BranchId, BranchScope, OrgId, TraceContext, UserId};
-use mnt_platform_test_support::runtime_role_pool;
+use mnt_kernel_core::{BranchScope, OrgId, TraceContext};
+use mnt_platform_test_support::{runtime_role_pool, seed_branch, seed_user};
 use mnt_reporting_adapter_postgres::PgReportingRepository;
 use mnt_reporting_application::{
     WorkDiaryConfirmCommand, WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
@@ -20,51 +20,11 @@ use time::{Duration, OffsetDateTime, macros::date};
 
 const DIARY_DATE: time::Date = date!(2026 - 06 - 12);
 
-async fn seed_branch(pool: &PgPool) -> BranchId {
-    let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
-            .bind(format!("Region {}", uuid::Uuid::new_v4()))
-            .bind(*OrgId::knl().as_uuid())
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    let branch_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
-    )
-    .bind(region_id)
-    .bind(format!("Branch {}", uuid::Uuid::new_v4()))
-    .bind(*OrgId::knl().as_uuid())
-    .fetch_one(pool)
-    .await
-    .unwrap();
-    BranchId::from_uuid(branch_id)
-}
-
-async fn seed_user(pool: &PgPool, branch: BranchId) -> UserId {
-    let id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
-        .bind(*id.as_uuid())
-        .bind(format!("Admin {}", uuid::Uuid::new_v4()))
-        .bind(Vec::from(["ADMIN"]))
-        .bind(*OrgId::knl().as_uuid())
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
-        .bind(*id.as_uuid())
-        .bind(*branch.as_uuid())
-        .bind(*OrgId::knl().as_uuid())
-        .execute(pool)
-        .await
-        .unwrap();
-    id
-}
-
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn work_diary_update_and_confirm_succeed_as_runtime_role(owner_pool: PgPool) {
     mnt_platform_request_context::scope_org(OrgId::knl(), async move {
-        let branch = seed_branch(&owner_pool).await;
-        let actor = seed_user(&owner_pool, branch).await;
+        let branch = seed_branch(&owner_pool, "Region", "Branch").await;
+        let actor = seed_user(&owner_pool, "Admin", "ADMIN", branch).await;
 
         let rt_pool = runtime_role_pool(&owner_pool).await;
         let repo = PgReportingRepository::new(rt_pool);

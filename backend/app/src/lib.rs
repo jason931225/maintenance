@@ -34,6 +34,8 @@ use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_rest::FinancialRestState;
 use mnt_identity_adapter_postgres::PgOrgStore;
 use mnt_identity_rest::IdentityRestState;
+use mnt_inbox_adapter_postgres::PgInboxStore;
+use mnt_inbox_rest::InboxRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
 use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
@@ -103,6 +105,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
+pub mod action_inbox;
 mod collaboration;
 mod hr;
 pub mod lifecycle;
@@ -1033,7 +1036,16 @@ impl AppState {
         // per tenant for each sync pass. GRACEFUL — only runs when the master KEK,
         // object storage, and `MNT_MAIL_ENABLED` are all present; otherwise a
         // no-op so the app boots normally and mail endpoints still mount.
-        if let DatabaseDependency::Postgres(pool) = &state.database {
+        //
+        // WORKER-ROLE ONLY: this background ticker belongs on the worker, never on
+        // the horizontally-scaled API pods — every API replica running its own
+        // ticker would sync the same mailboxes concurrently. Even on the worker it
+        // is HA-safe because the due-account claim leases each row with FOR UPDATE
+        // SKIP LOCKED (migration 0116), so >1 worker replica still claim disjoint
+        // batches.
+        if let DatabaseDependency::Postgres(pool) = &state.database
+            && config.role == AppRole::Worker
+        {
             state.mail_sync_handle = mail_sync::spawn(
                 pool.clone(),
                 state.mail_cipher.clone(),
@@ -1427,6 +1439,10 @@ pub fn build_router(state: AppState) -> Router {
                         state.jwt_verifier.clone(),
                     ),
                 ))
+                .merge(action_inbox::router(action_inbox::ActionInboxState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(objects::router(objects::ObjectState::new(
                     pool.clone(),
                     state.jwt_verifier.clone(),
@@ -1476,6 +1492,13 @@ pub fn build_router(state: AppState) -> Router {
                     notification_store,
                     state.jwt_verifier.clone(),
                 )))
+                .merge(mnt_inbox_rest::router(
+                    InboxRestState::new(
+                        PgInboxStore::new(pool.clone()),
+                        state.jwt_verifier.clone(),
+                    )
+                    .with_passkey_step_up(state.policy_step_up.clone()),
+                ))
                 .merge(mnt_todos_rest::router(TodoRestState::new(
                     todo_store,
                     state.jwt_verifier.clone(),
@@ -1925,7 +1948,12 @@ fn audit_read_event(principal: &Principal) -> Result<AuditEvent, ApiError> {
         "query",
         current_trace_context(),
         time::OffsetDateTime::now_utc(),
-    );
+    )
+    // Arm `app.current_org` for the FORCE-RLS read: `with_audit` binds the GUC
+    // from `event.org_id`, so without this the `audit_events` SELECT runs with
+    // an unset GUC and RLS fails closed (zero rows) as the `mnt_rt` role. Also
+    // stamps the `audit.read` row with the caller's org instead of NULL.
+    .with_org(principal.org_id);
     Ok(match audit_event_branch(&principal.branch_scope) {
         Some(branch_id) => event.with_branch(branch_id),
         None => event,

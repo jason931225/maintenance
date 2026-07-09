@@ -1359,6 +1359,29 @@
       "groupScopeStory": "Group data admin can standardize schemas across subsidiaries while apply permissions remain domain/org scoped"
     },
     {
+      "rawPath": "/console-dev/window",
+      "canonicalPath": "/console-dev/window",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "sales-admin",
+        "data-steward",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "Dev-only capture harness for the P0.2 window/pin engine (charter §3 P0.2): NOT a product surface — it mounts the standalone primitive so the fidelity rig can screenshot the four states in isolation before the engine is wired into a screen (P0.1 shell owns integration)",
+      "accessibilityEvidence": "Engine controls are real <button>s (pin/minimize/close) with Korean aria-labels from ko.console.window and are keyboard-operable; the drag/dblclick gestures have button equivalents so no interaction is pointer-only; per-screen axe coverage arrives when a screen hosts the engine",
+      "ownerLane": "feat/console-cc-p0-window P0.2 lane — engine + hooks under web/src/console/window/** behind the check-console-purity zero-visual-inheritance guard",
+      "dataClass": "none — the harness renders demo cards with no backend reads; the only real backend touch is the per-user layout blob (opaque frontend JSON) via GET/PUT /api/v1/me/workspace, owner-scoped by RLS",
+      "sourceObject": "none — the harness cards are demo fixtures, not resolved objects; the engine is object-agnostic and hosts whatever body a screen renders into it in later slices",
+      "lifecycleStates": "The four window states the harness exercises: grid (default zone), pin-split (space-reserving dock), popout-float (free overlay), tray-minimize (docked chip) — captured to e2e/.artifacts/fidelity/window-<state>.png",
+      "e2eSpec": "Required browser story: e2e/specs/admin-29-console-window.spec.ts pins a card, waits for the debounced PUT /api/v1/me/workspace, reloads, and asserts the pin is restored from the server layout (not localStorage)",
+      "denialScopeTest": "Behind ProtectedRoute like /console; the workspace endpoint is owner-only (RLS on me_workspace_layouts, verified as mnt_rt in backend/crates/identity/adapter-postgres/tests/me_workspace_layouts_rls.rs) so no user can read or write another user's layout",
+      "screenshotTraceEvidence": "e2e/fidelity/window-states.mjs captures the four states to e2e/.artifacts/fidelity/window-<state>.png with a window-states.manifest.json, at a fixed 1440x900 light-theme reduced-motion viewport",
+      "groupScopeStory": "none — the dev harness has no org/group scope surface; it renders demo cards only and the persisted layout is per-user, not per-scope"
+    },
+    {
       "rawPath": "/console/*",
       "canonicalPath": "/console",
       "epRows": [

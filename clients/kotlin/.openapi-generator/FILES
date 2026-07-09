@@ -31,6 +31,9 @@ src/main/kotlin/com/maintenance/api/client/infrastructure/URLAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/UUIDAdapter.kt
 src/main/kotlin/com/maintenance/api/client/model/AccountStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/AcquisitionBasis.kt
+src/main/kotlin/com/maintenance/api/client/model/ActionInboxItem.kt
+src/main/kotlin/com/maintenance/api/client/model/ActionInboxLink.kt
+src/main/kotlin/com/maintenance/api/client/model/ActionInboxResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AddCommentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetResponse.kt
@@ -200,6 +203,10 @@ src/main/kotlin/com/maintenance/api/client/model/HrOrgChartEmployee.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartPosition.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartUnit.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocConfirmReceiptRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocDetail.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocPage.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/IncidentLocation.kt
 src/main/kotlin/com/maintenance/api/client/model/InquiryAck.kt
 src/main/kotlin/com/maintenance/api/client/model/InquiryStatus.kt
@@ -368,6 +375,7 @@ src/main/kotlin/com/maintenance/api/client/model/SalesListingView.kt
 src/main/kotlin/com/maintenance/api/client/model/SavePurchasePreferencesRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ScheduleRunItem.kt
 src/main/kotlin/com/maintenance/api/client/model/ScheduleRunListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/SearchResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMailRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMailResult.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
@@ -385,6 +393,8 @@ src/main/kotlin/com/maintenance/api/client/model/StartWorkflowRunResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitInquiryRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SubmittableDefinitionListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/SubmittableDefinitionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteAssignment.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidate.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidatePage.kt

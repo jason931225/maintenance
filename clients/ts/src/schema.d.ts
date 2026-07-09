@@ -3215,6 +3215,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/inbox-docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated user's statutory-notice vault (개인 수신함)
+         * @description Metadata only — a locked legal notice's body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+         */
+        get: operations["listMyInboxDocs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox-docs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one of the authenticated user's inbox documents
+         * @description Reading a LOCKED legal notice returns its metadata with `payload` omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its `payload`.
+         */
+        get: operations["getMyInboxDoc"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox-docs/{id}/confirm-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm receipt of a legal notice (the legal receipt evidence)
+         * @description Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 = 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user's / unknown document is 404.
+         */
+        post: operations["confirmMyInboxDocReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/todos": {
         parameters: {
             query?: never;
@@ -3288,6 +3348,26 @@ export interface paths {
          * @description BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
          */
         get: operations["listMyDispatchOffers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/action-inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Unified action inbox for the authenticated principal
+         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+         */
+        get: operations["listMyActionInbox"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4019,6 +4099,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-studio/submittable-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workflow definitions the caller may start (기안 template gallery)
+         * @description All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node's required_policy; absent = self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+         */
+        get: operations["listSubmittableWorkflowDefinitions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow-studio/definitions/{id}": {
         parameters: {
             query?: never;
@@ -4557,6 +4657,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+         * @description Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+         */
+        get: operations["searchObjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/objects/{kind}/{id}": {
         parameters: {
             query?: never;
@@ -4824,6 +4944,10 @@ export interface components {
             edges: components["schemas"]["ObjectLinkResponse"][];
             /** @description True if the node cap was hit before the walk exhausted the requested depth. */
             truncated: boolean;
+        };
+        /** @description Global search hits, each an ObjectHead scoped identically to resolveObject (a hit the caller could not resolve never appears). Grouped by kind; exists is always true for a hit. */
+        SearchResponse: {
+            results: components["schemas"]["ObjectHead"][];
         };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
@@ -5422,6 +5546,20 @@ export interface components {
         };
         WorkflowDefinitionListResponse: {
             items: components["schemas"]["WorkflowDefinitionResponse"][];
+        };
+        SubmittableDefinitionListResponse: {
+            items: components["schemas"]["SubmittableDefinitionResponse"][];
+        };
+        /** @description An ACTIVE workflow definition the caller may start from the 기안 template gallery. Carries only the metadata definitions actually hold; active_version is the version a start binds to. */
+        SubmittableDefinitionResponse: {
+            id: components["schemas"]["Uuid"];
+            workflow_key: string;
+            display_name: string;
+            object_type: string;
+            /** Format: int32 */
+            active_version: number;
+            required_approval_line: boolean;
+            required_payment_line: boolean;
         };
         WorkflowDefinitionResponse: {
             id: components["schemas"]["Uuid"];
@@ -7094,6 +7232,51 @@ export interface components {
              */
             unread: number;
         };
+        /** @description A list-row / confirmation view of one inbox document. Never carries the body `payload` — that is only ever on InboxDocDetail, and only once readable. */
+        InboxDocSummary: {
+            id: components["schemas"]["Uuid"];
+            recipient_user_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "payslip" | "legal_notice";
+            /** @description Statutory subtype for a legal notice (근로계약/취업규칙/연차촉진/노무수령거부). */
+            notice_type?: string;
+            title: string;
+            /** @description Statutory basis surfaced in the passkey gate (e.g. 근로기준법 §61). */
+            legal_basis?: string;
+            /** @description Producing-object kind (e.g. workflow_run, payroll_run). */
+            source_kind?: string;
+            /** @description Producing-object id (e.g. the AP- run code). */
+            source_id?: string;
+            /** @description True while a legal notice awaits receipt confirmation — its body is withheld until confirmed. Always false for payslips. */
+            locked: boolean;
+            /**
+             * Format: uuid
+             * @description The recipient who confirmed receipt; null until confirmed.
+             */
+            confirmed_by?: string | null;
+            /**
+             * Format: date-time
+             * @description When receipt was confirmed (the legal receipt timestamp); null until then.
+             */
+            confirmed_at?: string | null;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description A single inbox document. Extends InboxDocSummary with the body `payload`, present only when readable (a payslip, or an already-confirmed legal notice) and omitted while a legal notice is locked. */
+        InboxDocDetail: components["schemas"]["InboxDocSummary"] & {
+            /** @description Rendered document payload (legal prose paragraphs, or payslip figures). */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        InboxDocPage: {
+            items: components["schemas"]["InboxDocSummary"][];
+            /** Format: uuid */
+            next_cursor: string | null;
+        };
+        /** @description The fresh passkey assertion proving present possession of an authenticator. Its absence yields 428 (precondition required). */
+        InboxDocConfirmReceiptRequest: {
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
         /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
         TodoRef: {
             kind: string;
@@ -7141,6 +7324,37 @@ export interface components {
         };
         MyDispatchOfferPage: {
             items: components["schemas"]["MyDispatchOffer"][];
+        };
+        /** @description A bounded cross-object reference for an action-inbox item. */
+        ActionInboxLink: {
+            /** @description Object type label (e.g. work_order, workflow_run). */
+            kind: string;
+            id: string;
+            label?: string;
+        };
+        /** @description One unified actionable item. Field names mirror the overview prototype's items[] shape. Source-partial fields (site/who/due/submitted) are absent when the originating source does not carry them. */
+        ActionInboxItem: {
+            /** @description "{kind}:{uuid}" — source-namespaced so ids never collide. */
+            id: string;
+            /** @enum {string} */
+            kind: "approval" | "dispatch" | "work" | "support";
+            /** @enum {string} */
+            urg: "now" | "today" | "wait";
+            /** @description Source reference (work order request_no, ticket id, or the workflow run/object id). Not a canonical AP-/CS- object code. */
+            ref: string;
+            title: string;
+            site?: string;
+            who?: string;
+            due?: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            dueTone: "danger" | "warn" | "neutral";
+            submitted?: components["schemas"]["Timestamp"];
+            links: components["schemas"]["ActionInboxLink"][];
+            done: boolean;
+        };
+        ActionInboxResponse: {
+            items: components["schemas"]["ActionInboxItem"][];
+            total: number;
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -13464,6 +13678,140 @@ export interface operations {
             };
         };
     };
+    listMyInboxDocs: {
+        parameters: {
+            query?: {
+                /** @description 확인 필요 (`action`) = legal notices awaiting receipt; 급여명세 (`pay`) = payslips; 완료 (`done`) = confirmed; 전체 (`all`, default). */
+                filter?: "action" | "pay" | "done" | "all";
+                /** @description Keyset cursor; return documents strictly older than this id. */
+                before?: components["schemas"]["Uuid"];
+                /** @description Page size (clamped server-side to 1..=200; default 50). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's inbox documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Unknown filter value. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getMyInboxDoc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document (body withheld while locked). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    confirmMyInboxDocReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxDocConfirmReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description The confirmed document, unlocked and stamped. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The document is a payslip and cannot be receipt-confirmed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A fresh passkey step-up is required to confirm receipt. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification or passkey step-up is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     listMyTodos: {
         parameters: {
             query?: {
@@ -13618,6 +13966,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyDispatchOfferPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyActionInbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's actionable items, most urgent first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionInboxResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -15031,6 +15409,28 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listSubmittableWorkflowDefinitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Startable ACTIVE definitions for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmittableDefinitionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     archiveWorkflowDefinition: {
         parameters: {
             query?: never;
@@ -16026,6 +16426,34 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    searchObjects: {
+        parameters: {
+            query: {
+                /** @description Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits). */
+                q: string;
+                /** @description Max hits per object kind, clamped 1-50 (default 20). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Caller-visible hits across kinds and the person directory. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     resolveObject: {
