@@ -1,4 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
+import { execFileSync } from "node:child_process";
+
 import { test, expect, type Page } from "@playwright/test";
 
 /**
@@ -33,9 +35,38 @@ const T = {
   palettePlaceholder: "사람·업무·문서 검색",
 } as const;
 
+const TENANT_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
+const TENANT_REGION_ID = "00000000-0000-0000-0000-0000000000b1";
 const TENANT_BRANCH_ID = "00000000-0000-0000-0000-0000000000c1";
+const DATABASE_URL =
+  process.env.MNT_DEV_DATABASE_URL ??
+  "postgres://mnt_app:mnt-dev-local-change-me@127.0.0.1:55432/mnt_dev";
 
 type DevRoleLabel = "관리자" | "정비사";
+
+test.beforeAll(() => {
+  ensureTenantBranch();
+});
+
+function ensureTenantBranch(): void {
+  // The dev-auth CI stack runs migrations/cold-start only: KNL exists, but
+  // branch fixtures from e2e/harness/seed.sql are intentionally not loaded.
+  // Seed only the real tenant branch object the dev-auth endpoint validates;
+  // persona users are still minted through the backend, not test fixtures.
+  const sql = `
+    SET ROLE mnt_rt;
+    SET app.current_org = '${TENANT_ORG_ID}';
+    INSERT INTO regions (id, name, org_id)
+    VALUES ('${TENANT_REGION_ID}', 'KNL Dev Auth Region', '${TENANT_ORG_ID}')
+    ON CONFLICT (id) DO NOTHING;
+    INSERT INTO branches (id, region_id, name, org_id)
+    VALUES ('${TENANT_BRANCH_ID}', '${TENANT_REGION_ID}', 'KNL Dev Auth Branch', '${TENANT_ORG_ID}')
+    ON CONFLICT (id) DO NOTHING;
+  `;
+  execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-q", "-c", sql], {
+    stdio: "pipe",
+  });
+}
 
 async function loginWithDevRole(page: Page, roleLabel: DevRoleLabel) {
   await page.goto("/login");

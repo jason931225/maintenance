@@ -35,7 +35,7 @@
   /* -- colors.css :root (Ink / text) -- */
   --ink: #141a21;      /* primary text */
   --steel: #566475;    /* secondary text */
-  --faint: #8b98a7;    /* tertiary / placeholder */
+  --faint: #5f6d7e;    /* tertiary / placeholder */
 
   /* -- colors.css :root (Brand) -- */
   --signal: #f6b521;      /* primary brand (amber) */
@@ -91,7 +91,7 @@
    * data-console-theme dark and automatic prefers-color-scheme dark cannot
    * drift apart. */
   --console-dark-canvas: #0e1319; --console-dark-surface: #161c24; --console-dark-muted: #1f2731; --console-dark-border: #2b3542; --console-dark-border-soft: #232c37;
-  --console-dark-ink: #e8edf4; --console-dark-steel: #9cabbc; --console-dark-faint: #61707f;
+  --console-dark-ink: #e8edf4; --console-dark-steel: #9cabbc; --console-dark-faint: #8492a3;
   --console-dark-signal: #f6b521; --console-dark-signal-deep: #ffc93d; --console-dark-teal: #2dd4bf;
   --console-dark-danger-bg: #3a1214; --console-dark-danger-bd: #7f2b2b; --console-dark-danger-tx: #fda4a4; --console-dark-danger-solid: #f87171;
   --console-dark-warn-bg: #3a2606; --console-dark-warn-bd: #92610a; --console-dark-warn-tx: #fcd34d; --console-dark-warn-solid: #fbbf24;
