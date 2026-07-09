@@ -15,6 +15,7 @@ use mnt_kernel_core::{ErrorKind, KernelError, NotificationId, TraceContext};
 use mnt_notifications_adapter_postgres::{PgNotificationError, PgNotificationStore};
 use mnt_notifications_application::{
     ListNotificationsQuery, MarkAllNotificationsReadCommand, MarkNotificationReadCommand,
+    UnreadNotificationCountQuery,
 };
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::Principal;
@@ -22,11 +23,13 @@ use mnt_platform_request_context::RequestContextError;
 use serde::{Deserialize, Serialize};
 
 pub const ME_NOTIFICATIONS_PATH: &str = "/api/v1/me/notifications";
+pub const ME_NOTIFICATIONS_UNREAD_COUNT_PATH: &str = "/api/v1/me/notifications/unread-count";
 pub const ME_NOTIFICATION_READ_PATH_TEMPLATE: &str = "/api/v1/me/notifications/{id}/read";
 pub const ME_NOTIFICATIONS_READ_ALL_PATH: &str = "/api/v1/me/notifications/read-all";
 
 pub const NOTIFICATIONS_ROUTE_PATHS: &[&str] = &[
     ME_NOTIFICATIONS_PATH,
+    ME_NOTIFICATIONS_UNREAD_COUNT_PATH,
     ME_NOTIFICATION_READ_PATH_TEMPLATE,
     ME_NOTIFICATIONS_READ_ALL_PATH,
 ];
@@ -52,6 +55,7 @@ pub fn router(state: NotificationRestState) -> Router {
     let pool = state.store.pool().clone();
     let router = Router::new()
         .route(ME_NOTIFICATIONS_PATH, get(list_notifications))
+        .route(ME_NOTIFICATIONS_UNREAD_COUNT_PATH, get(unread_count))
         // `read-all` is registered before `{id}/read`; the paths differ in
         // segment count so there is no capture collision, but keep the literal
         // first for clarity.
@@ -73,6 +77,11 @@ struct ReadAllResponse {
     marked: u64,
 }
 
+#[derive(Debug, Serialize)]
+struct UnreadCountResponse {
+    unread: i64,
+}
+
 async fn list_notifications(
     State(state): State<NotificationRestState>,
     headers: HeaderMap,
@@ -90,6 +99,21 @@ async fn list_notifications(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(page).into_response())
+}
+
+async fn unread_count(
+    State(state): State<NotificationRestState>,
+    headers: HeaderMap,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let unread = state
+        .store
+        .unread_count(UnreadNotificationCountQuery {
+            recipient: principal.user_id,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(UnreadCountResponse { unread }).into_response())
 }
 
 async fn mark_read(

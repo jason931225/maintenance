@@ -959,6 +959,11 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/me/notifications`.
     /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)`.
     func listMyNotifications(_ input: Operations.ListMyNotifications.Input) async throws -> Operations.ListMyNotifications.Output
+    /// Count the authenticated user's unread notifications
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications/unread-count`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/unread-count/get(getMyUnreadNotificationCount)`.
+    func getMyUnreadNotificationCount(_ input: Operations.GetMyUnreadNotificationCount.Input) async throws -> Operations.GetMyUnreadNotificationCount.Output
     /// Mark all of the authenticated user's unread notifications read
     ///
     /// - Remark: HTTP `POST /api/v1/me/notifications/read-all`.
@@ -3628,6 +3633,13 @@ extension APIProtocol {
             query: query,
             headers: headers
         ))
+    }
+    /// Count the authenticated user's unread notifications
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications/unread-count`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/unread-count/get(getMyUnreadNotificationCount)`.
+    public func getMyUnreadNotificationCount(headers: Operations.GetMyUnreadNotificationCount.Input.Headers = .init()) async throws -> Operations.GetMyUnreadNotificationCount.Output {
+        try await getMyUnreadNotificationCount(Operations.GetMyUnreadNotificationCount.Input(headers: headers))
     }
     /// Mark all of the authenticated user's unread notifications read
     ///
@@ -15350,6 +15362,23 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case marked
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UnreadNotificationCountResponse`.
+        public struct UnreadNotificationCountResponse: Codable, Hashable, Sendable {
+            /// The number of the caller's unread notifications.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UnreadNotificationCountResponse/unread`.
+            public var unread: Swift.Int64
+            /// Creates a new `UnreadNotificationCountResponse`.
+            ///
+            /// - Parameters:
+            ///   - unread: The number of the caller's unread notifications.
+            public init(unread: Swift.Int64) {
+                self.unread = unread
+            }
+            public enum CodingKeys: String, CodingKey {
+                case unread
             }
         }
         /// - Remark: Generated from `#/components/schemas/EquipmentStatus`.
@@ -55097,6 +55126,190 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.ListMyNotifications.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Count the authenticated user's unread notifications
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications/unread-count`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/unread-count/get(getMyUnreadNotificationCount)`.
+    public enum GetMyUnreadNotificationCount {
+        public static let id: Swift.String = "getMyUnreadNotificationCount"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/unread-count/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMyUnreadNotificationCount.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMyUnreadNotificationCount.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetMyUnreadNotificationCount.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.GetMyUnreadNotificationCount.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/unread-count/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/unread-count/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.UnreadNotificationCountResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.UnreadNotificationCountResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMyUnreadNotificationCount.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMyUnreadNotificationCount.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The number of the caller's unread notifications.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/unread-count/get(getMyUnreadNotificationCount)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetMyUnreadNotificationCount.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetMyUnreadNotificationCount.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/unread-count/get(getMyUnreadNotificationCount)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/unread-count/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/unread-count/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMyUnreadNotificationCount.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMyUnreadNotificationCount.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/unread-count/get(getMyUnreadNotificationCount)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetMyUnreadNotificationCount.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetMyUnreadNotificationCount.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

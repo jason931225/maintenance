@@ -92,6 +92,23 @@ async fn notifications_rest_is_recipient_scoped(pool: PgPool) {
         assert_eq!(b_items.len(), 1);
         assert_ne!(b_items[0]["id"].as_str().unwrap(), a_notif.id.to_string());
 
+        // Unread-count is recipient-scoped: each sees exactly their own one.
+        let a_count = get_json(
+            service.clone(),
+            "/api/v1/me/notifications/unread-count",
+            &token_a,
+        )
+        .await;
+        assert_eq!(a_count.status, StatusCode::OK, "{:?}", a_count.json);
+        assert_eq!(a_count.json["unread"].as_i64(), Some(1));
+        let b_count = get_json(
+            service.clone(),
+            "/api/v1/me/notifications/unread-count",
+            &token_b,
+        )
+        .await;
+        assert_eq!(b_count.json["unread"].as_i64(), Some(1), "B's own count");
+
         // B marking A's notification read -> 404 (recipient scoping).
         let cross = post_empty(
             service.clone(),
@@ -125,6 +142,15 @@ async fn notifications_rest_is_recipient_scoped(pool: PgPool) {
         .await;
         assert_eq!(all.status, StatusCode::OK);
         assert!(all.json["marked"].as_u64().is_some());
+
+        // After marking all read, A's unread-count is zero.
+        let a_count_after = get_json(
+            service.clone(),
+            "/api/v1/me/notifications/unread-count",
+            &token_a,
+        )
+        .await;
+        assert_eq!(a_count_after.json["unread"].as_i64(), Some(0));
 
         // Unauthenticated request is rejected.
         let anon = service

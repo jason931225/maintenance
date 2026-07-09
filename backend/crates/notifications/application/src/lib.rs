@@ -83,6 +83,12 @@ pub struct ListNotificationsQuery {
     pub limit: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnreadNotificationCountQuery {
+    /// Bound from the authenticated principal, never from request input.
+    pub recipient: UserId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkNotificationReadCommand {
     pub recipient: UserId,

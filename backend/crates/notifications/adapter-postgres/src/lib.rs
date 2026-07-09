@@ -14,7 +14,7 @@ use mnt_notifications_application::{
     EmitNotificationCommand, EmitNotificationFuture, ListNotificationsQuery,
     MarkAllNotificationsReadCommand, MarkNotificationReadCommand, NotificationCreatedNotification,
     NotificationNotifier, NotificationPage, NotificationSink, NotificationSummary,
-    notification_audit_event,
+    UnreadNotificationCountQuery, notification_audit_event,
 };
 use mnt_notifications_domain::{NotificationBody, NotificationCategory, NotificationLink};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
@@ -288,6 +288,35 @@ impl PgNotificationStore {
             .then(|| items.last().map(|item| item.id))
             .flatten();
         Ok(NotificationPage { items, next_cursor })
+    }
+
+    /// Count the caller's unread notifications. The comms-rail badge needs an
+    /// exact figure; paging the list and counting breaks past the page clamp.
+    /// Recipient-scoped in code exactly like [`list`](Self::list); RLS narrows
+    /// to the tenant on top, so another user's (or tenant's) rows never count.
+    pub async fn unread_count(
+        &self,
+        query: UnreadNotificationCountQuery,
+    ) -> Result<i64, PgNotificationError> {
+        let recipient_uuid = *query.recipient.as_uuid();
+        let org = current_org().map_err(KernelError::from)?;
+
+        with_org_conn::<_, _, PgNotificationError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let count: i64 = sqlx::query_scalar(
+                    r#"
+                    SELECT COUNT(*)
+                    FROM notifications
+                    WHERE recipient_user_id = $1 AND unread = true
+                    "#,
+                )
+                .bind(recipient_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
+                Ok(count)
+            })
+        })
+        .await
     }
 
     /// Mark one of the caller's notifications read. Returns NotFound when the id
