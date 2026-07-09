@@ -17,7 +17,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
 use axum::{Extension, Json, Router};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
 };
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Feature, PermissionLevel, Principal, permission_for};
@@ -497,9 +498,43 @@ struct GraphQuery {
 struct ObjectGraphResponse {
     nodes: Vec<ObjectHead>,
     edges: Vec<ObjectLinkResponse>,
-    /// `true` if `GRAPH_MAX_NODES` was hit before the walk exhausted `depth`
-    /// — the response is a partial (but still correctly scoped) neighborhood.
+    /// `true` if the walk returned a partial (but still correctly scoped)
+    /// neighborhood: either `GRAPH_MAX_NODES` was hit before `depth` was
+    /// exhausted, or a level's link fetch hit `GRAPH_MAX_LINKS_PER_LEVEL` (edges
+    /// beyond the cap were dropped).
     truncated: bool,
+}
+
+/// The `person.view` audit a DIRECT lookup of a person card emits — shared by
+/// `resolve_object` and the `object_graph` ROOT (both are direct lookups). One
+/// event iff the target is a NON-SELF person that actually resolved (mirrors
+/// get_member); empty otherwise. A WALKED graph node never calls this:
+/// traversal is not a card view.
+fn person_view_events(
+    kind: &str,
+    id: &str,
+    resolved: &Option<ResolvedHead>,
+    caller: Uuid,
+    actor: UserId,
+    org: OrgId,
+) -> Result<Vec<AuditEvent>, ObjectError> {
+    if kind != "person" || resolved.is_none() {
+        return Ok(Vec::new());
+    }
+    let Some(subject) = parse_uuid(id).filter(|s| *s != caller) else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![
+        AuditEvent::new(
+            Some(actor),
+            AuditAction::new("person.view")?,
+            "person",
+            subject.to_string(),
+            TraceContext::generate(),
+            OffsetDateTime::now_utc(),
+        )
+        .with_org(org),
+    ])
 }
 
 async fn resolve_object(
@@ -541,68 +576,28 @@ async fn resolve_object(
         crate::workflow_studio::guard_branch(&principal),
     );
 
-    // B1: a DIRECT top-level resolve of a person card is a "who looked up whom"
-    // event, so it mirrors GET /api/messenger/members/{id}'s person.view audit —
-    // but ONLY for a NON-SELF subject that actually resolves. A self-view or an
-    // out-of-scope/absent subject (which resolves to None) emits nothing, exactly
-    // like get_member. A person reached incidentally by an object_graph WALK is
-    // NOT a card view and emits nothing — object_graph calls resolve_head
-    // directly and never this path.
-    let audit_subject: Option<Uuid> = if kind == "person" {
-        parse_uuid(&id).filter(|subject| *subject != caller)
-    } else {
-        None
-    };
     let actor = principal.user_id;
 
     // Every resolver reads under the caller's armed org (RLS) and, for
     // branch-scoped kinds, drops rows outside the caller's branch scope — so an
-    // out-of-scope object is indistinguishable from a missing one.
-    let resolved = if let Some(subject) = audit_subject {
-        // Audit-in-read-tx: the person.view row and the read commit (or roll
-        // back) together — the same guarantee messenger's audited member_profile
-        // gives — using with_audits so the event is emitted conditionally on the
-        // person actually resolving.
-        with_audits::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
-            let kind = kind.clone();
-            let id = id.clone();
-            move |tx| {
-                Box::pin(async move {
-                    let head =
-                        resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id)
-                            .await?;
-                    let events = if head.is_some() {
-                        vec![
-                            AuditEvent::new(
-                                Some(actor),
-                                AuditAction::new("person.view")?,
-                                "person",
-                                subject.to_string(),
-                                TraceContext::generate(),
-                                OffsetDateTime::now_utc(),
-                            )
-                            .with_org(org),
-                        ]
-                    } else {
-                        Vec::new()
-                    };
-                    Ok((head, events))
-                })
-            }
-        })
-        .await?
-    } else {
-        with_org_conn::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
-            let kind = kind.clone();
-            let id = id.clone();
-            move |tx| {
-                Box::pin(async move {
-                    resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id).await
-                })
-            }
-        })
-        .await?
-    };
+    // out-of-scope object is indistinguishable from a missing one. Run through
+    // with_audits so a NON-SELF person card view records its person.view (B1) in
+    // the SAME read tx (get_member's guarantee); every other kind commits with an
+    // empty events vec, which is byte-identical to with_org_conn.
+    let resolved = with_audits::<_, Option<ResolvedHead>, ObjectError>(&state.pool, org, {
+        let kind = kind.clone();
+        let id = id.clone();
+        move |tx| {
+            Box::pin(async move {
+                let head =
+                    resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id)
+                        .await?;
+                let events = person_view_events(&kind, &id, &head, caller, actor, org)?;
+                Ok((head, events))
+            })
+        }
+    })
+    .await?;
 
     Ok(Json(object_head_from_resolved(kind, id, resolved)))
 }
@@ -697,6 +692,7 @@ async fn object_graph(
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
     let caller = *principal.user_id.as_uuid();
+    let actor = principal.user_id;
     // Same declared per-kind gates resolve_object enforces loudly (403) for a
     // directly-requested kind; here they are quiet (a node the caller lacks the
     // required feature for is simply omitted from the walk, never a 403 for the
@@ -717,53 +713,53 @@ async fn object_graph(
     // itself: a node that does not resolve is OMITTED (never a stub) and the
     // walk never expands through it, so the caller only ever sees their own
     // visible subgraph.
-    let (nodes, edges, truncated) =
-        with_org_conn::<_, _, ObjectError>(&state.pool, org, move |tx| {
-            Box::pin(async move {
-                let root_key = (kind.clone(), id.clone());
-                let mut seen: HashSet<(String, String)> = HashSet::new();
-                seen.insert(root_key.clone());
+    let (nodes, edges, truncated) = with_audits::<_, _, ObjectError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            let root_key = (kind.clone(), id.clone());
+            let mut seen: HashSet<(String, String)> = HashSet::new();
+            seen.insert(root_key.clone());
 
-                let mut nodes: Vec<ObjectHead> = Vec::new();
-                // Raw edges touched while walking the frontier, keyed by link
-                // id to dedupe re-fetches across levels; filtered down to the
-                // resolved-only induced subgraph once the walk finishes.
-                let mut edges_by_id: HashMap<Uuid, ObjectLinkResponse> = HashMap::new();
-                let mut truncated = false;
+            let mut nodes: Vec<ObjectHead> = Vec::new();
+            // Raw edges touched while walking the frontier, keyed by link
+            // id to dedupe re-fetches across levels; filtered down to the
+            // resolved-only induced subgraph once the walk finishes.
+            let mut edges_by_id: HashMap<Uuid, ObjectLinkResponse> = HashMap::new();
+            let mut truncated = false;
 
-                let root_resolved =
-                    resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id)
-                        .await?;
-                let Some(root_fields) = root_resolved else {
-                    // The root itself is invisible/absent: an empty graph,
-                    // never a stub — matches resolve_object's own
-                    // deny-by-omission guarantee for this same (kind, id).
-                    return Ok((Vec::new(), Vec::new(), false));
-                };
-                nodes.push(object_head_from_resolved(
-                    kind.clone(),
-                    id.clone(),
-                    Some(root_fields),
-                ));
+            let root_resolved =
+                resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id).await?;
+            // The ROOT is a direct lookup, so a non-self person root audits
+            // exactly like resolve_object (B1). Only the root — walked nodes
+            // below never build events. Computed before root_fields is moved.
+            let root_events = person_view_events(&kind, &id, &root_resolved, caller, actor, org)?;
+            let Some(root_fields) = root_resolved else {
+                // The root itself is invisible/absent: an empty graph,
+                // never a stub — matches resolve_object's own
+                // deny-by-omission guarantee for this same (kind, id).
+                return Ok(((Vec::new(), Vec::new(), false), Vec::new()));
+            };
+            nodes.push(object_head_from_resolved(
+                kind.clone(),
+                id.clone(),
+                Some(root_fields),
+            ));
 
-                // `frontier` = nodes resolved in the PREVIOUS round whose
-                // links have not been fetched yet.
-                let mut frontier: Vec<(String, String)> = vec![root_key];
+            // `frontier` = nodes resolved in the PREVIOUS round whose
+            // links have not been fetched yet.
+            let mut frontier: Vec<(String, String)> = vec![root_key];
 
-                for _hop in 0..depth {
-                    if frontier.is_empty() || nodes.len() >= GRAPH_MAX_NODES {
-                        if nodes.len() >= GRAPH_MAX_NODES {
-                            truncated = true;
-                        }
-                        break;
+            for _hop in 0..depth {
+                if frontier.is_empty() || nodes.len() >= GRAPH_MAX_NODES {
+                    if nodes.len() >= GRAPH_MAX_NODES {
+                        truncated = true;
                     }
+                    break;
+                }
 
-                    let frontier_kinds: Vec<String> =
-                        frontier.iter().map(|(k, _)| k.clone()).collect();
-                    let frontier_ids: Vec<String> =
-                        frontier.iter().map(|(_, i)| i.clone()).collect();
-                    let link_rows = sqlx::query(
-                        r#"
+                let frontier_kinds: Vec<String> = frontier.iter().map(|(k, _)| k.clone()).collect();
+                let frontier_ids: Vec<String> = frontier.iter().map(|(_, i)| i.clone()).collect();
+                let link_rows = sqlx::query(
+                    r#"
                         SELECT l.id, l.src_kind, l.src_id, l.dst_kind, l.dst_id, l.link_type,
                                l.created_by, l.created_at
                         FROM object_links l
@@ -775,81 +771,86 @@ async fn object_graph(
                         ORDER BY l.created_at DESC, l.id DESC
                         LIMIT $3
                         "#,
-                    )
-                    .bind(&frontier_kinds)
-                    .bind(&frontier_ids)
-                    .bind(GRAPH_MAX_LINKS_PER_LEVEL)
-                    .fetch_all(tx.as_mut())
-                    .await?;
-
-                    // Every link touching the frontier is recorded (even one
-                    // between two already-resolved nodes — a cross edge, not
-                    // just BFS-tree edges); candidate neighbors not yet seen
-                    // are queued for resolution below.
-                    let mut candidates: Vec<(String, String)> = Vec::new();
-                    for row in &link_rows {
-                        let link = object_link_from_row(row)?;
-                        let src = (link.src_kind.clone(), link.src_id.clone());
-                        let dst = (link.dst_kind.clone(), link.dst_id.clone());
-                        edges_by_id.insert(link.id, link);
-                        for candidate in [src, dst] {
-                            if seen.insert(candidate.clone()) {
-                                candidates.push(candidate);
-                            }
-                        }
-                    }
-
-                    let mut next_frontier: Vec<(String, String)> = Vec::new();
-                    for (node_kind, node_id) in candidates {
-                        if nodes.len() >= GRAPH_MAX_NODES {
-                            truncated = true;
-                            break;
-                        }
-                        let resolved = resolve_head(
-                            tx,
-                            &scope,
-                            caller,
-                            &held_role_keys,
-                            &satisfied,
-                            &node_kind,
-                            &node_id,
-                        )
-                        .await?;
-                        // Unresolved: dropped here — omitted from `nodes`,
-                        // never added to `next_frontier` (never expanded),
-                        // and any edge touching it is pruned in the filter
-                        // below.
-                        if let Some(fields) = resolved {
-                            nodes.push(object_head_from_resolved(
-                                node_kind.clone(),
-                                node_id.clone(),
-                                Some(fields),
-                            ));
-                            next_frontier.push((node_kind, node_id));
-                        }
-                    }
-                    frontier = next_frontier;
+                )
+                .bind(&frontier_kinds)
+                .bind(&frontier_ids)
+                .bind(GRAPH_MAX_LINKS_PER_LEVEL)
+                .fetch_all(tx.as_mut())
+                .await?;
+                // A clipped level dropped edges (including cross-edges between
+                // two nodes already in the result) — the graph is partial.
+                if link_rows.len() as i64 >= GRAPH_MAX_LINKS_PER_LEVEL {
+                    truncated = true;
                 }
 
-                // Keep only edges where BOTH endpoints resolved: an edge
-                // touching an omitted node is omitted too, never leaked as a
-                // dangling reference to something the caller cannot see.
-                let resolved_keys: HashSet<(String, String)> = nodes
-                    .iter()
-                    .map(|n| (n.kind.clone(), n.id.clone()))
-                    .collect();
-                let edges: Vec<ObjectLinkResponse> = edges_by_id
-                    .into_values()
-                    .filter(|e| {
-                        resolved_keys.contains(&(e.src_kind.clone(), e.src_id.clone()))
-                            && resolved_keys.contains(&(e.dst_kind.clone(), e.dst_id.clone()))
-                    })
-                    .collect();
+                // Every link touching the frontier is recorded (even one
+                // between two already-resolved nodes — a cross edge, not
+                // just BFS-tree edges); candidate neighbors not yet seen
+                // are queued for resolution below.
+                let mut candidates: Vec<(String, String)> = Vec::new();
+                for row in &link_rows {
+                    let link = object_link_from_row(row)?;
+                    let src = (link.src_kind.clone(), link.src_id.clone());
+                    let dst = (link.dst_kind.clone(), link.dst_id.clone());
+                    edges_by_id.insert(link.id, link);
+                    for candidate in [src, dst] {
+                        if seen.insert(candidate.clone()) {
+                            candidates.push(candidate);
+                        }
+                    }
+                }
 
-                Ok((nodes, edges, truncated))
-            })
+                let mut next_frontier: Vec<(String, String)> = Vec::new();
+                for (node_kind, node_id) in candidates {
+                    if nodes.len() >= GRAPH_MAX_NODES {
+                        truncated = true;
+                        break;
+                    }
+                    let resolved = resolve_head(
+                        tx,
+                        &scope,
+                        caller,
+                        &held_role_keys,
+                        &satisfied,
+                        &node_kind,
+                        &node_id,
+                    )
+                    .await?;
+                    // Unresolved: dropped here — omitted from `nodes`,
+                    // never added to `next_frontier` (never expanded),
+                    // and any edge touching it is pruned in the filter
+                    // below.
+                    if let Some(fields) = resolved {
+                        nodes.push(object_head_from_resolved(
+                            node_kind.clone(),
+                            node_id.clone(),
+                            Some(fields),
+                        ));
+                        next_frontier.push((node_kind, node_id));
+                    }
+                }
+                frontier = next_frontier;
+            }
+
+            // Keep only edges where BOTH endpoints resolved: an edge
+            // touching an omitted node is omitted too, never leaked as a
+            // dangling reference to something the caller cannot see.
+            let resolved_keys: HashSet<(String, String)> = nodes
+                .iter()
+                .map(|n| (n.kind.clone(), n.id.clone()))
+                .collect();
+            let edges: Vec<ObjectLinkResponse> = edges_by_id
+                .into_values()
+                .filter(|e| {
+                    resolved_keys.contains(&(e.src_kind.clone(), e.src_id.clone()))
+                        && resolved_keys.contains(&(e.dst_kind.clone(), e.dst_id.clone()))
+                })
+                .collect();
+
+            Ok(((nodes, edges, truncated), root_events))
         })
-        .await?;
+    })
+    .await?;
 
     Ok(Json(ObjectGraphResponse {
         nodes,

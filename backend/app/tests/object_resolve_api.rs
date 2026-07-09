@@ -687,6 +687,40 @@ async fn person_direct_resolve_audits_non_self_only(pool: PgPool) {
         0,
         "a person reached by a graph walk records no person.view"
     );
+
+    // Graph-ROOTING a non-self person IS a direct lookup -> audits once, exactly
+    // like resolve_object (otherwise B1 is trivially evadable via the graph).
+    let graph_subject = UserId::new();
+    seed_user_in_branch(&pool, graph_subject, "MECHANIC", branch_x).await;
+    let rooted = resolve_graph(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &graph_subject.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(rooted.0, StatusCode::OK, "graph body: {}", rooted.1);
+    assert_eq!(
+        person_view_count(&pool, graph_subject).await,
+        1,
+        "graph-root of a non-self person audits once, like a direct resolve"
+    );
+
+    // Graph-rooting SELF -> no audit (mirrors self direct-resolve).
+    let _self_root = resolve_graph(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &caller.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        person_view_count(&pool, caller).await,
+        0,
+        "graph-root of self records no person.view"
+    );
 }
 
 // ---------------------------------------------------------------------------
