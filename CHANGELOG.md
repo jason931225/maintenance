@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.47](https://github.com/jason931225/maintenance/compare/v0.1.46...v0.1.47) (2026-07-09)
+
+
+### Features
+
+* **workflow:** BE-AUTO slice 1 — event trigger bindings + cron schedules ([#208](https://github.com/jason931225/maintenance/issues/208)) ([7873118](https://github.com/jason931225/maintenance/commit/78731188b05cb7563aa37790d2cb2412c2a7724e))
+
 ## [0.1.46](https://github.com/jason931225/maintenance/compare/v0.1.45...v0.1.46) (2026-07-09)
 
 
