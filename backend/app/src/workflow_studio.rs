@@ -930,9 +930,11 @@ struct RunListQuery {
     status: Option<String>,
     #[serde(default)]
     object_type: Option<String>,
-    // `q` (free-text search) is accepted but not yet used — no text index exists.
-    #[serde(default, rename = "q")]
-    _q: Option<String>,
+    // `q` (free-text search): case-insensitive substring match over the submission
+    // row's human-readable content (object_type + input_payload). Applied inside the
+    // org-scoped, initiator-scoped query — it only ever narrows, never widens.
+    #[serde(default)]
+    q: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1637,6 +1639,13 @@ async fn list_my_workflow_runs(
             RunListFilter {
                 statuses,
                 object_type: query.object_type.clone(),
+                // Empty/whitespace-only q is treated as absent (returns all rows).
+                q: query
+                    .q
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|q| !q.is_empty())
+                    .map(ToOwned::to_owned),
             },
         )
         .await?;
@@ -3162,6 +3171,7 @@ fn validate_execution_graph(
         .ok_or_else(|| {
             WorkflowStudioError::validation("execution definition requires a non-empty nodes array")
         })?;
+    let mut has_job = false;
     for node in nodes {
         let node = node.as_object().ok_or_else(|| {
             WorkflowStudioError::validation("execution nodes must be JSON objects")
@@ -3178,6 +3188,7 @@ fn validate_execution_graph(
                 required_string(node, "required_policy")?;
             }
             "job" => {
+                has_job = true;
                 let connector_key = required_string(node, "connector_key")?;
                 let action_key = required_string(node, "action_key")?;
                 if !connector_allows(connector_key, action_key) {
@@ -3192,6 +3203,24 @@ fn validate_execution_graph(
                 )));
             }
         }
+    }
+    // Fail-closed start authority (Engine-Gen follow-up): a graph containing a `job`
+    // node drives a system connector (e.g. the completion→approval→payroll pipeline's
+    // payroll_draft), so it MUST declare a top-level `start_policy` constraining WHO
+    // may initiate a run. Runtime start-authz already gates job pipelines on this
+    // policy; authoring now refuses a job-bearing graph without it (422) so no
+    // author-composed definition can slip a job into a self-service, all-employee
+    // start. Job-free approval graphs stay deliberately self-service and unaffected.
+    if has_job
+        && object
+            .get("start_policy")
+            .and_then(Value::as_str)
+            .filter(|policy| !policy.trim().is_empty())
+            .is_none()
+    {
+        return Err(WorkflowStudioError::validation(
+            "execution definition with a job node requires a non-empty start_policy",
+        ));
     }
     Ok(())
 }
@@ -3822,6 +3851,56 @@ mod tests {
             "message should name the missing field: {}",
             err.message
         );
+        Ok(())
+    }
+
+    #[test]
+    fn job_node_without_start_policy_fails_authoring() -> Result<(), String> {
+        // Engine-Gen follow-up: a graph containing a `job` node MUST declare a
+        // top-level start_policy at authoring time (fail-closed start authority).
+        // Drop start_policy from the canonical completion→approval→payroll graph
+        // (which carries a payroll job) → publish-validation is a 422.
+        let mut definition = maintenance_completion_execution_definition();
+        definition
+            .as_object_mut()
+            .ok_or_else(|| "definition must be an object".to_owned())?
+            .remove("start_policy");
+        let err = match validate_definition_object(definition) {
+            Ok(_) => {
+                return Err("a job-bearing graph without start_policy must fail closed".to_owned());
+            }
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            err.message.contains("start_policy"),
+            "message should name the missing field: {}",
+            err.message
+        );
+
+        // With start_policy present the same job-bearing graph validates.
+        validate_definition_object(maintenance_completion_execution_definition()).map_err(
+            |err| {
+                format!(
+                    "job-bearing graph with start_policy must validate: {}",
+                    err.message
+                )
+            },
+        )?;
+
+        // A job-free approval graph is unaffected — no start_policy required.
+        let approval = build_approval_execution_definition("leave")
+            .map_err(|err| format!("leave template should build: {}", err.message))?;
+        assert!(
+            approval.get("start_policy").is_none(),
+            "approval templates deliberately carry no start_policy"
+        );
+        validate_definition_object(approval).map_err(|err| {
+            format!(
+                "job-free approval graph must validate without start_policy: {}",
+                err.message
+            )
+        })?;
         Ok(())
     }
 

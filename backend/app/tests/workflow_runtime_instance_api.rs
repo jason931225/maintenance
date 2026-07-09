@@ -411,6 +411,99 @@ async fn submission_box_lists_initiated_runs(pool: PgPool) {
 }
 
 // ===========================================================================
+// 6b. Engine-Gen follow-up: `?q=` free-text filter narrows the submission box.
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn submission_box_free_text_filter_narrows_results(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let initiator = UserId::new();
+    seed_user(&pool, initiator, "SUPER_ADMIN", branch).await;
+    let definition_id = seed_approval_definition(&pool, "approval.instance.qfilter").await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, initiator, "SUPER_ADMIN", branch);
+
+    // Two runs with distinguishable human-readable content in input_payload.
+    let annual = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &token,
+        json!({
+            "definition_id": definition_id,
+            "object_type": "approval_document",
+            "object_id": Uuid::new_v4(),
+            "trigger_type": "MANUAL",
+            "idempotency_key": "instance-qfilter-annual-01",
+            "input_payload": { "reason": "annual leave request" }
+        }),
+    )
+    .await;
+    assert_eq!(annual.status, StatusCode::OK, "{:?}", annual.json);
+    let annual_run_id = annual.json["run"]["id"].as_str().unwrap().to_owned();
+
+    let expense = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &token,
+        json!({
+            "definition_id": definition_id,
+            "object_type": "approval_document",
+            "object_id": Uuid::new_v4(),
+            "trigger_type": "MANUAL",
+            "idempotency_key": "instance-qfilter-expense-1",
+            "input_payload": { "reason": "business expense claim" }
+        }),
+    )
+    .await;
+    assert_eq!(expense.status, StatusCode::OK, "{:?}", expense.json);
+
+    // `?q=annual` (case-insensitive) narrows to the matching run only.
+    let filtered = get(
+        service.clone(),
+        "/api/v1/workflow-runs/mine?q=ANNUAL",
+        &token,
+    )
+    .await;
+    assert_eq!(filtered.status, StatusCode::OK);
+    let items = filtered.json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "q=annual must match exactly one run");
+    assert_eq!(items[0]["run_id"], annual_run_id);
+
+    // Empty q returns all rows (as before the filter was applied).
+    let empty_q = get(service.clone(), "/api/v1/workflow-runs/mine?q=", &token).await;
+    assert_eq!(empty_q.status, StatusCode::OK);
+    assert_eq!(empty_q.json["items"].as_array().unwrap().len(), 2);
+
+    // Absent q returns all rows.
+    let no_q = get(service.clone(), "/api/v1/workflow-runs/mine", &token).await;
+    assert_eq!(no_q.status, StatusCode::OK);
+    assert_eq!(no_q.json["items"].as_array().unwrap().len(), 2);
+
+    // A q that matches nothing returns empty.
+    let miss = get(
+        service.clone(),
+        "/api/v1/workflow-runs/mine?q=zzznomatch",
+        &token,
+    )
+    .await;
+    assert_eq!(miss.status, StatusCode::OK);
+    assert_eq!(miss.json["items"].as_array().unwrap().len(), 0);
+
+    // RLS + initiator scoping still holds: a stranger's filtered box is empty.
+    let stranger = UserId::new();
+    seed_user(&pool, stranger, "SUPER_ADMIN", branch).await;
+    let stranger_view = get(
+        service,
+        "/api/v1/workflow-runs/mine?q=annual",
+        &bearer(&keys, stranger, "SUPER_ADMIN", branch),
+    )
+    .await;
+    assert_eq!(stranger_view.status, StatusCode::OK);
+    assert_eq!(stranger_view.json["items"].as_array().unwrap().len(), 0);
+}
+
+// ===========================================================================
 // 7. Security H1(b): deciding a policy-less legacy task fails closed (403).
 // ===========================================================================
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
