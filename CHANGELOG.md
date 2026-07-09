@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.51](https://github.com/jason931225/maintenance/compare/v0.1.50...v0.1.51) (2026-07-09)
+
+
+### Bug Fixes
+
+* **identity:** address S0 review coverage ([#238](https://github.com/jason931225/maintenance/issues/238)) ([2920178](https://github.com/jason931225/maintenance/commit/2920178c2e2a3b0d2ba5fd20191be4b32640e69a))
+* **objects:** gate account object-resolve on UserManage ([#239](https://github.com/jason931225/maintenance/issues/239)) ([f7401cd](https://github.com/jason931225/maintenance/commit/f7401cd78b609a192fcf2b5c81e788928669287d))
+
 ## [0.1.50](https://github.com/jason931225/maintenance/compare/v0.1.49...v0.1.50) (2026-07-09)
 
 
