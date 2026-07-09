@@ -8339,6 +8339,9 @@ paths:
               properties:
                 documentRef:
                   type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Trimmed logical document reference; control characters are rejected.
       responses:
         '200':
           description: The editor config to hand to DocumentServer.
@@ -8379,6 +8382,7 @@ paths:
         description: Host-issued callback token binding the request to (org, document).
         schema:
           type: string
+          minLength: 1
       requestBody:
         required: true
         content:
@@ -8388,6 +8392,7 @@ paths:
               properties:
                 token:
                   type: string
+                  minLength: 1
                   description: The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
       responses:
         '200':
@@ -8400,6 +8405,7 @@ paths:
                 properties:
                   error:
                     type: integer
+                    minimum: 0
   /api/v1/office/documents/{documentRef}/versions:
     get:
       operationId: listOfficeDocumentVersions
@@ -8412,6 +8418,8 @@ paths:
         required: true
         schema:
           type: string
+          minLength: 1
+          maxLength: 200
       responses:
         '200':
           description: The append-only version list.
@@ -8443,11 +8451,14 @@ paths:
         required: true
         schema:
           type: string
+          minLength: 1
+          maxLength: 200
       - name: versionNo
         in: path
         required: true
         schema:
           type: integer
+          minimum: 1
       responses:
         '200':
           description: The newly appended (restored) version.
@@ -18877,17 +18888,25 @@ components:
           format: uuid
         documentRef:
           type: string
+          minLength: 1
+          maxLength: 200
         versionNo:
           type: integer
+          minimum: 1
         contentHash:
           type: string
+          minLength: 1
+          maxLength: 128
         fileType:
           type: string
+          enum: [docx, xlsx, pptx]
         byteSize:
           type: integer
           format: int64
+          minimum: 0
         restoredFrom:
           type: integer
+          minimum: 1
           description: The version_no this version non-destructively restored, when it is a rollback.
         createdBy:
           type: string

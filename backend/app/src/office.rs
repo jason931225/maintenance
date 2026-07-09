@@ -80,6 +80,11 @@ const CALLBACK_TOKEN_TTL_SECS: i64 = 24 * 60 * 60;
 /// keeps zero leeway (it is our own clock on both ends).
 const CALLBACK_CLAIMS_LEEWAY_SECS: u64 = 30;
 
+/// Maximum logical document-reference length accepted by API and DB.
+const DOCUMENT_REF_MAX_CHARS: usize = 200;
+/// Maximum produced document bytes fetched from DocumentServer on callback.
+const PRODUCED_DOCUMENT_MAX_BYTES: usize = 50 * 1024 * 1024;
+
 /// Document formats slice 0 accepts (ONLYOFFICE word/cell/slide editors).
 const ALLOWED_FILE_TYPES: &[&str] = &["docx", "xlsx", "pptx"];
 
@@ -277,10 +282,31 @@ impl OfficeBlobStore for SeaweedOfficeBlobStore {
                     response.status()
                 )));
             }
-            let bytes = response
-                .bytes()
+            if response
+                .content_length()
+                .is_some_and(|len| len > PRODUCED_DOCUMENT_MAX_BYTES as u64)
+            {
+                return Err(OfficeError::validation(
+                    "produced document exceeds the maximum allowed size",
+                ));
+            }
+            let mut response = response;
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
                 .await
-                .map_err(|e| OfficeError::storage(format!("read produced document: {e}")))?;
+                .map_err(|e| OfficeError::storage(format!("read produced document: {e}")))?
+            {
+                let next_len = bytes.len().checked_add(chunk.len()).ok_or_else(|| {
+                    OfficeError::validation("produced document exceeds the maximum allowed size")
+                })?;
+                if next_len > PRODUCED_DOCUMENT_MAX_BYTES {
+                    return Err(OfficeError::validation(
+                        "produced document exceeds the maximum allowed size",
+                    ));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
             let content_hash = sha256_hex(&bytes);
             let byte_size = i64::try_from(bytes.len()).unwrap_or(i64::MAX);
             self.store
@@ -393,7 +419,7 @@ pub async fn latest_version(
     org: OrgId,
     document_ref: &str,
 ) -> Result<Option<DocumentVersion>, OfficeError> {
-    let document_ref = document_ref.to_owned();
+    let document_ref = normalize_document_ref(document_ref)?;
     with_org_conn::<_, _, OfficeError>(pool, org, move |tx| {
         Box::pin(async move { latest_version_tx(tx, &document_ref).await })
     })
@@ -412,7 +438,7 @@ pub async fn issue_session_version(
     actor: UserId,
     document_ref: &str,
 ) -> Result<DocumentVersion, OfficeError> {
-    let document_ref_owned = document_ref.to_owned();
+    let document_ref_owned = normalize_document_ref(document_ref)?;
     with_audits::<_, DocumentVersion, OfficeError>(pool, org, move |tx| {
         Box::pin(async move {
             let latest = latest_version_tx(tx, &document_ref_owned)
@@ -451,7 +477,7 @@ pub async fn list_versions(
     org: OrgId,
     document_ref: &str,
 ) -> Result<Vec<DocumentVersion>, OfficeError> {
-    let document_ref = document_ref.to_owned();
+    let document_ref = normalize_document_ref(document_ref)?;
     with_org_conn::<_, _, OfficeError>(pool, org, move |tx| {
         Box::pin(async move {
             let rows = sqlx::query(concat!(
@@ -474,7 +500,7 @@ async fn version_by_no(
     document_ref: &str,
     version_no: i32,
 ) -> Result<Option<DocumentVersion>, OfficeError> {
-    let document_ref = document_ref.to_owned();
+    let document_ref = normalize_document_ref(document_ref)?;
     with_org_conn::<_, _, OfficeError>(pool, org, move |tx| {
         Box::pin(async move {
             let row = sqlx::query(concat!(
@@ -520,8 +546,9 @@ async fn version_by_source_key(
 /// without appending a duplicate.
 pub async fn record_version(
     pool: &PgPool,
-    new: NewVersion,
+    mut new: NewVersion,
 ) -> Result<DocumentVersion, OfficeError> {
+    new.document_ref = normalize_document_ref(&new.document_ref)?;
     validate_file_type(&new.file_type)?;
 
     // Idempotency short-circuit (no audit noise on a plain replay). The partial
@@ -623,7 +650,8 @@ pub async fn restore_version(
     document_ref: &str,
     version_no: i32,
 ) -> Result<DocumentVersion, OfficeError> {
-    let target = version_by_no(pool, org, document_ref, version_no)
+    let document_ref = normalize_document_ref(document_ref)?;
+    let target = version_by_no(pool, org, &document_ref, version_no)
         .await?
         .ok_or_else(|| OfficeError::not_found("no such document version to restore"))?;
     record_version(
@@ -631,7 +659,7 @@ pub async fn restore_version(
         NewVersion {
             org,
             actor: Some(actor),
-            document_ref: document_ref.to_owned(),
+            document_ref,
             file_type: target.file_type,
             storage_key: target.storage_key,
             content_hash: target.content_hash,
@@ -641,6 +669,24 @@ pub async fn restore_version(
         },
     )
     .await
+}
+
+fn normalize_document_ref(document_ref: &str) -> Result<String, OfficeError> {
+    let normalized = document_ref.trim();
+    if normalized.is_empty() {
+        return Err(OfficeError::validation("documentRef is required"));
+    }
+    if normalized.chars().count() > DOCUMENT_REF_MAX_CHARS {
+        return Err(OfficeError::validation(format!(
+            "documentRef must be at most {DOCUMENT_REF_MAX_CHARS} characters"
+        )));
+    }
+    if normalized.chars().any(char::is_control) {
+        return Err(OfficeError::validation(
+            "documentRef must not contain control characters",
+        ));
+    }
+    Ok(normalized.to_owned())
 }
 
 fn validate_file_type(file_type: &str) -> Result<(), OfficeError> {
@@ -791,10 +837,7 @@ async fn create_session(
     let config = state.config()?;
     let blobs = state.blobs()?;
 
-    let document_ref = request.document_ref.trim().to_owned();
-    if document_ref.is_empty() {
-        return Err(OfficeError::validation("documentRef is required"));
-    }
+    let document_ref = normalize_document_ref(&request.document_ref)?;
 
     // Slice 0 opens an EXISTING document (initial-version creation is a
     // records-module concern, DEFERRED — see the PR body). Issuing an
@@ -906,7 +949,7 @@ async fn handle_callback(
     // with NO clock-skew grace (both ends are our own clock).
     let callback_token: CallbackToken = verify_hs256(&config.jwt_secret, &query.ct, true, 0)?;
     let org = OrgId::from_uuid(callback_token.org);
-    let document_ref = callback_token.doc;
+    let document_ref = normalize_document_ref(&callback_token.doc)?;
 
     // 2. Authenticity: the ONLYOFFICE-signed payload (body `token`, else the
     // Authorization: Bearer header). We use the VERIFIED claims for status/url.

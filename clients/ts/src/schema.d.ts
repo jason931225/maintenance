@@ -8791,7 +8791,8 @@ export interface components {
             documentRef: string;
             versionNo: number;
             contentHash: string;
-            fileType: string;
+            /** @enum {string} */
+            fileType: "docx" | "xlsx" | "pptx";
             /** Format: int64 */
             byteSize: number;
             /** @description The version_no this version non-destructively restored, when it is a rollback. */
@@ -16675,6 +16676,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @description Trimmed logical document reference; control characters are rejected. */
                     documentRef: string;
                 };
             };

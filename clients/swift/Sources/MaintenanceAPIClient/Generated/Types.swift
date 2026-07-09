@@ -24825,7 +24825,13 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/DocumentVersion/contentHash`.
             public var contentHash: Swift.String
             /// - Remark: Generated from `#/components/schemas/DocumentVersion/fileType`.
-            public var fileType: Swift.String
+            @frozen public enum FileTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case docx = "docx"
+                case xlsx = "xlsx"
+                case pptx = "pptx"
+            }
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/fileType`.
+            public var fileType: Components.Schemas.DocumentVersion.FileTypePayload
             /// - Remark: Generated from `#/components/schemas/DocumentVersion/byteSize`.
             public var byteSize: Swift.Int64
             /// The version_no this version non-destructively restored, when it is a rollback.
@@ -24855,7 +24861,7 @@ public enum Components {
                 documentRef: Swift.String,
                 versionNo: Swift.Int,
                 contentHash: Swift.String,
-                fileType: Swift.String,
+                fileType: Components.Schemas.DocumentVersion.FileTypePayload,
                 byteSize: Swift.Int64,
                 restoredFrom: Swift.Int? = nil,
                 createdBy: Swift.String? = nil,
@@ -83307,12 +83313,14 @@ public enum Operations {
             @frozen public enum Body: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/requestBody/json`.
                 public struct JsonPayload: Codable, Hashable, Sendable {
+                    /// Trimmed logical document reference; control characters are rejected.
+                    ///
                     /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/requestBody/json/documentRef`.
                     public var documentRef: Swift.String
                     /// Creates a new `JsonPayload`.
                     ///
                     /// - Parameters:
-                    ///   - documentRef:
+                    ///   - documentRef: Trimmed logical document reference; control characters are rejected.
                     public init(documentRef: Swift.String) {
                         self.documentRef = documentRef
                     }

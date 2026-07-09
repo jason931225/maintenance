@@ -58,7 +58,7 @@ data class DocumentVersion (
     val contentHash: kotlin.String,
 
     @SerialName(value = "fileType")
-    val fileType: kotlin.String,
+    val fileType: DocumentVersion.FileType,
 
     @SerialName(value = "byteSize")
     val byteSize: kotlin.Long,
@@ -76,5 +76,16 @@ data class DocumentVersion (
 
 ) {
 
+    /**
+     *
+     *
+     * Values: DOCX,XLSX,PPTX
+     */
+    @Serializable
+    enum class FileType(val value: kotlin.String) {
+        @SerialName(value = "docx") DOCX("docx"),
+        @SerialName(value = "xlsx") XLSX("xlsx"),
+        @SerialName(value = "pptx") PPTX("pptx");
+    }
 
 }

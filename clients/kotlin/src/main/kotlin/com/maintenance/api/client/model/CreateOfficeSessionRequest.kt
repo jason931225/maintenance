@@ -31,12 +31,13 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param documentRef
+ * @param documentRef Trimmed logical document reference; control characters are rejected.
  */
 @Serializable
 
 data class CreateOfficeSessionRequest (
 
+    /* Trimmed logical document reference; control characters are rejected. */
     @SerialName(value = "documentRef")
     val documentRef: kotlin.String
 
