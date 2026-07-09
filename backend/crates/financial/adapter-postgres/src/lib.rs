@@ -2696,10 +2696,10 @@ async fn check_self_approval_tx(
         "exemption_reason": exemption_reason,
     });
     let entity_id = purchase_request_id.as_uuid().to_string();
-    mnt_integrity::upsert_open_finding_tx(
+    mnt_platform_db::upsert_open_finding_tx(
         tx,
         OrgId::from_uuid(org_uuid),
-        mnt_integrity::OpenFinding {
+        mnt_platform_db::OpenFinding {
             detector_id: "anomaly.self_approval",
             entity_type: "financial_purchase_request",
             entity_id: &entity_id,

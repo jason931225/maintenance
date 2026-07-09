@@ -29,4 +29,4 @@ pub mod rest;
 pub mod store;
 
 pub use rest::{IntegrityRestState, router};
-pub use store::{OpenFinding, PgIntegrityStore, upsert_open_finding_tx};
+pub use store::PgIntegrityStore;

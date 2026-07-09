@@ -1818,10 +1818,10 @@ async fn check_self_approval_tx(
         "exemption_reason": exemption_reason,
     });
     let entity_id = run_id.to_string();
-    mnt_integrity::upsert_open_finding_tx(
+    mnt_platform_db::upsert_open_finding_tx(
         tx,
         org,
-        mnt_integrity::OpenFinding {
+        mnt_platform_db::OpenFinding {
             detector_id: "anomaly.self_approval",
             entity_type: "workflow_run",
             entity_id: &entity_id,

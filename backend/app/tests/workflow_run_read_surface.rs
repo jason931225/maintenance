@@ -142,6 +142,91 @@ async fn run_detail_visible_to_authority_role_holder(pool: PgPool) {
 }
 
 // ===========================================================================
+// 2b. Run detail: a NON-admin authority-role holder sees it — proves the
+//     authority-role OR-branch on its own, not merely riding `is_admin`
+//     (ADMIN fails RoleManage/workflow-manage but passes CompletionReview).
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn run_detail_visible_to_non_admin_authority_role_holder(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let initiator = UserId::new();
+    seed_user(&pool, initiator, "SUPER_ADMIN", branch).await;
+    let definition_id = seed_approval_definition(&pool, "approval.detail.authority.nonadmin").await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+
+    let started = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &bearer(&keys, initiator, "SUPER_ADMIN", branch),
+        json!({
+            "definition_id": definition_id,
+            "trigger_type": "MANUAL",
+            "idempotency_key": "detail-nonadmin-auth-key-01",
+            "input_payload": {}
+        }),
+    )
+    .await;
+    let run_id = started.json["run"]["id"].as_str().unwrap().to_owned();
+
+    // ADMIN is denied workflow-manage (RoleManage matrix: only SUPER_ADMIN passes)
+    // but allowed `completion_review`, so `is_admin` is false here — a 200 proves
+    // the authority-role OR-branch fires independently. Unlike SUPER_ADMIN/EXECUTIVE
+    // (branch-scope short-circuits to `All`), ADMIN's branch scope is resolved from
+    // `user_branches` (`resolve_branch_scope_in_org`) — it must be seeded or the
+    // legacy guard denies on branch containment before the role tier ever matters.
+    let reviewer = UserId::new();
+    seed_user(&pool, reviewer, "ADMIN", branch).await;
+    seed_user_branch(&pool, reviewer, branch).await;
+    let detail = get(
+        service,
+        &format!("/api/v1/workflow-runs/{run_id}"),
+        &bearer(&keys, reviewer, "ADMIN", branch),
+    )
+    .await;
+    assert_eq!(detail.status, StatusCode::OK, "{:?}", detail.json);
+    assert_eq!(detail.json["run"]["id"], run_id);
+}
+
+// ===========================================================================
+// 1b. Run detail: a NON-admin, non-authority initiator sees their own run —
+//     proves the `initiated_by` OR-branch on its own (MECHANIC fails both
+//     RoleManage and CompletionReview).
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn run_detail_visible_to_non_admin_initiator(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let initiator = UserId::new();
+    seed_user(&pool, initiator, "MECHANIC", branch).await;
+    let definition_id = seed_approval_definition(&pool, "approval.detail.initiator.nonadmin").await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, initiator, "MECHANIC", branch);
+
+    let started = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &token,
+        json!({
+            "definition_id": definition_id,
+            "trigger_type": "MANUAL",
+            "idempotency_key": "detail-nonadmin-init-key-01",
+            "input_payload": {}
+        }),
+    )
+    .await;
+    assert_eq!(started.status, StatusCode::OK, "{:?}", started.json);
+    let run_id = started.json["run"]["id"].as_str().unwrap().to_owned();
+
+    let detail = get(service, &format!("/api/v1/workflow-runs/{run_id}"), &token).await;
+    assert_eq!(detail.status, StatusCode::OK, "{:?}", detail.json);
+    assert_eq!(detail.json["run"]["id"], run_id);
+    assert_eq!(detail.json["run"]["initiated_by"], initiator.to_string());
+}
+
+// ===========================================================================
 // 3. Run detail: insufficient-role stranger gets 404 (deny-by-omission, never
 //    a 403 that would confirm the run's existence).
 // ===========================================================================
@@ -501,6 +586,21 @@ async fn seed_user(pool: &PgPool, user_id: UserId, role: &str, _branch_id: Branc
         .bind(*user_id.as_uuid())
         .bind(format!("read-surface-{role}-{}", user_id.as_uuid()))
         .bind(vec![role])
+        .bind(*OrgId::knl().as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// `resolve_branch_scope_in_org` short-circuits SUPER_ADMIN/EXECUTIVE to
+/// `BranchScope::All` without touching this table, but every other role's
+/// branch scope is resolved live from `user_branches` — a branch-tier role
+/// with no row here gets an EMPTY scope, failing any branch-containment check
+/// regardless of its legacy Feature-matrix permission level.
+async fn seed_user_branch(pool: &PgPool, user_id: UserId, branch_id: BranchId) {
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(*user_id.as_uuid())
+        .bind(*branch_id.as_uuid())
         .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await

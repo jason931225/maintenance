@@ -1922,7 +1922,7 @@ async fn get_workflow_run(
                      LEFT JOIN workflow_waiting_tasks t \
                             ON t.node_run_id = nr.id AND t.org_id = nr.org_id \
                      WHERE nr.run_id = $1 \
-                     ORDER BY COALESCE(nr.started_at, nr.updated_at) ASC, nr.node_key ASC",
+                     ORDER BY COALESCE(nr.started_at, nr.updated_at) ASC, nr.node_key ASC, nr.attempt ASC",
                 )
                 .bind(run_id)
                 .fetch_all(tx.as_mut())
