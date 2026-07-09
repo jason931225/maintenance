@@ -717,6 +717,10 @@ pub enum ChainReportKind {
     /// a DETECTABLE finding (the seal_lag watermark bounds it at seal time; this
     /// check catches anything that still slipped in below the head).
     CoverageGap,
+    /// A stored seal column is structurally corrupt — a hash/`bytea` that is not
+    /// 32 bytes (truncated/overwritten by an attacker). Reported as tamper, not
+    /// raised as a DB/infra `Err`.
+    CorruptSeal,
 }
 
 /// The verdict for one org's chain.
@@ -785,7 +789,10 @@ const SELECT_SEALS: &str = "SELECT seq, from_event_id, from_created_at, to_event
 
 /// Recompute-and-compare a single org's chain. Read-only; runnable as a REST
 /// attestation handler (PR-2), a cron integrity job, or a test. Returns a
-/// verdict even on tamper — `Err` is reserved for DB/infra failures.
+/// verdict even on tamper — including anything an attacker can do to seal
+/// STORAGE: a structurally-corrupt stored hash column → `CorruptSeal`, an
+/// unparseable stored `key_ref` → `BadSignature`. `Err` is reserved strictly for
+/// GENUINE DB/infra failures (the `sqlx` queries, `fetch_range`, `rows_in_gap`).
 ///
 /// Re-homed / deleted-tenant note (charter §1): a re-homed row (owner-only,
 /// separately audited PIPA reference release) drops out of its tenant chain
@@ -821,9 +828,23 @@ pub async fn verify_org_chain(
                     ));
                 }
 
-                let stored_prev = hash32(seal.prev_seal_hash.clone(), "prev_seal_hash")?;
-                let stored_batch = hash32(seal.batch_hash.clone(), "batch_hash")?;
-                let stored_seal = hash32(seal.seal_hash.clone(), "seal_hash")?;
+                // Structurally corrupt stored hash columns (wrong length) are a
+                // TAMPER verdict, not a DB/infra Err — verify's contract is to
+                // return a verdict for anything an attacker can do to storage.
+                let (stored_prev, stored_batch, stored_seal) = match (
+                    hash32(seal.prev_seal_hash.clone(), "prev_seal_hash"),
+                    hash32(seal.batch_hash.clone(), "batch_hash"),
+                    hash32(seal.seal_hash.clone(), "seal_hash"),
+                ) {
+                    (Ok(prev), Ok(batch), Ok(seal_h)) => (prev, batch, seal_h),
+                    _ => {
+                        return Ok(ChainReport::tampered(
+                            org_id,
+                            Some(seal.seq),
+                            ChainReportKind::CorruptSeal,
+                        ));
+                    }
+                };
 
                 // (b) continuity: this seal must link to the previous seal_hash.
                 if stored_prev != prev_seal_hash {
@@ -851,7 +872,12 @@ pub async fn verify_org_chain(
                 }
 
                 // (c) signature over the stored seal_hash under the stored key_ref.
-                if !signer.verify(&stored_seal, &seal.signature, &seal.key_ref)? {
+                // A malformed/garbage key_ref (unparseable) can't verify a
+                // signature = BadSignature verdict, NOT a propagated Err.
+                if !signer
+                    .verify(&stored_seal, &seal.signature, &seal.key_ref)
+                    .unwrap_or(false)
+                {
                     return Ok(ChainReport::tampered(
                         org_id,
                         Some(seal.seq),

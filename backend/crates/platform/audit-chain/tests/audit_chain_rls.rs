@@ -221,6 +221,38 @@ async fn owner_tamper_seal(owner_pool: &PgPool, sql: &'static str, org: Uuid, se
     tx.commit().await.unwrap();
 }
 
+/// Insert a committed `audit_events` row with an EXPLICIT `created_at`, as the
+/// threat actor (trigger + RLS bypassed). Used to place a backdated row at a
+/// known point in the `(created_at, id)` order.
+async fn owner_insert_event(
+    owner_pool: &PgPool,
+    org: Uuid,
+    branch: Uuid,
+    actor: Uuid,
+    created_at: OffsetDateTime,
+) {
+    let mut tx = owner_pool.begin().await.unwrap();
+    tamper_prelude(&mut tx).await;
+    sqlx::query(
+        "INSERT INTO audit_events \
+         (id, actor, action, target_type, target_id, branch_id, org_id, \
+          trace_id, span_id, occurred_at, created_at) \
+         VALUES ($1, $2, 'test.backdated', 'audit_chain_test', 'gap', $3, $4, \
+                 $5, $6, now(), $7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(actor)
+    .bind(branch)
+    .bind(org)
+    .bind("0".repeat(32))
+    .bind("0".repeat(16))
+    .bind(created_at)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // §6.1 seal → verify happy path
 // ---------------------------------------------------------------------------
@@ -869,5 +901,137 @@ async fn verify_detects_coverage_gap_before_genesis(owner_pool: PgPool) {
         .unwrap();
     assert!(!report.ok);
     assert_eq!(report.kind, ChainReportKind::CoverageGap, "{report:?}");
+    assert_eq!(report.first_bad_seq, Some(1));
+}
+
+// ---------------------------------------------------------------------------
+// §6.13 detect an inter-seal backdated insert → CoverageGap at the later seal
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn verify_detects_coverage_gap_between_seals(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    let cfg = immediate(); // zero lag: watermark == seal clock, past rows eligible.
+
+    // Anchor rows in the past with explicit, well-spaced created_at so the
+    // inter-seal gap is unambiguously wide (µs-spacing from real writes could be
+    // narrower than the timestamp resolution). Two batches → two seals.
+    let base = OffsetDateTime::now_utc() - Duration::seconds(600);
+    owner_insert_event(&owner_pool, org, branch, user, base).await;
+    owner_insert_event(&owner_pool, org, branch, user, base + Duration::seconds(10)).await;
+    let s1 = seal_org_once(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        OffsetDateTime::now_utc(),
+        &cfg,
+    )
+    .await
+    .unwrap()
+    .expect("first batch seals");
+    assert_eq!(s1.seq, 1);
+
+    owner_insert_event(&owner_pool, org, branch, user, base + Duration::seconds(30)).await;
+    owner_insert_event(&owner_pool, org, branch, user, base + Duration::seconds(40)).await;
+    let s2 = seal_org_once(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        OffsetDateTime::now_utc(),
+        &cfg,
+    )
+    .await
+    .unwrap()
+    .expect("second batch seals");
+    assert_eq!(s2.seq, 2);
+
+    // Backdate a committed row squarely into the (seal1.to .. seal2.from) hole:
+    // base+20s ∈ (base+10s, base+30s). It was never legitimately sealed.
+    owner_insert_event(&owner_pool, org, branch, user, base + Duration::seconds(20)).await;
+
+    let report = verify_org_chain(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        OffsetDateTime::now_utc(),
+        &cfg,
+    )
+    .await
+    .unwrap();
+    assert!(!report.ok);
+    assert_eq!(report.kind, ChainReportKind::CoverageGap, "{report:?}");
+    assert_eq!(
+        report.first_bad_seq,
+        Some(2),
+        "the hole is bracketed by seq1 and seq2"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// §6.14 corrupt seal STORAGE is a tamper VERDICT, not an Err
+// ---------------------------------------------------------------------------
+/// An unparseable stored `key_ref` → `BadSignature` verdict (NOT propagated Err).
+#[sqlx::test(migrations = "../db/migrations")]
+async fn verify_returns_bad_signature_verdict_for_garbage_key_ref(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    write_events(&rt, org, user, branch, 2).await;
+    let now = OffsetDateTime::now_utc();
+    let cfg = immediate();
+    seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .unwrap()
+        .unwrap();
+
+    owner_tamper_seal(
+        &owner_pool,
+        "UPDATE audit_chain_seals SET key_ref = 'garbage' WHERE org_id = $1 AND seq = $2",
+        org,
+        1,
+    )
+    .await;
+
+    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .expect("a garbage key_ref must be a verdict, not an Err");
+    assert!(!report.ok);
+    assert_eq!(report.kind, ChainReportKind::BadSignature, "{report:?}");
+    assert_eq!(report.first_bad_seq, Some(1));
+}
+
+/// A structurally-corrupt stored hash (<32 bytes) → `CorruptSeal` verdict.
+#[sqlx::test(migrations = "../db/migrations")]
+async fn verify_returns_corrupt_seal_verdict_for_truncated_hash(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    write_events(&rt, org, user, branch, 2).await;
+    let now = OffsetDateTime::now_utc();
+    let cfg = immediate();
+    seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Truncate seal_hash to 2 bytes — no longer a 32-byte hash.
+    owner_tamper_seal(
+        &owner_pool,
+        "UPDATE audit_chain_seals SET seal_hash = decode('dead', 'hex') \
+         WHERE org_id = $1 AND seq = $2",
+        org,
+        1,
+    )
+    .await;
+
+    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .expect("a truncated hash must be a verdict, not an Err");
+    assert!(!report.ok);
+    assert_eq!(report.kind, ChainReportKind::CorruptSeal, "{report:?}");
     assert_eq!(report.first_bad_seq, Some(1));
 }
