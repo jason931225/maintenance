@@ -290,12 +290,16 @@ pub async fn read_subject_authz_freshness(
                     .map_err(DbError::Sqlx)?
                     .unwrap_or(0);
 
-            // Per-(org,user) subject counters; RLS narrows to the armed org, so
-            // the `user_id` predicate alone is org-scoped. Absent ⇒ (0, 0).
+            // Per-(org,user) subject counters. RLS already narrows to the armed
+            // org; the explicit `org_id = $2` is defense-in-depth so this stays
+            // correct even if ever handed an owner/BYPASSRLS pool (which would
+            // otherwise let `fetch_optional` return an arbitrary matching row).
+            // Absent ⇒ (0, 0).
             let subject_row = sqlx::query(
-                "SELECT version, session_generation FROM subject_authz_versions WHERE user_id = $1",
+                "SELECT version, session_generation FROM subject_authz_versions WHERE user_id = $1 AND org_id = $2",
             )
             .bind(user_uuid)
+            .bind(org_uuid)
             .fetch_optional(tx.as_mut())
             .await
             .map_err(DbError::Sqlx)?;

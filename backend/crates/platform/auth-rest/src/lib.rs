@@ -2184,7 +2184,10 @@ async fn start_group_admin_tenant_context(
     // baseline while the subsidiary's `policy_version` is real.
     let freshness = read_subject_authz_freshness(&state.pool, target.org_id, actor)
         .await
-        .map_err(|err| RestError::internal(err.to_string()))?;
+        .map_err(|err| {
+            tracing::error!(error = %err, "failed to read subject freshness for group-admin tenant-context");
+            RestError::internal("internal server error")
+        })?;
 
     let now = OffsetDateTime::now_utc();
     let expires_at = now + GROUP_ADMIN_TENANT_CONTEXT_TTL;
