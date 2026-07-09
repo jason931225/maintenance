@@ -2738,8 +2738,10 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "croner",
+ "futures",
  "hex",
  "http",
+ "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
  "mnt-comms-adapter-imap",
@@ -2764,6 +2766,8 @@ dependencies = [
  "mnt-inspection-rest",
  "mnt-integrity",
  "mnt-kernel-core",
+ "mnt-leave-adapter-postgres",
+ "mnt-leave-rest",
  "mnt-messenger-adapter-postgres",
  "mnt-messenger-rest",
  "mnt-notifications-adapter-postgres",
@@ -2803,6 +2807,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "p256",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2844,6 +2849,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-comms-adapter-mox"
+version = "0.1.0"
+dependencies = [
+ "mnt-comms-application",
+ "mnt-comms-domain",
+ "mnt-kernel-core",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mnt-comms-adapter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -2860,6 +2881,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2931,6 +2953,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "mnt-comms-adapter-imap",
+ "mnt-comms-adapter-mox",
  "mnt-comms-adapter-postgres",
  "mnt-comms-adapter-smtp",
  "mnt-comms-application",
@@ -2948,6 +2971,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx 0.9.0",
+ "subtle",
  "thiserror 2.0.18",
  "time",
  "tower",
@@ -3415,6 +3439,66 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-inbox-adapter-postgres",
+ "mnt-inbox-application",
+ "mnt-inbox-domain",
+ "mnt-kernel-core",
+ "mnt-leave-application",
+ "mnt-leave-domain",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-leave-domain",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "time",
+]
+
+[[package]]
+name = "mnt-leave-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-kernel-core",
+ "mnt-leave-adapter-postgres",
+ "mnt-leave-application",
+ "mnt-leave-domain",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "time",
+ "tracing",
  "uuid",
 ]
 
@@ -5221,6 +5305,8 @@ dependencies = [
  "log",
  "percent-encoding",
  "pin-project-lite",
+ "serde",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tower",

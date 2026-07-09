@@ -4945,6 +4945,188 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/leave/requests:
+    get:
+      operationId: listLeaveRequests
+      summary: List the branch-scoped leave-request approval queue (연차 결재함)
+      description: >-
+        Pending-first, then newest. Requires `employee_directory_read`. The
+        queue is confined to the caller's branches (resolved from the JWT); an
+        out-of-scope request is invisible (deny-by-omission).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Filter to one status; omitted returns all four.
+        schema:
+          type: string
+          enum: [pending, approved, returned, rejected]
+      - name: limit
+        in: query
+        required: false
+        description: Page size (clamped server-side to 1..=200; default 100).
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: A branch-scoped page of leave requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/leave/requests/{id}/decide:
+    post:
+      operationId: decideLeaveRequest
+      summary: Approve, return, or reject a pending leave request
+      description: >-
+        Requires `employee_directory_manage` in the request's branch. An
+        APPROVE writes the leave ledger (used += days, remaining -= days) in the
+        same audited transaction. Separation of duties — a request cannot be
+        decided by its own requester (403). `return`/`reject` require a comment.
+        A non-pending request is 409; an out-of-branch / unknown request is 404.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveDecideRequest'
+      responses:
+        '200':
+          description: The decided leave request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The request is not pending and cannot be decided again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          description: Missing mandatory comment or unknown decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/leave/balances:
+    get:
+      operationId: listLeaveBalances
+      summary: Per-employee annual-leave balance roster (직원별 연차 현황)
+      description: >-
+        Reads the existing employee leave ledger (grant/used/left) — the same
+        source of truth as the balances aggregate; not a second store. Requires
+        `employee_directory_read`. Org-scoped.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The leave-balance roster.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRosterPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/leave/promotions:
+    post:
+      operationId: pushLeavePromotion
+      summary: Serve a §61 연차 사용 촉진 (round 1 or 2)
+      description: >-
+        Requires `employee_directory_manage` in the target `branch_id` (which is
+        validated against the actor's scope). Delivers a receipt-gated 연차촉진
+        notice into the target's 개인 수신함 and records the push. The engine AP-
+        run binds once the 연차촉진 submittable definition exists; until then the
+        push carries `ap_submission: pending_engine_definition`. Idempotent per
+        (target, round).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeavePromotionRequest'
+      responses:
+        '200':
+          description: The recorded push, including the delivered notice id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveStatutoryPushView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Invalid round (§61 allows 1 or 2).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/leave/refusal-notices:
+    post:
+      operationId: pushLeaveRefusalNotice
+      summary: Serve a 노무수령거부 notice (after a round-2 promotion)
+      description: >-
+        Requires `employee_directory_manage` in the target `branch_id`. Delivers
+        a receipt-gated 노무수령거부 notice into the target's 개인 수신함 and records
+        the push. Same engine-binding semantics as promotions. Idempotent per
+        target.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveRefusalRequest'
+      responses:
+        '200':
+          description: The recorded refusal push, including the delivered notice id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveStatutoryPushView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/me/inbox-docs:
     get:
       operationId: listMyInboxDocs
@@ -8438,6 +8620,188 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           description: JWT verification is not configured.
+  /api/v1/office/sessions:
+    post:
+      operationId: createOfficeSession
+      summary: Issue a signed DocumentServer editor config for a document
+      description: Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document.
+        The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache;
+        permissions map from the caller's authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document
+        (initial-version creation is a records-module concern).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentRef]
+              properties:
+                documentRef:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Trimmed logical document reference; control characters are rejected.
+      responses:
+        '200':
+          description: The editor config to hand to DocumentServer.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documentServerUrl, config]
+                properties:
+                  documentServerUrl:
+                    type: string
+                  config:
+                    type: object
+                    description: The ONLYOFFICE DocEditor config object, carrying its signed `token`.
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: Office editor or document storage is not configured.
+  /api/v1/office/callback:
+    post:
+      operationId: officeCallback
+      summary: DocumentServer force-save callback (machine, JWT-verified)
+      description: The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE
+        JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save)
+        the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always
+        responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+      parameters:
+      - name: ct
+        in: query
+        required: true
+        description: Host-issued callback token binding the request to (org, document).
+        schema:
+          type: string
+          minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  description: The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
+                status:
+                  type: integer
+                  description: ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+                url:
+                  type: string
+                  format: uri
+                  description: Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                key:
+                  type: string
+                  description: The document.key of the editing session that produced this callback.
+                filetype:
+                  type: string
+                  enum: [docx, xlsx, pptx]
+                  description: ONLYOFFICE file type for the produced document.
+                users:
+                  type: array
+                  items:
+                    type: string
+                  description: ONLYOFFICE user identifiers participating in the callback, when supplied.
+                actions:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: ONLYOFFICE action metadata, when supplied.
+                history:
+                  type: object
+                  additionalProperties: true
+                  description: ONLYOFFICE history payload, when supplied.
+      responses:
+        '200':
+          description: Always 200. `error` is 0 on success/ignore, non-zero on a rejected callback.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: integer
+                    minimum: 0
+  /api/v1/office/documents/{documentRef}/versions:
+    get:
+      operationId: listOfficeDocumentVersions
+      summary: List a document's immutable version history (newest first)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: documentRef
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+      responses:
+        '200':
+          description: The append-only version list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocumentVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore:
+    post:
+      operationId: restoreOfficeDocumentVersion
+      summary: Non-destructively restore a version (re-publish it as a new version)
+      description: Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with
+        restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: documentRef
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+      - name: versionNo
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: The newly appended (restored) version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
     bearerAuth:
@@ -14661,6 +15025,207 @@ components:
       properties:
         step_up:
           $ref: '#/components/schemas/PasskeyStepUpAssertion'
+    LeaveRequestView:
+      type: object
+      description: One leave request in the approval queue (결재함 leave variant).
+      required:
+      - id
+      - branch_id
+      - requester_user_id
+      - subject_employee_id
+      - leave_type
+      - days
+      - start_date
+      - end_date
+      - reason
+      - status
+      - decided_by
+      - decided_at
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        requester_user_id:
+          $ref: '#/components/schemas/Uuid'
+        subject_employee_id:
+          $ref: '#/components/schemas/Uuid'
+        leave_type:
+          type: string
+          enum: [annual, half_day]
+        days:
+          type: number
+          format: double
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, returned, rejected]
+        decided_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        decided_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        decision_comment:
+          type: string
+          description: Mandatory on return/reject; present only when set.
+        ap_run_id:
+          type: string
+          format: uuid
+          description: The engine AP- run, when the submittable definition exists.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    LeaveRequestPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveRequestView'
+    LeaveDecideRequest:
+      type: object
+      required:
+      - decision
+      properties:
+        decision:
+          type: string
+          enum: [approve, return, reject]
+        comment:
+          type: string
+          description: Mandatory for return/reject; optional for approve.
+    LeaveRosterEntry:
+      type: object
+      description: One employee's annual-leave balance row (직원별 연차 현황).
+      required:
+      - employee_id
+      - name
+      - team
+      - grant
+      - used
+      - left
+      - tone
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        team:
+          type:
+          - string
+          - 'null'
+        grant:
+          type: number
+          format: double
+        used:
+          type: number
+          format: double
+        left:
+          type: number
+          format: double
+        tone:
+          type: string
+          description: Bar color / 촉진 bucket — one of ok, promote, low.
+          enum: [ok, promote, low]
+    LeaveRosterPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveRosterEntry'
+    LeavePromotionRequest:
+      type: object
+      description: A §61 연차 사용 촉진 push to a target employee.
+      required:
+      - branch_id
+      - target_user_id
+      - target_employee_id
+      - target_name
+      - round
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        target_user_id:
+          $ref: '#/components/schemas/Uuid'
+        target_employee_id:
+          $ref: '#/components/schemas/Uuid'
+        target_name:
+          type: string
+        round:
+          type: integer
+          format: int32
+          description: §61 round — 1 (사용 촉구) or 2 (시기 지정).
+        unused_days:
+          type: number
+          format: double
+          description: Unused annual-leave days motivating the push.
+    LeaveRefusalRequest:
+      type: object
+      description: A 노무수령거부 notice served after a round-2 promotion.
+      required:
+      - branch_id
+      - target_user_id
+      - target_employee_id
+      - target_name
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        target_user_id:
+          $ref: '#/components/schemas/Uuid'
+        target_employee_id:
+          $ref: '#/components/schemas/Uuid'
+        target_name:
+          type: string
+        unused_days:
+          type: number
+          format: double
+    LeaveStatutoryPushView:
+      type: object
+      description: The result of a §61 push — the delivered notice + engine state.
+      required:
+      - id
+      - kind
+      - round
+      - target_user_id
+      - inbox_doc_id
+      - ap_submission
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [promotion, refusal]
+        round:
+          type: integer
+          format: int32
+        target_user_id:
+          $ref: '#/components/schemas/Uuid'
+        inbox_doc_id:
+          $ref: '#/components/schemas/Uuid'
+        ap_run_id:
+          type: string
+          format: uuid
+          description: The engine AP- run, when the submittable definition exists.
+        ap_submission:
+          type: string
+          description: submitted when a run was started, else pending_engine_definition.
+          enum: [submitted, pending_engine_definition]
     TodoRef:
       type: object
       description: >-
@@ -18897,3 +19462,39 @@ components:
           type: string
           format: date
           description: ISO date; omit or null to clear the retention deadline.
+    DocumentVersion:
+      type: object
+      description: One immutable version of an in-console office document. The storage key is internal and never returned.
+      required: [id, documentRef, versionNo, contentHash, fileType, byteSize, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        documentRef:
+          type: string
+          minLength: 1
+          maxLength: 200
+        versionNo:
+          type: integer
+          minimum: 1
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        fileType:
+          type: string
+          enum: [docx, xlsx, pptx]
+        byteSize:
+          type: integer
+          format: int64
+          minimum: 0
+        restoredFrom:
+          type: integer
+          minimum: 1
+          description: The version_no this version non-destructively restored, when it is a rollback.
+        createdBy:
+          type: string
+          format: uuid
+          description: Actor who produced the version; omitted for system-initiated (force-save callback) versions.
+        createdAt:
+          type: string
+          format: date-time

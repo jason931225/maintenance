@@ -17,13 +17,14 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_comms_application::{
-    AccountUpsert, AttachmentRef, AttachmentView, DueAccount, EmailAccountId, EmailMessageId,
-    FolderCursor, FolderView, ImapFolder, InboundUpsert, MailReadStore, MailServiceError,
-    MailStore, MessageView, OutboundRecord, SealedCredential, StoredAccount, StoredAttachment,
-    ThreadDetail, ThreadQuery, ThreadView, thread_grouping_key,
+    AccountUpsert, AddressAccount, AddressLookup, AttachmentRef, AttachmentView, DueAccount,
+    EmailAccountId, EmailMessageId, FolderCursor, FolderView, ImapFolder, InboundUpsert,
+    MailFuture, MailNotifier, MailReadStore, MailServiceError, MailStore, MessageView,
+    OutboundRecord, SealedCredential, StoredAccount, StoredAttachment, ThreadDetail, ThreadQuery,
+    ThreadView, address_ambiguous_audit_event, thread_grouping_key,
 };
 use mnt_comms_domain::{MailSecurity, MessageAddress, normalize_subject};
-use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, UserId};
+use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, TraceContext, UserId};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -423,8 +424,15 @@ impl PgMailStore {
                 let thread_id =
                     resolve_inbound_thread_tx(tx, org_uuid, account_uuid, &upsert).await?;
 
-                // 4. Insert the IN message.
-                insert_inbound_message_tx(tx, org_uuid, account_uuid, thread_id, &upsert).await?;
+                // 4. Insert the IN message. If a concurrent webhook redelivery won
+                // the same IMAP-identity race, the insert is an idempotent no-op
+                // and the handler reports `ingested=false` instead of surfacing
+                // a unique-constraint service error.
+                if !insert_inbound_message_tx(tx, org_uuid, account_uuid, thread_id, &upsert)
+                    .await?
+                {
+                    return Ok(false);
+                }
 
                 // 5. Insert its attachment rows.
                 for att in &upsert.stored_attachments {
@@ -559,6 +567,57 @@ impl PgMailStore {
                 })
             })
             .collect()
+    }
+
+    async fn find_account_by_address_inner(
+        &self,
+        address: &str,
+    ) -> Result<AddressLookup, PgMailError> {
+        // Cross-tenant id-only lookup via 0122_comms_account_by_address.sql. Runs
+        // on the raw pool (NO org armed) — the function REVOKEs PUBLIC and only
+        // mnt_rt may EXECUTE it; it returns ONLY the (org_id, account_id) pairs of
+        // every ACTIVE account matching this recipient address. `email_accounts`
+        // is unique only per (org_id, email_address), so >1 row means the SAME
+        // address exists under DIFFERENT orgs — a tenant-boundary anomaly, not a
+        // pick-one situation. The webhook arms the single resolved org for the
+        // audited inbound upsert; an ambiguous address is refused for ALL of them.
+        let rows: Vec<sqlx::postgres::PgRow> =
+            sqlx::query("SELECT org_id, account_id FROM comms_account_by_address($1)")
+                .bind(address)
+                // rls-arming: ok comms_account_by_address is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) returning id-only (org_id, account_id) for the mox delivery webhook, which has no principal to arm an org with; it exposes no tenant data
+                .fetch_all(&self.pool)
+                .await?;
+        match rows.len() {
+            0 => Ok(AddressLookup::NotFound),
+            1 => {
+                let row = &rows[0];
+                Ok(AddressLookup::Found(AddressAccount {
+                    org_id: OrgId::from_uuid(row.try_get("org_id")?),
+                    account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
+                }))
+            }
+            _ => {
+                tracing::error!(
+                    match_count = rows.len(),
+                    "mox webhook: recipient address matched ACTIVE accounts in more than one org; quarantining delivery (no message content logged)"
+                );
+                let audit = address_ambiguous_audit_event(
+                    address,
+                    TraceContext::generate(),
+                    Timestamp::now_utc(),
+                )
+                .map_err(PgMailError::Domain)?;
+                // No `org` to arm (that is exactly the anomaly) — insert the
+                // platform-tier audit row on the raw pool. `with_audit` leaves
+                // `app.current_org` unset when `event.org_id` is `None`; the
+                // `audit_events` RLS `WITH CHECK (org_id IS NULL)` clause admits it.
+                with_audit::<_, (), PgMailError>(&self.pool, audit, |_tx| {
+                    Box::pin(async move { Ok(()) })
+                })
+                .await?;
+                Ok(AddressLookup::Ambiguous)
+            }
+        }
     }
 
     async fn list_folders_inner(
@@ -888,6 +947,17 @@ impl MailReadStore for PgMailStore {
         })
     }
 
+    fn find_account_by_address<'a>(
+        &'a self,
+        address: &'a str,
+    ) -> mnt_comms_application::MailFuture<'a, Result<AddressLookup, MailServiceError>> {
+        Box::pin(async move {
+            self.find_account_by_address_inner(address)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
     fn list_folders<'a>(
         &'a self,
         org: OrgId,
@@ -1105,7 +1175,7 @@ async fn insert_inbound_message_tx(
     account_uuid: uuid::Uuid,
     thread_id: uuid::Uuid,
     upsert: &InboundUpsert,
-) -> Result<(), PgMailError> {
+) -> Result<bool, PgMailError> {
     let m = &upsert.message;
     let snippet: String = m
         .body_text
@@ -1121,7 +1191,7 @@ async fn insert_inbound_message_tx(
     let references = m.references.clone();
     let has_attachments = !upsert.stored_attachments.is_empty();
 
-    sqlx::query(
+    let inserted: Option<uuid::Uuid> = sqlx::query_scalar(
         r#"
         INSERT INTO email_messages (
             id, org_id, account_id, folder_id, thread_id,
@@ -1136,6 +1206,10 @@ async fn insert_inbound_message_tx(
             $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24
         )
+        ON CONFLICT (org_id, account_id, folder_id, imap_uid_validity, imap_uid)
+            WHERE imap_uid IS NOT NULL
+            DO NOTHING
+        RETURNING id
         "#,
     )
     .bind(*upsert.id.as_uuid())
@@ -1162,9 +1236,9 @@ async fn insert_inbound_message_tx(
     .bind(m.draft)
     .bind(has_attachments)
     .bind(m.received_at)
-    .execute(tx.as_mut())
+    .fetch_optional(tx.as_mut())
     .await?;
-    Ok(())
+    Ok(inserted.is_some())
 }
 
 async fn insert_attachment_tx(
@@ -1721,4 +1795,42 @@ fn account_from_row(row: sqlx::postgres::PgRow) -> Result<StoredAccount, PgMailE
         imap_password,
         status: row.try_get("status")?,
     })
+}
+
+/// The LISTEN/NOTIFY channel a webmail message-posted signal rides on. Mirrors
+/// the messenger realtime channel: the payload carries only the account id (no
+/// message content), and a background listener fans it out to the tenant's UI.
+pub const MAIL_POSTED_CHANNEL: &str = "mail_posted";
+
+/// A realtime [`MailNotifier`] over PostgreSQL `pg_notify`. Emitted when the mox
+/// delivery webhook ingests a NEW inbound message so the tenant's mailbox UI can
+/// refresh. Best-effort: a notify failure never fails the enclosing ingest.
+#[derive(Debug, Clone)]
+pub struct PgMailNotifier {
+    pool: PgPool,
+}
+
+impl PgMailNotifier {
+    #[must_use]
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+impl MailNotifier for PgMailNotifier {
+    fn notify_posted(&self, account_id: EmailAccountId) -> MailFuture<'_, ()> {
+        Box::pin(async move {
+            // pg_notify carries only the account id — no tenant-table row is read
+            // or written, so no org arming is needed here.
+            if let Err(err) = sqlx::query("SELECT pg_notify($1, $2)")
+                .bind(MAIL_POSTED_CHANNEL)
+                .bind(account_id.to_string())
+                // rls-arming: ok pg_notify carries an id only; it is not a tenant-table read/write
+                .execute(&self.pool)
+                .await
+            {
+                tracing::warn!(error = %err, "mail posted notify failed (best-effort)");
+            }
+        })
+    }
 }

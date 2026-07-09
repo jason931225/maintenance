@@ -11,6 +11,7 @@ publish.workspace = true
 axum = { workspace = true }
 base64 = { workspace = true }
 mnt-comms-adapter-imap = { workspace = true }
+mnt-comms-adapter-mox = { workspace = true }
 mnt-comms-adapter-postgres = { workspace = true }
 mnt-comms-adapter-smtp = { workspace = true }
 mnt-comms-application = { workspace = true }
@@ -26,6 +27,7 @@ secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+subtle = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }

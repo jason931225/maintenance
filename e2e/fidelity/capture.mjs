@@ -23,13 +23,27 @@
  * Usage:
  *   node e2e/fidelity/capture.mjs                 # build + serve + capture overview
  *   node e2e/fidelity/capture.mjs --screen=appr   # a named screen
+ *   node e2e/fidelity/capture.mjs --screen=module # P0.4 module template (build-side baseline)
  *   E2E_BASE_URL=http://localhost:5173 node e2e/fidelity/capture.mjs --no-serve
+ *
+ * `--screen=module` is a POST-SNAPSHOT surface (`MOD_SCREENS`, added upstream
+ * after the Jul-4 dc.html snapshot). Per charter D2 "RATIFIED 2026-07-09" the
+ * prototype side is unsatisfiable, so this mode skips the reference capture and
+ * instead navigates the BUILD side (`/console-dev/module`, `?config=` per state)
+ * through each distinct state in `module-states.mjs`, committing the PNGs under
+ * `e2e/fidelity/baseline/module/` as the visual-regression baseline for later
+ * slices. Data reads are stubbed with `module-fixtures.mjs` (visual-only, like
+ * the boot-token stub); a later slice that hosts the module in a real screen
+ * swaps the stub for a real persona login on the e2e/ backend.
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+
+import MODULE_FIDELITY_STATES from "./module-states.mjs";
+import { supportTickets as spFixture, workOrders as woFixture } from "./module-fixtures.mjs";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 
@@ -121,6 +135,65 @@ async function sampleBg(page, selector) {
   }, selector);
 }
 
+// Stub the boot token + the two module data reads so the build renders real
+// content with no backend (visual-capture concern only).
+async function stubModuleBackend(page) {
+  await page.route("**/api/v1/auth/token/refresh", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ access_token: FAKE_JWT, requires_passkey_setup: false }),
+    }),
+  );
+  await page.route("**/api/v1/work-orders*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(woFixture) }),
+  );
+  await page.route("**/api/v1/support/tickets*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(spFixture) }),
+  );
+}
+
+// Build-side state captures for the post-snapshot module template (charter D2
+// RATIFIED). Navigates the BUILD surface to each state and commits a baseline
+// PNG; no reference side (no dc.html surface for MOD_SCREENS).
+async function captureModuleStates(context) {
+  const baseDir = join(repoRoot, "e2e/fidelity/baseline/module");
+  mkdirSync(baseDir, { recursive: true });
+  const page = await context.newPage();
+  await stubModuleBackend(page);
+
+  const captures = [];
+  for (const state of MODULE_FIDELITY_STATES) {
+    await page.goto(`${baseUrl}${state.build.path}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForSelector("[data-console-root]", { timeout: 60_000 });
+    if (state.id === "detail-open") {
+      // The harness renders no detail by default — click the first row to open
+      // the pinned detail panel (§4.7 click = pin detail).
+      await page.waitForSelector("[data-row-id]", { timeout: 60_000 });
+      await page.locator("[data-row-id]").first().click();
+    }
+    await page.waitForSelector(state.selector, { timeout: 60_000 });
+    await page.waitForTimeout(400); // layout settle
+    const rel = `e2e/fidelity/baseline/module/${state.id}.build.png`;
+    await page.screenshot({ path: join(repoRoot, rel), fullPage: false });
+    captures.push({ id: state.id, png: rel, path: state.build.path, selector: state.selector });
+    console.log(`  captured module state "${state.id}" → ${rel}`);
+  }
+  await page.close();
+
+  const manifest = {
+    screen: "module",
+    kind: "post-snapshot",
+    note: "MOD_SCREENS has no dc.html surface (charter D2 RATIFIED 2026-07-09); build-side state captures are the visual-regression baseline. Reference side runs retroactively when a later dc.html sync delivers the surface.",
+    viewport: { width, height },
+    capturedAt: new Date().toISOString(),
+    captures,
+  };
+  writeFileSync(join(baseDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  console.log(`fidelity rig OK — screen "module" (${String(captures.length)} build-side baselines)`);
+  console.log(`  manifest:  e2e/fidelity/baseline/module/manifest.json`);
+}
+
 async function main() {
   if (serve) await startPreview();
 
@@ -133,6 +206,11 @@ async function main() {
       colorScheme: "light", // deterministic pair: both sides render the light theme
       reducedMotion: "reduce",
     });
+
+    if (screen === "module") {
+      await captureModuleStates(context);
+      return;
+    }
 
     const manifest = {
       screen,

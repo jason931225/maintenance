@@ -75,6 +75,8 @@ import com.maintenance.api.client.model.CreateListingRequest
 import com.maintenance.api.client.model.CreateListingResponse
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateObjectLinkRequest
+import com.maintenance.api.client.model.CreateOfficeSession200Response
+import com.maintenance.api.client.model.CreateOfficeSessionRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreateOwnershipTransferRequest
 import com.maintenance.api.client.model.CreatePeriodLockRequest
@@ -107,6 +109,7 @@ import com.maintenance.api.client.model.DeviceLoginPollResponse
 import com.maintenance.api.client.model.DeviceLoginStartResponse
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
+import com.maintenance.api.client.model.DocumentVersion
 import com.maintenance.api.client.model.EmployeeAttendanceRecord
 import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.EmployeeImportDryRunSummary
@@ -152,6 +155,14 @@ import com.maintenance.api.client.model.InspectionSchedulePage
 import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
 import com.maintenance.api.client.model.LeaveBalancePage
+import com.maintenance.api.client.model.LeaveDecideRequest
+import com.maintenance.api.client.model.LeavePromotionRequest
+import com.maintenance.api.client.model.LeaveRefusalRequest
+import com.maintenance.api.client.model.LeaveRequestPage
+import com.maintenance.api.client.model.LeaveRequestView
+import com.maintenance.api.client.model.LeaveRosterPage
+import com.maintenance.api.client.model.LeaveStatutoryPushView
+import com.maintenance.api.client.model.ListOfficeDocumentVersions200Response
 import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
 import com.maintenance.api.client.model.ListingType
@@ -188,6 +199,8 @@ import com.maintenance.api.client.model.ObjectHead
 import com.maintenance.api.client.model.ObjectLifecycle
 import com.maintenance.api.client.model.ObjectLinkResponse
 import com.maintenance.api.client.model.ObjectLinksListResponse
+import com.maintenance.api.client.model.OfficeCallback200Response
+import com.maintenance.api.client.model.OfficeCallbackRequest
 import com.maintenance.api.client.model.OpsSummary
 import com.maintenance.api.client.model.OtpRedeemRequest
 import com.maintenance.api.client.model.OtpRedeemResponse
@@ -4624,6 +4637,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/office/sessions
+     * Issue a signed DocumentServer editor config for a document
+     * Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller&#39;s authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+     * @param createOfficeSessionRequest
+     * @return CreateOfficeSession200Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createOfficeSession(createOfficeSessionRequest: CreateOfficeSessionRequest) : CreateOfficeSession200Response = withContext(Dispatchers.IO) {
+        val localVarResponse = createOfficeSessionWithHttpInfo(createOfficeSessionRequest = createOfficeSessionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreateOfficeSession200Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/office/sessions
+     * Issue a signed DocumentServer editor config for a document
+     * Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller&#39;s authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+     * @param createOfficeSessionRequest
+     * @return ApiResponse<CreateOfficeSession200Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createOfficeSessionWithHttpInfo(createOfficeSessionRequest: CreateOfficeSessionRequest) : ApiResponse<CreateOfficeSession200Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createOfficeSessionRequestConfig(createOfficeSessionRequest = createOfficeSessionRequest)
+
+        return@withContext request<CreateOfficeSessionRequest, CreateOfficeSession200Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createOfficeSession
+     *
+     * @param createOfficeSessionRequest
+     * @return RequestConfig
+     */
+    fun createOfficeSessionRequestConfig(createOfficeSessionRequest: CreateOfficeSessionRequest) : RequestConfig<CreateOfficeSessionRequest> {
+        val localVariableBody = createOfficeSessionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/office/sessions",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/work-orders/{workOrderId}/outsource-works
      * Create an outsource work request for a work order
      *
@@ -5880,6 +5967,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/equipment/ownership-transfer-requests/{id}/decisions".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/leave/requests/{id}/decide
+     * Approve, return, or reject a pending leave request
+     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; days, remaining -&#x3D; days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
+     * @param id
+     * @param leaveDecideRequest
+     * @return LeaveRequestView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun decideLeaveRequest(id: java.util.UUID, leaveDecideRequest: LeaveDecideRequest) : LeaveRequestView = withContext(Dispatchers.IO) {
+        val localVarResponse = decideLeaveRequestWithHttpInfo(id = id, leaveDecideRequest = leaveDecideRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveRequestView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/leave/requests/{id}/decide
+     * Approve, return, or reject a pending leave request
+     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; days, remaining -&#x3D; days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
+     * @param id
+     * @param leaveDecideRequest
+     * @return ApiResponse<LeaveRequestView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun decideLeaveRequestWithHttpInfo(id: java.util.UUID, leaveDecideRequest: LeaveDecideRequest) : ApiResponse<LeaveRequestView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = decideLeaveRequestRequestConfig(id = id, leaveDecideRequest = leaveDecideRequest)
+
+        return@withContext request<LeaveDecideRequest, LeaveRequestView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation decideLeaveRequest
+     *
+     * @param id
+     * @param leaveDecideRequest
+     * @return RequestConfig
+     */
+    fun decideLeaveRequestRequestConfig(id: java.util.UUID, leaveDecideRequest: LeaveDecideRequest) : RequestConfig<LeaveDecideRequest> {
+        val localVariableBody = leaveDecideRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/leave/requests/{id}/decide".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -12247,6 +12411,179 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/leave/balances
+     * Per-employee annual-leave balance roster (직원별 연차 현황)
+     * Reads the existing employee leave ledger (grant/used/left) — the same source of truth as the balances aggregate; not a second store. Requires &#x60;employee_directory_read&#x60;. Org-scoped.
+     * @return LeaveRosterPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listLeaveBalances() : LeaveRosterPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listLeaveBalancesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveRosterPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/leave/balances
+     * Per-employee annual-leave balance roster (직원별 연차 현황)
+     * Reads the existing employee leave ledger (grant/used/left) — the same source of truth as the balances aggregate; not a second store. Requires &#x60;employee_directory_read&#x60;. Org-scoped.
+     * @return ApiResponse<LeaveRosterPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listLeaveBalancesWithHttpInfo() : ApiResponse<LeaveRosterPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listLeaveBalancesRequestConfig()
+
+        return@withContext request<Unit, LeaveRosterPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listLeaveBalances
+     *
+     * @return RequestConfig
+     */
+    fun listLeaveBalancesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/leave/balances",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * enum for parameter status
+     */
+     enum class StatusListLeaveRequests(val value: kotlin.String) {
+         @SerialName(value = "pending") PENDING("pending"),
+         @SerialName(value = "approved") APPROVED("approved"),
+         @SerialName(value = "returned") RETURNED("returned"),
+         @SerialName(value = "rejected") REJECTED("rejected");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /api/v1/leave/requests
+     * List the branch-scoped leave-request approval queue (연차 결재함)
+     * Pending-first, then newest. Requires &#x60;employee_directory_read&#x60;. The queue is confined to the caller&#39;s branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+     * @param status Filter to one status; omitted returns all four. (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 100). (optional)
+     * @return LeaveRequestPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listLeaveRequests(status: StatusListLeaveRequests? = null, limit: kotlin.Long? = null) : LeaveRequestPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listLeaveRequestsWithHttpInfo(status = status, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveRequestPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/leave/requests
+     * List the branch-scoped leave-request approval queue (연차 결재함)
+     * Pending-first, then newest. Requires &#x60;employee_directory_read&#x60;. The queue is confined to the caller&#39;s branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+     * @param status Filter to one status; omitted returns all four. (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 100). (optional)
+     * @return ApiResponse<LeaveRequestPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listLeaveRequestsWithHttpInfo(status: StatusListLeaveRequests?, limit: kotlin.Long?) : ApiResponse<LeaveRequestPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listLeaveRequestsRequestConfig(status = status, limit = limit)
+
+        return@withContext request<Unit, LeaveRequestPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listLeaveRequests
+     *
+     * @param status Filter to one status; omitted returns all four. (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 100). (optional)
+     * @return RequestConfig
+     */
+    fun listLeaveRequestsRequestConfig(status: StatusListLeaveRequests?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.value))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/leave/requests",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/location-consents/ledger
      * Read the consent lifecycle ledger
      *
@@ -13431,6 +13768,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/object-links",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/office/documents/{documentRef}/versions
+     * List a document&#39;s immutable version history (newest first)
+     *
+     * @param documentRef
+     * @return ListOfficeDocumentVersions200Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listOfficeDocumentVersions(documentRef: kotlin.String) : ListOfficeDocumentVersions200Response = withContext(Dispatchers.IO) {
+        val localVarResponse = listOfficeDocumentVersionsWithHttpInfo(documentRef = documentRef)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ListOfficeDocumentVersions200Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/office/documents/{documentRef}/versions
+     * List a document&#39;s immutable version history (newest first)
+     *
+     * @param documentRef
+     * @return ApiResponse<ListOfficeDocumentVersions200Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listOfficeDocumentVersionsWithHttpInfo(documentRef: kotlin.String) : ApiResponse<ListOfficeDocumentVersions200Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listOfficeDocumentVersionsRequestConfig(documentRef = documentRef)
+
+        return@withContext request<Unit, ListOfficeDocumentVersions200Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listOfficeDocumentVersions
+     *
+     * @param documentRef
+     * @return RequestConfig
+     */
+    fun listOfficeDocumentVersionsRequestConfig(documentRef: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/office/documents/{documentRef}/versions".replace("{"+"documentRef"+"}", encodeURIComponent(documentRef.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -15361,6 +15771,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/office/callback
+     * DocumentServer force-save callback (machine, JWT-verified)
+     * The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+     * @param ct Host-issued callback token binding the request to (org, document).
+     * @param officeCallbackRequest
+     * @return OfficeCallback200Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun officeCallback(ct: kotlin.String, officeCallbackRequest: OfficeCallbackRequest) : OfficeCallback200Response = withContext(Dispatchers.IO) {
+        val localVarResponse = officeCallbackWithHttpInfo(ct = ct, officeCallbackRequest = officeCallbackRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OfficeCallback200Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/office/callback
+     * DocumentServer force-save callback (machine, JWT-verified)
+     * The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+     * @param ct Host-issued callback token binding the request to (org, document).
+     * @param officeCallbackRequest
+     * @return ApiResponse<OfficeCallback200Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun officeCallbackWithHttpInfo(ct: kotlin.String, officeCallbackRequest: OfficeCallbackRequest) : ApiResponse<OfficeCallback200Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = officeCallbackRequestConfig(ct = ct, officeCallbackRequest = officeCallbackRequest)
+
+        return@withContext request<OfficeCallbackRequest, OfficeCallback200Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation officeCallback
+     *
+     * @param ct Host-issued callback token binding the request to (org, document).
+     * @param officeCallbackRequest
+     * @return RequestConfig
+     */
+    fun officeCallbackRequestConfig(ct: kotlin.String, officeCallbackRequest: OfficeCallbackRequest) : RequestConfig<OfficeCallbackRequest> {
+        val localVariableBody = officeCallbackRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("ct", listOf(ct.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/office/callback",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/workflow-studio/definitions/{id}/pause
      * Pause an active workflow definition
      *
@@ -16256,6 +16746,154 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/workflow-studio/definitions/{id}/publish".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/leave/promotions
+     * Serve a §61 연차 사용 촉진 (round 1 or 2)
+     * Requires &#x60;employee_directory_manage&#x60; in the target &#x60;branch_id&#x60; (which is validated against the actor&#39;s scope). Delivers a receipt-gated 연차촉진 notice into the target&#39;s 개인 수신함 and records the push. The engine AP- run binds once the 연차촉진 submittable definition exists; until then the push carries &#x60;ap_submission: pending_engine_definition&#x60;. Idempotent per (target, round).
+     * @param leavePromotionRequest
+     * @return LeaveStatutoryPushView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun pushLeavePromotion(leavePromotionRequest: LeavePromotionRequest) : LeaveStatutoryPushView = withContext(Dispatchers.IO) {
+        val localVarResponse = pushLeavePromotionWithHttpInfo(leavePromotionRequest = leavePromotionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveStatutoryPushView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/leave/promotions
+     * Serve a §61 연차 사용 촉진 (round 1 or 2)
+     * Requires &#x60;employee_directory_manage&#x60; in the target &#x60;branch_id&#x60; (which is validated against the actor&#39;s scope). Delivers a receipt-gated 연차촉진 notice into the target&#39;s 개인 수신함 and records the push. The engine AP- run binds once the 연차촉진 submittable definition exists; until then the push carries &#x60;ap_submission: pending_engine_definition&#x60;. Idempotent per (target, round).
+     * @param leavePromotionRequest
+     * @return ApiResponse<LeaveStatutoryPushView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun pushLeavePromotionWithHttpInfo(leavePromotionRequest: LeavePromotionRequest) : ApiResponse<LeaveStatutoryPushView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = pushLeavePromotionRequestConfig(leavePromotionRequest = leavePromotionRequest)
+
+        return@withContext request<LeavePromotionRequest, LeaveStatutoryPushView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation pushLeavePromotion
+     *
+     * @param leavePromotionRequest
+     * @return RequestConfig
+     */
+    fun pushLeavePromotionRequestConfig(leavePromotionRequest: LeavePromotionRequest) : RequestConfig<LeavePromotionRequest> {
+        val localVariableBody = leavePromotionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/leave/promotions",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/leave/refusal-notices
+     * Serve a 노무수령거부 notice (after a round-2 promotion)
+     * Requires &#x60;employee_directory_manage&#x60; in the target &#x60;branch_id&#x60;. Delivers a receipt-gated 노무수령거부 notice into the target&#39;s 개인 수신함 and records the push. Same engine-binding semantics as promotions. Idempotent per target.
+     * @param leaveRefusalRequest
+     * @return LeaveStatutoryPushView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun pushLeaveRefusalNotice(leaveRefusalRequest: LeaveRefusalRequest) : LeaveStatutoryPushView = withContext(Dispatchers.IO) {
+        val localVarResponse = pushLeaveRefusalNoticeWithHttpInfo(leaveRefusalRequest = leaveRefusalRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveStatutoryPushView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/leave/refusal-notices
+     * Serve a 노무수령거부 notice (after a round-2 promotion)
+     * Requires &#x60;employee_directory_manage&#x60; in the target &#x60;branch_id&#x60;. Delivers a receipt-gated 노무수령거부 notice into the target&#39;s 개인 수신함 and records the push. Same engine-binding semantics as promotions. Idempotent per target.
+     * @param leaveRefusalRequest
+     * @return ApiResponse<LeaveStatutoryPushView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun pushLeaveRefusalNoticeWithHttpInfo(leaveRefusalRequest: LeaveRefusalRequest) : ApiResponse<LeaveStatutoryPushView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = pushLeaveRefusalNoticeRequestConfig(leaveRefusalRequest = leaveRefusalRequest)
+
+        return@withContext request<LeaveRefusalRequest, LeaveStatutoryPushView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation pushLeaveRefusalNotice
+     *
+     * @param leaveRefusalRequest
+     * @return RequestConfig
+     */
+    fun pushLeaveRefusalNoticeRequestConfig(leaveRefusalRequest: LeaveRefusalRequest) : RequestConfig<LeaveRefusalRequest> {
+        val localVariableBody = leaveRefusalRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/leave/refusal-notices",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -17389,6 +18027,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/restart".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore
+     * Non-destructively restore a version (re-publish it as a new version)
+     * Rollback is non-destructive — it appends a NEW version that re-publishes the target version&#39;s blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+     * @param documentRef
+     * @param versionNo
+     * @return DocumentVersion
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun restoreOfficeDocumentVersion(documentRef: kotlin.String, versionNo: kotlin.Int) : DocumentVersion = withContext(Dispatchers.IO) {
+        val localVarResponse = restoreOfficeDocumentVersionWithHttpInfo(documentRef = documentRef, versionNo = versionNo)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DocumentVersion
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore
+     * Non-destructively restore a version (re-publish it as a new version)
+     * Rollback is non-destructive — it appends a NEW version that re-publishes the target version&#39;s blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+     * @param documentRef
+     * @param versionNo
+     * @return ApiResponse<DocumentVersion?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun restoreOfficeDocumentVersionWithHttpInfo(documentRef: kotlin.String, versionNo: kotlin.Int) : ApiResponse<DocumentVersion?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = restoreOfficeDocumentVersionRequestConfig(documentRef = documentRef, versionNo = versionNo)
+
+        return@withContext request<Unit, DocumentVersion>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation restoreOfficeDocumentVersion
+     *
+     * @param documentRef
+     * @param versionNo
+     * @return RequestConfig
+     */
+    fun restoreOfficeDocumentVersionRequestConfig(documentRef: kotlin.String, versionNo: kotlin.Int) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore".replace("{"+"documentRef"+"}", encodeURIComponent(documentRef.toString())).replace("{"+"versionNo"+"}", encodeURIComponent(versionNo.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
