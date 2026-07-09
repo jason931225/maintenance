@@ -246,16 +246,24 @@ impl NewLeaveRequest {
         }
         // A 반차 is a single half day on one calendar date; a 연차 span is at
         // least a full day and may span multiple dates.
-        if leave_type == LeaveType::HalfDay {
-            if (days - 0.5).abs() > f64::EPSILON {
+        match leave_type {
+            LeaveType::Annual if days < 1.0 => {
                 return Err(KernelError::validation(
-                    "a 반차 (half day) must be 0.5 days",
+                    "a 연차 (annual leave) must be at least 1.0 day",
                 ));
             }
-            if start_date != end_date {
-                return Err(KernelError::validation(
-                    "a 반차 (half day) must start and end on the same date",
-                ));
+            LeaveType::Annual => {}
+            LeaveType::HalfDay => {
+                if (days - 0.5).abs() > f64::EPSILON {
+                    return Err(KernelError::validation(
+                        "a 반차 (half day) must be 0.5 days",
+                    ));
+                }
+                if start_date != end_date {
+                    return Err(KernelError::validation(
+                        "a 반차 (half day) must start and end on the same date",
+                    ));
+                }
             }
         }
         let reason = bounded(reason, "leave reason", REASON_MAX)?;
@@ -359,6 +367,11 @@ mod tests {
                 "휴가"
             )
             .is_err()
+        );
+        assert!(
+            NewLeaveRequest::new(LeaveType::Annual, 0.5, d(2026, 7, 6), d(2026, 7, 6), "휴가")
+                .is_err(),
+            "annual leave must be at least 1.0 day"
         );
         assert!(
             NewLeaveRequest::new(

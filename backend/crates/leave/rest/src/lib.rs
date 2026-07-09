@@ -225,6 +225,15 @@ async fn statutory_push(
         mnt_kernel_core::BranchId::from_uuid(body.branch_id),
     )
     .map_err(RestError::from_kernel)?;
+    state
+        .store
+        .verify_statutory_push_target(
+            body.branch_id,
+            UserId::from_uuid(body.target_user_id),
+            body.target_employee_id,
+        )
+        .await
+        .map_err(RestError::from_store)?;
     let view = state
         .store
         .statutory_push(StatutoryPushCommand {

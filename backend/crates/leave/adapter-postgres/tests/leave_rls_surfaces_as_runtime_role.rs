@@ -43,6 +43,7 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         "GRANT SELECT, INSERT ON audit_events TO mnt_rt",
         "GRANT SELECT, UPDATE ON employees TO mnt_rt",
         "GRANT SELECT ON users TO mnt_rt",
+        "GRANT SELECT ON user_branches TO mnt_rt",
         "GRANT SELECT ON branches TO mnt_rt",
         "GRANT SELECT ON organizations TO mnt_rt",
     ] {
@@ -114,6 +115,32 @@ async fn seed_user(owner_pool: &PgPool, org: Uuid) -> UserId {
     .await
     .unwrap();
     user_id
+}
+
+async fn link_user_to_employee_and_branch(
+    owner_pool: &PgPool,
+    org: Uuid,
+    user: UserId,
+    employee: Uuid,
+    branch: Uuid,
+) {
+    sqlx::query("UPDATE users SET employee_id = $2 WHERE id = $1 AND org_id = $3")
+        .bind(user.as_uuid())
+        .bind(employee)
+        .bind(org)
+        .execute(owner_pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3) \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(user.as_uuid())
+    .bind(branch)
+    .bind(org)
+    .execute(owner_pool)
+    .await
+    .unwrap();
 }
 
 async fn seed_employee(
@@ -445,8 +472,37 @@ async fn statutory_push_delivers_receipt_doc_and_is_idempotent(owner_pool: PgPoo
     let actor = seed_user(&owner_pool, knl_uuid).await;
     let target = seed_user(&owner_pool, knl_uuid).await;
     let target_emp = seed_employee(&owner_pool, knl_uuid, 15.0, 2.0, 13.0).await;
+    let other_emp = seed_employee(&owner_pool, knl_uuid, 10.0, 1.0, 9.0).await;
+    link_user_to_employee_and_branch(&owner_pool, knl_uuid, target, target_emp, branch).await;
 
     let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())));
+
+    mnt_platform_request_context::scope_org(knl, async {
+        store
+            .verify_statutory_push_target(branch, target, target_emp)
+            .await
+    })
+    .await
+    .expect("linked target is valid for statutory push");
+
+    let mismatch = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .verify_statutory_push_target(branch, target, other_emp)
+            .await
+    })
+    .await
+    .expect_err("target user must match target employee");
+    assert_eq!(mismatch.kind(), ErrorKind::Forbidden);
+
+    let wrong_branch = seed_branch(&owner_pool, knl_uuid).await;
+    let wrong_branch_result = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .verify_statutory_push_target(wrong_branch, target, target_emp)
+            .await
+    })
+    .await
+    .expect_err("target must belong to authorized branch");
+    assert_eq!(wrong_branch_result.kind(), ErrorKind::Forbidden);
 
     let push = |kind: PromotionKind, round: i16| {
         let store = store.clone();

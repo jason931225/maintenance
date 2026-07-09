@@ -408,6 +408,53 @@ impl PgLeaveStore {
     // §61 statutory push
     // -----------------------------------------------------------------------
 
+    /// Verify the statutory-push target is the employee linked to the target
+    /// user and that the user is assigned to the branch being managed.
+    pub async fn verify_statutory_push_target(
+        &self,
+        branch_id: uuid::Uuid,
+        target_user_id: UserId,
+        target_employee_id: uuid::Uuid,
+    ) -> Result<(), PgLeaveError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let user_id = *target_user_id.as_uuid();
+        let matches_target = with_org_conn::<_, _, PgLeaveError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(
+                         SELECT 1
+                         FROM users u
+                         JOIN user_branches ub
+                           ON ub.user_id = u.id
+                          AND ub.org_id = u.org_id
+                         JOIN employees e
+                           ON e.id = u.employee_id
+                          AND e.org_id = u.org_id
+                         WHERE u.id = $1
+                           AND u.employee_id = $2
+                           AND ub.branch_id = $3
+                           AND e.id = $2
+                     )",
+                )
+                .bind(user_id)
+                .bind(target_employee_id)
+                .bind(branch_id)
+                .fetch_one(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+
+        if matches_target {
+            Ok(())
+        } else {
+            Err(KernelError::forbidden(
+                "statutory-push target user/employee must match and belong to the target branch",
+            )
+            .into())
+        }
+    }
+
     /// Serve a §61 promotion (1차/2차) or a 노무수령거부 notice: deliver the
     /// receipt-gated document into the target's 개인 수신함 and record the push.
     /// Idempotent per `(org, target, kind, round)`.
