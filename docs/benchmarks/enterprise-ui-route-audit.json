@@ -552,7 +552,7 @@
       "dataClass": "no data class; pure client-side redirect to /overview carries no domain payload",
       "sourceObject": "none; route renders <Navigate to=\"/overview\" replace /> with no source object fetch",
       "lifecycleStates": "n/a; a redirect has no lifecycle states of its own",
-      "e2eSpec": "Covered by /overview's browser story; old /work-hub bookmarks land on the same inbox",
+      "e2eSpec": "Required browser story: post-login landing and stale /work-hub bookmarks both resolve to /overview (통합 개요) heading in a real browser (admin-16-auth-08-recovery.spec.ts, admin-21-nav-fabric.spec.ts)",
       "denialScopeTest": "n/a; redirect carries no authz decision, /overview enforces access after landing",
       "screenshotTraceEvidence": "n/a; no visual surface renders at this path to trace",
       "groupScopeStory": "Redirects unconditionally; group scope is enforced by /overview after the bounce"
