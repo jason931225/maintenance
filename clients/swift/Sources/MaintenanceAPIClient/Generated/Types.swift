@@ -21534,21 +21534,49 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/MeAuthzCapability/permission`.
             public var permission: Components.Schemas.MeAuthzCapability.PermissionPayload
+            /// The branch subset this `permission` level actually holds over — not necessarily the caller's full `branch_scope`. A branch-narrowed custom grant only elevates the capability within its own branches; the caller must intersect this with the target branch before offering the affordance (otherwise the UI can offer an action the server's `authorize` call would then reject outside this scope).
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzCapability/branch_scope`.
+            public struct BranchScopePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/MeAuthzCapability/branch_scope/value1`.
+                public var value1: Components.Schemas.BranchScope
+                /// Creates a new `BranchScopePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                public init(value1: Components.Schemas.BranchScope) {
+                    self.value1 = value1
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    self.value1 = try .init(from: decoder)
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try self.value1.encode(to: encoder)
+                }
+            }
+            /// The branch subset this `permission` level actually holds over — not necessarily the caller's full `branch_scope`. A branch-narrowed custom grant only elevates the capability within its own branches; the caller must intersect this with the target branch before offering the affordance (otherwise the UI can offer an action the server's `authorize` call would then reject outside this scope).
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzCapability/branch_scope`.
+            public var branchScope: Components.Schemas.MeAuthzCapability.BranchScopePayload
             /// Creates a new `MeAuthzCapability`.
             ///
             /// - Parameters:
             ///   - feature: Feature key, matching `/api/v1/policy/features`.
             ///   - permission: Effective permission level (`deny` is never emitted).
+            ///   - branchScope: The branch subset this `permission` level actually holds over — not necessarily the caller's full `branch_scope`. A branch-narrowed custom grant only elevates the capability within its own branches; the caller must intersect this with the target branch before offering the affordance (otherwise the UI can offer an action the server's `authorize` call would then reject outside this scope).
             public init(
                 feature: Swift.String,
-                permission: Components.Schemas.MeAuthzCapability.PermissionPayload
+                permission: Components.Schemas.MeAuthzCapability.PermissionPayload,
+                branchScope: Components.Schemas.MeAuthzCapability.BranchScopePayload
             ) {
                 self.feature = feature
                 self.permission = permission
+                self.branchScope = branchScope
             }
             public enum CodingKeys: String, CodingKey {
                 case feature
                 case permission
+                case branchScope = "branch_scope"
             }
         }
         /// The set of branches a principal may act within. `all` (SUPER_ADMIN / EXECUTIVE rollup) carries no `branches`; `branches` carries the explicit set.

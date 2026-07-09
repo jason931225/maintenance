@@ -7908,6 +7908,8 @@ export interface components {
              * @enum {string}
              */
             permission: "request_only" | "limited" | "allow";
+            /** @description The branch subset this `permission` level actually holds over — not necessarily the caller's full `branch_scope`. A branch-narrowed custom grant only elevates the capability within its own branches; the caller must intersect this with the target branch before offering the affordance (otherwise the UI can offer an action the server's `authorize` call would then reject outside this scope). */
+            branch_scope: components["schemas"]["BranchScope"];
         };
         /** @description The set of branches a principal may act within. `all` (SUPER_ADMIN / EXECUTIVE rollup) carries no `branches`; `branches` carries the explicit set. */
         BranchScope: {

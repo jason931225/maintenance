@@ -878,8 +878,11 @@ async fn resolve_account(
 /// Passkey = self-owned WebAuthn credential. Visible ONLY to its owner: the row
 /// must exist AND belong to the caller. A passkey owned by anyone else (or a
 /// missing id) is `exists:false` — no cross-user credential-enumeration oracle.
-/// `auth_webauthn_credentials` has no org column, so ownership (`user_id =
-/// caller`) is the sole guard; the caller is always in their own org.
+/// `auth_webauthn_credentials` gained a NOT NULL `org_id` + FORCE RLS in
+/// migrations 0032/0034/0035, so this is defense in depth: `with_org_conn`
+/// already arms `app.current_org` (RLS drops cross-org rows before this query
+/// runs); the explicit `user_id = caller` filter additionally scopes to the
+/// caller's OWN credentials within their org.
 async fn resolve_passkey(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     caller: Uuid,

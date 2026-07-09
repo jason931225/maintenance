@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.BranchScope
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -33,6 +34,7 @@ import kotlinx.serialization.Contextual
  *
  * @param feature Feature key, matching `/api/v1/policy/features`.
  * @param permission Effective permission level (`deny` is never emitted).
+ * @param branchScope The branch subset this `permission` level actually holds over — not necessarily the caller's full `branch_scope`. A branch-narrowed custom grant only elevates the capability within its own branches; the caller must intersect this with the target branch before offering the affordance (otherwise the UI can offer an action the server's `authorize` call would then reject outside this scope).
  */
 @Serializable
 
@@ -44,7 +46,11 @@ data class MeAuthzCapability (
 
     /* Effective permission level (`deny` is never emitted). */
     @SerialName(value = "permission")
-    val permission: MeAuthzCapability.Permission
+    val permission: MeAuthzCapability.Permission,
+
+    /* The branch subset this `permission` level actually holds over — not necessarily the caller's full `branch_scope`. A branch-narrowed custom grant only elevates the capability within its own branches; the caller must intersect this with the target branch before offering the affordance (otherwise the UI can offer an action the server's `authorize` call would then reject outside this scope). */
+    @SerialName(value = "branch_scope")
+    val branchScope: BranchScope
 
 ) {
 

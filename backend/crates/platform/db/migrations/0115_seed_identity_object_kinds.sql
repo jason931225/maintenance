@@ -13,4 +13,5 @@
 INSERT INTO object_types (kind, description) VALUES
     ('account', 'Login account (user credential subject)'),
     ('passkey', 'WebAuthn passkey credential'),
-    ('consent', 'Versioned privacy/policy consent');
+    ('consent', 'Versioned privacy/policy consent')
+ON CONFLICT (kind) DO NOTHING;

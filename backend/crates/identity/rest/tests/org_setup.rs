@@ -2286,13 +2286,21 @@ async fn me_authz_projects_roles_scope_and_capabilities(pool: PgPool) {
     // Capabilities = legacy-matrix grants, deny-by-omission: ADMIN holds
     // work_order_read_all; no capability is ever emitted at "deny".
     let caps = body["capabilities"].as_array().unwrap();
-    assert!(
-        caps.iter().any(|c| c["feature"] == "work_order_read_all"),
-        "ADMIN capability grant present: {body}"
-    );
+    let wo_cap = caps
+        .iter()
+        .find(|c| c["feature"] == "work_order_read_all")
+        .unwrap_or_else(|| panic!("ADMIN capability grant present: {body}"));
     assert!(
         caps.iter().all(|c| c["permission"] != "deny"),
         "deny is omitted, never emitted: {body}"
+    );
+    // A role-derived capability holds over the caller's FULL branch scope
+    // (roles are never branch-narrowed by `authorize` beyond principal scope).
+    assert_eq!(wo_cap["branch_scope"]["kind"], "branches");
+    assert_eq!(
+        wo_cap["branch_scope"]["branches"].as_array().unwrap(),
+        &[json!(branch.as_uuid().to_string())],
+        "role-granted capability scope == principal's full branch scope: {body}"
     );
 
     // A branch-scoped MEMBER projects a strictly narrower grant set: no
@@ -2305,6 +2313,69 @@ async fn me_authz_projects_roles_scope_and_capabilities(pool: PgPool) {
     assert!(
         !mcaps.iter().any(|c| c["feature"] == "work_order_read_all"),
         "MEMBER must not project work_order_read_all: {mbody}"
+    );
+}
+
+/// Regression for the affordance-then-403 class: a custom-role grant scoped to
+/// ONE of the caller's two branches must project a capability narrowed to that
+/// branch, never widened to the caller's full multi-branch scope. Before this
+/// fix, `me_authz_projection` took `max()` over grant permission levels only,
+/// ignoring `EffectiveFeatureGrant::branch_scope` — so a branch-A-only grant
+/// made the UI believe the action was available on branch B too, where the
+/// real `authorize()` call would 403.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn me_authz_narrows_capability_to_the_grants_own_branch_scope(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let branch_a = seed_branch(&pool).await;
+    let branch_b = seed_branch(&pool).await;
+    // MEMBER holds no built-in work_order_read_all at all (see the base test
+    // above), so any projected grant for it must come from the custom role.
+    let member = seed_user(&pool, "Multi-branch Member", &["MEMBER"], Some(branch_a)).await;
+    seed_user_branch(&pool, member, branch_b).await;
+    let token = harness.token(member, &["MEMBER"], vec![branch_a, branch_b]);
+
+    let role = seed_policy_role(
+        &pool,
+        member,
+        "branch_a_wo_reader",
+        "지점A 작업지시 조회자",
+        "ACTIVE",
+        false,
+        &[("work_order_read_all", "allow")],
+    )
+    .await;
+    let branch_a_str = branch_a.to_string();
+    seed_policy_role_condition(
+        &pool,
+        role,
+        "branch_scope",
+        "branch",
+        "equals",
+        &[branch_a_str.as_str()],
+    )
+    .await;
+    seed_policy_assignment(&pool, member, role, member).await;
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/authz", &token, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Sanity: the principal's own scope IS both branches.
+    let principal_branches = body["branch_scope"]["branches"].as_array().unwrap();
+    assert_eq!(principal_branches.len(), 2, "{body}");
+
+    let caps = body["capabilities"].as_array().unwrap();
+    let wo_cap = caps
+        .iter()
+        .find(|c| c["feature"] == "work_order_read_all")
+        .unwrap_or_else(|| panic!("branch-narrowed grant must still project a capability: {body}"));
+    assert_eq!(wo_cap["permission"], "allow");
+    // MUST be narrowed to branch_a only — never the full {branch_a, branch_b}.
+    assert_eq!(wo_cap["branch_scope"]["kind"], "branches");
+    assert_eq!(
+        wo_cap["branch_scope"]["branches"].as_array().unwrap(),
+        &[json!(branch_a.as_uuid().to_string())],
+        "grant-derived capability must stay scoped to the grant's own branch, \
+         not widen to the caller's full scope: {body}"
     );
 }
 
@@ -2501,6 +2572,36 @@ async fn seed_user_in_org_with_team(
     .await
     .unwrap();
     user_id
+}
+
+/// Add an EXTRA branch membership to an already-seeded user (a multi-branch
+/// principal), for tests that need branch-narrowed custom-grant projection.
+async fn seed_user_branch(pool: &PgPool, user_id: UserId, branch_id: BranchId) {
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_user_branch").unwrap(),
+        "user",
+        user_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)",
+            )
+            .bind(*user_id.as_uuid())
+            .bind(*branch_id.as_uuid())
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 async fn seed_policy_role(
