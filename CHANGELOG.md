@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.50](https://github.com/jason931225/maintenance/compare/v0.1.49...v0.1.50) (2026-07-09)
+
+
+### Features
+
+* **console-cc:** P0.0 — console scaffold, verbatim tokens, fidelity-capture rig ([#237](https://github.com/jason931225/maintenance/issues/237)) ([a445334](https://github.com/jason931225/maintenance/commit/a4453342a3b642bc8ae66030699addbf8be46c11))
+* **identity:** Identity Console S0 — me/authz projection + identity object kinds ([#234](https://github.com/jason931225/maintenance/issues/234)) ([e66fe1e](https://github.com/jason931225/maintenance/commit/e66fe1ef09cc7979be2d5ea4f0e74c5d0993017a))
+
+
+### Bug Fixes
+
+* **auth:** deterministic clock for rate-limiter tests (kills CI flake) ([#232](https://github.com/jason931225/maintenance/issues/232)) ([1768d28](https://github.com/jason931225/maintenance/commit/1768d2835c6538913112cbb5b4a8f23ed77b0e13))
+* **comms:** route notifications rail through the shared typed client ([#231](https://github.com/jason931225/maintenance/issues/231)) ([b281e80](https://github.com/jason931225/maintenance/commit/b281e80ae57fed2a37ad8854344e585321089a9c))
+
 ## [0.1.49](https://github.com/jason931225/maintenance/compare/v0.1.48...v0.1.49) (2026-07-09)
 
 
