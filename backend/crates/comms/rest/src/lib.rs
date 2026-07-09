@@ -22,26 +22,30 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
+use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use mnt_comms_adapter_imap::AsyncImapClient;
-use mnt_comms_adapter_postgres::PgMailStore;
+use mnt_comms_adapter_mox::{Incoming, MoxWebapiSender};
+use mnt_comms_adapter_postgres::{PgMailNotifier, PgMailStore};
 use mnt_comms_adapter_smtp::LettreMailSender;
 use mnt_comms_application::{
-    AccountService, AccountView, ConfigureAccountCommand, EmailMessageId, FolderView,
-    MailAttachmentStore, MailReadStore, MailServiceError, MessageView, SendKind,
-    SendMessageCommand, SendResult, SendService, StoredAccount, SyncService, TestConnectionResult,
-    ThreadDetail, ThreadQuery, ThreadView,
+    AccountService, AccountView, ConfigureAccountCommand, EmailMessageId, FolderView, ImapFolder,
+    InboundUpsert, MailAttachmentStore, MailFuture, MailNotifier, MailReadStore, MailServiceError,
+    MessageView, SendKind, SendMessageCommand, SendResult, SendService, SmtpSender,
+    SmtpTransportConfig, StoredAccount, SyncService, TestConnectionResult, ThreadDetail,
+    ThreadQuery, ThreadView,
 };
 use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
-use mnt_comms_domain::{MailSecurity, MessageAddress};
+use mnt_comms_domain::{FolderRole, MailSecurity, MessageAddress, normalize_subject};
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -56,6 +60,44 @@ pub const MAIL_THREAD_PATH: &str = "/api/v1/mail/threads/{id}";
 pub const MAIL_THREAD_READ_STATE_PATH: &str = "/api/v1/mail/threads/{id}/read-state";
 pub const MAIL_MESSAGE_PATH: &str = "/api/v1/mail/messages/{id}";
 pub const MAIL_ATTACHMENT_DOWNLOAD_PATH: &str = "/api/v1/mail/attachments/{id}/download";
+/// The mox delivery webhook receiver. NOT a client/console API — mox (our own
+/// mail server) POSTs incoming-delivery events here, authenticated by a shared
+/// secret, so it is deliberately absent from the customer OpenAPI + SDK clients.
+pub const MAIL_MOX_WEBHOOK_PATH: &str = "/api/v1/mail/mox/webhook";
+
+/// The outbound transport behind the [`SmtpSender`] port. `Smtp` is the original
+/// lettre client to an external account; `Mox` rides our own mox server's webapi.
+/// Selection is by config/env at router construction (see
+/// [`CommsRestState::with_mox_transport`]).
+#[derive(Clone)]
+enum MailSender {
+    Smtp(LettreMailSender),
+    Mox(MoxWebapiSender),
+}
+
+impl SmtpSender for MailSender {
+    fn test_connection<'a>(
+        &'a self,
+        config: &'a SmtpTransportConfig,
+    ) -> MailFuture<'a, Result<TestConnectionResult, MailServiceError>> {
+        match self {
+            Self::Smtp(s) => s.test_connection(config),
+            Self::Mox(m) => m.test_connection(config),
+        }
+    }
+
+    fn send<'a>(
+        &'a self,
+        config: &'a SmtpTransportConfig,
+        message: &'a SendMessageCommand,
+        from_address: &'a str,
+    ) -> MailFuture<'a, Result<String, MailServiceError>> {
+        match self {
+            Self::Smtp(s) => s.send(config, message, from_address),
+            Self::Mox(m) => m.send(config, message, from_address),
+        }
+    }
+}
 
 /// The shared attachment-store handle (presigned GET for inbound attachments).
 pub type SharedAttachmentStore = Arc<dyn MailAttachmentStore>;
@@ -77,7 +119,7 @@ impl mnt_comms_application::MailNotifier for NoopMailNotifier {
 #[derive(Clone)]
 pub struct CommsRestState {
     store: PgMailStore,
-    sender: LettreMailSender,
+    sender: MailSender,
     imap: AsyncImapClient,
     /// The master-key cipher. `None` when `MNT_MAIL_MASTER_KEY` is absent —
     /// credential-using endpoints are then unavailable (503) but the app still boots.
@@ -85,6 +127,10 @@ pub struct CommsRestState {
     /// The object store for inbound attachment presigned GETs. `None` when
     /// storage is unconfigured — the attachment-download endpoint then 503s.
     attachments: Option<SharedAttachmentStore>,
+    /// The shared secret mox must present (as `Authorization: Bearer <secret>`)
+    /// on the delivery webhook. `None` disables the webhook (503) — it is never
+    /// hardcoded and never defaulted.
+    mox_webhook_secret: Option<SecretString>,
     jwt_verifier: Option<JwtVerifier>,
 }
 
@@ -97,10 +143,11 @@ impl CommsRestState {
     ) -> Self {
         Self {
             store,
-            sender: LettreMailSender::new(),
+            sender: MailSender::Smtp(LettreMailSender::new()),
             imap: AsyncImapClient::new(),
             cipher,
             attachments: None,
+            mox_webhook_secret: None,
             jwt_verifier,
         }
     }
@@ -112,6 +159,26 @@ impl CommsRestState {
         self
     }
 
+    /// Select the mox webapi as the outbound transport when `base_url` is set
+    /// (e.g. `http://mox:1080`). Absent → keep the default lettre SMTP client.
+    #[must_use]
+    pub fn with_mox_transport(mut self, base_url: Option<String>) -> Self {
+        if let Some(base) = base_url.filter(|b| !b.trim().is_empty()) {
+            self.sender = MailSender::Mox(MoxWebapiSender::new(base));
+        }
+        self
+    }
+
+    /// Set the shared secret that authenticates the mox delivery webhook. A
+    /// blank/whitespace value is treated as unset (the webhook then 503s).
+    #[must_use]
+    pub fn with_mox_webhook_secret(mut self, secret: Option<String>) -> Self {
+        self.mox_webhook_secret = secret
+            .filter(|s| !s.trim().is_empty())
+            .map(SecretString::from);
+        self
+    }
+
     fn pool(&self) -> &sqlx::PgPool {
         self.store.pool()
     }
@@ -120,7 +187,9 @@ impl CommsRestState {
 pub fn router(state: CommsRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.pool().clone();
-    let router = Router::new()
+    // JWT-authed console API. Wrapped in the request-context layer, which REQUIRES
+    // a valid tenant bearer on every route it covers.
+    let authed = Router::new()
         .route(MAIL_ACCOUNT_PATH, get(get_account).put(put_account))
         .route(MAIL_ACCOUNT_TEST_PATH, post(test_account))
         .route(MAIL_SEND_PATH, post(send_new))
@@ -132,8 +201,15 @@ pub fn router(state: CommsRestState) -> Router {
         .route(MAIL_THREAD_READ_STATE_PATH, patch(set_thread_read_state))
         .route(MAIL_MESSAGE_PATH, get(get_message))
         .route(MAIL_ATTACHMENT_DOWNLOAD_PATH, get(download_attachment))
+        .with_state(state.clone());
+    let authed = mnt_platform_request_context::with_request_context(authed, verifier, pool);
+    // The mox delivery webhook is machine-to-machine (mox → us), authenticated by
+    // its own shared secret — NOT a tenant JWT. It is merged OUTSIDE the
+    // request-context layer so the layer's mandatory-bearer check never rejects it.
+    let webhook = Router::new()
+        .route(MAIL_MOX_WEBHOOK_PATH, post(mox_webhook))
         .with_state(state);
-    mnt_platform_request_context::with_request_context(router, verifier, pool)
+    authed.merge(webhook)
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +671,127 @@ async fn download_attachment(
 #[derive(Debug, Serialize)]
 struct AttachmentDownload {
     url: String,
+}
+
+// ---------------------------------------------------------------------------
+// MOX DELIVERY WEBHOOK (inbound ingest)
+//
+// mox (our own mail server) POSTs an `Incoming` event here when a message is
+// delivered to a local account. Authenticated by a shared secret (never a tenant
+// JWT). The recipient address selects the tenant/account (owner-conn id-only
+// lookup), then the message is UPSERTed into the read model under that org's RLS
+// and a realtime notification is emitted. Idempotent on redelivery: the store
+// dedupes on the mox MsgID and, authoritatively, on the RFC Message-ID.
+// ---------------------------------------------------------------------------
+
+/// The webhook ack. `ingested` is false when the delivery was a redelivery of an
+/// already-stored message (idempotent no-op) or for an unknown local recipient.
+#[derive(Debug, Serialize)]
+struct WebhookAck {
+    ingested: bool,
+}
+
+async fn mox_webhook(
+    State(state): State<CommsRestState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, RestError> {
+    // 1. Authenticate BEFORE touching the (untrusted) body. The secret must be
+    //    configured; mox presents it verbatim as `Authorization: Bearer <secret>`.
+    let secret = state
+        .mox_webhook_secret
+        .as_ref()
+        .ok_or_else(|| RestError::unavailable("mox delivery webhook is not configured"))?;
+    let expected = format!("Bearer {}", secret.expose_secret());
+    let presented = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    if !constant_time_eq(presented.as_bytes(), expected.as_bytes()) {
+        return Err(RestError::unauthorized("invalid mox webhook credential"));
+    }
+
+    // 2. Parse the mox Incoming payload.
+    let incoming: Incoming = serde_json::from_slice(&body)
+        .map_err(|_| RestError::bad_request("malformed mox webhook payload"))?;
+    let Some(recipient) = incoming.recipient_address() else {
+        return Err(RestError::bad_request(
+            "mox webhook has no recipient address",
+        ));
+    };
+
+    // 3. Resolve the tenant/account by recipient address (owner-conn, id-only).
+    //    An unknown local recipient is ACKed (200, ingested=false) so mox does not
+    //    retry forever — there is simply no local mailbox to deliver into.
+    let Some(account) = state
+        .store
+        .find_account_by_address(&recipient)
+        .await
+        .map_err(RestError::from_service)?
+    else {
+        return Ok(Json(WebhookAck { ingested: false }).into_response());
+    };
+    let org = account.org_id;
+
+    // 4. Ensure the destination folder exists (org-armed by the adapter).
+    let mailbox = incoming.mailbox_name();
+    let role = if mailbox.eq_ignore_ascii_case("inbox") {
+        FolderRole::Inbox
+    } else {
+        FolderRole::Custom
+    };
+    let folder = ImapFolder {
+        imap_path: mailbox.to_owned(),
+        role,
+        name: mailbox.to_owned(),
+    };
+    let cursor = state
+        .store
+        .upsert_folders(org, account.account_id, std::slice::from_ref(&folder))
+        .await
+        .map_err(RestError::from_service)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| RestError::internal("mox webhook: folder upsert returned no cursor"))?;
+
+    // 5. UPSERT the message into the read model (idempotent) and, when it is a
+    //    genuinely new message, fire the realtime notification.
+    let upsert = InboundUpsert {
+        id: EmailMessageId::new(),
+        account_id: account.account_id,
+        folder_id: cursor.folder_id,
+        // Webhook-ingested messages have no IMAP UIDVALIDITY; 0 is the sentinel.
+        // Dedupe identity is (account, folder, 0, mox MsgID) + Message-ID.
+        uid_validity: 0,
+        message: incoming.to_fetched_message(),
+        normalized_subject: normalize_subject(&incoming.subject),
+        stored_attachments: Vec::new(),
+    };
+    let ingested = state
+        .store
+        .upsert_inbound(org, upsert)
+        .await
+        .map_err(RestError::from_service)?;
+    if ingested {
+        PgMailNotifier::new(state.pool().clone())
+            .notify_posted(account.account_id)
+            .await;
+    }
+    Ok(Json(WebhookAck { ingested }).into_response())
+}
+
+/// Constant-time byte-slice equality (avoids a timing side channel on the webhook
+/// secret). Compares the full length regardless of an early mismatch; a length
+/// difference is folded in so it also fails without branching on it.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = (a.len() ^ b.len()) as u8;
+    let n = a.len().max(b.len());
+    for i in 0..n {
+        let x = a.get(i).copied().unwrap_or(0);
+        let y = b.get(i).copied().unwrap_or(0);
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// Read the tenant's single configured mailbox as a [`StoredAccount`] (sealed

@@ -1496,13 +1496,19 @@ pub fn build_router(state: AppState) -> Router {
                 // The inbound-attachment object store (presigned GET) is wired
                 // from the same storage config the evidence pipeline uses; `None`
                 // when storage is unconfigured (download then 503s).
+                // mox integration (slice 1): when `MNT_MAIL_MOX_BASE_URL` is set,
+                // the outbound transport rides our own mox server's webapi instead
+                // of the lettre SMTP client; `MNT_MAIL_MOX_WEBHOOK_SECRET` arms the
+                // inbound delivery webhook (absent → webhook 503s, never hardcoded).
                 .merge(mnt_comms_rest::router(
                     CommsRestState::new(
                         PgMailStore::new(pool.clone()),
                         state.mail_cipher.clone(),
                         state.jwt_verifier.clone(),
                     )
-                    .with_attachments(mail_attachment_store(&state)),
+                    .with_attachments(mail_attachment_store(&state))
+                    .with_mox_transport(env::var("MNT_MAIL_MOX_BASE_URL").ok())
+                    .with_mox_webhook_secret(env::var("MNT_MAIL_MOX_WEBHOOK_SECRET").ok()),
                 ));
             // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant
             // domain router so any request carrying a `view_as` token may use

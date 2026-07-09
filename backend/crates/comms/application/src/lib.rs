@@ -1576,6 +1576,17 @@ pub trait MailReadStore: Send + Sync {
         now: Timestamp,
     ) -> MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>>;
 
+    /// Resolve the single account whose `email_address` matches `address`,
+    /// returning its (org_id, account_id) or `None`. Like [`list_due_accounts`]
+    /// this is an id-only lookup on an owner connection that must see ACROSS
+    /// tenants — the mox delivery webhook has no request principal, so the
+    /// recipient address is the only tenant selector. The caller then arms the
+    /// resolved org for the actual ingest. Reads NO message content.
+    fn find_account_by_address<'a>(
+        &'a self,
+        address: &'a str,
+    ) -> MailFuture<'a, Result<Option<DueAccount>, MailServiceError>>;
+
     // --- READ API (backs the REST GET endpoints; all org-armed) -------------
 
     /// List the account's folders (for the folder rail).
@@ -1676,6 +1687,13 @@ impl<R: MailReadStore + ?Sized> MailReadStore for &R {
         now: Timestamp,
     ) -> MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>> {
         (**self).list_due_accounts(now)
+    }
+
+    fn find_account_by_address<'a>(
+        &'a self,
+        address: &'a str,
+    ) -> MailFuture<'a, Result<Option<DueAccount>, MailServiceError>> {
+        (**self).find_account_by_address(address)
     }
 
     fn list_folders<'a>(
@@ -2480,6 +2498,13 @@ mod tests {
             _now: Timestamp,
         ) -> MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>> {
             Box::pin(async { Ok(vec![]) })
+        }
+
+        fn find_account_by_address<'a>(
+            &'a self,
+            _address: &'a str,
+        ) -> MailFuture<'a, Result<Option<DueAccount>, MailServiceError>> {
+            Box::pin(async { Ok(None) })
         }
 
         fn list_folders<'a>(
