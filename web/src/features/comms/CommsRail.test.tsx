@@ -9,7 +9,7 @@ import { AuthTestProvider } from "../../test/AuthTestProvider";
 import { ko } from "../../i18n/ko";
 import { FEATURES } from "../../components/shell/nav";
 import { CommsRail } from "./CommsRail";
-import type { NotificationSummary } from "./notificationsApi";
+import type { NotificationSummary } from "../../api/types";
 import { useCommsStore } from "./store";
 
 // The rail's runtime (fetches + realtime) is exercised in store/hub tests; here
@@ -25,6 +25,22 @@ const session: AuthSession = {
 function stubApi(): ConsoleApiClient {
   const empty = () => Promise.resolve({ data: undefined, response: new Response() });
   return { GET: vi.fn(empty), POST: vi.fn(empty), PUT: vi.fn(empty), PATCH: vi.fn(empty) } as unknown as ConsoleApiClient;
+}
+
+// A client that answers the mail-threads call with a controlled data/status and
+// stays inert (empty 200) for everything else — so the rail's best-effort badge
+// and feed fetches don't interfere while the mail section is under test.
+function mailApi(res: { data?: unknown; status?: number }): ConsoleApiClient {
+  const empty = () => Promise.resolve({ data: undefined, response: new Response() });
+  const GET = vi.fn((path: string) =>
+    path === "/api/v1/mail/threads"
+      ? Promise.resolve({
+          data: res.data,
+          response: new Response(null, { status: res.status ?? 200 }),
+        })
+      : empty(),
+  );
+  return { GET, POST: vi.fn(empty), PUT: vi.fn(empty), PATCH: vi.fn(empty) } as unknown as ConsoleApiClient;
 }
 
 function LocationProbe() {
@@ -227,5 +243,48 @@ describe("CommsRail", () => {
     setViewport(600);
     renderRail();
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  });
+
+  describe("section list states", () => {
+    it("shows the notifications empty state when the feed has no rows", () => {
+      setViewport(1400);
+      renderRail(); // default open section is notifications; feed stays empty
+      expect(screen.getByText(ko.shell.commsRail.empty.notifications)).toBeVisible();
+    });
+
+    it("shows the mail empty state when there are no threads", async () => {
+      setViewport(1400);
+      renderRail("/dispatch", mailApi({ data: [] }));
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(ko.shell.commsRail.sections.mail) }),
+      );
+      expect(await screen.findByText(ko.shell.commsRail.empty.mail)).toBeVisible();
+    });
+
+    it("shows the mail load-failed state when the threads request has no body", async () => {
+      setViewport(1400);
+      renderRail(
+        "/dispatch",
+        mailApi({ data: undefined, status: 200 }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(ko.shell.commsRail.sections.mail) }),
+      );
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        ko.shell.commsRail.loadFailed,
+      );
+    });
+
+    it("shows the mail-unavailable state on a 503", async () => {
+      setViewport(1400);
+      renderRail(
+        "/dispatch",
+        mailApi({ data: undefined, status: 503 }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(ko.shell.commsRail.sections.mail) }),
+      );
+      expect(await screen.findByText(ko.shell.commsRail.mailUnavailable)).toBeVisible();
+    });
   });
 });

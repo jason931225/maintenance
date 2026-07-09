@@ -2,6 +2,7 @@ import {
   test,
   expect,
   sql,
+  querySql,
   loginAsLanding,
   ROLE_CONFIG,
   TENANT_ORG_ID,
@@ -80,6 +81,16 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
   await expect(rail.getByRole("button", { name: RAIL.markAllRead })).toBeHidden(
     { timeout: 5_000 },
   );
+
+  // Read-state survives the reload at the source of truth, not just in the UI:
+  // the mark-all POST now routes through the shared typed client (issue #219),
+  // so the flip must be persisted in Postgres — the old hand-rolled adapter that
+  // bypassed the client's 401 refresh is exactly what this guards against.
+  const rows = querySql<{ unread: boolean }>(
+    `SELECT unread FROM notifications WHERE recipient_user_id = '${ADMIN_USER_ID}'`,
+  );
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.every((row) => row.unread === false)).toBe(true);
 
   // Promotion: opening the messenger page hides the rail's messenger section.
   await navigateByHref(page, "/messenger");
