@@ -30,6 +30,8 @@ chrono-tz = { workspace = true }
 croner = { workspace = true }
 http = { workspace = true }
 hex = { workspace = true }
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
 mnt-comms-adapter-imap = { workspace = true }
 mnt-comms-adapter-postgres = { workspace = true }
 mnt-comms-application = { workspace = true }
