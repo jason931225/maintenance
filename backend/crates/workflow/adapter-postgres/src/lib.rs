@@ -63,7 +63,7 @@ struct ReceiptNodeSpec {
     assignee_role_key: Option<String>,
 }
 
-/// One enabled `workflow_trigger_bindings` row (0100) as the event dispatcher
+/// One enabled `workflow_trigger_bindings` row (0105) as the event dispatcher
 /// consumes it.
 #[derive(Debug, Clone)]
 pub struct TriggerBindingRow {
@@ -73,7 +73,7 @@ pub struct TriggerBindingRow {
     pub event_key: String,
 }
 
-/// One due `workflow_schedules` row (0101) as the schedule poller consumes it.
+/// One due `workflow_schedules` row (0106) as the schedule poller consumes it.
 #[derive(Debug, Clone)]
 pub struct DueScheduleRow {
     pub id: Uuid,
@@ -512,7 +512,7 @@ impl PgWorkflowRuntimeStore {
         .map_err(KernelError::from)
     }
 
-    /// Enabled trigger bindings for one registered domain event key (0100),
+    /// Enabled trigger bindings for one registered domain event key (0105),
     /// read as `mnt_rt` under the armed `app.current_org`. The dispatcher calls
     /// this at an audited-mutation commit point; ordering is stable (oldest
     /// binding first) so evaluation order is deterministic.
@@ -1869,6 +1869,16 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
         })
     }
 
+    fn load_run_by_idempotency_key<'a>(
+        &'a self,
+        org: OrgId,
+        idempotency_key: String,
+    ) -> PortFuture<'a, Option<RunRecord>> {
+        Box::pin(async move {
+            PgWorkflowRuntimeStore::load_run_by_idempotency_key(self, org, idempotency_key).await
+        })
+    }
+
     // mnt-gate: state-changing-handler
     fn transition_run<'a>(
         &'a self,
@@ -1880,7 +1890,7 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
             with_audit::<_, (), PgWorkflowRuntimeError>(&self.pool, audit, move |tx| {
                 Box::pin(async move {
                     let _ = org; // org is armed by with_audit from the event; kept for symmetry.
-                    sqlx::query(run_transition_sql(transition.to))
+                    let result = sqlx::query(run_transition_sql(transition.to))
                         .bind(transition.run_id)
                         .bind(transition.to.as_db_str())
                         .bind(transition.from.as_db_str())
@@ -1889,6 +1899,11 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                         .execute(tx.as_mut())
                         .await
                         .map_err(PgWorkflowRuntimeError::from)?;
+                    if result.rows_affected() == 0 {
+                        return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                            "workflow run transition lost status race",
+                        )));
+                    }
                     Ok(())
                 })
             })

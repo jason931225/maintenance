@@ -63,7 +63,5 @@ GRANT SELECT, INSERT, UPDATE ON workflow_schedules TO mnt_rt;
 -- non-scheduled run). Backs the per-schedule run-history REST surface.
 ALTER TABLE workflow_runs ADD COLUMN schedule_id UUID NULL;
 ALTER TABLE workflow_runs ADD CONSTRAINT workflow_runs_schedule_fk
-    FOREIGN KEY (schedule_id, org_id) REFERENCES workflow_schedules(id, org_id) ON DELETE RESTRICT;
-CREATE INDEX idx_workflow_runs_schedule
-    ON workflow_runs (org_id, schedule_id, started_at DESC)
-    WHERE schedule_id IS NOT NULL;
+    FOREIGN KEY (schedule_id, org_id) REFERENCES workflow_schedules(id, org_id) ON DELETE RESTRICT
+    NOT VALID;

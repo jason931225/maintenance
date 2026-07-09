@@ -150,10 +150,10 @@ spine_enum! {
 
 impl TriggerType {
     /// Whether this trigger type may be bound in `workflow_trigger_bindings`
-    /// (0100). MANUAL/API starts go through `POST /api/v1/workflow-runs` and
-    /// SCHEDULE through `workflow_schedules` — none of them are event bindings,
+    /// (0105). MANUAL/API starts go through `POST /api/v1/workflow-runs` and
+    /// SCHEDULE through `workflow_schedules` (0106) — none of them are event bindings,
     /// so authoring a binding with one of those is a validation error (and the
-    /// 0100 CHECK rejects it at the DB as well).
+    /// 0105 CHECK rejects it at the DB as well).
     #[must_use]
     pub const fn is_event_binding(self) -> bool {
         matches!(
@@ -485,6 +485,15 @@ pub trait WorkflowRuntimePort: Send + Sync {
 
     /// Read the run's advance-relevant fields, tenant-scoped. `None` if absent.
     fn load_run<'a>(&'a self, org: OrgId, run_id: uuid::Uuid) -> PortFuture<'a, Option<RunRecord>>;
+
+    /// Read a run by its deterministic run-level idempotency key, tenant-scoped.
+    /// Used by trigger/schedule dispatchers to resume an already-created run
+    /// after a concurrent/idempotent start conflict.
+    fn load_run_by_idempotency_key<'a>(
+        &'a self,
+        org: OrgId,
+        idempotency_key: String,
+    ) -> PortFuture<'a, Option<RunRecord>>;
 
     /// Apply a `workflow_runs` status transition + its audit row.
     fn transition_run<'a>(

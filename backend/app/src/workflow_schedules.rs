@@ -213,8 +213,15 @@ pub async fn poll_org(
     let due = store.list_due_schedules(org, now, POLL_BATCH_LIMIT).await?;
     let mut started = 0u32;
     for schedule in due {
-        if fire_schedule(store, org, &schedule, now).await? {
-            started += 1;
+        match fire_schedule(store, org, &schedule, now).await {
+            Ok(true) => started += 1,
+            Ok(false) => {}
+            Err(err) => tracing::warn!(
+                org = %org,
+                schedule_id = %schedule.id,
+                error = %err.message,
+                "workflow schedules: due schedule failed; continuing tenant batch"
+            ),
         }
     }
     Ok(started)
@@ -269,9 +276,22 @@ async fn fire_schedule(
         last_status
     };
 
-    store
+    match store
         .advance_schedule(org, schedule.id, fire, next, last_status)
-        .await?;
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return Ok(started),
+        Err(err) => {
+            tracing::warn!(
+                org = %org,
+                schedule_id = %schedule.id,
+                error = %err.message,
+                "workflow schedules: schedule advance failed; will retry next tick"
+            );
+            return Ok(false);
+        }
+    }
     Ok(started)
 }
 

@@ -225,7 +225,7 @@ pub async fn process_node<P: WorkflowRuntimePort + ?Sized>(
     })
 }
 
-fn run_audit_event(
+pub(crate) fn run_audit_event(
     action: &str,
     audit: &AuditContext,
     run_id: Uuid,
@@ -295,6 +295,14 @@ mod tests {
         }
 
         fn load_run<'a>(&'a self, _org: OrgId, _run_id: Uuid) -> PortFuture<'a, Option<RunRecord>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn load_run_by_idempotency_key<'a>(
+            &'a self,
+            _org: OrgId,
+            _idempotency_key: String,
+        ) -> PortFuture<'a, Option<RunRecord>> {
             Box::pin(async { Ok(None) })
         }
 
