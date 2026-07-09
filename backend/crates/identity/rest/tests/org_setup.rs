@@ -79,9 +79,19 @@ impl Harness {
     }
 
     fn token(&self, user_id: UserId, roles: &[&str], branches: Vec<BranchId>) -> String {
+        self.token_for_org(OrgId::knl(), user_id, roles, branches)
+    }
+
+    fn token_for_org(
+        &self,
+        org_id: OrgId,
+        user_id: UserId,
+        roles: &[&str],
+        branches: Vec<BranchId>,
+    ) -> String {
         let issuer = self.issuer();
         issuer
-            .issue_access_token(self.access_token_input(user_id, roles, branches))
+            .issue_access_token(self.access_token_input_for_org(org_id, user_id, roles, branches))
             .unwrap()
     }
 
@@ -121,9 +131,19 @@ impl Harness {
         roles: &[&str],
         branches: Vec<BranchId>,
     ) -> AccessTokenInput {
+        self.access_token_input_for_org(OrgId::knl(), user_id, roles, branches)
+    }
+
+    fn access_token_input_for_org(
+        &self,
+        org_id: OrgId,
+        user_id: UserId,
+        roles: &[&str],
+        branches: Vec<BranchId>,
+    ) -> AccessTokenInput {
         AccessTokenInput {
             subject: user_id,
-            org_id: OrgId::knl(),
+            org_id,
             roles: roles.iter().map(|r| (*r).to_owned()).collect(),
             branches,
             platform: false,
@@ -2255,6 +2275,35 @@ async fn send_put(harness: &Harness, uri: &str, token: &str, body: Value) -> (St
 
 // Seed helpers route inserts through `with_audit` because this file lives on a
 // `rest/` handler surface scanned by the audit-coverage gate.
+async fn seed_org(pool: &PgPool, org_id: OrgId, slug: &str) {
+    let slug = slug.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_org").unwrap(),
+        "organization",
+        org_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org_id);
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+            )
+            .bind(*org_id.as_uuid())
+            .bind(slug.clone())
+            .bind(format!("Test Org {slug}"))
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 async fn seed_branch(pool: &PgPool) -> BranchId {
     let region_id = uuid::Uuid::new_v4();
     let branch_id = BranchId::new();
@@ -2311,6 +2360,17 @@ async fn seed_user_with_team(
     branch_id: Option<BranchId>,
     team: Option<&str>,
 ) -> UserId {
+    seed_user_in_org_with_team(pool, OrgId::knl(), name, roles, branch_id, team).await
+}
+
+async fn seed_user_in_org_with_team(
+    pool: &PgPool,
+    org_id: OrgId,
+    name: &str,
+    roles: &[&str],
+    branch_id: Option<BranchId>,
+    team: Option<&str>,
+) -> UserId {
     let user_id = UserId::new();
     let name = name.to_owned();
     let roles: Vec<String> = roles.iter().map(|r| (*r).to_owned()).collect();
@@ -2322,7 +2382,8 @@ async fn seed_user_with_team(
         user_id.to_string(),
         TraceContext::generate(),
         OffsetDateTime::now_utc(),
-    );
+    )
+    .with_org(org_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
             sqlx::query(
@@ -2332,7 +2393,7 @@ async fn seed_user_with_team(
             .bind(name)
             .bind(roles)
             .bind(team)
-            .bind(*OrgId::knl().as_uuid())
+            .bind(*org_id.as_uuid())
             .execute(tx.as_mut())
             .await
             .map_err(DbError::Sqlx)?;
@@ -2342,7 +2403,7 @@ async fn seed_user_with_team(
                 )
                 .bind(*user_id.as_uuid())
                 .bind(*branch_id.as_uuid())
-                .bind(*OrgId::knl().as_uuid())
+                .bind(*org_id.as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
@@ -2705,4 +2766,107 @@ async fn seed_passkey(pool: &PgPool, user_id: UserId) -> uuid::Uuid {
     .await
     .unwrap();
     id
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn workspace_put_enforces_object_shape_and_size_bound(pool: PgPool) {
+    let harness = Harness::new(pool.clone());
+    let me = seed_user(&pool, "Workspace User", &["SUPER_ADMIN"], None).await;
+    let token = harness.token(me, &["SUPER_ADMIN"], vec![]);
+
+    // A JSON object round-trips verbatim (the opaque frontend-owned layout).
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token,
+        Some(json!({ "layout": { "v": 1, "panels": [] } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"]["v"], 1);
+
+    // A non-object layout (array / string) is a 422, not a DB-CHECK 500.
+    for bad in [json!({ "layout": [1, 2, 3] }), json!({ "layout": "nope" })] {
+        let (status, body) = send(&harness, "PUT", "/api/v1/me/workspace", &token, Some(bad)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    }
+
+    // An oversized layout (> 64KiB) is a clean 422 via the boundary guard.
+    let blob = "x".repeat(70 * 1024);
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token,
+        Some(json!({ "layout": { "blob": blob } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn workspace_me_endpoint_scopes_layout_to_current_principal(pool: PgPool) {
+    let harness = Harness::new(pool.clone());
+    let user_a = seed_user(&pool, "Workspace User A", &["MECHANIC"], None).await;
+    let user_b = seed_user(&pool, "Workspace User B", &["MECHANIC"], None).await;
+    let token_a = harness.token(user_a, &["MECHANIC"], vec![]);
+    let token_b = harness.token(user_b, &["MECHANIC"], vec![]);
+
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token_a,
+        Some(json!({ "layout": { "owner": "A" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_a, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "A" }));
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_b, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["layout"],
+        json!({}),
+        "same-org users must not receive each other's /me workspace row"
+    );
+
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token_b,
+        Some(json!({ "layout": { "owner": "B" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_a, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "A" }));
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_b, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "B" }));
+
+    let org_c = OrgId::from_uuid(uuid::Uuid::from_u128(0xc0ffee));
+    seed_org(&pool, org_c, "workspace-c").await;
+    // `users.id` is globally unique in the current schema, so a realistic
+    // cross-tenant duplicate user row cannot be inserted. The leak-prone case
+    // this endpoint must still reject is the same verified subject id presented
+    // under a different tenant claim: without the org-armed RLS lookup, the
+    // adapter's `WHERE user_id = $1` read would return user A's KNL layout here.
+    let token_c = harness.token_for_org(org_c, user_a, &["MECHANIC"], vec![]);
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_c, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["layout"],
+        json!({}),
+        "a different org's principal must not receive another tenant's /me workspace row"
+    );
 }

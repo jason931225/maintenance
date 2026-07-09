@@ -79,7 +79,18 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   function run(command: CommandItem) {
     onClose();
     if (command.nav.href !== location.pathname) {
-      void navigate(command.nav.href);
+      const currentCommand = commands.find((item) => item.nav.href === location.pathname);
+      void navigate(command.nav.href, {
+        state: currentCommand
+          ? {
+              backStackSeed: {
+                href: `${location.pathname}${location.search}`,
+                pathname: location.pathname,
+                label: currentCommand.label,
+              },
+            }
+          : undefined,
+      });
     }
   }
 
