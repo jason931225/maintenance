@@ -538,6 +538,47 @@ async fn seals_are_immutable_to_runtime_role(owner_pool: PgPool) {
     let _ = tx.rollback().await;
 }
 
+#[sqlx::test(migrations = "../db/migrations")]
+async fn seal_org_id_is_immutable_to_owner_updates(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    write_events(&rt, org, user, branch, 1).await;
+    seal_org_once(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        OffsetDateTime::now_utc(),
+        &immediate(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let err = sqlx::query("UPDATE audit_chain_seals SET org_id = $1 WHERE org_id = $2 AND seq = 1")
+        .bind(ORG_B)
+        .bind(org)
+        .execute(&mut *tx)
+        .await
+        .expect_err("owner UPDATE must hit the audit_chain_seals org immutability trigger")
+        .to_string();
+    assert!(
+        err.contains("audit_chain_seals org_id is immutable"),
+        "expected table-specific immutability error, got: {err}"
+    );
+    assert!(
+        !err.contains("record \"old\" has no field \"id\""),
+        "trigger must not call the shared OLD.id formatter: {err}"
+    );
+    let _ = tx.rollback().await;
+}
+
 // ---------------------------------------------------------------------------
 // §6.7 idempotency + chain linkage
 // ---------------------------------------------------------------------------

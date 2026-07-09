@@ -40,6 +40,14 @@ CREATE TABLE audit_chain_seals (
     UNIQUE (org_id, prev_seal_hash)
 );
 
+-- The seal worker and verifier scan tenant-visible audit rows in canonical
+-- `(created_at, id)` order under audit_events' org RLS predicate. Existing
+-- audit indexes serve target/actor/branch/occurred_at reads, not this append-only
+-- seal cursor, so add the covering tenant cursor index here with the seal feature.
+CREATE INDEX idx_audit_events_org_seal_cursor
+    ON audit_events (org_id, created_at ASC, id ASC)
+    WHERE org_id IS NOT NULL;
+
 ALTER TABLE audit_chain_seals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_chain_seals FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON audit_chain_seals
@@ -59,12 +67,26 @@ CREATE POLICY org_isolation ON audit_chain_seals
 GRANT SELECT, INSERT ON audit_chain_seals TO mnt_rt;
 REVOKE UPDATE, DELETE ON audit_chain_seals FROM mnt_rt;
 
--- org_id is in the PK and never rewritten, but keep the shared immutability
--- guard so a future owner UPDATE can never move a seal across tenants even if
--- RLS WITH CHECK were relaxed (defense-in-depth, mirrors 0096).
+-- org_id is in the PK and never rewritten, but keep an immutability guard so a
+-- future owner UPDATE can never move a seal across tenants even if RLS WITH
+-- CHECK were relaxed (defense-in-depth, mirrors 0096). Use a table-specific
+-- function because the shared 0031 function reports `OLD.id`, while this table's
+-- stable identity is `(org_id, seq)`.
+CREATE OR REPLACE FUNCTION audit_chain_seals_org_id_immutable()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.org_id IS DISTINCT FROM OLD.org_id THEN
+        RAISE EXCEPTION
+            'audit_chain_seals org_id is immutable: cannot change tenant from % to % on seq=%',
+            OLD.org_id, NEW.org_id, OLD.seq;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 CREATE TRIGGER trg_audit_chain_seals_org_immutable
     BEFORE UPDATE ON audit_chain_seals
-    FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable();
+    FOR EACH ROW EXECUTE FUNCTION audit_chain_seals_org_id_immutable();
 
 -- ponytail: no separate (org_id, seq DESC) index. The PRIMARY KEY (org_id, seq)
 -- btree already serves the only hot read — MAX(seq)/head lookup — via a backward
