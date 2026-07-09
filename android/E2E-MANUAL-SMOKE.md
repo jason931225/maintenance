@@ -76,3 +76,23 @@ the input to the automated, no-fakes E2E:
   `FIELD_E2E_REFRESH_TOKEN` instrumentation arguments.
 - The test seeds them into the real `SessionTokenStore` and lets the app's normal boot path
   restore the session — no fake auth, no test-only code path in the app.
+
+## Sign-off
+
+Capture this table in the release or PR evidence packet whenever the ADR-0009 release gate
+requires Android secure-system passkey proof.
+
+| Field | Value |
+| --- | --- |
+| Tester | |
+| Date | |
+| Device / Android version | |
+| App build (application id + version) | |
+| Backend env (staging/prod) | |
+| RP origin | https://console.knllogistic.com |
+| Digital Asset Links app id/cert confirmed | pass / fail |
+| Passkey create | pass / fail |
+| Passkey assert | pass / fail |
+| Refresh-token persistence hand-off | pass / fail |
+| Negative paths | pass / fail |
+| Notes | |

@@ -8,8 +8,8 @@ use mnt_kernel_core::{
 };
 use mnt_platform_auth::{JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
 use mnt_platform_authz::{
-    Action, AuthorizationAuditEvent, Feature, PermissionLevel, Principal, authorize_org_wide,
-    permission_for,
+    Action, AuthorizationAuditEvent, AuthorizationResource, Feature, PermissionLevel, Principal,
+    authorize_org_wide, permission_for,
 };
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_workflow_domain::{
@@ -50,6 +50,12 @@ pub const WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/rollback";
 pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/clone";
+pub const WORKFLOW_STUDIO_DEFINITION_REVISION_APPROVE_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve";
+pub const WORKFLOW_STUDIO_DEFINITION_REVISION_WITHDRAW_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw";
+pub const WORKFLOW_STUDIO_DEFINITIONS_BY_OBJECT_KIND_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/by-object-kind/{kind}";
 pub const WORKFLOW_STUDIO_TRIGGER_BINDINGS_PATH: &str = "/api/v1/workflow-studio/trigger-bindings";
 pub const WORKFLOW_STUDIO_TRIGGER_BINDING_ENABLE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/trigger-bindings/{id}/enable";
@@ -300,6 +306,18 @@ pub fn router(state: WorkflowStudioState) -> Router {
             post(clone_definition),
         )
         .route(
+            WORKFLOW_STUDIO_DEFINITION_REVISION_APPROVE_PATH_TEMPLATE,
+            post(approve_revision),
+        )
+        .route(
+            WORKFLOW_STUDIO_DEFINITION_REVISION_WITHDRAW_PATH_TEMPLATE,
+            post(withdraw_revision),
+        )
+        .route(
+            WORKFLOW_STUDIO_DEFINITIONS_BY_OBJECT_KIND_PATH_TEMPLATE,
+            get(list_definitions_by_object_kind),
+        )
+        .route(
             WORKFLOW_STUDIO_TRIGGER_BINDINGS_PATH,
             get(list_trigger_bindings).post(create_trigger_binding),
         )
@@ -430,6 +448,13 @@ struct WorkflowDefinitionResponse {
     action_allowlist: Vec<Value>,
     required_approval_line: bool,
     required_payment_line: bool,
+    /// The ontology object kinds this definition's nodes touch (dynamics↔ontology).
+    object_kinds: Vec<String>,
+    /// A staged revision (version number) awaiting four-eyes approval; the active
+    /// version keeps serving until then. `None` when no revision is pending.
+    pending_version: Option<i32>,
+    /// Who staged the pending revision (the actor barred from self-approving it).
+    pending_staged_by: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -525,6 +550,11 @@ struct SimulateWorkflowDefinitionRequest {
     notification_rules: Option<Vec<Value>>,
     #[serde(default)]
     action_allowlist: Option<Vec<Value>>,
+    /// Sample run context to exercise condition/branch nodes against (defaults to
+    /// `{}`). The response's `simulated_path` reports the node keys that would
+    /// execute for this context — the branch actually taken.
+    #[serde(default)]
+    sample_context: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -611,6 +641,12 @@ struct PostFinalizationRejectionDocumentResponse {
 struct WorkflowSimulationResponse {
     decision: String,
     findings: Vec<WorkflowSimulationFinding>,
+    /// For a `wf.exec.v1` definition: the ordered node keys that WOULD execute
+    /// for the sample context — the branch actually taken through any condition
+    /// nodes, stopping at the first human task or a terminal node. `None` for a
+    /// non-executable (authoring/policy-only) definition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    simulated_path: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -636,6 +672,8 @@ struct WorkflowVersionRow {
     action_allowlist: Vec<Value>,
     required_approval_line: bool,
     required_payment_line: bool,
+    pending_version: Option<i32>,
+    pending_staged_by: Option<Uuid>,
     created_at: OffsetDateTime,
     updated_at: OffsetDateTime,
 }
@@ -703,6 +741,7 @@ async fn finalize_task(
         .object_id
         .map(|id| id.to_string())
         .unwrap_or_else(|| context.run_id.to_string());
+    let shadow_resource_id = resource_id.clone();
     let policy = enforce_finalize_policy(FinalizePolicyRequest {
         mode: request.mode.policy_mode(),
         reason: request.reason.as_deref(),
@@ -724,6 +763,32 @@ async fn finalize_task(
             task_id,
         )?);
     }
+
+    // Enrollment wave 2: audit-only Cedar parity observation. Legacy
+    // (`enforce_finalize_policy`) already enforced above (this line is only
+    // reached on its ALLOW); the shadow records how Cedar-alone compares and can
+    // never affect the finalize.
+    let shadow_resource = AuthorizationResource::branch(
+        principal.org_id,
+        branch,
+        context
+            .object_type
+            .as_deref()
+            .unwrap_or("workflow_run")
+            .to_owned(),
+    )
+    .with_resource_id(shadow_resource_id);
+    crate::cedar_parity::observe_parity(
+        &state.pool,
+        &principal,
+        principal.org_id,
+        Feature::ApprovalFinalize,
+        shadow_resource,
+        crate::cedar_parity::WORKFLOW_DECIDE_DOMAIN,
+        crate::cedar_parity::CEDAR_PBAC_SHADOW_WORKFLOW_DECIDE_FLAG,
+        true,
+    )
+    .await;
 
     let finalized = store
         .finalize_waiting_task(
@@ -811,6 +876,23 @@ async fn create_post_finalization_rejection(
             "post-finalization rejection policy denied",
         )));
     }
+
+    // Enrollment wave 2: audit-only Cedar parity observation (legacy already
+    // enforced above). Scope is branch + run-specific so the parity row mirrors
+    // the workflow run the already-enforced legacy decision acted on.
+    let shadow_resource = AuthorizationResource::branch(principal.org_id, branch, "workflow_run")
+        .with_resource_id(run_id.to_string());
+    crate::cedar_parity::observe_parity(
+        &state.pool,
+        &principal,
+        principal.org_id,
+        Feature::ApprovalFinalize,
+        shadow_resource,
+        crate::cedar_parity::WORKFLOW_DECIDE_DOMAIN,
+        crate::cedar_parity::CEDAR_PBAC_SHADOW_WORKFLOW_DECIDE_FLAG,
+        true,
+    )
+    .await;
 
     let store = PgWorkflowRuntimeStore::new(state.pool.clone());
     let compensation = store
@@ -1157,6 +1239,41 @@ fn guard_task_policy(
     )?))
 }
 
+/// Enrollment wave 2: fire the audit-only Cedar parity observation for a
+/// decide/claim task guard that legacy just ALLOWED (this is only called after
+/// `guard_task_policy` returned `Ok`). Best-effort and side-effect-only — it can
+/// never affect the mutation. Records nothing for a policy-less task (there is no
+/// capability decision to compare).
+async fn observe_task_decide_parity(
+    pool: &PgPool,
+    principal: &Principal,
+    org: mnt_kernel_core::OrgId,
+    branch: BranchId,
+    required_policy: Option<&str>,
+    resource_type: &str,
+    resource_id: &str,
+) {
+    let Some(feature) = required_policy
+        .and_then(guard_policy)
+        .and_then(|key| Feature::from_str(&key).ok())
+    else {
+        return;
+    };
+    let resource = AuthorizationResource::branch(org, branch, resource_type.to_owned())
+        .with_resource_id(resource_id.to_owned());
+    crate::cedar_parity::observe_parity(
+        pool,
+        principal,
+        org,
+        feature,
+        resource,
+        crate::cedar_parity::WORKFLOW_DECIDE_DOMAIN,
+        crate::cedar_parity::CEDAR_PBAC_SHADOW_WORKFLOW_DECIDE_FLAG,
+        true,
+    )
+    .await;
+}
+
 /// The workflow authority role keys resolved through the legacy matrix (security
 /// M3). All map to `completion_review` — the review/decide/approve tiers of the
 /// approval and completion lines — so "holds this role key" reuses the SAME guard
@@ -1346,44 +1463,63 @@ fn parse_run_statuses(raw: Option<&str>) -> Result<Vec<RunStatus>, WorkflowStudi
 
 /// Load a definition's chosen version JSON, gating on ACTIVE status. Returns the
 /// resolved `(version, definition)` for the run to bind to.
+///
+/// Security (four-eyes): a run may only start an APPROVED version. `active_version`
+/// is lifecycle-trusted — it is set ONLY by publish/approve/rollback, all of which
+/// require RoleManage + step-up, so the default (unpinned) path is always safe,
+/// whatever the resolved version's own status is (e.g. `ROLLED_BACK`). A
+/// caller-*pinned* `definition_version` that is NOT the current active version is
+/// the untrusted path: it must be an already-approved historical version
+/// (`status = 'PUBLISHED'`), never a staged/pending `DRAFT` — that pin is
+/// rejected (422), so an initiator cannot execute a revision that never passed
+/// the second-actor approval.
 async fn resolve_start_definition(
     pool: &PgPool,
     org: mnt_kernel_core::OrgId,
     definition_id: Uuid,
     requested_version: Option<i32>,
 ) -> Result<(i32, Value), WorkflowStudioError> {
-    let row = with_org_conn::<_, Option<(String, Option<Value>, Option<i32>)>, DbError>(
-        pool,
-        org,
-        move |tx| {
-            Box::pin(async move {
-                let row = sqlx::query(
-                    "SELECT d.status, v.definition, v.version \
+    let row = with_org_conn::<
+        _,
+        Option<(
+            String,
+            Option<Value>,
+            Option<i32>,
+            Option<String>,
+            Option<i32>,
+        )>,
+        DbError,
+    >(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                "SELECT d.status, v.definition, v.version, v.status AS version_status, \
+                        d.active_version \
                      FROM workflow_definitions d \
                      LEFT JOIN workflow_definition_versions v \
                        ON v.definition_id = d.id AND v.org_id = d.org_id \
                       AND v.version = COALESCE($2, d.active_version) \
                      WHERE d.id = $1",
-                )
-                .bind(definition_id)
-                .bind(requested_version)
-                .fetch_optional(tx.as_mut())
-                .await?;
-                let Some(row) = row else {
-                    return Ok(None);
-                };
-                Ok(Some((
-                    row.try_get("status")?,
-                    row.try_get("definition")?,
-                    row.try_get("version")?,
-                )))
-            })
-        },
-    )
+            )
+            .bind(definition_id)
+            .bind(requested_version)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            let Some(row) = row else {
+                return Ok(None);
+            };
+            Ok(Some((
+                row.try_get("status")?,
+                row.try_get("definition")?,
+                row.try_get("version")?,
+                row.try_get("version_status")?,
+                row.try_get("active_version")?,
+            )))
+        })
+    })
     .await
     .map_err(WorkflowStudioError::from)?;
 
-    let Some((status, definition, version)) = row else {
+    let Some((status, definition, version, version_status, active_version)) = row else {
         return Err(WorkflowStudioError::from(KernelError::not_found(
             "workflow definition not found",
         )));
@@ -1393,11 +1529,23 @@ async fn resolve_start_definition(
             "workflow definition is not active",
         )));
     }
-    let (Some(definition), Some(version)) = (definition, version) else {
+    let (Some(definition), Some(version), Some(version_status)) =
+        (definition, version, version_status)
+    else {
         return Err(WorkflowStudioError::from(KernelError::conflict(
             "workflow definition has no published version to start",
         )));
     };
+    // Four-eyes gate: a PINNED version that is NOT the current active version
+    // must be an already-approved (PUBLISHED) historical version — never a
+    // staged/pending DRAFT. The active version itself is always trusted (only
+    // publish/approve/rollback set it), so this does not touch the default
+    // (unpinned) or rollback-produced-active path.
+    if Some(version) != active_version && version_status != "PUBLISHED" {
+        return Err(WorkflowStudioError::validation(
+            "workflow definition version is not an approved (published) version",
+        ));
+    }
     Ok((version, definition))
 }
 
@@ -1594,6 +1742,7 @@ async fn start_workflow_run(
                 &graph,
                 &entry,
                 guard_audits,
+                &request.context_payload,
                 &audit,
             )
             .await?;
@@ -2043,6 +2192,16 @@ async fn claim_workflow_task(
         "workflow.waiting_task.claim",
         task_id,
     )?;
+    observe_task_decide_parity(
+        &state.pool,
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+    )
+    .await;
 
     let claimed = store
         .claim_waiting_task(
@@ -2130,6 +2289,16 @@ async fn decide_workflow_task(
         "workflow.waiting_task.decide",
         task_id,
     )?;
+    observe_task_decide_parity(
+        &state.pool,
+        &principal,
+        org,
+        branch,
+        context.required_policy.as_deref(),
+        resource_type,
+        &resource_id,
+    )
+    .await;
 
     let decided = store
         .decide_waiting_task(
@@ -2178,6 +2347,8 @@ async fn list_definitions(
                     d.status,
                     d.latest_version,
                     d.active_version,
+                    d.pending_version,
+                    d.pending_staged_by,
                     d.created_at,
                     d.updated_at,
                     COALESCE(v.definition, '{}'::jsonb) AS definition,
@@ -2204,6 +2375,96 @@ async fn list_definitions(
     .await?;
     record_workflow_studio_request("definitions", "success");
     Ok(Json(WorkflowDefinitionListResponse { items }))
+}
+
+#[derive(Debug, Serialize)]
+struct DefinitionsByObjectKindResponse {
+    kind: String,
+    /// Definitions whose primary object_type is this kind OR whose declared
+    /// object_kinds chain touches it.
+    definitions: Vec<WorkflowDefinitionResponse>,
+    /// Enabled/disabled trigger bindings scoped to this kind.
+    bindings: Vec<TriggerBindingResponse>,
+}
+
+/// The explore screen's "작용 자동화" panel source: every automation rule that
+/// touches a given object kind — the definitions whose nodes act on it (by
+/// primary object_type or declared object_kinds chain) plus the trigger
+/// bindings scoped to it.
+async fn list_definitions_by_object_kind(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(kind): Path<String>,
+) -> Result<Json<DefinitionsByObjectKindResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    if !is_object_kind_slug(&kind) {
+        return Err(WorkflowStudioError::validation(
+            "object kind must be a valid kind slug",
+        ));
+    }
+    let org = principal.org_id;
+    let lookup_kind = kind.clone();
+    let (definitions, bindings) =
+        with_org_conn::<_, _, WorkflowStudioError>(&state.pool, org, move |tx| {
+            Box::pin(async move {
+                let def_rows = sqlx::query(
+                    r#"
+                    SELECT
+                        d.id, d.workflow_key, d.display_name, d.object_type, d.status,
+                        d.latest_version, d.active_version, d.pending_version,
+                        d.pending_staged_by, d.created_at, d.updated_at,
+                        COALESCE(v.definition, '{}'::jsonb) AS definition,
+                        COALESCE(v.approval_line, '[]'::jsonb) AS approval_line,
+                        COALESCE(v.payment_line, '[]'::jsonb) AS payment_line,
+                        COALESCE(v.notification_rules, '[]'::jsonb) AS notification_rules,
+                        COALESCE(v.action_allowlist, '[]'::jsonb) AS action_allowlist,
+                        COALESCE(v.required_approval_line, false) AS required_approval_line,
+                        COALESCE(v.required_payment_line, false) AS required_payment_line
+                    FROM workflow_definitions d
+                    LEFT JOIN workflow_definition_versions v
+                        ON v.definition_id = d.id
+                       AND v.org_id = d.org_id
+                       AND v.version = d.latest_version
+                    WHERE d.status <> 'RETIRED'
+                      AND (
+                          d.object_type = $1
+                          OR jsonb_exists(v.definition -> 'object_kinds', $1)
+                      )
+                    ORDER BY d.updated_at DESC, d.display_name ASC
+                    "#,
+                )
+                .bind(&lookup_kind)
+                .fetch_all(tx.as_mut())
+                .await?;
+                let definitions: Vec<WorkflowDefinitionResponse> = def_rows
+                    .into_iter()
+                    .map(response_from_row)
+                    .collect::<Result<_, _>>()?;
+
+                let binding_rows = sqlx::query(
+                    "SELECT id, definition_id, trigger_type, event_key, subject_kind, \
+                            enabled, created_at, updated_at \
+                     FROM workflow_trigger_bindings \
+                     WHERE subject_kind = $1 \
+                     ORDER BY created_at DESC",
+                )
+                .bind(&lookup_kind)
+                .fetch_all(tx.as_mut())
+                .await?;
+                let bindings: Vec<TriggerBindingResponse> = binding_rows
+                    .iter()
+                    .map(|row| trigger_binding_from_row(row).map_err(WorkflowStudioError::from))
+                    .collect::<Result<_, _>>()?;
+                Ok((definitions, bindings))
+            })
+        })
+        .await?;
+    record_workflow_studio_request("definitions_by_object_kind", "success");
+    Ok(Json(DefinitionsByObjectKindResponse {
+        kind,
+        definitions,
+        bindings,
+    }))
 }
 
 #[derive(Debug, Serialize)]
@@ -2447,6 +2708,7 @@ async fn create_definition(
     .with_snapshots(None, Some(audit_after));
     let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, |tx| {
         Box::pin(async move {
+            validate_object_kinds_exist(tx, &draft.definition).await?;
             let row = sqlx::query(
                 r#"
                 INSERT INTO workflow_definitions (
@@ -2515,6 +2777,7 @@ async fn create_definition(
                 status: row.try_get("status")?,
                 latest_version: row.try_get("latest_version")?,
                 active_version: row.try_get("active_version")?,
+                object_kinds: definition_object_kinds(&draft.definition),
                 definition: draft.definition,
                 approval_line: draft.approval_line,
                 payment_line: draft.payment_line,
@@ -2522,6 +2785,8 @@ async fn create_definition(
                 action_allowlist: draft.action_allowlist,
                 required_approval_line: draft.required_approval_line,
                 required_payment_line: draft.required_payment_line,
+                pending_version: None,
+                pending_staged_by: None,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })
@@ -2559,7 +2824,14 @@ async fn update_definition(
             let current = load_latest_version(tx, id, true).await?;
             let before = snapshot_from_row(&current);
             let next = apply_draft_update(&current, update)?;
+            validate_object_kinds_exist(tx, &next.definition).await?;
             let new_version = current.latest_version + 1;
+            // pendingRev decoupling: editing a LIVE definition (one that has an
+            // active_version) must NOT take it out of service — the active
+            // version keeps serving while the new DRAFT version is staged as the
+            // proposed revision ("개정 대기 v+1 · 현행 유지"). A never-published
+            // definition (active_version IS NULL) stays DRAFT as before.
+            let definition_status = keep_live_status(&current);
             let updated = insert_version_and_update_definition(
                 tx,
                 WorkflowVersionMutation {
@@ -2568,7 +2840,7 @@ async fn update_definition(
                     source: &next,
                     new_version,
                     version_status: "DRAFT",
-                    definition_status: "DRAFT",
+                    definition_status,
                     active_version: current.active_version,
                 },
             )
@@ -2632,7 +2904,8 @@ async fn archive_definition(
                        updated_at = now()
                  WHERE id = $1
                 RETURNING id, workflow_key, display_name, object_type, status,
-                    latest_version, active_version, created_at, updated_at
+                    latest_version, active_version, pending_version,
+                    pending_staged_by, created_at, updated_at
                 "#,
             )
             .bind(id)
@@ -2648,6 +2921,7 @@ async fn archive_definition(
                 status: row.try_get("status")?,
                 latest_version: row.try_get("latest_version")?,
                 active_version: row.try_get("active_version")?,
+                object_kinds: definition_object_kinds(&current.definition),
                 definition: current.definition.clone(),
                 approval_line: current.approval_line.clone(),
                 payment_line: current.payment_line.clone(),
@@ -2655,6 +2929,8 @@ async fn archive_definition(
                 action_allowlist: current.action_allowlist.clone(),
                 required_approval_line: current.required_approval_line,
                 required_payment_line: current.required_payment_line,
+                pending_version: row.try_get("pending_version")?,
+                pending_staged_by: row.try_get("pending_staged_by")?,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             };
@@ -2744,6 +3020,7 @@ async fn simulate_definition(
 ) -> Result<Json<WorkflowSimulationResponse>, WorkflowStudioError> {
     authorize_workflow_manage(&principal)?;
     let org = principal.org_id;
+    let sample_context = body.sample_context.unwrap_or_else(|| json!({}));
     let result = with_org_conn::<_, _, WorkflowStudioError>(&state.pool, org, move |tx| {
         Box::pin(async move {
             let mut row = load_latest_version(tx, id, false).await?;
@@ -2763,7 +3040,9 @@ async fn simulate_definition(
                 validate_action_allowlist(&action_allowlist)?;
                 row.action_allowlist = action_allowlist;
             }
-            Ok(simulation_for(&row))
+            let mut result = simulation_for(&row);
+            attach_simulated_path(&mut result, &row.definition, &sample_context);
+            Ok(result)
         })
     })
     .await?;
@@ -2771,6 +3050,15 @@ async fn simulate_definition(
     Ok(Json(result))
 }
 
+/// Publish a definition revision.
+///
+/// * A definition that has never been activated (`active_version IS NULL`) is
+///   published **directly**: a new PUBLISHED version is appended and activated.
+/// * A definition that is already live (`active_version IS NOT NULL`) is NOT
+///   applied directly — publishing **stages** the editing-produced DRAFT as a
+///   pending revision (the active version keeps serving) that a SECOND, distinct
+///   actor must approve (`approve_revision`). The publisher cannot self-approve
+///   (mirrors the #205 workflow-decide SoD, enforced at approve time).
 async fn publish_definition(
     State(state): State<WorkflowStudioState>,
     Extension(principal): Extension<Principal>,
@@ -2779,34 +3067,435 @@ async fn publish_definition(
 ) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
     authorize_workflow_manage(&principal)?;
     verify_workflow_step_up(&state, &principal, body.step_up).await?;
-    mutate_definition(
-        &state,
-        principal,
-        id,
-        "workflow_definition.publish",
-        "게시",
-        |row| {
-            let findings = validate_publishable(row);
-            if findings.is_empty() {
-                Ok((
-                    "ACTIVE",
-                    "PUBLISHED",
-                    row.latest_version + 1,
-                    row.active_version,
-                ))
-            } else {
-                Err(WorkflowStudioError::validation(
-                    findings
-                        .into_iter()
-                        .map(|finding| finding.message)
-                        .collect::<Vec<_>>()
-                        .join("; "),
-                ))
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_definition.publish")?,
+        "workflow_definition",
+        id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org);
+
+    let (response, staged) =
+        with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+            Box::pin(async move {
+                let current = load_latest_version(tx, id, true).await?;
+                ensure_not_retired(&current)?;
+                let findings = validate_publishable(&current);
+                if !findings.is_empty() {
+                    return Err(WorkflowStudioError::validation(
+                        findings
+                            .into_iter()
+                            .map(|finding| finding.message)
+                            .collect::<Vec<_>>()
+                            .join("; "),
+                    ));
+                }
+                let before = snapshot_from_row(&current);
+
+                if current.active_version.is_none() {
+                    // Direct activate: never-published definition.
+                    let new_version = current.latest_version + 1;
+                    let updated = insert_version_and_update_definition(
+                        tx,
+                        WorkflowVersionMutation {
+                            org,
+                            actor,
+                            source: &current,
+                            new_version,
+                            version_status: "PUBLISHED",
+                            definition_status: "ACTIVE",
+                            active_version: Some(new_version),
+                        },
+                    )
+                    .await?;
+                    insert_workflow_event(
+                        tx,
+                        WorkflowAuditEvent {
+                            org,
+                            definition_id: id,
+                            version: Some(new_version),
+                            action: "workflow_definition.publish",
+                            actor: Some(actor),
+                            summary: "게시",
+                            before_snap: Some(before),
+                            after_snap: Some(snapshot_from_response(&updated)),
+                        },
+                    )
+                    .await?;
+                    return Ok((updated, false));
+                }
+
+                // Four-eyes staging on a live definition.
+                if current.pending_version.is_some() {
+                    return Err(WorkflowStudioError::from(KernelError::conflict(
+                        "a revision is already pending approval; approve or withdraw it first",
+                    )));
+                }
+                if current.latest_version == current.active_version.unwrap_or_default() {
+                    return Err(WorkflowStudioError::from(KernelError::conflict(
+                        "no draft revision to publish; edit the definition first",
+                    )));
+                }
+                let pending_version = current.latest_version;
+                let updated = stage_pending_revision(tx, id, pending_version, actor).await?;
+                insert_workflow_event(
+                    tx,
+                    WorkflowAuditEvent {
+                        org,
+                        definition_id: id,
+                        version: Some(pending_version),
+                        action: "workflow_definition.stage_revision",
+                        actor: Some(actor),
+                        summary: "개정 상신(적용 대기)",
+                        before_snap: Some(before),
+                        after_snap: Some(snapshot_from_response(&updated)),
+                    },
+                )
+                .await?;
+                Ok((updated, true))
+            })
+        })
+        .await?;
+    record_workflow_studio_request(if staged { "stage_revision" } else { "publish" }, "success");
+    Ok(Json(response))
+}
+
+/// Set the pending-revision pointer on a live definition (staging). The active
+/// version and definition status are untouched — it keeps serving.
+async fn stage_pending_revision(
+    tx: &mut Transaction<'_, Postgres>,
+    definition_id: Uuid,
+    pending_version: i32,
+    actor: UserId,
+) -> Result<WorkflowDefinitionResponse, WorkflowStudioError> {
+    let row = sqlx::query(
+        r#"
+        UPDATE workflow_definitions
+           SET pending_version = $2,
+               pending_staged_by = $3,
+               updated_by = $3,
+               updated_at = now()
+         WHERE id = $1
+        RETURNING id, workflow_key, display_name, object_type, status,
+            latest_version, active_version, pending_version, pending_staged_by,
+            created_at, updated_at
+        "#,
+    )
+    .bind(definition_id)
+    .bind(pending_version)
+    .bind(*actor.as_uuid())
+    .fetch_one(tx.as_mut())
+    .await?;
+    // Carry the staged (latest DRAFT) version's content on the response.
+    let staged = load_specific_version(tx, definition_id, pending_version).await?;
+    definition_response(&row, &staged)
+}
+
+/// Build a definition response from a definitions row + the version row whose
+/// content/lines should be surfaced.
+fn definition_response(
+    row: &sqlx::postgres::PgRow,
+    version: &WorkflowVersionRow,
+) -> Result<WorkflowDefinitionResponse, WorkflowStudioError> {
+    Ok(WorkflowDefinitionResponse {
+        id: row.try_get("id")?,
+        workflow_key: row.try_get("workflow_key")?,
+        display_name: row.try_get("display_name")?,
+        object_type: row.try_get("object_type")?,
+        status: row.try_get("status")?,
+        latest_version: row.try_get("latest_version")?,
+        active_version: row.try_get("active_version")?,
+        object_kinds: definition_object_kinds(&version.definition),
+        definition: version.definition.clone(),
+        approval_line: version.approval_line.clone(),
+        payment_line: version.payment_line.clone(),
+        notification_rules: version.notification_rules.clone(),
+        action_allowlist: version.action_allowlist.clone(),
+        required_approval_line: version.required_approval_line,
+        required_payment_line: version.required_payment_line,
+        pending_version: row.try_get("pending_version")?,
+        pending_staged_by: row.try_get("pending_staged_by")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+/// Approve a staged pending revision — the four-eyes application. A SECOND,
+/// distinct actor (not the publisher who staged it) appends the PUBLISHED
+/// version from the pending DRAFT and flips `active_version` to it. The staging
+/// actor may only self-approve if org-lead/SUPER_ADMIN, recorded as a governance
+/// finding (mirrors #205).
+async fn approve_revision(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path((id, rev)): Path<(Uuid, i32)>,
+    Json(body): Json<WorkflowStepUpRequest>,
+) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    verify_workflow_step_up(&state, &principal, body.step_up).await?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_definition.approve_revision")?,
+        "workflow_definition",
+        id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org);
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = load_latest_version(tx, id, true).await?;
+            let Some(pending) = current.pending_version else {
+                return Err(WorkflowStudioError::from(KernelError::conflict(
+                    "no revision is pending approval",
+                )));
+            };
+            if pending != rev {
+                return Err(WorkflowStudioError::from(KernelError::conflict(
+                    "the pending revision does not match the requested version",
+                )));
             }
+            // SoD: the actor who staged the revision cannot approve it, unless an
+            // exempt authority — recorded as a governance finding (#205 pattern).
+            let staged_by = current.pending_staged_by;
+            if staged_by == Some(*actor.as_uuid()) {
+                enforce_revision_self_approval(tx, actor, org, id).await?;
+            }
+            let before = snapshot_from_row(&current);
+            let source = load_specific_version(tx, id, pending).await?;
+            let new_version = current.latest_version + 1;
+            let source_for_insert = WorkflowVersionRow {
+                latest_version: current.latest_version,
+                status: current.status.clone(),
+                active_version: current.active_version,
+                pending_version: None,
+                pending_staged_by: None,
+                created_at: current.created_at,
+                updated_at: current.updated_at,
+                ..source
+            };
+            let updated = insert_version_and_clear_pending(
+                tx,
+                WorkflowVersionMutation {
+                    org,
+                    actor,
+                    source: &source_for_insert,
+                    new_version,
+                    version_status: "PUBLISHED",
+                    definition_status: "ACTIVE",
+                    active_version: Some(new_version),
+                },
+            )
+            .await?;
+            insert_workflow_event(
+                tx,
+                WorkflowAuditEvent {
+                    org,
+                    definition_id: id,
+                    version: Some(new_version),
+                    action: "workflow_definition.approve_revision",
+                    actor: Some(actor),
+                    summary: "개정 적용 승인(four-eyes)",
+                    before_snap: Some(before),
+                    after_snap: Some(snapshot_from_response(&updated)),
+                },
+            )
+            .await?;
+            Ok(updated)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("approve_revision", "success");
+    Ok(Json(response))
+}
+
+/// Withdraw (discard) a staged pending revision: clears the pointer, the active
+/// version keeps serving, the DRAFT stays in history. Any workflow-manager may
+/// withdraw (it does not apply anything, so it is not an SoD-gated action).
+async fn withdraw_revision(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path((id, rev)): Path<(Uuid, i32)>,
+) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_definition.withdraw_revision")?,
+        "workflow_definition",
+        id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org);
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = load_latest_version(tx, id, true).await?;
+            let Some(pending) = current.pending_version else {
+                return Err(WorkflowStudioError::from(KernelError::conflict(
+                    "no revision is pending approval",
+                )));
+            };
+            if pending != rev {
+                return Err(WorkflowStudioError::from(KernelError::conflict(
+                    "the pending revision does not match the requested version",
+                )));
+            }
+            let before = snapshot_from_row(&current);
+            let row = sqlx::query(
+                r#"
+                UPDATE workflow_definitions
+                   SET pending_version = NULL,
+                       pending_staged_by = NULL,
+                       updated_by = $2,
+                       updated_at = now()
+                 WHERE id = $1
+                RETURNING id, workflow_key, display_name, object_type, status,
+                    latest_version, active_version, pending_version,
+                    pending_staged_by, created_at, updated_at
+                "#,
+            )
+            .bind(id)
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            let updated = definition_response(&row, &current)?;
+            insert_workflow_event(
+                tx,
+                WorkflowAuditEvent {
+                    org,
+                    definition_id: id,
+                    version: Some(pending),
+                    action: "workflow_definition.withdraw_revision",
+                    actor: Some(actor),
+                    summary: "개정 철회",
+                    before_snap: Some(before),
+                    after_snap: Some(snapshot_from_response(&updated)),
+                },
+            )
+            .await?;
+            Ok(updated)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("withdraw_revision", "success");
+    Ok(Json(response))
+}
+
+/// Append the approved version AND clear the pending pointer in one UPDATE.
+async fn insert_version_and_clear_pending(
+    tx: &mut Transaction<'_, Postgres>,
+    mutation: WorkflowVersionMutation<'_>,
+) -> Result<WorkflowDefinitionResponse, WorkflowStudioError> {
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_definition_versions (
+            org_id, definition_id, version, status, definition,
+            approval_line, payment_line, notification_rules, action_allowlist,
+            required_approval_line, required_payment_line, created_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        "#,
+    )
+    .bind(*mutation.org.as_uuid())
+    .bind(mutation.source.definition_id)
+    .bind(mutation.new_version)
+    .bind(mutation.version_status)
+    .bind(&mutation.source.definition)
+    .bind(Value::Array(mutation.source.approval_line.clone()))
+    .bind(Value::Array(mutation.source.payment_line.clone()))
+    .bind(Value::Array(mutation.source.notification_rules.clone()))
+    .bind(Value::Array(mutation.source.action_allowlist.clone()))
+    .bind(mutation.source.required_approval_line)
+    .bind(mutation.source.required_payment_line)
+    .bind(*mutation.actor.as_uuid())
+    .execute(tx.as_mut())
+    .await?;
+
+    let row = sqlx::query(
+        r#"
+        UPDATE workflow_definitions
+           SET status = $2,
+               latest_version = $3,
+               active_version = $4,
+               pending_version = NULL,
+               pending_staged_by = NULL,
+               updated_by = $5,
+               updated_at = now()
+         WHERE id = $1
+        RETURNING id, workflow_key, display_name, object_type, status,
+            latest_version, active_version, pending_version, pending_staged_by,
+            created_at, updated_at
+        "#,
+    )
+    .bind(mutation.source.definition_id)
+    .bind(mutation.definition_status)
+    .bind(mutation.new_version)
+    .bind(mutation.active_version)
+    .bind(*mutation.actor.as_uuid())
+    .fetch_one(tx.as_mut())
+    .await?;
+    definition_response(&row, mutation.source)
+}
+
+/// SoD exception for approving one's own staged revision: allowed ONLY for a
+/// 대표 (`is_org_lead`) or SUPER_ADMIN, recorded as an `anomaly.self_approval`
+/// governance finding. Otherwise a 403. Mirrors #205's decide-path guard.
+async fn enforce_revision_self_approval(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: UserId,
+    org: mnt_kernel_core::OrgId,
+    definition_id: Uuid,
+) -> Result<(), WorkflowStudioError> {
+    let actor_uuid = *actor.as_uuid();
+    let user_row = sqlx::query("SELECT roles, is_org_lead FROM users WHERE id = $1")
+        .bind(actor_uuid)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| KernelError::not_found("approving user was not found"))?;
+    let roles: Vec<String> = user_row.try_get("roles")?;
+    let is_org_lead: bool = user_row.try_get("is_org_lead")?;
+    let is_super_admin = roles.iter().any(|role| role == "SUPER_ADMIN");
+    if !(is_org_lead || is_super_admin) {
+        return Err(WorkflowStudioError::from(KernelError::forbidden(
+            "본인이 상신한 개정은 승인할 수 없습니다",
+        )));
+    }
+    let exemption_reason = if is_super_admin {
+        "super_admin_exempt"
+    } else {
+        "org_lead_exempt"
+    };
+    let entity_id = definition_id.to_string();
+    mnt_platform_db::upsert_open_finding_tx(
+        tx,
+        org,
+        mnt_platform_db::OpenFinding {
+            detector_id: "anomaly.self_approval",
+            entity_type: "workflow_definition",
+            entity_id: &entity_id,
+            subject_user_id: Some(actor_uuid),
+            score: 1.0,
+            severity: "HIGH",
+            evidence: json!({
+                "action": "workflow_definition.approve_revision",
+                "definition_id": entity_id,
+                "approver": actor_uuid.to_string(),
+                "exemption_reason": exemption_reason,
+            }),
         },
     )
     .await
-    .map(Json)
+    .map_err(WorkflowStudioError::from)?;
+    Ok(())
 }
 
 async fn pause_definition(
@@ -2979,6 +3668,7 @@ async fn clone_definition(
                 status: row.try_get("status")?,
                 latest_version: row.try_get("latest_version")?,
                 active_version: row.try_get("active_version")?,
+                object_kinds: definition_object_kinds(&source.definition),
                 definition: source.definition,
                 approval_line: source.approval_line,
                 payment_line: source.payment_line,
@@ -2986,6 +3676,8 @@ async fn clone_definition(
                 action_allowlist: source.action_allowlist,
                 required_approval_line: source.required_approval_line,
                 required_payment_line: source.required_payment_line,
+                pending_version: None,
+                pending_staged_by: None,
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             })
@@ -3201,7 +3893,8 @@ async fn insert_version_and_update_definition(
                updated_at = now()
          WHERE id = $1
         RETURNING id, workflow_key, display_name, object_type, status,
-            latest_version, active_version, created_at, updated_at
+            latest_version, active_version, pending_version, pending_staged_by,
+            created_at, updated_at
         "#,
     )
     .bind(mutation.source.definition_id)
@@ -3222,12 +3915,15 @@ async fn insert_version_and_update_definition(
         latest_version: row.try_get("latest_version")?,
         active_version: row.try_get("active_version")?,
         definition: mutation.source.definition.clone(),
+        object_kinds: definition_object_kinds(&mutation.source.definition),
         approval_line: mutation.source.approval_line.clone(),
         payment_line: mutation.source.payment_line.clone(),
         notification_rules: mutation.source.notification_rules.clone(),
         action_allowlist: mutation.source.action_allowlist.clone(),
         required_approval_line: mutation.source.required_approval_line,
         required_payment_line: mutation.source.required_payment_line,
+        pending_version: row.try_get("pending_version")?,
+        pending_staged_by: row.try_get("pending_staged_by")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -3249,6 +3945,8 @@ async fn load_latest_version(
                 d.status,
                 d.latest_version,
                 d.active_version,
+                d.pending_version,
+                d.pending_staged_by,
                 d.created_at,
                 d.updated_at,
                 v.definition,
@@ -3281,6 +3979,8 @@ async fn load_latest_version(
                 d.status,
                 d.latest_version,
                 d.active_version,
+                d.pending_version,
+                d.pending_staged_by,
                 d.created_at,
                 d.updated_at,
                 v.definition,
@@ -3321,6 +4021,8 @@ async fn load_specific_version(
             d.status,
             d.latest_version,
             d.active_version,
+            d.pending_version,
+            d.pending_staged_by,
             d.created_at,
             d.updated_at,
             v.definition,
@@ -3402,6 +4104,8 @@ async fn insert_workflow_event(
 fn response_from_row(
     row: sqlx::postgres::PgRow,
 ) -> Result<WorkflowDefinitionResponse, WorkflowStudioError> {
+    let definition: Value = row.try_get("definition")?;
+    let object_kinds = definition_object_kinds(&definition);
     Ok(WorkflowDefinitionResponse {
         id: row.try_get("id")?,
         workflow_key: row.try_get("workflow_key")?,
@@ -3410,13 +4114,16 @@ fn response_from_row(
         status: row.try_get("status")?,
         latest_version: row.try_get("latest_version")?,
         active_version: row.try_get("active_version")?,
-        definition: row.try_get("definition")?,
+        definition,
+        object_kinds,
         approval_line: json_array(row.try_get("approval_line")?),
         payment_line: json_array(row.try_get("payment_line")?),
         notification_rules: json_array(row.try_get("notification_rules")?),
         action_allowlist: json_array(row.try_get("action_allowlist")?),
         required_approval_line: row.try_get("required_approval_line")?,
         required_payment_line: row.try_get("required_payment_line")?,
+        pending_version: row.try_get("pending_version")?,
+        pending_staged_by: row.try_get("pending_staged_by")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -3438,6 +4145,8 @@ fn row_to_version(row: sqlx::postgres::PgRow) -> Result<WorkflowVersionRow, Work
         action_allowlist: json_array(row.try_get("action_allowlist")?),
         required_approval_line: row.try_get("required_approval_line")?,
         required_payment_line: row.try_get("required_payment_line")?,
+        pending_version: row.try_get("pending_version")?,
+        pending_staged_by: row.try_get("pending_staged_by")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -3523,7 +4232,7 @@ fn apply_draft_update(
     current: &WorkflowVersionRow,
     update: NormalizedWorkflowDefinitionUpdate,
 ) -> Result<WorkflowVersionRow, WorkflowStudioError> {
-    ensure_draft_definition(current, "edited")?;
+    ensure_editable(current)?;
     let mut next = current.clone();
     if let Some(display_name) = update.display_name {
         next.display_name = display_name;
@@ -3564,6 +4273,26 @@ fn ensure_draft_definition(
         ))
         .into())
     }
+}
+
+/// Editing a definition (PATCH) is the pendingRev entry point: a DRAFT edits in
+/// place, and a LIVE definition (ACTIVE/PAUSED) produces a v+1 DRAFT revision
+/// while its active version keeps serving. Only a RETIRED definition, or one
+/// that already has a revision awaiting approval, refuses the edit.
+fn ensure_editable(row: &WorkflowVersionRow) -> Result<(), WorkflowStudioError> {
+    if row.status == "RETIRED" {
+        return Err(KernelError::invalid_transition(
+            "retired workflow definitions cannot be edited",
+        )
+        .into());
+    }
+    if row.pending_version.is_some() {
+        return Err(KernelError::conflict(
+            "a revision is already pending approval; approve or withdraw it before editing",
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn ensure_not_retired(row: &WorkflowVersionRow) -> Result<(), WorkflowStudioError> {
@@ -3730,11 +4459,12 @@ fn validate_execution_graph(
             WorkflowStudioError::validation("execution definition requires a non-empty nodes array")
         })?;
     let mut has_job = false;
+    let mut condition_keys: Vec<String> = Vec::new();
     for node in nodes {
         let node = node.as_object().ok_or_else(|| {
             WorkflowStudioError::validation("execution nodes must be JSON objects")
         })?;
-        required_string(node, "node_key")?;
+        let node_key = required_string(node, "node_key")?.to_owned();
         match required_string(node, "node_type")? {
             "object_gate" | "object_mutation" => {}
             "human_task" => {
@@ -3755,6 +4485,17 @@ fn validate_execution_graph(
                     )));
                 }
             }
+            "condition" => {
+                // A condition node carries a small deterministic predicate; parse
+                // it fail-closed so a malformed rule cannot publish (the runtime
+                // walker parses the same shape).
+                let predicate = node.get("predicate").ok_or_else(|| {
+                    WorkflowStudioError::validation("condition node requires a predicate")
+                })?;
+                mnt_workflow_runtime::Predicate::parse(predicate)
+                    .map_err(WorkflowStudioError::from)?;
+                condition_keys.push(node_key);
+            }
             other => {
                 return Err(WorkflowStudioError::validation(format!(
                     "unsupported execution node_type {other}"
@@ -3762,6 +4503,30 @@ fn validate_execution_graph(
             }
         }
     }
+
+    // Every condition node needs BOTH a true and a false outgoing branch edge,
+    // or a run could dead-end at it (fail-closed authoring, not a runtime error).
+    let edges = object.get("edges").and_then(Value::as_array);
+    for key in &condition_keys {
+        let has_branch = |want: &str| {
+            edges.is_some_and(|edges| {
+                edges.iter().any(|edge| {
+                    edge.get("from").and_then(Value::as_str) == Some(key.as_str())
+                        && edge.get("when").and_then(Value::as_str) == Some(want)
+                })
+            })
+        };
+        if !has_branch("true") || !has_branch("false") {
+            return Err(WorkflowStudioError::validation(format!(
+                "condition node {key:?} requires both a \"true\" and a \"false\" branch edge"
+            )));
+        }
+    }
+
+    // Optional object-kind chain: the ontology kinds this definition's nodes
+    // touch (dynamics↔ontology). Shape-validated here; existence in object_types
+    // is checked against the DB at create/update time (validate_object_kinds).
+    validate_object_kinds_shape(object)?;
     // Fail-closed start authority (Engine-Gen follow-up): a graph containing a `job`
     // node drives a system connector (e.g. the completion→approval→payroll pipeline's
     // payroll_draft), so it MUST declare a top-level `start_policy` constraining WHO
@@ -3779,6 +4544,94 @@ fn validate_execution_graph(
         return Err(WorkflowStudioError::validation(
             "execution definition with a job node requires a non-empty start_policy",
         ));
+    }
+    Ok(())
+}
+
+/// The definition status to keep when editing/staging a revision: a live
+/// definition (ACTIVE/PAUSED, i.e. it has an active_version) keeps its status so
+/// the active version keeps serving; a never-published one stays DRAFT.
+fn keep_live_status(current: &WorkflowVersionRow) -> &'static str {
+    if current.active_version.is_none() {
+        return "DRAFT";
+    }
+    match current.status.as_str() {
+        "PAUSED" => "PAUSED",
+        // ACTIVE (and any live status) keeps serving.
+        _ => "ACTIVE",
+    }
+}
+
+/// The `object_kinds` chain declared on a definition (the ontology kinds its
+/// nodes touch). Empty when unset.
+fn definition_object_kinds(definition: &Value) -> Vec<String> {
+    definition
+        .get("object_kinds")
+        .and_then(Value::as_array)
+        .map(|kinds| {
+            kinds
+                .iter()
+                .filter_map(|kind| kind.as_str().map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Shape-check the optional `object_kinds` field: an array of snake_case kind
+/// slugs (same shape as an object_types.kind). Existence is enforced separately
+/// against the DB.
+fn validate_object_kinds_shape(
+    object: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    let Some(kinds) = object.get("object_kinds") else {
+        return Ok(());
+    };
+    let kinds = kinds.as_array().ok_or_else(|| {
+        WorkflowStudioError::validation("object_kinds must be an array of kind slugs")
+    })?;
+    for kind in kinds {
+        let slug = kind.as_str().ok_or_else(|| {
+            WorkflowStudioError::validation("object_kinds entries must be strings")
+        })?;
+        if !is_object_kind_slug(slug) {
+            return Err(WorkflowStudioError::validation(format!(
+                "object_kinds entry {slug:?} is not a valid kind slug"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Mirror of the object_types.kind CHECK regex `^[a-z][a-z0-9_]{1,63}$`.
+fn is_object_kind_slug(slug: &str) -> bool {
+    let mut chars = slug.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase()
+        && (2..=64).contains(&slug.len())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Reject any `object_kinds` slug that is not a registered `object_types.kind`
+/// (dynamics↔ontology: a rule cannot claim to touch a kind that does not exist).
+/// Runs inside the caller's tenant transaction; object_types is a global table.
+async fn validate_object_kinds_exist(
+    tx: &mut Transaction<'_, Postgres>,
+    definition: &Value,
+) -> Result<(), WorkflowStudioError> {
+    let kinds = definition_object_kinds(definition);
+    for kind in kinds {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM object_types WHERE kind = $1)")
+                .bind(&kind)
+                .fetch_one(tx.as_mut())
+                .await?;
+        if !exists {
+            return Err(WorkflowStudioError::validation(format!(
+                "object_kinds entry {kind:?} is not a registered object type"
+            )));
+        }
     }
     Ok(())
 }
@@ -3999,6 +4852,35 @@ fn simulation_for(row: &WorkflowVersionRow) -> WorkflowSimulationResponse {
     WorkflowSimulationResponse {
         decision: decision.to_owned(),
         findings,
+        simulated_path: None,
+    }
+}
+
+/// Walk a `wf.exec.v1` definition's graph against `context` to report the branch
+/// actually taken (the ordered node keys that would execute). `None` for a
+/// non-executable definition; a walk error becomes a blocker finding on `result`.
+fn attach_simulated_path(
+    result: &mut WorkflowSimulationResponse,
+    definition: &Value,
+    context: &Value,
+) {
+    let is_exec = definition.get("schema_version").and_then(Value::as_str)
+        == Some(WORKFLOW_EXEC_SCHEMA_VERSION);
+    if !is_exec {
+        return;
+    }
+    match ExecGraph::parse(definition)
+        .and_then(|graph| mnt_workflow_runtime::simulate_path(&graph, context))
+    {
+        Ok(path) => result.simulated_path = Some(path),
+        Err(error) => {
+            result.decision = "blocked".to_owned();
+            result.findings.push(WorkflowSimulationFinding {
+                severity: "blocker".to_owned(),
+                code: "unwalkable_graph".to_owned(),
+                message: error.to_string(),
+            });
+        }
     }
 }
 
@@ -4037,6 +4919,9 @@ struct TriggerBindingResponse {
     definition_id: Uuid,
     trigger_type: String,
     event_key: String,
+    /// The ontology object kind this rule acts on (dynamics↔ontology). `None`
+    /// for a binding not scoped to a specific kind.
+    subject_kind: Option<String>,
     enabled: bool,
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
@@ -4057,6 +4942,11 @@ struct CreateTriggerBindingRequest {
     definition_id: Uuid,
     trigger_type: String,
     event_key: String,
+    /// Optional ontology object kind the rule acts on. When present it must be a
+    /// registered object_types.kind (validated up front for a clean 422; the FK
+    /// is the DB-level backstop).
+    #[serde(default)]
+    subject_kind: Option<String>,
     #[serde(default = "default_true")]
     enabled: bool,
 }
@@ -4073,6 +4963,7 @@ fn trigger_binding_from_row(
         definition_id: row.try_get("definition_id").map_err(DbError::Sqlx)?,
         trigger_type: row.try_get("trigger_type").map_err(DbError::Sqlx)?,
         event_key: row.try_get("event_key").map_err(DbError::Sqlx)?,
+        subject_kind: row.try_get("subject_kind").map_err(DbError::Sqlx)?,
         enabled: row.try_get("enabled").map_err(DbError::Sqlx)?,
         created_at: row.try_get("created_at").map_err(DbError::Sqlx)?,
         updated_at: row.try_get("updated_at").map_err(DbError::Sqlx)?,
@@ -4091,8 +4982,8 @@ async fn list_trigger_bindings(
         |tx| {
             Box::pin(async move {
                 let rows = sqlx::query(
-                    "SELECT id, definition_id, trigger_type, event_key, enabled, \
-                            created_at, updated_at \
+                    "SELECT id, definition_id, trigger_type, event_key, subject_kind, \
+                            enabled, created_at, updated_at \
                      FROM workflow_trigger_bindings \
                      ORDER BY created_at DESC",
                 )
@@ -4139,6 +5030,21 @@ async fn create_trigger_binding(
             "event_key {event_key:?} is not a registered domain event"
         )));
     }
+    // Optional object-kind scope (dynamics↔ontology): shape-check up front; the
+    // FK to object_types + the DB existence check below give the clean 422.
+    let subject_kind = body
+        .subject_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+        .map(ToOwned::to_owned);
+    if let Some(kind) = &subject_kind
+        && !is_object_kind_slug(kind)
+    {
+        return Err(WorkflowStudioError::validation(format!(
+            "subject_kind {kind:?} is not a valid kind slug"
+        )));
+    }
 
     let binding_id = Uuid::new_v4();
     let actor = principal.user_id;
@@ -4147,6 +5053,7 @@ async fn create_trigger_binding(
     let enabled = body.enabled;
     let trigger_type_db = trigger_type.as_db_str();
     let audit_event_key = event_key.clone();
+    let audit_subject_kind = subject_kind.clone();
     let event = AuditEvent::new(
         Some(actor),
         AuditAction::new("workflow_trigger_binding.create")?,
@@ -4162,6 +5069,7 @@ async fn create_trigger_binding(
             "definition_id": definition_id,
             "trigger_type": trigger_type_db,
             "event_key": audit_event_key,
+            "subject_kind": audit_subject_kind,
             "enabled": enabled,
         })),
     );
@@ -4178,6 +5086,19 @@ async fn create_trigger_binding(
                     "workflow definition not found",
                 )));
             }
+            if let Some(kind) = &subject_kind {
+                let kind_exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM object_types WHERE kind = $1)",
+                )
+                .bind(kind)
+                .fetch_one(tx.as_mut())
+                .await?;
+                if !kind_exists {
+                    return Err(WorkflowStudioError::validation(format!(
+                        "subject_kind {kind:?} is not a registered object type"
+                    )));
+                }
+            }
             let duplicate: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM workflow_trigger_bindings \
                  WHERE definition_id = $1 AND event_key = $2)",
@@ -4193,17 +5114,18 @@ async fn create_trigger_binding(
             }
             let row = sqlx::query(
                 "INSERT INTO workflow_trigger_bindings \
-                     (id, org_id, definition_id, trigger_type, event_key, enabled, \
-                      created_by, updated_by) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $7) \
-                 RETURNING id, definition_id, trigger_type, event_key, enabled, \
-                           created_at, updated_at",
+                     (id, org_id, definition_id, trigger_type, event_key, subject_kind, \
+                      enabled, created_by, updated_by) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) \
+                 RETURNING id, definition_id, trigger_type, event_key, subject_kind, \
+                           enabled, created_at, updated_at",
             )
             .bind(binding_id)
             .bind(*org.as_uuid())
             .bind(definition_id)
             .bind(trigger_type_db)
             .bind(&event_key)
+            .bind(subject_kind.as_deref())
             .bind(enabled)
             .bind(*actor.as_uuid())
             .fetch_one(tx.as_mut())
@@ -4266,8 +5188,8 @@ async fn set_trigger_binding_enabled(
                     "UPDATE workflow_trigger_bindings \
                      SET enabled = $2, updated_by = $3, updated_at = now() \
                      WHERE id = $1 \
-                     RETURNING id, definition_id, trigger_type, event_key, enabled, \
-                               created_at, updated_at",
+                     RETURNING id, definition_id, trigger_type, event_key, subject_kind, \
+                               enabled, created_at, updated_at",
                 )
                 .bind(id)
                 .bind(enabled)
@@ -5256,6 +6178,8 @@ mod tests {
             })],
             required_approval_line: true,
             required_payment_line: true,
+            pending_version: None,
+            pending_staged_by: None,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
         };
@@ -5322,6 +6246,8 @@ mod tests {
             })],
             required_approval_line: true,
             required_payment_line: false,
+            pending_version: None,
+            pending_staged_by: None,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
         }
@@ -5468,30 +6394,52 @@ mod tests {
         Ok(())
     }
 
+    fn edit(display: &str) -> NormalizedWorkflowDefinitionUpdate {
+        NormalizedWorkflowDefinitionUpdate {
+            display_name: Some(display.to_owned()),
+            definition: None,
+            approval_line: None,
+            payment_line: None,
+            notification_rules: None,
+            action_allowlist: None,
+            required_approval_line: None,
+            required_payment_line: None,
+        }
+    }
+
     #[test]
-    fn draft_update_requires_draft_status() -> Result<(), String> {
+    fn active_definition_is_editable_as_a_staged_revision() -> Result<(), String> {
+        // pendingRev: editing a LIVE (ACTIVE) definition is allowed — it stages a
+        // DRAFT revision while the active version keeps serving.
         let mut current = policy_row(policy_decision_definition());
         current.status = "ACTIVE".to_owned();
+        current.active_version = Some(1);
+        let next = apply_draft_update(&current, edit("Staged revision")).map_err(|e| e.message)?;
+        assert_eq!(next.display_name, "Staged revision");
+        Ok(())
+    }
 
-        let err = match apply_draft_update(
-            &current,
-            NormalizedWorkflowDefinitionUpdate {
-                display_name: Some("Cannot edit".to_owned()),
-                definition: None,
-                approval_line: None,
-                payment_line: None,
-                notification_rules: None,
-                action_allowlist: None,
-                required_approval_line: None,
-                required_payment_line: None,
-            },
-        ) {
-            Ok(_) => return Err("published definitions must not be editable drafts".to_owned()),
-            Err(err) => err,
-        };
-
-        assert_eq!(err.status, StatusCode::CONFLICT);
+    #[test]
+    fn retired_definition_is_not_editable() -> Result<(), String> {
+        let mut current = policy_row(policy_decision_definition());
+        current.status = "RETIRED".to_owned();
+        let err = apply_draft_update(&current, edit("Cannot edit"))
+            .err()
+            .ok_or_else(|| "retired definitions must not be editable".to_owned())?;
         assert_eq!(err.code, "invalid_transition");
+        Ok(())
+    }
+
+    #[test]
+    fn definition_with_pending_revision_is_not_editable() -> Result<(), String> {
+        let mut current = policy_row(policy_decision_definition());
+        current.status = "ACTIVE".to_owned();
+        current.active_version = Some(1);
+        current.pending_version = Some(2);
+        let err = apply_draft_update(&current, edit("Second edit"))
+            .err()
+            .ok_or_else(|| "a pending revision must block further edits".to_owned())?;
+        assert_eq!(err.status, StatusCode::CONFLICT);
         Ok(())
     }
 

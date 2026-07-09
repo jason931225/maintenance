@@ -6,6 +6,8 @@ on:
       - main
     tags:
       - "v*"
+    # GitHub Actions does not evaluate `paths` for tag pushes; release tags
+    # therefore run the full ADR-0009/0012 CI gate regardless of changed files.
     paths:
       - "backend/**"
       - "backend/openapi/**"
@@ -22,8 +24,12 @@ on:
       - "docs/GO-LIVE-CHECKLIST.md"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
+      - "docs/release/**"
       - "ops/**"
       - "scripts/**"
+      - "fastlane/**"
+      - "Gemfile"
+      - "Gemfile.lock"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
@@ -46,8 +52,12 @@ on:
       - "docs/GO-LIVE-CHECKLIST.md"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
+      - "docs/release/**"
       - "ops/**"
       - "scripts/**"
+      - "fastlane/**"
+      - "Gemfile"
+      - "Gemfile.lock"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
@@ -211,6 +221,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+
+      - name: dev-up compose contract unit test
+        run: node --test scripts/dev-up-compose.test.mjs
 
       - name: dev-up bootstrap (compose deps + migrate + backend readyz)
         # macOS/Windows GH-hosted runners cannot run Linux containers reliably,
@@ -398,10 +411,19 @@ jobs:
           --health-retries 5
     env:
       CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract
+      # This job builds mnt-app before comparing the app-served OpenAPI and
+      # running the generated-client round-trip. Match the backend job's lean
+      # Cargo artifacts so the standard runner does not exhaust disk on cache
+      # misses.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Free runner disk for API contract
+        uses: ./.github/actions/free-runner-disk
 
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -770,6 +792,10 @@ jobs:
           --health-retries 5
     env:
       CI: "true"
+      # Keep the E2E Rust build lean on the standard GitHub runner; this job
+      # only needs the mnt-app binary, not debug symbols.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
       # Point the harness (e2e/harness/*.sh) at the service as the postgres superuser.
       E2E_PG_SUPERUSER: postgres
       E2E_PG_HOST: localhost
@@ -778,6 +804,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Free runner disk for Rust backend
+        uses: ./.github/actions/free-runner-disk
 
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -829,6 +858,8 @@ jobs:
         # (api role, /readyz) -> playwright (builds + previews web on :5173, proxies
         # /api) -> teardown. Every user-story spec across all roles, real WebAuthn
         # via the CDP virtual authenticator.
+        env:
+          MNT_APP_BIN: ${{ github.workspace }}/backend/target/debug/mnt-app
         run: bash e2e/run.sh
 
       - name: Upload Playwright report + traces

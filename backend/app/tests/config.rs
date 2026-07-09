@@ -41,3 +41,23 @@ fn solapi_credentials_with_approved_template_enable_alimtalk() {
         Some("KA01TP250612000001")
     );
 }
+
+#[test]
+fn mox_settings_are_resolved_from_app_config_pairs() {
+    let config = AppConfig::from_pairs([
+        ("MNT_APP_ROLE", AppRole::Api.to_string()),
+        ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ("MNT_MAIL_MOX_BASE_URL", "https://mox.internal".to_owned()),
+        ("MNT_MAIL_MOX_WEBHOOK_SECRET", "delivery-secret".to_owned()),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        config.mail_mox_base_url.as_deref(),
+        Some("https://mox.internal")
+    );
+    assert_eq!(
+        config.mail_mox_webhook_secret.as_deref(),
+        Some("delivery-secret")
+    );
+}

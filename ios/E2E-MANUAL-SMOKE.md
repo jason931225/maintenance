@@ -106,6 +106,9 @@ cold launch — the exact path the XCUITest pre-launch seeding emulates.
 
 ## Sign-off
 
+Capture this table in the release or PR evidence packet whenever the ADR-0009 release gate
+requires iOS secure-system passkey proof.
+
 | Field | Value |
 | --- | --- |
 | Tester | |
@@ -114,8 +117,8 @@ cold launch — the exact path the XCUITest pre-launch seeding emulates.
 | App build (bundle id + version) | |
 | Backend env (staging/prod) | |
 | RP origin | https://console.knllogistic.com |
-| Part A (create) | ☐ pass ☐ fail |
-| Part B (assert) | ☐ pass ☐ fail |
-| Part C (persistence) | ☐ pass ☐ fail |
-| Part D (negative) | ☐ pass ☐ fail |
+| Part A (create) | pass / fail |
+| Part B (assert) | pass / fail |
+| Part C (persistence) | pass / fail |
+| Part D (negative) | pass / fail |
 | Notes | |

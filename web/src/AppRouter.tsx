@@ -60,6 +60,12 @@ const ConsoleApp = lazy(() =>
 const WindowEngineHarness = lazy(() =>
   import("./console/window/harness").then((m) => ({ default: m.WindowEngineHarness })),
 );
+// Standalone dev harness for the P0.4 generic module template (charter §3 P0.4).
+// Not a product surface — it renders one ModuleScreen against a live read to
+// prove the template end to end until the P0.1 shell hosts modules for real.
+const ModuleHarness = lazy(() =>
+  import("./console/module/ModuleHarness").then((m) => ({ default: m.ModuleHarness })),
+);
 // Dev-only lifecycle-card capture harness (P0.5). Standalone, shell-less.
 const LifecycleHarness = lazy(() =>
   import("./console/lifecycle/harness").then((m) => ({ default: m.LifecycleHarness })),
@@ -362,6 +368,22 @@ export function AppRouter() {
             <RouteErrorBoundary>
               <Suspense fallback={<PageSpinner />}>
                 <WindowEngineHarness />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+
+        {/* P0.4 generic module template dev harness. Standalone, behind
+            ProtectedRoute; renders one ModuleScreen against a live typed-client
+            read (?config=support switches the proof config). Its own error
+            boundary contains a crash (it renders shell-less). Route-audit entry
+            classified as a dev harness (not a product route). */}
+        <Route
+          path="/console-dev/module"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ModuleHarness />
               </Suspense>
             </RouteErrorBoundary>
           }

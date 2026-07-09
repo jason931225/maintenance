@@ -60,6 +60,13 @@ pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
             "lifecycle_transition_rules",
             "global seeded lifecycle FSM rules (object_type/from/to), no tenant data",
         ),
+        // Platform-wide edge-type vocabulary (relates_to, depends_on, ...):
+        // the same closed, seeded set for every tenant. object_links FKs to it
+        // but the labels themselves are not tenant data.
+        (
+            "link_types",
+            "canonical edge-type vocabulary, seeded platform-wide, no tenant data",
+        ),
         // Pre-auth throttle: keyed on (ip, purpose), exists before any user/org
         // is resolved. Transient, no tenant.
         ("auth_rate_limit", "pre-auth throttle, no resolved tenant"),

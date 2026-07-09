@@ -106,6 +106,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
 pub mod action_inbox;
+pub mod cedar_parity;
 mod collaboration;
 mod hr;
 pub mod lifecycle;
@@ -245,6 +246,13 @@ pub struct AppConfig {
     /// (`MNT_MAIL_MASTER_KEY`) and object storage are both configured — it is a
     /// no-op otherwise, so a misconfiguration never crashes the app.
     pub mail_enabled: bool,
+    /// Mox webapi base URL for outbound webmail transport
+    /// (`MNT_MAIL_MOX_BASE_URL`). `None` keeps the default SMTP/lettre path.
+    pub mail_mox_base_url: Option<String>,
+    /// Shared secret for the inbound Mox delivery webhook
+    /// (`MNT_MAIL_MOX_WEBHOOK_SECRET`). `None` leaves the webhook mounted but
+    /// unavailable with 503 rather than accepting unauthenticated deliveries.
+    pub mail_mox_webhook_secret: Option<String>,
     /// Whether the L20 tamper-evident audit-chain seal worker runs
     /// (`MNT_AUDIT_CHAIN_SEAL_ENABLED`, default false). Post-merge review F3:
     /// the PR-1 in-crate `InMemoryEd25519Signer` generates a FRESH keypair on
@@ -438,6 +446,8 @@ impl AppConfig {
                 .map_err(|err| AppError::Config(format!("invalid MNT_MAIL_ENABLED: {err}")))?,
             None => false,
         };
+        let mail_mox_base_url = non_empty(vars.get("MNT_MAIL_MOX_BASE_URL"));
+        let mail_mox_webhook_secret = non_empty(vars.get("MNT_MAIL_MOX_WEBHOOK_SECRET"));
         let audit_chain_seal_enabled = match vars.get("MNT_AUDIT_CHAIN_SEAL_ENABLED") {
             Some(raw) => raw.parse::<bool>().map_err(|err| {
                 AppError::Config(format!("invalid MNT_AUDIT_CHAIN_SEAL_ENABLED: {err}"))
@@ -477,6 +487,8 @@ impl AppConfig {
             trusted_proxy_count,
             app_links,
             mail_enabled,
+            mail_mox_base_url,
+            mail_mox_webhook_secret,
             audit_chain_seal_enabled,
             storefront_org,
             office,
@@ -1525,6 +1537,16 @@ pub fn build_router(state: AppState) -> Router {
                     )
                     .with_passkey_step_up(state.policy_step_up.clone()),
                 ))
+                // Leave-request queue + §61 statutory push. The push delivers a
+                // receipt-gated notice through the SAME inbox vault (a fresh
+                // `PgInboxStore` over the shared pool as the `InboxDocSink`).
+                .merge(mnt_leave_rest::router(mnt_leave_rest::LeaveRestState::new(
+                    mnt_leave_adapter_postgres::PgLeaveStore::new(
+                        pool.clone(),
+                        std::sync::Arc::new(PgInboxStore::new(pool.clone())),
+                    ),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_todos_rest::router(TodoRestState::new(
                     todo_store,
                     state.jwt_verifier.clone(),
@@ -1536,13 +1558,19 @@ pub fn build_router(state: AppState) -> Router {
                 // The inbound-attachment object store (presigned GET) is wired
                 // from the same storage config the evidence pipeline uses; `None`
                 // when storage is unconfigured (download then 503s).
+                // mox integration (slice 1): when `MNT_MAIL_MOX_BASE_URL` is set,
+                // the outbound transport rides our own mox server's webapi instead
+                // of the lettre SMTP client; `MNT_MAIL_MOX_WEBHOOK_SECRET` arms the
+                // inbound delivery webhook (absent → webhook 503s, never hardcoded).
                 .merge(mnt_comms_rest::router(
                     CommsRestState::new(
                         PgMailStore::new(pool.clone()),
                         state.mail_cipher.clone(),
                         state.jwt_verifier.clone(),
                     )
-                    .with_attachments(mail_attachment_store(&state)),
+                    .with_attachments(mail_attachment_store(&state))
+                    .with_mox_transport(state.config.mail_mox_base_url.clone())
+                    .with_mox_webhook_secret(state.config.mail_mox_webhook_secret.clone()),
                 ));
             // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant
             // domain router so any request carrying a `view_as` token may use

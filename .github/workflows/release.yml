@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+    # Release tags enter the mobile upload workflow directly; this workflow's
+    # release-gates job waits for the same SHA's CI and iOS UI workflows before
+    # any Play/TestFlight upload step can start.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -14,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read          # wait for CI + iOS UI gates before uploading mobile binaries
 
 concurrency:
   group: mobile-release-${{ github.ref }}
@@ -25,8 +29,52 @@ env:
   FASTLANE_SKIP_UPDATE_CHECK: "1"
 
 jobs:
+  release-gates:
+    name: Require CI + iOS UI success for this SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip release gates for dry-run dispatch
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: echo "Dry-run dispatch selected; skipping upstream CI/iOS UI release gates."
+
+      - name: Wait for required release gates
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          require_workflow_success() {
+            local workflow="$1"
+            local label="$2"
+            local deadline=$((SECONDS + 3600))
+            while (( SECONDS < deadline )); do
+              runs="$(gh run list --repo "$REPO" --workflow "$workflow" --commit "$SHA" --limit 10 --json status,conclusion,url)"
+              if [[ "$(jq 'length' <<<"$runs")" -gt 0 ]]; then
+                status="$(jq -r '.[0].status' <<<"$runs")"
+                conclusion="$(jq -r '.[0].conclusion // ""' <<<"$runs")"
+                url="$(jq -r '.[0].url' <<<"$runs")"
+                echo "${label} for ${SHA}: ${status}/${conclusion} ${url}"
+                if [[ "$status" == "completed" ]]; then
+                  [[ "$conclusion" == "success" ]] && return 0
+                  echo "::error::${label} did not pass for ${SHA}: ${conclusion} ${url}"
+                  return 1
+                fi
+              else
+                echo "No ${label} run for ${SHA} yet."
+              fi
+              sleep 30
+            done
+            echo "::error::Timed out waiting for ${label} to finish for ${SHA}"
+            return 1
+          }
+
+          require_workflow_success ci.yml "CI"
+          require_workflow_success ios-ui-tests.yml "iOS UI tests"
+
   android:
     name: Android - Play internal track
+    needs: release-gates
     runs-on: ubuntu-latest
 
     steps:
@@ -115,6 +163,7 @@ jobs:
 
   ios:
     name: iOS - TestFlight
+    needs: release-gates
     runs-on: macos-latest
 
     steps:
@@ -163,10 +212,17 @@ jobs:
           if [[ -z "$IOS_XCODE_PROJECT" && -z "$IOS_XCODE_WORKSPACE" ]]; then
             missing+=("IOS_XCODE_PROJECT or IOS_XCODE_WORKSPACE")
           fi
+          if [[ -n "$IOS_XCODE_PROJECT" && ! -e "$IOS_XCODE_PROJECT" ]]; then
+            missing+=("IOS_XCODE_PROJECT path not found: $IOS_XCODE_PROJECT (TestFlight requires an archive-capable Xcode project present in the checkout)")
+          fi
+          if [[ -n "$IOS_XCODE_WORKSPACE" && ! -e "$IOS_XCODE_WORKSPACE" ]]; then
+            missing+=("IOS_XCODE_WORKSPACE path not found: $IOS_XCODE_WORKSPACE (TestFlight requires an archive-capable Xcode workspace present in the checkout)")
+          fi
 
           if (( ${#missing[@]} > 0 )); then
             printf 'Missing required iOS release inputs: %s\n' "${missing[*]}" >&2
             printf 'Add them in GitHub repository settings before pushing a release tag. See docs/release/SECRETS.md.\n' >&2
+            printf 'Current ios/ is SwiftPM-first; ios/project.yml is materialized for CI XCUITest but is not itself proof of TestFlight archive readiness.\n' >&2
             exit 64
           fi
 

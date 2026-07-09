@@ -1,0 +1,30 @@
+[package]
+name = "mnt-leave-adapter-postgres"
+version = "0.1.0"
+description = "Postgres adapter for the branch-scoped leave-request queue, decide + ledger write-back, and §61 statutory push."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-kernel-core = { workspace = true }
+mnt-leave-application = { workspace = true }
+mnt-leave-domain = { workspace = true }
+mnt-inbox-application = { workspace = true }
+mnt-inbox-domain = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+mnt-inbox-adapter-postgres = { workspace = true }
+mnt-platform-test-support = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

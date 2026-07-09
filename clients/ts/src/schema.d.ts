@@ -3215,6 +3215,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/leave/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the branch-scoped leave-request approval queue (연차 결재함)
+         * @description Pending-first, then newest. Requires `employee_directory_read`. The queue is confined to the caller's branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+         */
+        get: operations["listLeaveRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/requests/{id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve, return, or reject a pending leave request
+         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += days, remaining -= days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
+         */
+        post: operations["decideLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/balances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-employee annual-leave balance roster (직원별 연차 현황)
+         * @description Reads the existing employee leave ledger (grant/used/left) — the same source of truth as the balances aggregate; not a second store. Requires `employee_directory_read`. Org-scoped.
+         */
+        get: operations["listLeaveBalances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/promotions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Serve a §61 연차 사용 촉진 (round 1 or 2)
+         * @description Requires `employee_directory_manage` in the target `branch_id` (which is validated against the actor's scope). Delivers a receipt-gated 연차촉진 notice into the target's 개인 수신함 and records the push. The engine AP- run binds once the 연차촉진 submittable definition exists; until then the push carries `ap_submission: pending_engine_definition`. Idempotent per (target, round).
+         */
+        post: operations["pushLeavePromotion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/refusal-notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Serve a 노무수령거부 notice (after a round-2 promotion)
+         * @description Requires `employee_directory_manage` in the target `branch_id`. Delivers a receipt-gated 노무수령거부 notice into the target's 개인 수신함 and records the push. Same engine-binding semantics as promotions. Idempotent per target.
+         */
+        post: operations["pushLeaveRefusalNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/inbox-docs": {
         parameters: {
             query?: never;
@@ -4190,8 +4290,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish a workflow definition version
-         * @description Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+         * Publish a workflow definition version (direct for new, staged for active)
+         * @description Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response's pending_version signals a staged (not-yet-applied) revision.
          */
         post: operations["publishWorkflowDefinition"];
         delete?: never;
@@ -4245,6 +4345,66 @@ export interface paths {
         put?: never;
         /** Clone a workflow definition into a new draft */
         post: operations["cloneWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/by-object-kind/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Automation rules acting on an object kind (dynamics↔ontology)
+         * @description The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+         */
+        get: operations["listWorkflowDefinitionsByObjectKind"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a staged pending revision (four-eyes application)
+         * @description Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+         */
+        post: operations["approveWorkflowDefinitionRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw (discard) a staged pending revision
+         * @description Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+         */
+        post: operations["withdrawWorkflowDefinitionRevision"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4717,6 +4877,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/object-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the object-type registry with caller-visible instance counts
+         * @description Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count — the number of instances of that kind visible to the caller. The count respects the SAME per-kind visibility as resolveObject: org via forced RLS (no cross-org counting), narrowed by the caller's branch scope and the domain feature gate; a kind the caller cannot read counts 0. Type proposal/transition flows are out of scope for this slice (read surface + status only).
+         */
+        get: operations["listObjectTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-types/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch one object type with its caller-visible instance count
+         * @description Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count as listObjectTypes.
+         */
+        get: operations["getObjectType"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/link-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the edge-type registry (object-link relationship vocabulary)
+         * @description Returns the seeded, platform-wide set of relationship labels an object_link may use. createObjectLink validates link_type against this registry.
+         */
+        get: operations["listLinkTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an SR- series and attach its first instance
+         * @description Creates an org-scoped series with a canonical SR- code and attaches the first instance. The instance must resolve for the caller (deny-by-omission): you cannot found a series on an object you cannot see. Audited.
+         */
+        post: operations["createSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/by-instance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find which series an object belongs to
+         * @description Returns the series a given (kind, id) instance belongs to, or null. Membership is revealed only when the caller can resolve the instance, so series membership is never an existence oracle for out-of-scope objects.
+         */
+        get: operations["getSeriesByInstance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a series and its ordered, caller-visible instances
+         * @description Returns the series head and its instances resolved to ObjectHeads, ordered by attach time. Instances that no longer resolve for the caller are omitted (deny-by-omission). Current/next derivation is left to the client. An unknown id or another tenant's series is 404.
+         */
+        get: operations["getSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/{id}/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach an instance to an existing series
+         * @description Attaches a (kind, id) instance to the series. The series must exist for the caller and the instance must resolve for the caller (both deny-by-omission -> 404). An object already in a series is rejected with 409 (the not-yet-in-a-series promotion invariant). Audited.
+         */
+        post: operations["attachSeriesInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/purchase-requests/preferences": {
         parameters: {
             query?: never;
@@ -5025,6 +5325,72 @@ export interface components {
         /** @description Global search hits, each an ObjectHead scoped identically to resolveObject (a hit the caller could not resolve never appears). Grouped by kind; exists is always true for a hit. */
         SearchResponse: {
             results: components["schemas"]["ObjectHead"][];
+        };
+        /** @description An object-type registry row plus the caller-visible active instance count. */
+        ObjectTypeResponse: {
+            kind: string;
+            /** @description Canonical per-kind code prefix (e.g. AP-, CS-); absent for id/name-referenced kinds. */
+            code_prefix?: string | null;
+            description: string;
+            /**
+             * @description Type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
+            /**
+             * Format: int64
+             * @description Instances of this kind visible to the caller (same per-kind visibility as resolveObject).
+             */
+            active_count: number;
+        };
+        /** @description A registered edge type (object-link relationship label). */
+        LinkTypeResponse: {
+            link_type: string;
+            description: string;
+            /**
+             * @description Edge-type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
+        };
+        /** @description Create a series and attach its first instance. */
+        CreateSeriesRequest: {
+            /** @description Human label for the series (1-200 chars). */
+            label: string;
+            /** @description First instance object kind slug. */
+            kind: string;
+            /** @description First instance object id/reference (≤200 chars). */
+            id: string;
+        };
+        /** @description Attach an instance (kind, id) to a series. */
+        AttachInstanceRequest: {
+            /** @description Instance object kind slug. */
+            kind: string;
+            /** @description Instance object id/reference (≤200 chars). */
+            id: string;
+        };
+        AttachInstanceAck: {
+            attached: boolean;
+        };
+        SeriesHead: {
+            id: components["schemas"]["Uuid"];
+            /** @description Canonical SR- code. */
+            code: string;
+            label: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description A series head plus its instances resolved to ObjectHeads, ordered by attach time. Instances not resolvable for the caller are omitted (deny-by-omission). */
+        SeriesDetailResponse: {
+            id: components["schemas"]["Uuid"];
+            /** @description Canonical SR- code. */
+            code: string;
+            label: string;
+            created_at: components["schemas"]["Timestamp"];
+            instances: components["schemas"]["ObjectHead"][];
+        };
+        /** @description The series an instance belongs to, or null. */
+        SeriesByInstanceResponse: {
+            series: components["schemas"]["SeriesHead"] | null;
         };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
@@ -5665,6 +6031,15 @@ export interface components {
             action_allowlist: components["schemas"]["WorkflowActionAllowlistEntry"][];
             required_approval_line: boolean;
             required_payment_line: boolean;
+            /** @description Ontology object kinds this definition's nodes touch (dynamics↔ontology). */
+            object_kinds: string[];
+            /**
+             * Format: int32
+             * @description A staged revision (version) awaiting four-eyes approval; null when none is pending.
+             */
+            pending_version: number | null;
+            /** @description Who staged the pending revision (the actor barred from self-approving it). */
+            pending_staged_by: components["schemas"]["Uuid"] | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -5942,6 +6317,8 @@ export interface components {
             /** @enum {string} */
             trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
             event_key: string;
+            /** @description The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped. */
+            subject_kind: string | null;
             enabled: boolean;
             /** Format: date-time */
             created_at: string;
@@ -5957,8 +6334,15 @@ export interface components {
             /** @enum {string} */
             trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
             event_key: string;
+            /** @description Optional ontology object kind the rule acts on; must be a registered object_types.kind. */
+            subject_kind?: string;
             /** @default true */
             enabled: boolean;
+        };
+        DefinitionsByObjectKindResponse: {
+            kind: string;
+            definitions: components["schemas"]["WorkflowDefinitionResponse"][];
+            bindings: components["schemas"]["TriggerBindingResponse"][];
         };
         WorkflowScheduleResponse: {
             id: components["schemas"]["Uuid"];
@@ -6036,11 +6420,17 @@ export interface components {
                 [key: string]: unknown;
             }[];
             action_allowlist?: components["schemas"]["WorkflowActionAllowlistEntry"][];
+            /** @description Sample run context to exercise condition/branch nodes against (defaults to {}). */
+            sample_context?: {
+                [key: string]: unknown;
+            };
         };
         WorkflowSimulationResponse: {
             /** @enum {string} */
             decision: "ready" | "blocked";
             findings: components["schemas"]["WorkflowSimulationFinding"][];
+            /** @description For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions. */
+            simulated_path?: string[];
         };
         WorkflowSimulationFinding: {
             /** @enum {string} */
@@ -7352,7 +7742,112 @@ export interface components {
         };
         /** @description The fresh passkey assertion proving present possession of an authenticator. Its absence yields 428 (precondition required). */
         InboxDocConfirmReceiptRequest: {
-            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        /** @description One leave request in the approval queue (결재함 leave variant). */
+        LeaveRequestView: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            requester_user_id: components["schemas"]["Uuid"];
+            subject_employee_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            leave_type: "annual" | "half_day";
+            /** Format: double */
+            days: number;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "returned" | "rejected";
+            /** Format: uuid */
+            decided_by: string | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            /** @description Mandatory on return/reject; present only when set. */
+            decision_comment?: string;
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        LeaveRequestPage: {
+            items: components["schemas"]["LeaveRequestView"][];
+        };
+        LeaveDecideRequest: {
+            /** @enum {string} */
+            decision: "approve" | "return" | "reject";
+            /** @description Mandatory for return/reject; optional for approve. */
+            comment?: string;
+        };
+        /** @description One employee's annual-leave balance row (직원별 연차 현황). */
+        LeaveRosterEntry: {
+            employee_id: components["schemas"]["Uuid"];
+            name: string;
+            team: string | null;
+            /** Format: double */
+            grant: number;
+            /** Format: double */
+            used: number;
+            /** Format: double */
+            left: number;
+            /**
+             * @description Bar color / 촉진 bucket — one of ok, promote, low.
+             * @enum {string}
+             */
+            tone: "ok" | "promote" | "low";
+        };
+        LeaveRosterPage: {
+            items: components["schemas"]["LeaveRosterEntry"][];
+        };
+        /** @description A §61 연차 사용 촉진 push to a target employee. */
+        LeavePromotionRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            target_user_id: components["schemas"]["Uuid"];
+            target_employee_id: components["schemas"]["Uuid"];
+            target_name: string;
+            /**
+             * Format: int32
+             * @description §61 round — 1 (사용 촉구) or 2 (시기 지정).
+             */
+            round: number;
+            /**
+             * Format: double
+             * @description Unused annual-leave days motivating the push.
+             */
+            unused_days?: number;
+        };
+        /** @description A 노무수령거부 notice served after a round-2 promotion. */
+        LeaveRefusalRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            target_user_id: components["schemas"]["Uuid"];
+            target_employee_id: components["schemas"]["Uuid"];
+            target_name: string;
+            /** Format: double */
+            unused_days?: number;
+        };
+        /** @description The result of a §61 push — the delivered notice + engine state. */
+        LeaveStatutoryPushView: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "promotion" | "refusal";
+            /** Format: int32 */
+            round: number;
+            target_user_id: components["schemas"]["Uuid"];
+            inbox_doc_id: components["schemas"]["Uuid"];
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            /**
+             * @description submitted when a run was started, else pending_engine_definition.
+             * @enum {string}
+             */
+            ap_submission: "submitted" | "pending_engine_definition";
         };
         /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
         TodoRef: {
@@ -13776,6 +14271,181 @@ export interface operations {
             };
         };
     };
+    listLeaveRequests: {
+        parameters: {
+            query?: {
+                /** @description Filter to one status; omitted returns all four. */
+                status?: "pending" | "approved" | "returned" | "rejected";
+                /** @description Page size (clamped server-side to 1..=200; default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A branch-scoped page of leave requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    decideLeaveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveDecideRequest"];
+            };
+        };
+        responses: {
+            /** @description The decided leave request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The request is not pending and cannot be decided again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing mandatory comment or unknown decision. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listLeaveBalances: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The leave-balance roster. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRosterPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pushLeavePromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeavePromotionRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded push, including the delivered notice id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveStatutoryPushView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Invalid round (§61 allows 1 or 2). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pushLeaveRefusalNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveRefusalRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded refusal push, including the delivered notice id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveStatutoryPushView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     listMyInboxDocs: {
         parameters: {
             query?: {
@@ -15681,6 +16351,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
             /** @description Fresh passkey step-up is required. */
             428: {
@@ -15808,6 +16479,101 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listWorkflowDefinitionsByObjectKind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Definitions and trigger bindings touching the object kind. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefinitionsByObjectKindResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    approveWorkflowDefinitionRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                /** @description The pending revision (version number) being approved. */
+                rev: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Revision applied; the new version is active. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    withdrawWorkflowDefinitionRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                /** @description The pending revision (version number) being withdrawn. */
+                rev: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending revision withdrawn. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listWorkflowTriggerBindings: {
@@ -16611,6 +17377,190 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listObjectTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object-type registry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectTypeResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getObjectType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Object kind slug. */
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectTypeResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listLinkTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The edge-type registry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkTypeResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSeriesRequest"];
+            };
+        };
+        responses: {
+            /** @description The created series with its first resolved instance. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSeriesByInstance: {
+        parameters: {
+            query: {
+                /** @description Instance object kind slug. */
+                kind: string;
+                /** @description Instance object id/reference. */
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series the instance belongs to (series=null when none / not resolvable). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesByInstanceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series with its ordered, resolved instances. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    attachSeriesInstance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachInstanceRequest"];
+            };
+        };
+        responses: {
+            /** @description The instance was attached. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachInstanceAck"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getPurchaseRequestPreferences: {

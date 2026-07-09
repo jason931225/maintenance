@@ -1,35 +1,36 @@
-// Carbon-copy console policy gate — components (see ./context for the interface).
+// Carbon-copy console policy gate — adapter components for query-shaped callers.
 
-import { type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
-import { PolicyContext, type PolicyDecider, usePolicyGate } from "./context";
+import { PolicyGateContext, type PolicyGate, type PolicyResource } from "./usePolicyGate";
+
+/** A policy question: an action verb, optionally about a specific resource. */
+export interface PolicyQuery {
+  action: string;
+  resource?: string;
+}
+
+/** Returns true iff the current principal may perform the queried action. */
+export type PolicyQueryDecider = (query: PolicyQuery) => boolean;
+
+function resourceKey(resource?: PolicyResource): string | undefined {
+  if (!resource) return undefined;
+  return typeof resource === "string" ? resource : `${resource.kind}:${resource.id}`;
+}
 
 export function PolicyProvider({
   decide,
   children,
 }: {
-  decide: PolicyDecider;
+  decide: PolicyQueryDecider;
   children: ReactNode;
 }) {
-  return <PolicyContext.Provider value={decide}>{children}</PolicyContext.Provider>;
-}
+  const gate = useMemo<PolicyGate>(
+    () => ({
+      can: (action, resource) => decide({ action, resource: resourceKey(resource) }),
+    }),
+    [decide],
+  );
 
-/**
- * Renders `children` only when policy allows the action, else `fallback`
- * (default: nothing). Deny-by-omission — a denied affordance leaves no trace in
- * the DOM, so a persona that cannot act never sees a disabled ghost of the CTA.
- */
-export function PolicyGated({
-  action,
-  resource,
-  children,
-  fallback = null,
-}: {
-  action: string;
-  resource?: string;
-  children: ReactNode;
-  fallback?: ReactNode;
-}) {
-  const decide = usePolicyGate();
-  return <>{decide({ action, resource }) ? children : fallback}</>;
+  return <PolicyGateContext.Provider value={gate}>{children}</PolicyGateContext.Provider>;
 }

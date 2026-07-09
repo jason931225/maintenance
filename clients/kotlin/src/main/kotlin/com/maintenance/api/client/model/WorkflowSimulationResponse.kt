@@ -34,6 +34,7 @@ import kotlinx.serialization.Contextual
  *
  * @param decision
  * @param findings
+ * @param simulatedPath For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions.
  */
 @Serializable
 
@@ -43,7 +44,11 @@ data class WorkflowSimulationResponse (
     val decision: WorkflowSimulationResponse.Decision,
 
     @SerialName(value = "findings")
-    val findings: kotlin.collections.List<WorkflowSimulationFinding>
+    val findings: kotlin.collections.List<WorkflowSimulationFinding>,
+
+    /* For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions. */
+    @SerialName(value = "simulated_path")
+    val simulatedPath: kotlin.collections.List<kotlin.String>? = null
 
 ) {
 

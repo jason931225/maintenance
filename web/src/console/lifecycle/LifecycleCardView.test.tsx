@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { disposeBlockedFixture, historyFixture, stepperFixture } from "./demoFixtures";
 import { DOCUMENT_CHAIN } from "./chain";
 import { LifecycleCardView } from "./LifecycleCardView";
-import { PolicyGated, PolicyProvider } from "../policy";
+import { ActionPolicyGated as PolicyGated, PolicyProvider } from "../policy";
 
 function view(props: Partial<React.ComponentProps<typeof LifecycleCardView>> = {}) {
   return (
