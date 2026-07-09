@@ -2849,6 +2849,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-comms-adapter-mox"
+version = "0.1.0"
+dependencies = [
+ "mnt-comms-application",
+ "mnt-comms-domain",
+ "mnt-kernel-core",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mnt-comms-adapter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -2865,6 +2881,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2936,6 +2953,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "mnt-comms-adapter-imap",
+ "mnt-comms-adapter-mox",
  "mnt-comms-adapter-postgres",
  "mnt-comms-adapter-smtp",
  "mnt-comms-application",
@@ -2953,6 +2971,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx 0.9.0",
+ "subtle",
  "thiserror 2.0.18",
  "time",
  "tower",
@@ -5286,6 +5305,8 @@ dependencies = [
  "log",
  "percent-encoding",
  "pin-project-lite",
+ "serde",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tower",

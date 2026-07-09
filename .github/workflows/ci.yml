@@ -212,6 +212,9 @@ jobs:
           node-version: "24"
           cache: npm
 
+      - name: dev-up compose contract unit test
+        run: node --test scripts/dev-up-compose.test.mjs
+
       - name: dev-up bootstrap (compose deps + migrate + backend readyz)
         # macOS/Windows GH-hosted runners cannot run Linux containers reliably,
         # so this smoke test is ubuntu-only; the other OSes' acceptance is the

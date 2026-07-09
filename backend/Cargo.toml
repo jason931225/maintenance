@@ -132,6 +132,7 @@ chacha20poly1305 = "0.10.1"
 secrecy = "0.10.3"
 zeroize = "1.9.0"
 base64 = "0.22.1"
+subtle = "2.6.1"
 # SSRF guard for outbound webmail connections (B-mail-2). Versions verified live
 # against the crates.io index 2026-06-23: hickory-resolver 0.26.1 (latest
 # stable), ipnet 2.12.0 (latest stable). The resolver gives us a resolve-once,
@@ -228,6 +229,7 @@ mnt-comms-application = { path = "crates/comms/application" }
 mnt-comms-adapter-postgres = { path = "crates/comms/adapter-postgres" }
 mnt-comms-adapter-smtp = { path = "crates/comms/adapter-smtp" }
 mnt-comms-adapter-imap = { path = "crates/comms/adapter-imap" }
+mnt-comms-adapter-mox = { path = "crates/comms/adapter-mox" }
 mnt-comms-mailbox = { path = "crates/comms/mailbox" }
 mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-payroll-domain = { path = "crates/payroll/domain" }

@@ -66,6 +66,7 @@ const DEPS_SERVICES = [
   "seaweedfs",
   "otel-collector",
   "mailpit",
+  "mox",
   ...(OFFICE_ENABLED ? ["onlyoffice"] : []),
 ];
 
@@ -84,6 +85,9 @@ const PORTS = {
   otel: Number(process.env.MNT_OTEL_PORT ?? 54317),
   mailpitSmtp: Number(process.env.MNT_MAILPIT_SMTP_PORT ?? 1025),
   mailpitUi: Number(process.env.MNT_MAILPIT_UI_PORT ?? 8025),
+  moxWebapi: Number(process.env.MNT_MOX_WEBAPI_PORT ?? 1080),
+  moxSubmission: Number(process.env.MNT_MOX_SUBMISSION_PORT ?? 1587),
+  moxImap: Number(process.env.MNT_MOX_IMAP_PORT ?? 1143),
   office: Number(process.env.MNT_OFFICE_DOCSERVER_PORT ?? 8888),
   backend: Number(process.env.MNT_DEV_HTTP_PORT ?? 8090),
   vite: Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173),
@@ -546,6 +550,14 @@ function buildAppEnv(role) {
     MNT_WEBAUTHN_RP_NAME: "정비 콘솔 (dev)",
     MNT_COOKIE_SECURE: "false",
     MNT_COLDSTART_OTP: process.env.MNT_COLDSTART_OTP ?? "coss0000",
+    // mox integration (slice 1): route the webmail send transport at the dev mox
+    // server's webapi, and arm the delivery-webhook shared secret. The account's
+    // mox login (mox@localhost / moxmoxmox) is set when a mailbox is configured
+    // through the REST /account endpoint (see scripts/mox-e2e.mjs).
+    MNT_MAIL_MOX_BASE_URL:
+      process.env.MNT_MAIL_MOX_BASE_URL ?? `http://127.0.0.1:${PORTS.moxWebapi}`,
+    MNT_MAIL_MOX_WEBHOOK_SECRET:
+      process.env.MNT_MAIL_MOX_WEBHOOK_SECRET ?? "mox-dev-webhook-secret-change-me",
     // In-console office editor (ONLYOFFICE), only when MNT_DEV_OFFICE=1 started
     // the DocumentServer dep. Omitting all three MNT_OFFICE_* vars otherwise
     // leaves the office routes on their existing graceful-503 path (same as an
@@ -586,6 +598,8 @@ function printUrls() {
   console.log(`  /readyz:      http://127.0.0.1:${PORTS.backend}/readyz`);
   console.log(`  Web console:  http://localhost:${PORTS.vite}`);
   console.log(`  Mailpit UI:   http://localhost:${PORTS.mailpitUi}`);
+  console.log(`  mox webapi:   http://localhost:${PORTS.moxWebapi}/webapi/  (mox@localhost / moxmoxmox, admin moxadmin)`);
+  console.log(`  mox IMAP:     127.0.0.1:${PORTS.moxImap}   submission 127.0.0.1:${PORTS.moxSubmission}`);
   console.log("");
   console.log(`First sign-in one-time code: ${process.env.MNT_COLDSTART_OTP ?? "coss0000"}`);
   console.log("");
