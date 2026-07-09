@@ -1,0 +1,130 @@
+/* Oyatie Console — design tokens, carbon-copied VERBATIM from the design
+ * authority under a `.console` theme scope.
+ *
+ * Sources (values are byte-exact):
+ *   docs/design/oyatie-console/tokens/colors.css      -> :root  + [data-theme="dark"]
+ *   docs/design/oyatie-console/tokens/typography.css  -> :root
+ *   docs/design/oyatie-console/tokens/spacing.css     -> :root
+ *   docs/design/oyatie-console/tokens/elevation.css   -> :root  + [data-theme="dark"]
+ *   docs/design/oyatie-console/styles.css             -> the @import manifest
+ *
+ * The source token files declare everything on `:root`; the prototype
+ * (`Oyatie Console.dc.html`) scopes the identical values under `.console`,
+ * `.console.t-dark`, and `@media (prefers-color-scheme: dark) .console:not(.t-light)`.
+ * This file mirrors the prototype's `.console` scoping exactly so the tokens
+ * live only inside the console and never leak into (or inherit from) the legacy
+ * AppShell theme. Every `var(--*)` name and value below matches the source
+ * byte-for-byte (verified by scripts/check-console-purity.mjs is a lint guard;
+ * the byte-match itself is asserted against the mirror in the PR body).
+ *
+ * ponytail: the source typography.css opens with a `@import url("https://cdn.jsdelivr.net/...pretendard...")`.
+ * That external stylesheet is dropped here on purpose — the app already bundles
+ * Pretendard locally via `@fontsource/pretendard` (preloaded in main.tsx) and the
+ * strict `font-src 'self'` CSP blocks the CDN fetch. The `--font-sans` var below
+ * keeps "Pretendard Variable" first, byte-exact, so the rendered face is identical.
+ */
+
+.console {
+  /* -- colors.css :root (Surfaces) -- */
+  --canvas: #f2f4f7;
+  --surface: #ffffff;
+  --muted: #eceff3;
+  --border: #dbe1e8;
+  --border-soft: #e8ecf1;
+
+  /* -- colors.css :root (Ink / text) -- */
+  --ink: #141a21;      /* primary text */
+  --steel: #566475;    /* secondary text */
+  --faint: #8b98a7;    /* tertiary / placeholder */
+
+  /* -- colors.css :root (Brand) -- */
+  --signal: #f6b521;      /* primary brand (amber) */
+  --signal-deep: #e2a30d; /* brand hover/press */
+  --teal: #0f766e;        /* secondary accent */
+
+  /* -- colors.css :root (Semantic) -- */
+  --danger-bg: #fef2f2; --danger-bd: #fca5a5; --danger-tx: #b91c1c; --danger-solid: #dc2626;
+  --warn-bg: #fffbeb; --warn-bd: #fcd34d; --warn-tx: #92400e; --warn-solid: #b45309;
+  --ok-bg: #ecfdf5; --ok-bd: #6ee7b7; --ok-tx: #065f46; --ok-solid: #059669;
+  --info-bg: #eff6ff; --info-bd: #93c5fd; --info-tx: #1e40af;
+  --accent-bg: #fffbeb; --accent-bd: #f6b521; --accent-tx: #78350f;
+  --purple-bg: #f5f3ff; --purple-bd: #c4b5fd; --purple-tx: #5b21b6;
+
+  /* -- typography.css :root -- */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-h1: 17px;      /* screen title */
+  --text-card-title: 14px;
+  --text-body: 13px;    /* base UI text */
+  --text-value: 15px;   /* compact stat value */
+  --text-value-lg: 20px;/* KPI value */
+  --text-sm: 11.5px;    /* secondary */
+  --text-xs: 10px;      /* labels / meta */
+  --text-micro: 9.5px;  /* chips */
+  --fw-body: 500; --fw-medium: 700; --fw-strong: 800;
+  --lh-base: 1.5;
+  --tracking-tight: -0.3px; /* headings */
+  --tracking-label: 0.4px;  /* uppercase-ish labels */
+
+  /* -- spacing.css :root -- */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 10px;
+  --sp-5: 12px;   /* card gap / grid gap */
+  --sp-6: 15px;   /* card inner padding-x */
+  --sp-card-y: 12px;
+  --radius-chip: 5px;
+  --radius-sm: 7px;
+  --radius: 8px;   /* buttons / inputs */
+  --radius-md: 9px;
+  --radius-card: 11px;
+  --radius-pill: 50%;
+
+  /* -- elevation.css :root -- */
+  --shadow: 0 1px 2px rgba(20, 26, 33, 0.05);       /* resting cards */
+  --shadow-pop: 0 12px 32px rgba(20, 26, 33, 0.16); /* modals / pinned / popovers */
+  --border-hairline: 1px solid var(--border);
+
+  color-scheme: light;
+}
+
+.console.t-dark {
+  /* -- colors.css [data-theme="dark"] -- */
+  --canvas: #0e1319; --surface: #161c24; --muted: #1f2731; --border: #2b3542; --border-soft: #232c37;
+  --ink: #e8edf4; --steel: #9cabbc; --faint: #61707f;
+  --signal: #f6b521; --signal-deep: #ffc93d; --teal: #2dd4bf;
+  --danger-bg: #3a1214; --danger-bd: #7f2b2b; --danger-tx: #fda4a4; --danger-solid: #f87171;
+  --warn-bg: #3a2606; --warn-bd: #92610a; --warn-tx: #fcd34d; --warn-solid: #fbbf24;
+  --ok-bg: #062e22; --ok-bd: #0b6e51; --ok-tx: #6ee7b7; --ok-solid: #34d399;
+  --info-bg: #14243f; --info-bd: #2d5eb8; --info-tx: #93c5fd;
+  --accent-bg: #362605; --accent-bd: #a97b06; --accent-tx: #fcd34d;
+  --purple-bg: #271449; --purple-bd: #6d43c0; --purple-tx: #c4b5fd;
+
+  /* -- elevation.css [data-theme="dark"] -- */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  .console:not(.t-light) {
+    /* -- colors.css [data-theme="dark"] -- */
+    --canvas: #0e1319; --surface: #161c24; --muted: #1f2731; --border: #2b3542; --border-soft: #232c37;
+    --ink: #e8edf4; --steel: #9cabbc; --faint: #61707f;
+    --signal: #f6b521; --signal-deep: #ffc93d; --teal: #2dd4bf;
+    --danger-bg: #3a1214; --danger-bd: #7f2b2b; --danger-tx: #fda4a4; --danger-solid: #f87171;
+    --warn-bg: #3a2606; --warn-bd: #92610a; --warn-tx: #fcd34d; --warn-solid: #fbbf24;
+    --ok-bg: #062e22; --ok-bd: #0b6e51; --ok-tx: #6ee7b7; --ok-solid: #34d399;
+    --info-bg: #14243f; --info-bd: #2d5eb8; --info-tx: #93c5fd;
+    --accent-bg: #362605; --accent-bd: #a97b06; --accent-tx: #fcd34d;
+    --purple-bg: #271449; --purple-bd: #6d43c0; --purple-tx: #c4b5fd;
+
+    /* -- elevation.css [data-theme="dark"] -- */
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+    color-scheme: dark;
+  }
+}

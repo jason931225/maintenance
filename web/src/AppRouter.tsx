@@ -47,6 +47,12 @@ const PendingPage = lazy(() =>
 const ConsoleShell = lazy(() =>
   import("./components/shell/ConsoleShell").then((m) => ({ default: m.ConsoleShell })),
 );
+// Carbon-copy console (charter D1). Owns its whole viewport at /console with its
+// own verbatim tokens and NO AppShell chrome — code-split so the legacy shell
+// never pays for it. Scaffold-only in P0.0 (empty themed viewport).
+const ConsoleApp = lazy(() =>
+  import("./console/ConsoleApp").then((m) => ({ default: m.ConsoleApp })),
+);
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
@@ -320,6 +326,33 @@ export function AppRouter() {
           <Route path="/overview" element={null} />
           <Route path="/attendance" element={null} />
         </Route>
+
+        {/* Carbon-copy console (charter D1). A catch-all under /console so the
+            prototype-style state.screen navigation lives inside one route,
+            outside AppShell — the console owns its whole viewport with its own
+            tokens. Behind ProtectedRoute like every other authenticated route;
+            its own RouteErrorBoundary contains a crash rather than falling
+            through to the blank top-level fallback (it renders shell-less). */}
+        <Route
+          path="/console/*"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ConsoleApp />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+        <Route
+          path="/console"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ConsoleApp />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
 
         {/* UI-M3: /overview replaces /work-hub. Old links and bookmarks keep
             working via this redirect. */}
