@@ -74,7 +74,7 @@ export function ConsoleShell({
       : defaultScreen(grants);
 
   const routeSampleReady = useRef(false);
-  const lastSampledScreen = useRef<string | undefined>();
+  const lastSampledScreen = useRef<string | undefined>(undefined);
   useEffect(() => {
     const markOnce = () => {
       lastSampledScreen.current = activeScreen;

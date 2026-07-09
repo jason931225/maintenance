@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.52](https://github.com/jason931225/maintenance/compare/v0.1.51...v0.1.52) (2026-07-09)
+
+
+### Features
+
+* **api:** submittable-definitions catalog + global scoped search (carbon-copy P1) ([#254](https://github.com/jason931225/maintenance/issues/254)) ([ab53a5d](https://github.com/jason931225/maintenance/commit/ab53a5d483ec57c5f6b959ba8c2eabb3338a0465))
+* **api:** unified action-inbox read model + self punch (carbon-copy P1) ([#255](https://github.com/jason931225/maintenance/issues/255)) ([bdd2750](https://github.com/jason931225/maintenance/commit/bdd2750c9be984828275e8aa0e8390126536168f))
+* **ci:** mnt-gate-iac-tier — block cloud-primitive leak into app manifests ([#244](https://github.com/jason931225/maintenance/issues/244)) ([8281c45](https://github.com/jason931225/maintenance/commit/8281c45b3c008cedc31ec59d998108bf46d145eb))
+* **console-cc:** P0.2 — carbon-copy window/pin engine ([#248](https://github.com/jason931225/maintenance/issues/248)) ([d8252e3](https://github.com/jason931225/maintenance/commit/d8252e32d6f87c4f1a2612b67d70f863ea57782e))
+* **console-cc:** token grammar — @ mentions, # channels, bare-code object links (founder directive) ([#259](https://github.com/jason931225/maintenance/issues/259)) ([41b1686](https://github.com/jason931225/maintenance/commit/41b1686800d721174f0cbe8561c589665dfbef3d))
+* **secrets:** stage OpenBao + External-Secrets for portable secrets (dark, ADR-0022 lane 1) ([#267](https://github.com/jason931225/maintenance/issues/267)) ([0d1e374](https://github.com/jason931225/maintenance/commit/0d1e374b4b1ca7f469e9dd6b89cbaa566a1bda1d))
+
+
+### Bug Fixes
+
+* **audit:** arm org on /api/audit read + stamp org on provisioning/refresh audit rows ([#253](https://github.com/jason931225/maintenance/issues/253)) ([e54a476](https://github.com/jason931225/maintenance/commit/e54a476ca53dc5d20c32438b8d4a8fe426bb9022))
+* **comms:** forward-fix mail-sync lease fencing (codex-approved, [#245](https://github.com/jason931225/maintenance/issues/245) merged the pre-fix version) ([#263](https://github.com/jason931225/maintenance/issues/263)) ([be72e22](https://github.com/jason931225/maintenance/commit/be72e224e2b286d91d66d61ad2efd7762f6d1ad5))
+* **comms:** make inbound mail-sync HA-safe (worker-gated + SKIP LOCKED lease) ([#245](https://github.com/jason931225/maintenance/issues/245)) ([323085e](https://github.com/jason931225/maintenance/commit/323085e9a601e09966c3f3c70c10c01146bbe716))
+* **console:** address P0 scaffold review blockers ([#243](https://github.com/jason931225/maintenance/issues/243)) ([f623ccb](https://github.com/jason931225/maintenance/commit/f623ccb523dc66a8f9306734ca67cc11d67bb46a))
+* **db:** renumber 0117_search_trgm_indexes to 0118 (version collision with 0117_comms_email_account_claim_token_fencing) ([f801153](https://github.com/jason931225/maintenance/commit/f801153e8eeeb96588c233302a057a11c354c382))
+
 ## [0.1.51](https://github.com/jason931225/maintenance/compare/v0.1.50...v0.1.51) (2026-07-09)
 
 

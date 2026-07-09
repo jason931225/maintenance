@@ -574,9 +574,218 @@ async fn resolves_identity_kinds_and_denies_by_omission(pool: PgPool) {
     );
 }
 
+/// B1: a DIRECT top-level resolve of a `person` card records a `person.view`
+/// audit for a NON-SELF subject that actually resolves — mirroring
+/// GET /api/messenger/members/{id}'s "who looked up whom" evidence. A self-view
+/// records nothing; an out-of-scope/absent subject (resolves to exists:false)
+/// records nothing; and a person reached incidentally by an object_graph WALK
+/// records nothing (traversing a graph is not viewing a card).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn person_direct_resolve_audits_non_self_only(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let caller = UserId::new();
+    let branch_x = seed_branch(&pool, "Region X", "Branch X").await;
+    let branch_y = seed_branch(&pool, "Region Y", "Branch Y").await;
+    seed_user_in_branch(&pool, caller, "ADMIN", branch_x).await;
+    let token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        caller,
+        vec![branch_x],
+    );
+
+    // Non-self, resolves -> exactly one person.view for the subject.
+    let subject = UserId::new();
+    seed_user_in_branch(&pool, subject, "MECHANIC", branch_x).await;
+    let seen = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &subject.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(seen.1["exists"], true);
+    assert_eq!(
+        person_view_count(&pool, subject).await,
+        1,
+        "non-self direct resolve records one person.view"
+    );
+
+    // Self-view -> no audit.
+    let _self_view = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &caller.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        person_view_count(&pool, caller).await,
+        0,
+        "self-view records no person.view"
+    );
+
+    // Out-of-scope subject -> exists:false and no audit (no row, no view).
+    let out = UserId::new();
+    seed_user_in_branch(&pool, out, "MECHANIC", branch_y).await;
+    let out_res = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &out.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(out_res.1["exists"], false);
+    assert_eq!(
+        person_view_count(&pool, out).await,
+        0,
+        "out-of-scope resolve records no person.view"
+    );
+
+    // A person discovered by a graph WALK is not a card view -> no audit.
+    let walked = UserId::new();
+    seed_user_in_branch(&pool, walked, "MECHANIC", branch_x).await;
+    seed_object_link(
+        &pool,
+        "org_unit",
+        &branch_x.as_uuid().to_string(),
+        "person",
+        &walked,
+    )
+    .await;
+    let graph = resolve_graph(
+        &pool,
+        &public_key_pem,
+        &token,
+        "org_unit",
+        &branch_x.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(graph.0, StatusCode::OK, "graph body: {}", graph.1);
+    // The walked person is present as a node (proves the walk reached it)...
+    assert!(
+        graph.1["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["kind"] == "person" && n["id"] == walked.as_uuid().to_string()),
+        "graph walk reaches the linked person: {}",
+        graph.1
+    );
+    // ...yet no person.view was recorded for it.
+    assert_eq!(
+        person_view_count(&pool, walked).await,
+        0,
+        "a person reached by a graph walk records no person.view"
+    );
+
+    // Graph-ROOTING a non-self person IS a direct lookup -> audits once, exactly
+    // like resolve_object (otherwise B1 is trivially evadable via the graph).
+    let graph_subject = UserId::new();
+    seed_user_in_branch(&pool, graph_subject, "MECHANIC", branch_x).await;
+    let rooted = resolve_graph(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &graph_subject.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(rooted.0, StatusCode::OK, "graph body: {}", rooted.1);
+    assert_eq!(
+        person_view_count(&pool, graph_subject).await,
+        1,
+        "graph-root of a non-self person audits once, like a direct resolve"
+    );
+
+    // Graph-rooting SELF -> no audit (mirrors self direct-resolve).
+    let _self_root = resolve_graph(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &caller.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        person_view_count(&pool, caller).await,
+        0,
+        "graph-root of self records no person.view"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
+
+async fn person_view_count(pool: &PgPool, target: UserId) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events WHERE action = 'person.view' AND target_id = $1",
+    )
+    .bind(target.as_uuid().to_string())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_object_link(
+    pool: &PgPool,
+    src_kind: &str,
+    src_id: &str,
+    dst_kind: &str,
+    dst: &UserId,
+) {
+    sqlx::query(
+        "INSERT INTO object_links (org_id, src_kind, src_id, dst_kind, dst_id, link_type) \
+         VALUES ($1, $2, $3, $4, $5, 'relates_to')",
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(src_kind)
+    .bind(src_id)
+    .bind(dst_kind)
+    .bind(dst.as_uuid().to_string())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn resolve_graph(
+    pool: &PgPool,
+    public_key_pem: &str,
+    token: &str,
+    kind: &str,
+    id: &str,
+) -> (StatusCode, Value) {
+    let service = build_router(app_state(pool.clone(), public_key_pem.to_owned()).unwrap());
+    let response = service
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/objects/{kind}/{id}/graph"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).unwrap_or(Value::Null)
+    };
+    (status, json)
+}
 
 async fn seed_passkey(pool: &PgPool, user_id: UserId) -> Uuid {
     sqlx::query_scalar(

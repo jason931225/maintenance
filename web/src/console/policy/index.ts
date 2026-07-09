@@ -13,3 +13,6 @@ export {
   type Permission,
   type PolicyQuery,
 } from "./authz";
+
+export { PolicyContext, type PolicyDecider, type PolicyQuery as ActionPolicyQuery } from "./context";
+export { PolicyProvider, PolicyGated as ActionPolicyGated } from "./components";
