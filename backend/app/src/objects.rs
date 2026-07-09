@@ -343,6 +343,14 @@ async fn resolve_object(
     if !RESOLVABLE_KINDS.contains(&kind.as_str()) {
         return Err(ObjectError::not_found("unknown object kind"));
     }
+    // Feature parity with the domain read endpoints: work_order and equipment
+    // GETs require WorkOrderReadAll (workorder/rest get_work_order, registry/rest
+    // authorize_read_access), so the generic head must too — otherwise a MEMBER
+    // (Login-only) could read heads its role is denied. The deny is kind-level,
+    // independent of the id, so it cannot become an existence oracle.
+    if matches!(kind.as_str(), "work_order" | "equipment") {
+        authorize_object_feature(&principal, Feature::WorkOrderReadAll)?;
+    }
     let url_path = url_path_for(&kind, &id);
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
@@ -718,19 +726,27 @@ fn is_unique_violation(err: &sqlx::Error) -> bool {
 }
 
 fn authorize_object_member(principal: &Principal) -> Result<(), ObjectError> {
+    authorize_object_feature(principal, Feature::Login).map_err(|_| {
+        ObjectError::from_kernel(KernelError::forbidden(
+            "object links require an authenticated tenant member",
+        ))
+    })
+}
+
+fn authorize_object_feature(principal: &Principal, feature: Feature) -> Result<(), ObjectError> {
     let allowed_by_role = principal
         .roles
         .iter()
-        .any(|role| permission_for(*role, Feature::Login) == PermissionLevel::Allow);
+        .any(|role| permission_for(*role, feature) == PermissionLevel::Allow);
     let allowed_by_custom_grant = principal
         .effective_feature_grants
         .iter()
-        .any(|grant| grant.feature == Feature::Login && grant.permission == PermissionLevel::Allow);
+        .any(|grant| grant.feature == feature && grant.permission == PermissionLevel::Allow);
     if allowed_by_role || allowed_by_custom_grant {
         return Ok(());
     }
     Err(ObjectError::from_kernel(KernelError::forbidden(
-        "object links require an authenticated tenant member",
+        "insufficient permission for this object kind",
     )))
 }
 
