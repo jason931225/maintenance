@@ -9,25 +9,36 @@
  *   2. builds `className` from anything other than a plain string/template
  *      literal or a plain identifier bound (same-file) to one — no call
  *      expressions, ternaries, concatenation, or member access. This is an
- *      allowlist, not a denylist: `className={cn("flex","p-4")}` is banned
+ *      ALLOWLIST, not a denylist: `className={cn("flex","p-4")}` is banned
  *      outright because it isn't a plain literal, independent of whether "cn"
- *      is recognized;
+ *      is recognized — this is the actual fix for the reported bypass, not a
+ *      pattern match on the callee name;
  *   3. imports from web/src/components/ui/** (shadcn) or components/shell/**
  *      (AppShell chrome) — the two visual worlds the console must not inherit;
- *   4. imports (by module OR by local binding name) a class-list utility —
- *      cn/clsx/classnames/cva/tailwind-merge/lib/utils — from anywhere;
+ *   4. imports (by local binding name, however aliased/renamed, plus by module
+ *      specifier for the single-purpose packages) a class-list utility — the
+ *      cn/clsx/classnames/cva/twMerge bindings, or the clsx/classnames/
+ *      class-variance-authority/tailwind-merge packages themselves;
  *   5. imports any .css/.scss/.sass/.less file other than `tokens.css`;
- *   6. carries a Tailwind-pattern token in ANY string or template-literal
- *      chunk in the file, not just inside `className` — this is what actually
- *      catches `cn("flex","p-4")`, `clsx({ "p-4": true })`, and any other
- *      indirection: the utility token has to appear as a literal somewhere;
- *   7. uses Tailwind `@apply` in a .css file under console/**.
+ *   6. uses Tailwind `@apply` in a .css file under console/**.
+ *
+ * Deliberately NOT implemented: a blanket scan of every string/template
+ * literal in the file for Tailwind-pattern tokens. Tried it — it false-
+ * positived on real merged console code the first time this file was
+ * hardened: legitimate inline `style={{ position: "fixed" }}` values and
+ * ordinary English test-description prose ("...right-edge caret...",
+ * "...uppercase code...") collide with Tailwind's bare/prefixed token shapes
+ * with no way to tell them apart without real scope analysis. Rule 2 already
+ * makes it structurally impossible to route a computed string (from cn/clsx/
+ * whatever) into `className` — a plain literal is the ONLY thing that
+ * type-checks there — so the blanket scan added false positives with no
+ * closed bypass to show for it.
  *
  * Heuristic, not a full parser (comments are stripped first so prose/docs
  * never trip it; nested braces in `className={...}` are depth-matched, not
  * regex-guessed). Prove it fires — each of these must exit 1, then delete:
  *   className="flex p-4"                    (rule 1)
- *   className={cn("flex", "p-4")}            (rules 2 + 6)
+ *   className={cn("flex", "p-4")}            (rule 2)
  *   import { cn } from "../../lib/utils"     (rule 4)
  *   import "../styles.css"                   (rule 5)
  */
@@ -139,35 +150,14 @@ function checkClassNameAttrs(src, rel, violations) {
   }
 }
 
-/**
- * Scan every string/template-literal CHUNK in the file (not just className) for
- * a Tailwind-pattern token. This is what actually stops `cn("flex","p-4")`,
- * `clsx({ "p-4": true })`, `["flex","p-4"].join(" ")`, etc: whatever the
- * indirection, the utility token has to be written as a literal somewhere.
- */
-function checkAllLiteralChunks(src, rel, violations) {
-  const seen = new Set();
-  const report = (text) => {
-    for (const tok of tailwindTokensIn(text)) {
-      const key = `${tok}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      violations.push(`${rel}: Tailwind-pattern token "${tok}" found in a string/template literal`);
-    }
-  };
-  const strRe = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
-  let m;
-  while ((m = strRe.exec(src)) !== null) report(m[0].slice(1, -1));
-  const tplRe = /`(?:[^`\\]|\\.)*`/g;
-  while ((m = tplRe.exec(src)) !== null) {
-    // Drop ${...} interpolation chunks before scanning the literal text.
-    report(m[0].slice(1, -1).replace(/\$\{[^}]*\}/g, " "));
-  }
-}
-
 const BANNED_STRUCTURAL_IMPORT = /(?:^|\/)components\/(ui|shell)(?:\/|$)/;
+// Single-purpose class-list packages: nothing legitimate to import from them
+// besides class-list construction, so the whole module is banned outright.
 const BANNED_UTIL_MODULE = /^(?:clsx|classnames|class-variance-authority|tailwind-merge)$/;
-const BANNED_UTIL_MODULE_PATH = /(?:^|\/)lib\/utils$/;
+// lib/utils is a general shared-helper module (e.g. `safeLabel`) — NOT banned
+// wholesale (that would block legitimate unrelated imports); only the
+// specific class-list binding name is banned, via BANNED_BINDING_NAMES below,
+// wherever it's imported from (lib/utils or anywhere else).
 const BANNED_BINDING_NAMES = new Set(["cn", "clsx", "classnames", "cva", "twmerge", "tw"]);
 const CSS_IMPORT = /\.(css|scss|sass|less)$/i;
 const ALLOWED_CSS_IMPORT = /\/tokens\.css$|^\.\/tokens\.css$/;
@@ -197,7 +187,7 @@ function checkImports(src, rel, violations) {
     if (BANNED_STRUCTURAL_IMPORT.test(spec)) {
       violations.push(`${rel}: banned import "${spec}" (components/ui|shell)`);
     }
-    if (BANNED_UTIL_MODULE.test(spec) || BANNED_UTIL_MODULE_PATH.test(spec)) {
+    if (BANNED_UTIL_MODULE.test(spec)) {
       violations.push(`${rel}: banned class-list utility import "${spec}"`);
     }
     if (CSS_IMPORT.test(spec) && !ALLOWED_CSS_IMPORT.test(spec)) {
@@ -239,7 +229,6 @@ for (const file of files) {
   if (/\.(tsx?|jsx?)$/.test(file)) {
     const src = stripComments(rawSrc);
     checkClassNameAttrs(src, rel, violations);
-    checkAllLiteralChunks(src, rel, violations);
     checkImports(src, rel, violations);
   }
 
