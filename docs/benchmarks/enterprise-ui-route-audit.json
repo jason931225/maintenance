@@ -510,8 +510,8 @@
       "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
-      "rawPath": "/work-hub",
-      "canonicalPath": "/work-hub",
+      "rawPath": "/overview",
+      "canonicalPath": "/overview",
       "epRows": [
         "EP-002",
         "EP-013"
@@ -522,7 +522,7 @@
         "executive",
         "group-admin"
       ],
-      "roleStoryEvidence": "role-aware day/week action inbox; WorkHubPage.test.tsx asserts actionable queues and no reported text wall; G007 action inbox evidence",
+      "roleStoryEvidence": "role-aware unified action inbox (UI-M3 replaces /work-hub); OverviewPage.test.tsx + TodayPanel.test.tsx assert actionable queues and no reported text wall; G007 action inbox evidence",
       "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
       "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
       "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
@@ -532,6 +532,30 @@
       "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
       "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
       "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
+    },
+    {
+      "rawPath": "/work-hub",
+      "canonicalPath": "/overview",
+      "epRows": [
+        "EP-002",
+        "EP-013"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "executive",
+        "group-admin"
+      ],
+      "roleStoryEvidence": "legacy bookmark-compat redirect only (UI-M3); AppRouter.tsx sends /work-hub straight to /overview, no page renders here",
+      "accessibilityEvidence": "Navigate-only route, no DOM to violate; a11y evidence lives on the /overview row this redirect targets",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "no data class; pure client-side redirect to /overview carries no domain payload",
+      "sourceObject": "none; route renders <Navigate to=\"/overview\" replace /> with no source object fetch",
+      "lifecycleStates": "n/a; a redirect has no lifecycle states of its own",
+      "e2eSpec": "Covered by /overview's browser story; old /work-hub bookmarks land on the same inbox",
+      "denialScopeTest": "n/a; redirect carries no authz decision, /overview enforces access after landing",
+      "screenshotTraceEvidence": "n/a; no visual surface renders at this path to trace",
+      "groupScopeStory": "Redirects unconditionally; group scope is enforced by /overview after the bounce"
     },
     {
       "rawPath": "/approvals",

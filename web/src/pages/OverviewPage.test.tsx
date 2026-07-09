@@ -248,6 +248,42 @@ describe("OverviewPage", () => {
     expect(screen.getByText("완료 건수")).toBeVisible();
   });
 
+  it("renders an actionable group-wide priority inbox without explanatory text walls", async () => {
+    renderPage();
+    await screen.findByText("정비 완료 승인");
+
+    // Self-explanatory UI: a short title + one-line description, no
+    // narrative captions or banned text-wall copy carried over from the
+    // /work-hub predecessor this page replaces.
+    expect(
+      screen.getByRole("heading", { name: "통합 개요", level: 1 }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "결재·출동·지원·근태 액션과 오늘의 할 일을 한 화면에서 처리합니다.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("업무 객체 중심 실행 흐름")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/허브는 메신저·메일·티켓을 별도 데모로 분리하지 않고/),
+    ).not.toBeInTheDocument();
+
+    // Every pending item is a real action, not a passive read: each row
+    // exposes a primary-action button that fires the row's real mutation.
+    expect(
+      screen.getByRole("button", { name: "정비 완료 승인 담당하기" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "구매 승인 승인" })).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "긴급 출동 요청 20260709-001 출동 수락",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "지게차 배터리 교체 요청 해결" }),
+    ).toBeVisible();
+  });
+
   it("filters the list by kind chip", async () => {
     const user = userEvent.setup();
     renderPage();
