@@ -39,8 +39,8 @@ const defaultFactory: SocketFactory = (url, protocols) => {
 // ponytail: ONE process-wide socket, ref-counted by subscriber. First subscriber
 // opens it, last unsubscribe closes it — so the comms rail and MessengerPanel
 // share a single /api/v1/ws connection instead of double-connecting. Reconnect
-// resumes from the last message id seen. ponytail: fixed backoff (1s, 3s after a
-// server-shutdown close); add exponential backoff if reconnect storms show up.
+// resumes from the last message id seen, with exponential backoff (reset on a
+// successful open) so a downed endpoint isn't hammered.
 export function createRealtimeHub(
   socketFactory: SocketFactory = defaultFactory,
 ): RealtimeHub {
@@ -50,6 +50,7 @@ export function createRealtimeHub(
   let lastMessageId: string | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
+  let reconnectAttempts = 0;
 
   function open() {
     if (!params) return;
@@ -60,6 +61,9 @@ export function createRealtimeHub(
       params.accessToken ? ["bearer", params.accessToken] : undefined,
     );
     socket = active;
+    active.addEventListener("open", () => {
+      reconnectAttempts = 0;
+    });
     active.addEventListener("message", (event) => {
       const data: unknown = event.data;
       if (typeof data !== "string") return;
@@ -79,9 +83,13 @@ export function createRealtimeHub(
     active.addEventListener("close", (event) => {
       socket = undefined;
       if (stopped || listeners.size === 0) return;
-      // 1001 = server going away (shutdown); back off a little longer. Any other
-      // close (incl. 1013 "try again later") reconnects with the resume cursor.
-      const delay = event.code === 1001 ? 3000 : 1000;
+      // Exponential backoff from the resume cursor: a downed endpoint (or a
+      // jsdom socket in tests that never connects) must not be hammered every
+      // second. 1001 (server going away) starts a notch higher. Reset on a
+      // successful open above. Cap ~30s.
+      const base = event.code === 1001 ? 3000 : 1000;
+      const delay = Math.min(base * 2 ** reconnectAttempts, 30_000);
+      reconnectAttempts += 1;
       reconnectTimer = setTimeout(open, delay);
     });
   }
