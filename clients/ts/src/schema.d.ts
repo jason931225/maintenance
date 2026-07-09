@@ -3115,6 +3115,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/inbox-docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated user's statutory-notice vault (개인 수신함)
+         * @description Metadata only — a locked legal notice's body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+         */
+        get: operations["listMyInboxDocs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox-docs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one of the authenticated user's inbox documents
+         * @description Reading a LOCKED legal notice returns its metadata with `payload` omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its `payload`.
+         */
+        get: operations["getMyInboxDoc"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox-docs/{id}/confirm-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm receipt of a legal notice (the legal receipt evidence)
+         * @description Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 = 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user's / unknown document is 404.
+         */
+        post: operations["confirmMyInboxDocReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/todos": {
         parameters: {
             query?: never;
@@ -7011,6 +7071,51 @@ export interface components {
              * @description The number of the caller's unread notifications.
              */
             unread: number;
+        };
+        /** @description A list-row / confirmation view of one inbox document. Never carries the body `payload` — that is only ever on InboxDocDetail, and only once readable. */
+        InboxDocSummary: {
+            id: components["schemas"]["Uuid"];
+            recipient_user_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "payslip" | "legal_notice";
+            /** @description Statutory subtype for a legal notice (근로계약/취업규칙/연차촉진/노무수령거부). */
+            notice_type?: string;
+            title: string;
+            /** @description Statutory basis surfaced in the passkey gate (e.g. 근로기준법 §61). */
+            legal_basis?: string;
+            /** @description Producing-object kind (e.g. workflow_run, payroll_run). */
+            source_kind?: string;
+            /** @description Producing-object id (e.g. the AP- run code). */
+            source_id?: string;
+            /** @description True while a legal notice awaits receipt confirmation — its body is withheld until confirmed. Always false for payslips. */
+            locked: boolean;
+            /**
+             * Format: uuid
+             * @description The recipient who confirmed receipt; null until confirmed.
+             */
+            confirmed_by?: string | null;
+            /**
+             * Format: date-time
+             * @description When receipt was confirmed (the legal receipt timestamp); null until then.
+             */
+            confirmed_at?: string | null;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description A single inbox document. Extends InboxDocSummary with the body `payload`, present only when readable (a payslip, or an already-confirmed legal notice) and omitted while a legal notice is locked. */
+        InboxDocDetail: components["schemas"]["InboxDocSummary"] & {
+            /** @description Rendered document payload (legal prose paragraphs, or payslip figures). */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        InboxDocPage: {
+            items: components["schemas"]["InboxDocSummary"][];
+            /** Format: uuid */
+            next_cursor: string | null;
+        };
+        /** @description The fresh passkey assertion proving present possession of an authenticator. Its absence yields 428 (precondition required). */
+        InboxDocConfirmReceiptRequest: {
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
         };
         /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
         TodoRef: {
@@ -13275,6 +13380,140 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyInboxDocs: {
+        parameters: {
+            query?: {
+                /** @description 확인 필요 (`action`) = legal notices awaiting receipt; 급여명세 (`pay`) = payslips; 완료 (`done`) = confirmed; 전체 (`all`, default). */
+                filter?: "action" | "pay" | "done" | "all";
+                /** @description Keyset cursor; return documents strictly older than this id. */
+                before?: components["schemas"]["Uuid"];
+                /** @description Page size (clamped server-side to 1..=200; default 50). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's inbox documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Unknown filter value. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getMyInboxDoc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document (body withheld while locked). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    confirmMyInboxDocReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxDocConfirmReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description The confirmed document, unlocked and stamped. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The document is a payslip and cannot be receipt-confirmed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A fresh passkey step-up is required to confirm receipt. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification or passkey step-up is not configured. */
             503: {
                 headers: {
                     [name: string]: unknown;

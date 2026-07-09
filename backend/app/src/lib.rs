@@ -34,6 +34,8 @@ use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_rest::FinancialRestState;
 use mnt_identity_adapter_postgres::PgOrgStore;
 use mnt_identity_rest::IdentityRestState;
+use mnt_inbox_adapter_postgres::PgInboxStore;
+use mnt_inbox_rest::InboxRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
 use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
@@ -1491,6 +1493,13 @@ pub fn build_router(state: AppState) -> Router {
                     notification_store,
                     state.jwt_verifier.clone(),
                 )))
+                .merge(mnt_inbox_rest::router(
+                    InboxRestState::new(
+                        PgInboxStore::new(pool.clone()),
+                        state.jwt_verifier.clone(),
+                    )
+                    .with_passkey_step_up(state.policy_step_up.clone()),
+                ))
                 .merge(mnt_todos_rest::router(TodoRestState::new(
                     todo_store,
                     state.jwt_verifier.clone(),

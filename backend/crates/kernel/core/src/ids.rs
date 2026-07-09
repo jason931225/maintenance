@@ -145,6 +145,14 @@ typed_id!(
     /// the owner is always bound from the authenticated principal.
     TodoId
 );
+typed_id!(
+    /// One document in a recipient's statutory-notice vault (개인 수신함): a
+    /// payslip self-view row (frictionless) or a legal notice (근로계약/취업규칙/
+    /// 연차촉진/노무수령거부) whose passkey-gated confirmation is the legal receipt
+    /// evidence. Recipient-scoped like notifications; the recipient is always
+    /// bound from the authenticated principal, never from request input.
+    InboxDocId
+);
 
 #[cfg(test)]
 mod tests {

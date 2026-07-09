@@ -40,6 +40,24 @@ const argVal = (name, fallback) => {
   return hit ? hit.slice(name.length + 3) : fallback;
 };
 const screen = argVal("screen", "overview");
+// Shell chrome states (P0.1). Each entry runs a build-side setup step before the
+// capture so ConsoleShell's distinct states get their own visual-regression
+// screenshot (the primitive is snapshotted, not just the 30 screens that
+// compose it). `--state=<key>`; default = the resting expanded shell.
+const SHELL_STATES = {
+  expanded: null,
+  collapsed: async (page) => {
+    await page.click("[data-cshell-collapse]");
+    await page.waitForTimeout(300); // sidebar width transition settles
+  },
+};
+const state = argVal("state", "");
+const normalizedState = state === "expanded" ? "" : state;
+const stateSetup = normalizedState ? SHELL_STATES[normalizedState] : null;
+if (normalizedState && !(normalizedState in SHELL_STATES)) {
+  throw new Error(`unknown --state "${state}" (known: ${Object.keys(SHELL_STATES).join(", ")})`);
+}
+const outKey = normalizedState ? `${screen}-${normalizedState}` : screen;
 const width = Number(argVal("viewport", "1440"));
 const height = Number(argVal("height", "900"));
 const serve = !args.includes("--no-serve");
@@ -118,6 +136,9 @@ async function main() {
 
     const manifest = {
       screen,
+      state: state || "expanded",
+      screenNavigation:
+        "screen labels the capture pair; shell chrome variants are selected with --state",
       viewport: { width, height },
       capturedAt: new Date().toISOString(),
       reference: {},
@@ -150,21 +171,36 @@ async function main() {
     await build.goto(`${baseUrl}/console`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await build.waitForSelector("[data-console-root]", { timeout: 60_000 });
     await build.waitForTimeout(500);
-    const buildPng = join(outDir, `${screen}.build.png`);
+    if (stateSetup) await stateSetup(build);
+    const buildPng = join(outDir, `${outKey}.build.png`);
     await build.screenshot({ path: buildPng, fullPage: false });
     manifest.build = {
-      png: `e2e/.artifacts/fidelity/${screen}.build.png`,
+      png: `e2e/.artifacts/fidelity/${outKey}.build.png`,
       url: `${baseUrl}/console`,
+      state: state || "expanded",
       consoleBg: await sampleBg(build, "[data-console-root]"),
     };
     await build.close();
 
-    const manifestPath = join(outDir, "manifest.json");
+    const bgMatch = manifest.reference.consoleBg === manifest.build.consoleBg;
+    manifest.consoleBgMatch = bgMatch;
+
+    // Per-state manifest so capturing multiple states does not clobber one file;
+    // the state-less default keeps the P0.0 `manifest.json` name unchanged.
+    const manifestName = state ? `${outKey}.manifest.json` : "manifest.json";
+    const manifestPath = join(outDir, manifestName);
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-    console.log(`fidelity rig OK — screen "${screen}"`);
+    console.log(`fidelity rig OK — screen "${screen}" state "${manifest.build.state}"`);
     console.log(`  reference: ${manifest.reference.png} (console bg ${manifest.reference.consoleBg})`);
     console.log(`  build:     ${manifest.build.png} (console bg ${manifest.build.consoleBg})`);
-    console.log(`  manifest:  e2e/.artifacts/fidelity/manifest.json`);
+    console.log(`  manifest:  e2e/.artifacts/fidelity/${manifestName}`);
+    if (!bgMatch) {
+      console.error(
+        `console background mismatch: reference=${manifest.reference.consoleBg} build=${manifest.build.consoleBg}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
   } finally {
     if (browser) await browser.close();
   }
