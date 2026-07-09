@@ -72,6 +72,7 @@ src/main/kotlin/com/maintenance/api/client/model/AttendanceRecordKind.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AuditChainAttestation.kt
+src/main/kotlin/com/maintenance/api/client/model/BranchScope.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventResponse.kt
@@ -241,6 +242,8 @@ src/main/kotlin/com/maintenance/api/client/model/MailThreadDetail.kt
 src/main/kotlin/com/maintenance/api/client/model/MailThreadReadStateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MailThreadView.kt
 src/main/kotlin/com/maintenance/api/client/model/MarkMessengerThreadReadRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/MeAuthzCapability.kt
+src/main/kotlin/com/maintenance/api/client/model/MeAuthzResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MediaKind.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMemberListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMemberSummary.kt

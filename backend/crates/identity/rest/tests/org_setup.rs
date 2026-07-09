@@ -2249,6 +2249,65 @@ async fn delete_passkey_succeeds_and_writes_audit_when_others_remain(pool: PgPoo
 // Harness helpers
 // ---------------------------------------------------------------------------
 
+/// GET /api/v1/me/authz (charter G-a): the caller's NON-AUTHORITATIVE
+/// authorization projection — org/branch scope, roles-as-attributes, and the
+/// legacy-matrix capability grants (deny-by-omission). Runs on the real `mnt_rt`
+/// router pool (RLS armed), and proves a branch-scoped MEMBER gets a strictly
+/// narrower grant set than ADMIN — the structural replacement for the frontend
+/// hardcoding role lists.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn me_authz_projects_roles_scope_and_capabilities(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(branch)).await;
+    let token = harness.token(admin, &["ADMIN"], vec![branch]);
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/authz", &token, None).await;
+    assert_eq!(status, StatusCode::OK, "authz projection: {body}");
+
+    // NON-AUTHORITATIVE marker — the server (authorize) stays the sole enforcer.
+    assert_eq!(body["authority"], "advisory_ui_only");
+    assert_eq!(body["source"], "legacy_matrix");
+    assert_eq!(body["user_id"], admin.as_uuid().to_string());
+
+    // Roles carried as principal attributes.
+    let roles = body["roles"].as_array().unwrap();
+    assert!(
+        roles.iter().any(|r| r == "ADMIN"),
+        "roles carry ADMIN: {body}"
+    );
+
+    // Branch scope bounded to the admin's single branch (not All).
+    assert_eq!(body["branch_scope"]["kind"], "branches");
+    let scoped = body["branch_scope"]["branches"].as_array().unwrap();
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0], branch.as_uuid().to_string());
+
+    // Capabilities = legacy-matrix grants, deny-by-omission: ADMIN holds
+    // work_order_read_all; no capability is ever emitted at "deny".
+    let caps = body["capabilities"].as_array().unwrap();
+    assert!(
+        caps.iter().any(|c| c["feature"] == "work_order_read_all"),
+        "ADMIN capability grant present: {body}"
+    );
+    assert!(
+        caps.iter().all(|c| c["permission"] != "deny"),
+        "deny is omitted, never emitted: {body}"
+    );
+
+    // A branch-scoped MEMBER projects a strictly narrower grant set: no
+    // work_order_read_all (deny-by-omission).
+    let member = seed_user(&pool, "Branch Member", &["MEMBER"], Some(branch)).await;
+    let member_token = harness.token(member, &["MEMBER"], vec![branch]);
+    let (mstatus, mbody) = send(&harness, "GET", "/api/v1/me/authz", &member_token, None).await;
+    assert_eq!(mstatus, StatusCode::OK, "member authz projection: {mbody}");
+    let mcaps = mbody["capabilities"].as_array().unwrap();
+    assert!(
+        !mcaps.iter().any(|c| c["feature"] == "work_order_read_all"),
+        "MEMBER must not project work_order_read_all: {mbody}"
+    );
+}
+
 async fn send(
     harness: &Harness,
     method: &str,

@@ -3238,6 +3238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/authz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the authenticated caller's authorization projection
+         * @description The caller's authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (`authority = "advisory_ui_only"`) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. `source = "legacy_matrix"` today; the Cedar enforce-flip later flips `source` to `"cedar"` with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at `deny`).
+         */
+        get: operations["getCurrentUserAuthz"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{id}": {
         parameters: {
             query?: never;
@@ -7859,6 +7879,42 @@ export interface components {
             layout: {
                 [key: string]: unknown;
             };
+        };
+        /** @description NON-AUTHORITATIVE authorization projection for the caller. A rendering hint only — the backend matrix is the sole enforcer. */
+        MeAuthzResponse: {
+            /**
+             * @description Always `advisory_ui_only`; never an authorization decision.
+             * @enum {string}
+             */
+            authority: "advisory_ui_only";
+            /**
+             * @description Grant source. `legacy_matrix` today; flips to `cedar` on the enforce-promotion with this shape unchanged.
+             * @enum {string}
+             */
+            source: "legacy_matrix" | "cedar";
+            user_id: components["schemas"]["Uuid"];
+            org_id: components["schemas"]["Uuid"];
+            /** @description Canonical role keys carried as principal attributes. */
+            roles: string[];
+            branch_scope: components["schemas"]["BranchScope"];
+            /** @description Capability grants the caller holds (deny-by-omission — a feature the caller cannot use is omitted, never present at `deny`). */
+            capabilities: components["schemas"]["MeAuthzCapability"][];
+        };
+        MeAuthzCapability: {
+            /** @description Feature key, matching `/api/v1/policy/features`. */
+            feature: string;
+            /**
+             * @description Effective permission level (`deny` is never emitted).
+             * @enum {string}
+             */
+            permission: "request_only" | "limited" | "allow";
+        };
+        /** @description The set of branches a principal may act within. `all` (SUPER_ADMIN / EXECUTIVE rollup) carries no `branches`; `branches` carries the explicit set. */
+        BranchScope: {
+            /** @enum {string} */
+            kind: "all" | "branches";
+            /** @description Present only when `kind = branches`. */
+            branches?: components["schemas"]["Uuid"][];
         };
         CreateRegionRequest: {
             name: string;
@@ -13406,6 +13462,36 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getCurrentUserAuthz: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's authorization projection. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeAuthzResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {

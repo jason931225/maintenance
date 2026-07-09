@@ -62,6 +62,9 @@ const RESOLVABLE_KINDS: &[&str] = &[
     "org_unit",
     "person",
     "approval_run",
+    "account",
+    "passkey",
+    "consent",
 ];
 
 const ID_MAX: usize = 200;
@@ -461,6 +464,13 @@ async fn resolve_head(
         "org_unit" => resolve_org_unit(tx, scope, id).await,
         "person" => resolve_person(tx, scope, id).await,
         "approval_run" => resolve_approval_run(tx, caller, held_role_keys, id).await,
+        // Identity kinds (Identity Console UI-M13 / charter G-b). account =
+        // person's branch-membership visibility (lifecycle object, so it shows
+        // deactivated in-scope accounts + status); passkey/consent are
+        // self-owned (only the caller resolves their own credential/consent).
+        "account" => resolve_account(tx, scope, id).await,
+        "passkey" => resolve_passkey(tx, caller, id).await,
+        "consent" => resolve_consent(tx, caller, id).await,
         // work_order/equipment without WorkOrderReadAll, any other kind
         // (including ones not in RESOLVABLE_KINDS): no resolver applies ->
         // treated identically to "not found"/"not visible".
@@ -814,6 +824,128 @@ async fn resolve_person(
         code: None,
         title: Some(row.try_get("display_name")?),
         status: None,
+    }))
+}
+
+/// Account = the login object behind a person. SAME branch-membership guard as
+/// `resolve_person` (a cross-branch/cross-org account is byte-identical to a
+/// missing one — the leak class caught in review), but it is the admin
+/// LIFECYCLE object, so unlike `person` it does NOT filter `is_active`: it
+/// surfaces deactivated in-scope accounts with `status = active|inactive` (what
+/// the S2 activate/deactivate transition renders). Deactivation preserves
+/// `user_branches`, so the join still matches a deactivated in-scope user.
+async fn resolve_account(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row = match scope {
+        BranchScope::All => {
+            sqlx::query("SELECT display_name, is_active FROM users WHERE id = $1")
+                .bind(uuid)
+                .fetch_optional(tx.as_mut())
+                .await?
+        }
+        BranchScope::Branches(set) => {
+            let branches: Vec<Uuid> = set.iter().map(|b| *b.as_uuid()).collect();
+            sqlx::query(
+                r#"
+                SELECT u.display_name, u.is_active
+                FROM users u
+                JOIN user_branches ub ON ub.user_id = u.id AND ub.branch_id = ANY($2)
+                WHERE u.id = $1
+                LIMIT 1
+                "#,
+            )
+            .bind(uuid)
+            .bind(branches)
+            .fetch_optional(tx.as_mut())
+            .await?
+        }
+    };
+    let Some(row) = row else { return Ok(None) };
+    let is_active: bool = row.try_get("is_active")?;
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: Some(row.try_get("display_name")?),
+        status: Some(if is_active { "active" } else { "inactive" }.to_owned()),
+    }))
+}
+
+/// Passkey = self-owned WebAuthn credential. Visible ONLY to its owner: the row
+/// must exist AND belong to the caller. A passkey owned by anyone else (or a
+/// missing id) is `exists:false` — no cross-user credential-enumeration oracle.
+/// `auth_webauthn_credentials` has no org column, so ownership (`user_id =
+/// caller`) is the sole guard; the caller is always in their own org.
+async fn resolve_passkey(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    caller: Uuid,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let Some(uuid) = parse_uuid(id) else {
+        return Ok(None);
+    };
+    let row = sqlx::query(
+        "SELECT last_used_at FROM auth_webauthn_credentials WHERE id = $1 AND user_id = $2",
+    )
+    .bind(uuid)
+    .bind(caller)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    let Some(row) = row else { return Ok(None) };
+    let last_used_at: Option<OffsetDateTime> = row.try_get("last_used_at")?;
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: None,
+        status: Some(
+            if last_used_at.is_some() {
+                "used"
+            } else {
+                "unused"
+            }
+            .to_owned(),
+        ),
+    }))
+}
+
+/// Consent = self-owned versioned policy acceptance. There is no consent table:
+/// acceptance is recorded as an `audit_events` row (`privacy.required_accept` /
+/// `target_type = 'privacy_terms'`), so the consent object's id IS the policy
+/// version string (e.g. `kr-pipa-v1-2026-06-25`), NOT a UUID. Visible only when
+/// the CALLER has accepted that version (`actor = caller`); another user's
+/// consent, or an unaccepted version, is `exists:false`. `audit_events` is
+/// org-RLS-scoped (GUC armed by `with_org_conn`), so this cannot cross orgs.
+async fn resolve_consent(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    caller: Uuid,
+    id: &str,
+) -> Result<Option<ResolvedHead>, ObjectError> {
+    let accepted: Option<OffsetDateTime> = sqlx::query_scalar(
+        r#"
+        SELECT occurred_at
+        FROM audit_events
+        WHERE actor = $1
+          AND action = 'privacy.required_accept'
+          AND target_type = 'privacy_terms'
+          AND target_id = $2
+        ORDER BY occurred_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(caller)
+    .bind(id)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    if accepted.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(ResolvedHead {
+        code: None,
+        title: Some(id.to_owned()),
+        status: Some("accepted".to_owned()),
     }))
 }
 

@@ -23844,6 +23844,112 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// Get the authenticated caller's authorization projection
+    ///
+    /// The caller's authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (`authority = "advisory_ui_only"`) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. `source = "legacy_matrix"` today; the Cedar enforce-flip later flips `source` to `"cedar"` with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at `deny`).
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/authz`.
+    /// - Remark: Generated from `#/paths//api/v1/me/authz/get(getCurrentUserAuthz)`.
+    public func getCurrentUserAuthz(_ input: Operations.GetCurrentUserAuthz.Input) async throws -> Operations.GetCurrentUserAuthz.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.GetCurrentUserAuthz.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/v1/me/authz",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetCurrentUserAuthz.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.MeAuthzResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
+                case 503:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetCurrentUserAuthz.Output.ServiceUnavailable.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .serviceUnavailable(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// Get a user by id within the caller's branch scope
     ///
     /// - Remark: HTTP `GET /api/v1/users/{id}`.

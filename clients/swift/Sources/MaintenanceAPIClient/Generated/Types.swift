@@ -1059,6 +1059,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /api/v1/me/workspace`.
     /// - Remark: Generated from `#/paths//api/v1/me/workspace/put(putCurrentUserWorkspace)`.
     func putCurrentUserWorkspace(_ input: Operations.PutCurrentUserWorkspace.Input) async throws -> Operations.PutCurrentUserWorkspace.Output
+    /// Get the authenticated caller's authorization projection
+    ///
+    /// The caller's authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (`authority = "advisory_ui_only"`) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. `source = "legacy_matrix"` today; the Cedar enforce-flip later flips `source` to `"cedar"` with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at `deny`).
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/authz`.
+    /// - Remark: Generated from `#/paths//api/v1/me/authz/get(getCurrentUserAuthz)`.
+    func getCurrentUserAuthz(_ input: Operations.GetCurrentUserAuthz.Input) async throws -> Operations.GetCurrentUserAuthz.Output
     /// Get a user by id within the caller's branch scope
     ///
     /// - Remark: HTTP `GET /api/v1/users/{id}`.
@@ -4030,6 +4037,15 @@ extension APIProtocol {
             headers: headers,
             body: body
         ))
+    }
+    /// Get the authenticated caller's authorization projection
+    ///
+    /// The caller's authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (`authority = "advisory_ui_only"`) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. `source = "legacy_matrix"` today; the Cedar enforce-flip later flips `source` to `"cedar"` with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at `deny`).
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/authz`.
+    /// - Remark: Generated from `#/paths//api/v1/me/authz/get(getCurrentUserAuthz)`.
+    public func getCurrentUserAuthz(headers: Operations.GetCurrentUserAuthz.Input.Headers = .init()) async throws -> Operations.GetCurrentUserAuthz.Output {
+        try await getCurrentUserAuthz(Operations.GetCurrentUserAuthz.Input(headers: headers))
     }
     /// Get a user by id within the caller's branch scope
     ///
@@ -21422,6 +21438,149 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case layout
+            }
+        }
+        /// NON-AUTHORITATIVE authorization projection for the caller. A rendering hint only — the backend matrix is the sole enforcer.
+        ///
+        /// - Remark: Generated from `#/components/schemas/MeAuthzResponse`.
+        public struct MeAuthzResponse: Codable, Hashable, Sendable {
+            /// Always `advisory_ui_only`; never an authorization decision.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/authority`.
+            @frozen public enum AuthorityPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case advisoryUiOnly = "advisory_ui_only"
+            }
+            /// Always `advisory_ui_only`; never an authorization decision.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/authority`.
+            public var authority: Components.Schemas.MeAuthzResponse.AuthorityPayload
+            /// Grant source. `legacy_matrix` today; flips to `cedar` on the enforce-promotion with this shape unchanged.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/source`.
+            @frozen public enum SourcePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case legacyMatrix = "legacy_matrix"
+                case cedar = "cedar"
+            }
+            /// Grant source. `legacy_matrix` today; flips to `cedar` on the enforce-promotion with this shape unchanged.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/source`.
+            public var source: Components.Schemas.MeAuthzResponse.SourcePayload
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/org_id`.
+            public var orgId: Components.Schemas.Uuid
+            /// Canonical role keys carried as principal attributes.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/roles`.
+            public var roles: [Swift.String]
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/branch_scope`.
+            public var branchScope: Components.Schemas.BranchScope
+            /// Capability grants the caller holds (deny-by-omission — a feature the caller cannot use is omitted, never present at `deny`).
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzResponse/capabilities`.
+            public var capabilities: [Components.Schemas.MeAuthzCapability]
+            /// Creates a new `MeAuthzResponse`.
+            ///
+            /// - Parameters:
+            ///   - authority: Always `advisory_ui_only`; never an authorization decision.
+            ///   - source: Grant source. `legacy_matrix` today; flips to `cedar` on the enforce-promotion with this shape unchanged.
+            ///   - userId:
+            ///   - orgId:
+            ///   - roles: Canonical role keys carried as principal attributes.
+            ///   - branchScope:
+            ///   - capabilities: Capability grants the caller holds (deny-by-omission — a feature the caller cannot use is omitted, never present at `deny`).
+            public init(
+                authority: Components.Schemas.MeAuthzResponse.AuthorityPayload,
+                source: Components.Schemas.MeAuthzResponse.SourcePayload,
+                userId: Components.Schemas.Uuid,
+                orgId: Components.Schemas.Uuid,
+                roles: [Swift.String],
+                branchScope: Components.Schemas.BranchScope,
+                capabilities: [Components.Schemas.MeAuthzCapability]
+            ) {
+                self.authority = authority
+                self.source = source
+                self.userId = userId
+                self.orgId = orgId
+                self.roles = roles
+                self.branchScope = branchScope
+                self.capabilities = capabilities
+            }
+            public enum CodingKeys: String, CodingKey {
+                case authority
+                case source
+                case userId = "user_id"
+                case orgId = "org_id"
+                case roles
+                case branchScope = "branch_scope"
+                case capabilities
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MeAuthzCapability`.
+        public struct MeAuthzCapability: Codable, Hashable, Sendable {
+            /// Feature key, matching `/api/v1/policy/features`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzCapability/feature`.
+            public var feature: Swift.String
+            /// Effective permission level (`deny` is never emitted).
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzCapability/permission`.
+            @frozen public enum PermissionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case requestOnly = "request_only"
+                case limited = "limited"
+                case allow = "allow"
+            }
+            /// Effective permission level (`deny` is never emitted).
+            ///
+            /// - Remark: Generated from `#/components/schemas/MeAuthzCapability/permission`.
+            public var permission: Components.Schemas.MeAuthzCapability.PermissionPayload
+            /// Creates a new `MeAuthzCapability`.
+            ///
+            /// - Parameters:
+            ///   - feature: Feature key, matching `/api/v1/policy/features`.
+            ///   - permission: Effective permission level (`deny` is never emitted).
+            public init(
+                feature: Swift.String,
+                permission: Components.Schemas.MeAuthzCapability.PermissionPayload
+            ) {
+                self.feature = feature
+                self.permission = permission
+            }
+            public enum CodingKeys: String, CodingKey {
+                case feature
+                case permission
+            }
+        }
+        /// The set of branches a principal may act within. `all` (SUPER_ADMIN / EXECUTIVE rollup) carries no `branches`; `branches` carries the explicit set.
+        ///
+        /// - Remark: Generated from `#/components/schemas/BranchScope`.
+        public struct BranchScope: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BranchScope/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case all = "all"
+                case branches = "branches"
+            }
+            /// - Remark: Generated from `#/components/schemas/BranchScope/kind`.
+            public var kind: Components.Schemas.BranchScope.KindPayload
+            /// Present only when `kind = branches`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/BranchScope/branches`.
+            public var branches: [Components.Schemas.Uuid]?
+            /// Creates a new `BranchScope`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - branches: Present only when `kind = branches`.
+            public init(
+                kind: Components.Schemas.BranchScope.KindPayload,
+                branches: [Components.Schemas.Uuid]? = nil
+            ) {
+                self.kind = kind
+                self.branches = branches
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case branches
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreateRegionRequest`.
@@ -60950,6 +61109,192 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.PutCurrentUserWorkspace.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get the authenticated caller's authorization projection
+    ///
+    /// The caller's authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (`authority = "advisory_ui_only"`) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. `source = "legacy_matrix"` today; the Cedar enforce-flip later flips `source` to `"cedar"` with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at `deny`).
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/authz`.
+    /// - Remark: Generated from `#/paths//api/v1/me/authz/get(getCurrentUserAuthz)`.
+    public enum GetCurrentUserAuthz {
+        public static let id: Swift.String = "getCurrentUserAuthz"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/authz/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetCurrentUserAuthz.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetCurrentUserAuthz.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetCurrentUserAuthz.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.GetCurrentUserAuthz.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/authz/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/authz/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MeAuthzResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MeAuthzResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetCurrentUserAuthz.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetCurrentUserAuthz.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The caller's authorization projection.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/authz/get(getCurrentUserAuthz)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetCurrentUserAuthz.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetCurrentUserAuthz.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/authz/get(getCurrentUserAuthz)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/authz/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/authz/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetCurrentUserAuthz.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetCurrentUserAuthz.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/authz/get(getCurrentUserAuthz)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetCurrentUserAuthz.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetCurrentUserAuthz.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

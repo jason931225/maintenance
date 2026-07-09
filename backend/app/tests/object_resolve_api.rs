@@ -343,9 +343,204 @@ async fn resolve_enforces_domain_feature_guards(pool: PgPool) {
     assert_eq!(allowed.1["exists"], false);
 }
 
+/// Identity object kinds (Identity Console UI-M13 / charter G-b): account
+/// (person's branch-membership semantics, but the lifecycle object — shows
+/// deactivated in-scope accounts + status), and the self-owned passkey/consent
+/// kinds. Negative coverage is mandatory (this resolver's history includes a
+/// cross-branch leak): cross-branch account, non-self passkey, and non-self /
+/// unaccepted consent must all be denied by omission.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn resolves_identity_kinds_and_denies_by_omission(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let caller = UserId::new();
+    let branch_x = seed_branch(&pool, "Region X", "Branch X").await;
+    let branch_y = seed_branch(&pool, "Region Y", "Branch Y").await;
+    // ADMIN -> branch-bounded scope {branch_x} (not All), so cross-branch denial
+    // is proven at the application level, not only via RLS.
+    seed_user_in_branch(&pool, caller, "ADMIN", branch_x).await;
+    let token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        caller,
+        vec![branch_x],
+    );
+
+    // account (in-scope, active): resolves with status=active.
+    let subject = UserId::new();
+    seed_user_in_branch(&pool, subject, "MECHANIC", branch_x).await;
+    let account = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "account",
+        &subject.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(account.0, StatusCode::OK);
+    assert_eq!(account.1["exists"], true, "in-scope account: {}", account.1);
+    assert_eq!(account.1["status"], "active");
+
+    // account (in-scope, DEACTIVATED): unlike `person` (which hides inactive),
+    // the account lifecycle object still resolves, surfacing status=inactive —
+    // this is what the S2 activate/deactivate transition renders.
+    let deactivated = UserId::new();
+    seed_user_in_branch(&pool, deactivated, "MECHANIC", branch_x).await;
+    sqlx::query("UPDATE users SET is_active = false WHERE id = $1")
+        .bind(*deactivated.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let acct_inactive = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "account",
+        &deactivated.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        acct_inactive.1["exists"], true,
+        "deactivated in-scope account still resolves: {}",
+        acct_inactive.1
+    );
+    assert_eq!(acct_inactive.1["status"], "inactive");
+    // The person kind for the SAME user stays hidden (no deactivation oracle on
+    // the person surface).
+    let person_inactive = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &deactivated.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(person_inactive.1["exists"], false);
+
+    // account cross-branch: a user only in branch_y must be denied by omission.
+    let cross_branch = UserId::new();
+    seed_user_in_branch(&pool, cross_branch, "MECHANIC", branch_y).await;
+    let acct_cross = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "account",
+        &cross_branch.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        acct_cross.1["exists"], false,
+        "cross-branch account must be denied by omission: {}",
+        acct_cross.1
+    );
+
+    // passkey (self-owned): the caller's own passkey resolves.
+    let my_passkey = seed_passkey(&pool, caller).await;
+    let pk_mine = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "passkey",
+        &my_passkey.to_string(),
+    )
+    .await;
+    assert_eq!(pk_mine.0, StatusCode::OK);
+    assert_eq!(pk_mine.1["exists"], true, "own passkey: {}", pk_mine.1);
+
+    // passkey NON-SELF: a passkey owned by another user is denied by omission —
+    // no cross-user credential-enumeration oracle.
+    let their_passkey = seed_passkey(&pool, subject).await;
+    let pk_theirs = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "passkey",
+        &their_passkey.to_string(),
+    )
+    .await;
+    assert_eq!(
+        pk_theirs.1["exists"], false,
+        "another user's passkey must be denied by omission: {}",
+        pk_theirs.1
+    );
+
+    // consent (self-owned, versioned): id IS the policy version string. The
+    // caller's accepted version resolves; an unaccepted version does not.
+    let version = "kr-pipa-v1-2026-06-25";
+    seed_consent(&pool, caller, version).await;
+    let consent_mine = resolve(&pool, &public_key_pem, &token, "consent", version).await;
+    assert_eq!(consent_mine.0, StatusCode::OK);
+    assert_eq!(
+        consent_mine.1["exists"], true,
+        "own accepted consent: {}",
+        consent_mine.1
+    );
+    assert_eq!(consent_mine.1["status"], "accepted");
+    assert_eq!(consent_mine.1["title"], version);
+
+    let consent_absent = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "consent",
+        "kr-pipa-v9-2099-01-01",
+    )
+    .await;
+    assert_eq!(
+        consent_absent.1["exists"], false,
+        "unaccepted consent version is denied by omission: {}",
+        consent_absent.1
+    );
+
+    // consent NON-SELF: a version accepted only by ANOTHER user is not visible
+    // to the caller (actor-scoped).
+    let their_version = "kr-pipa-v2-2026-06-25";
+    seed_consent(&pool, subject, their_version).await;
+    let consent_theirs = resolve(&pool, &public_key_pem, &token, "consent", their_version).await;
+    assert_eq!(
+        consent_theirs.1["exists"], false,
+        "another user's consent must be denied by omission: {}",
+        consent_theirs.1
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
+
+async fn seed_passkey(pool: &PgPool, user_id: UserId) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO auth_webauthn_credentials (user_id, credential_id, passkey_json, org_id) \
+         VALUES ($1, $2, '{}'::jsonb, $3) RETURNING id",
+    )
+    .bind(*user_id.as_uuid())
+    .bind(format!("cred-{}", Uuid::new_v4()))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_consent(pool: &PgPool, actor: UserId, version: &str) {
+    sqlx::query(
+        "INSERT INTO audit_events \
+         (actor, action, target_type, target_id, trace_id, span_id, occurred_at, org_id) \
+         VALUES ($1, 'privacy.required_accept', 'privacy_terms', $2, $3, $4, now(), $5)",
+    )
+    .bind(*actor.as_uuid())
+    .bind(version)
+    .bind("0".repeat(32))
+    .bind("0".repeat(16))
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
 
 async fn resolve(
     pool: &PgPool,
