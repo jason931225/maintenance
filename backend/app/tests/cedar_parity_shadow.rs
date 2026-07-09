@@ -30,6 +30,13 @@ use uuid::Uuid;
 
 const ORG_B: Uuid = Uuid::from_u128(0x4444_4444_4444_4444_4444_4444_4444_4444);
 
+async fn disable_row_security(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) {
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut **tx)
+        .await
+        .unwrap();
+}
+
 /// A pool whose every connection runs `SET ROLE mnt_rt`, so statements execute as
 /// the production runtime role (NOSUPERUSER, NOBYPASSRLS) under FORCE RLS.
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
@@ -49,10 +56,7 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
 
 async fn seed_org(owner_pool: &PgPool, org: Uuid, tag: &str) {
     let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    disable_row_security(&mut tx).await;
     sqlx::query(
         "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
     )
@@ -67,10 +71,7 @@ async fn seed_org(owner_pool: &PgPool, org: Uuid, tag: &str) {
 
 async fn seed_user(owner_pool: &PgPool, org: Uuid, role: &str) -> UserId {
     let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    disable_row_security(&mut tx).await;
     let user_id: Uuid = sqlx::query_scalar(
         "INSERT INTO users (display_name, roles, org_id, is_active) VALUES ($1, $2, $3, true) RETURNING id",
     )
@@ -90,10 +91,7 @@ async fn seed_user(owner_pool: &PgPool, org: Uuid, role: &str) -> UserId {
 /// comparison.
 async fn seed_freshness(owner_pool: &PgPool, org: Uuid, user: UserId) {
     let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    disable_row_security(&mut tx).await;
     sqlx::query("INSERT INTO policy_versions (org_id) VALUES ($1) ON CONFLICT (org_id) DO NOTHING")
         .bind(org)
         .execute(&mut *tx)
@@ -113,10 +111,7 @@ async fn seed_freshness(owner_pool: &PgPool, org: Uuid, user: UserId) {
 
 async fn enable_flag(owner_pool: &PgPool, org: Uuid, flag: &str) {
     let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    disable_row_security(&mut tx).await;
     sqlx::query("INSERT INTO org_runtime_flags (org_id, flag_key, enabled) VALUES ($1, $2, true)")
         .bind(org)
         .bind(flag)
@@ -130,10 +125,7 @@ async fn enable_flag(owner_pool: &PgPool, org: Uuid, flag: &str) {
 /// row_security off — the cross-tenant operator read the report binary performs).
 async fn read_parity_observations(owner_pool: &PgPool, org: Uuid) -> Vec<ParityObservation> {
     let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    disable_row_security(&mut tx).await;
     let rows: Vec<serde_json::Value> =
         sqlx::query_scalar("SELECT after_snap FROM audit_events WHERE action = $1 AND org_id = $2")
             .bind(CEDAR_PBAC_PARITY_AUDIT_ACTION)

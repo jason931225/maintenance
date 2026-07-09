@@ -64,6 +64,7 @@ Deferred follow-ups (still zero / out of this lane):
 Cross-model codex review gates completion (same loop as M2).
 
 ### Enrollment wave 2 (2026-07-09 — `feat/cedar-enrollment-parity`)
+
 Slice 4 wired ONE surface (identity `role_manage`) into a Cedar shadow. Wave 2 EXTENDS the shadow to two more surfaces and adds the promotion-evidence artifact. All still audit-only, legacy still the SOLE enforcer, per-tenant DARK flags (zero enabled rows in prod), whole-lane `catch_unwind` isolation — the #182 discipline, generalized.
 
 **Engine generalization** (`authz/cedar_pbac/engine.rs`): `compile_bundle_for_feature(org, policy_version, feature)` + `feature_schema(feature)` emit a strict-validated bundle for ANY enrolled `Feature` (action id = `Feature::as_str`), policies still GENERATED from the legacy matrix (`generate_policies`) so Cedar ≡ matrix by construction. `role_manage`'s pinned bundle identity is untouched (separate path), so #182 stays byte-identical. Test: `per_feature_bundle_matches_the_legacy_matrix` (SUPER_ADMIN allow / MEMBER deny across work_order_read_all, user_manage, completion_review, approval_finalize) + distinct-key test.

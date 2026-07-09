@@ -48,6 +48,24 @@ pub const ROLE_MANAGE_SCHEMA_VERSION: &str = "2026-07-role-manage-v1";
 /// can never fabricate the `roles`/`subject_version` a permit depends on. The
 /// action id is [`Feature::as_str`] (`role_manage`) so the generated policy and
 /// the evaluated request address the same Cedar action.
+pub const SUBJECT_SCHEMA: &str = r#"entity Subject = {
+  "org": String,
+  "roles": Set<String>,
+  "subject_version": Long
+};"#;
+
+pub const RESOURCE_SCHEMA: &str = r#"entity Resource = {
+  "org": String,
+  "resource_type": String,
+  "branch"?: String
+};"#;
+
+const CONTEXT_SCHEMA: &str = r#"context: {
+  "purpose"?: String,
+  "channel"?: String,
+  "step_up"?: Bool
+}"#;
+
 pub const ROLE_MANAGE_SCHEMA: &str = r#"entity Subject = {
   "org": String,
   "roles": Set<String>,
@@ -134,28 +152,7 @@ pub fn compile_bundle(org_id: OrgId, policy_version: u64) -> Result<CompiledBund
 #[must_use]
 pub fn feature_schema(feature: Feature) -> String {
     format!(
-        r#"entity Subject = {{
-  "org": String,
-  "roles": Set<String>,
-  "subject_version": Long
-}};
-
-entity Resource = {{
-  "org": String,
-  "resource_type": String,
-  "branch"?: String
-}};
-
-action "{action}" appliesTo {{
-  principal: [Subject],
-  resource: [Resource],
-  context: {{
-    "purpose"?: String,
-    "channel"?: String,
-    "step_up"?: Bool
-  }}
-}};
-"#,
+        "{SUBJECT_SCHEMA}\n\n{RESOURCE_SCHEMA}\n\naction \"{action}\" appliesTo {{\n  principal: [Subject],\n  resource: [Resource],\n  {CONTEXT_SCHEMA}\n}};\n",
         action = feature.as_str()
     )
 }
@@ -422,6 +419,14 @@ mod tests {
         )
     }
 
+    fn resource_kind_for(feature: Feature) -> &'static str {
+        match feature {
+            Feature::UserManage => "user",
+            Feature::CompletionReview | Feature::ApprovalFinalize => "workflow_run",
+            _ => "work_order",
+        }
+    }
+
     fn feature_request(feature: Feature, role: Role) -> AuthorizationRequest {
         let principal = Principal::new(
             UserId::new(),
@@ -432,7 +437,7 @@ mod tests {
         AuthorizationRequest::new(
             principal,
             Action::new(feature),
-            AuthorizationResource::org_wide(OrgId::knl(), "work_order"),
+            AuthorizationResource::org_wide(OrgId::knl(), resource_kind_for(feature)),
         )
     }
 

@@ -12,7 +12,8 @@
 //! (arms `app.current_org` so a tenant-scoped role sees only its own rows).
 //!
 //! Exit code: `0` normally; `2` when `CEDAR_PARITY_FAIL_ON_DIVERGENCE=1` and any
-//! divergence exists (so it can double as a promotion CI gate); `1` on error.
+//! divergence or malformed audit row exists (so it can double as a promotion CI
+//! gate); `1` on error.
 
 use std::process::ExitCode;
 
@@ -48,31 +49,58 @@ async fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             .await?;
     }
 
+    let limit = std::env::var("CEDAR_PARITY_LIMIT")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(10_000);
+
     let rows = sqlx::query(
         "SELECT org_id, after_snap FROM audit_events \
-         WHERE action = $1 AND after_snap IS NOT NULL AND org_id IS NOT NULL",
+         WHERE action = $1 AND after_snap IS NOT NULL AND org_id IS NOT NULL \
+         ORDER BY created_at DESC LIMIT $2",
     )
     .bind(CEDAR_PBAC_PARITY_AUDIT_ACTION)
+    .bind(limit)
     .fetch_all(conn.as_mut())
     .await?;
 
+    let total_rows = rows.len();
+    let mut skipped_rows = 0usize;
     let observations = rows.into_iter().filter_map(|row| {
-        let org_id: uuid::Uuid = row.try_get("org_id").ok()?;
-        let after: serde_json::Value = row.try_get("after_snap").ok()?;
-        let observation: ParityObservation = serde_json::from_value(after).ok()?;
-        Some((org_id.to_string(), observation))
+        let parsed = (|| {
+            let org_id: uuid::Uuid = row.try_get("org_id").ok()?;
+            let after: serde_json::Value = row.try_get("after_snap").ok()?;
+            let observation: ParityObservation = serde_json::from_value(after).ok()?;
+            Some((org_id.to_string(), observation))
+        })();
+        if parsed.is_none() {
+            skipped_rows += 1;
+        }
+        parsed
     });
 
     let report = aggregate(observations);
+    if skipped_rows > 0 {
+        eprintln!(
+            "mnt-cedar-parity-report: skipped {skipped_rows} unparsable row(s) out of {total_rows}"
+        );
+    }
+    if total_rows == limit as usize {
+        eprintln!(
+            "mnt-cedar-parity-report: scanned the newest {limit} row(s); set CEDAR_PARITY_LIMIT to widen the window"
+        );
+    }
     println!("{}", serde_json::to_string_pretty(&report)?);
 
     let fail_on_divergence = std::env::var("CEDAR_PARITY_FAIL_ON_DIVERGENCE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-    if fail_on_divergence && report.disagree > 0 {
+    if fail_on_divergence && (report.disagree > 0 || skipped_rows > 0) {
         eprintln!(
-            "mnt-cedar-parity-report: {} divergence(s) across {} site(s) — promotion blocked",
+            "mnt-cedar-parity-report: {} divergence(s), {} malformed row(s) across {} site(s) — promotion blocked",
             report.disagree,
+            skipped_rows,
             report.per_site.len()
         );
         return Ok(ExitCode::from(2));

@@ -840,7 +840,8 @@ async fn create_post_finalization_rejection(
     }
 
     // Enrollment wave 2: audit-only Cedar parity observation (legacy already
-    // enforced above). Org-wide authority by design, so no branch/object narrowing.
+    // enforced above). Scope is branch + run-specific so the parity row mirrors
+    // the workflow run the already-enforced legacy decision acted on.
     let shadow_resource = AuthorizationResource::branch(principal.org_id, branch, "workflow_run")
         .with_resource_id(run_id.to_string());
     crate::cedar_parity::observe_parity(

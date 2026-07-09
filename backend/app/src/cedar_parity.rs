@@ -159,12 +159,10 @@ async fn try_observe_parity(
         .await
         .map_err(|err| format!("subject version read failed: {err:?}"))?;
 
-    let bundle = engine::compile_bundle_for_feature(
-        org,
-        u64::try_from(policy_version).unwrap_or(0),
-        feature,
-    )
-    .map_err(|err| format!("bundle compile failed: {}", err.message))?;
+    let policy_version = u64::try_from(policy_version).unwrap_or(0);
+
+    let bundle = engine::compile_bundle_for_feature(org, policy_version, feature)
+        .map_err(|err| format!("bundle compile failed: {}", err.message))?;
 
     // CedarOnly shadow entry: yields Cedar's own verdict without a legacy consult.
     let entry = CoexistenceMapEntry::new(
@@ -181,7 +179,7 @@ async fn try_observe_parity(
             .with_policy_domain(domain)
             .with_subject_freshness(principal.authz_freshness)
             .requiring_freshness(SubjectFreshnessRequirement {
-                min_policy_version: u64::try_from(policy_version).unwrap_or(0),
+                min_policy_version: policy_version,
                 min_subject_version: u64::try_from(subject_version).unwrap_or(0),
                 min_session_generation: u64::try_from(session_generation).unwrap_or(0),
                 required_step_up_generation: None,
