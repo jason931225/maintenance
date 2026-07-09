@@ -84,6 +84,30 @@ export const ko = {
       error: "후보를 불러오지 못했습니다",
       empty: "일치하는 항목이 없습니다",
     },
+    // Carbon-copy window/pin engine (console/window/**). Hover-toolbar action
+    // affordances (title/aria) carbon-copied from the prototype; the tray label.
+    window: {
+      pin: "핀 — 분할 패널 고정 (더블클릭)",
+      unpin: "핀 해제 — 기본 배치",
+      minimize: "최소화 — 작업 트레이",
+      close: "닫기 — 기본 배치로",
+      tray: "작업 트레이",
+      restore: "복원",
+    },
+    // Dev-only window-engine demo harness (console/window/harness.tsx). Not a
+    // product surface — labels exist only so the fidelity rig can capture the
+    // four states in isolation.
+    windowDemo: {
+      title: "창 엔진 검증",
+      screenA: "운영 현황",
+      screenB: "결재/평가",
+      cardRoster: "직원 명부",
+      cardIssues: "근태 이상",
+      cardBoard: "근무 현황",
+      cardTeams: "팀별 진행률",
+      cardTasks: "내 평가 할 일",
+      body: "카드 본문 — 헤더를 끌어 팝아웃 · 더블클릭으로 핀 고정",
+    },
   },
   nav: {
     overview: "통합 개요",

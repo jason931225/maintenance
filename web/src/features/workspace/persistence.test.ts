@@ -327,6 +327,36 @@ describe("useWorkspacePersistence", () => {
     expect(put).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves a foreign top-level key (consoleWindow) across a legacy save", async () => {
+    const put = vi
+      .fn()
+      .mockResolvedValue({ data: { layout: {} }, response: { ok: true } });
+    const api = makeApi(
+      () =>
+        Promise.resolve({
+          data: {
+            layout: { v: 1, panels: [serverPanel(wo)], consoleWindow: { z: 9 } },
+          },
+          response: { ok: true },
+        }),
+      put,
+    );
+    await mount(api);
+    act(() => {
+      useWorkspaceStore.getState().pin("overview", support);
+    });
+    await tick(600);
+
+    expect(put).toHaveBeenCalledTimes(1);
+    const body = (
+      put.mock.calls[0]?.[1] as { body: { layout: Record<string, unknown> } }
+    ).body.layout;
+    expect(body.consoleWindow).toEqual({ z: 9 }); // foreign key survived the write
+    expect(body.v).toBe(1); // our own envelope keys unchanged
+    expect(Array.isArray(body.panels)).toBe(true);
+    expect(body.panels).toHaveLength(2); // wo (loaded) + support (edit)
+  });
+
   it("treats a non-ok HTTP response as a failed load", async () => {
     const api = makeApi(() =>
       Promise.resolve({ data: undefined, response: { ok: false } }),
