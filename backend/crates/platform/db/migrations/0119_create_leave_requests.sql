@@ -9,7 +9,7 @@
 --
 -- Branch-scoped: the approval queue is confined to the approver's branches in
 -- application code from the resolved principal scope (there is no per-branch
--- GUC). Tenant isolation follows the 0116_create_inbox_docs idiom: RLS keyed on
+-- GUC). Tenant isolation follows the 0117_create_inbox_docs idiom: RLS keyed on
 -- `app.current_org`, FORCE-enabled.
 --
 -- Separation of duties is enforced BOTH in code and here: `decided_by` can

@@ -183,9 +183,13 @@ impl PromotionKind {
         }
     }
 
+    /// The statutory citation, in the formal article form used on legal
+    /// notices (not the `§61` shorthand used in code comments/docs). The sole
+    /// source of this string — `notice_body` renders it into the notice body
+    /// too, rather than hardcoding its own copy.
     #[must_use]
     pub fn legal_basis(self) -> &'static str {
-        "근로기준법 §61"
+        "근로기준법 제61조"
     }
 }
 

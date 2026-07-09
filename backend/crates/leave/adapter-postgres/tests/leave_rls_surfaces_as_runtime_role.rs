@@ -367,6 +367,73 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn approve_rejects_when_days_exceed_remaining_balance(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let requester = seed_user(&owner_pool, knl_uuid).await;
+    let approver = seed_user(&owner_pool, knl_uuid).await;
+    // Only 1 day remains; the request asks for 3 — an approval must not drive
+    // the balance negative.
+    let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 14.0, 1.0).await;
+
+    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())));
+
+    let request = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .create_request(create_cmd(branch, requester, employee, 3.0))
+            .await
+    })
+    .await
+    .expect("create request");
+
+    let rejected = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .decide(decide_cmd(
+                request.id,
+                approver,
+                scope_of(branch),
+                LeaveDecision::Approve,
+            ))
+            .await
+    })
+    .await;
+    assert_eq!(
+        rejected
+            .expect_err("approval exceeding the remaining balance must fail")
+            .kind(),
+        ErrorKind::Validation,
+        "an honest 422, not a negative balance"
+    );
+
+    // The whole transaction rolled back: no ledger write, no status flip.
+    let (used, remaining): (f64, f64) = sqlx::query_as(
+        "SELECT leave_used::float8, leave_remaining::float8 FROM employees WHERE id = $1",
+    )
+    .bind(employee)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert!((used - 14.0).abs() < f64::EPSILON, "ledger untouched");
+    assert!((remaining - 1.0).abs() < f64::EPSILON, "ledger untouched");
+
+    let still_pending = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .list_requests(ListLeaveRequestsQuery {
+                branch_scope: scope_of(branch),
+                status: None,
+                limit: 50,
+            })
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(still_pending.items[0].status, LeaveStatus::Pending);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn statutory_push_delivers_receipt_doc_and_is_idempotent(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
     let knl = OrgId::knl();

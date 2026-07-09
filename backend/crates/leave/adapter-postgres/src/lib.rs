@@ -289,14 +289,16 @@ impl PgLeaveStore {
 
                     // Ledger write-back: an approval moves the subject employee's
                     // balance in this same transaction. COALESCE because imported
-                    // rows may have NULL leave figures.
+                    // rows may have NULL leave figures. The sufficiency guard
+                    // (`leave_remaining >= days`) keeps an approval from ever
+                    // driving the balance negative.
                     if decision.writes_ledger() {
                         let affected = sqlx::query(
                             "UPDATE employees \
                          SET leave_used = COALESCE(leave_used, 0) + $2, \
                              leave_remaining = COALESCE(leave_remaining, 0) - $2, \
                              updated_at = now() \
-                         WHERE id = $1",
+                         WHERE id = $1 AND COALESCE(leave_remaining, 0) >= $2",
                         )
                         .bind(subject_employee_id)
                         .bind(days)
@@ -304,9 +306,27 @@ impl PgLeaveStore {
                         .await?
                         .rows_affected();
                         if affected != 1 {
-                            return Err(PgLeaveError::Domain(KernelError::not_found(
-                                "subject employee not found for leave-ledger write-back",
-                            )));
+                            // 0 rows affected is either a missing employee (404)
+                            // or an insufficient balance (422, honest error) —
+                            // tell them apart with a follow-up read.
+                            let remaining: Option<f64> = sqlx::query_scalar(
+                                "SELECT COALESCE(leave_remaining, 0)::float8 \
+                                 FROM employees WHERE id = $1",
+                            )
+                            .bind(subject_employee_id)
+                            .fetch_optional(tx.as_mut())
+                            .await?;
+                            return Err(match remaining {
+                                Some(remaining) => {
+                                    PgLeaveError::Domain(KernelError::validation(format!(
+                                        "approval requires {days} day(s) but only \
+                                         {remaining} remain"
+                                    )))
+                                }
+                                None => PgLeaveError::Domain(KernelError::not_found(
+                                    "subject employee not found for leave-ledger write-back",
+                                )),
+                            });
                         }
                     }
                     Ok(row)
@@ -607,6 +627,7 @@ fn balance_tone(grant: f64, used: f64, left: f64) -> String {
 
 /// Render the statutory notice title + JSONB body delivered into the inbox.
 fn notice_body(command: &StatutoryPushCommand, round: i16) -> (String, serde_json::Value) {
+    let legal_basis = command.kind.legal_basis();
     match command.kind {
         PromotionKind::Promotion => (
             format!("연차 사용 촉진 통지 ({round}차)"),
@@ -615,10 +636,10 @@ fn notice_body(command: &StatutoryPushCommand, round: i16) -> (String, serde_jso
                 "round": round,
                 "target": command.target_name,
                 "unused_days": command.unused_days,
-                "legal_basis": "근로기준법 제61조",
+                "legal_basis": legal_basis,
                 "paragraphs": [
                     format!(
-                        "귀하의 미사용 연차 {}일에 대하여 근로기준법 제61조에 따라 사용을 촉구합니다.",
+                        "귀하의 미사용 연차 {}일에 대하여 {legal_basis}에 따라 사용을 촉구합니다.",
                         command.unused_days
                     ),
                     if round >= 2 {
@@ -637,7 +658,7 @@ fn notice_body(command: &StatutoryPushCommand, round: i16) -> (String, serde_jso
                 "round": round,
                 "target": command.target_name,
                 "unused_days": command.unused_days,
-                "legal_basis": "근로기준법 제61조",
+                "legal_basis": legal_basis,
                 "paragraphs": [
                     "연차 사용 촉진 절차에도 미사용된 연차에 대하여 노무 수령을 거부합니다.",
                     "본 통지로써 해당 연차에 대한 사용자의 금전 보상 의무가 소멸함을 안내드립니다.",
