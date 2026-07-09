@@ -1,12 +1,14 @@
 /**
  * Fidelity states for the P0.4 generic module template (charter §3 P0.4, D2.1).
  *
- * The dual-capture rig (`capture.mjs`) screenshots each state and hands the pair
- * (prototype MOD_SCREENS surface vs. built template) to the `visual-verdict`
- * skill. Until the rig grows a `--screen=module` navigator, these states are
- * asserted deterministically by `ModuleDemo.test.tsx` (the component-test
- * fidelity registry, matching the P0.3 composer precedent) — each `selector`
- * below is the `data-fidelity` anchor that test renders.
+ * `capture.mjs --screen=module` navigates the BUILD side to each state below
+ * and commits a baseline PNG under `e2e/fidelity/baseline/module/`. Because
+ * `MOD_SCREENS` is a post-snapshot surface with no dc.html region (charter D2
+ * RATIFIED 2026-07-09), there is no prototype side — the build-side captures ARE
+ * the visual-regression baseline. The same states are also asserted
+ * deterministically by `ModuleDemo.test.tsx` (the component-test fidelity
+ * registry) — each `selector` below is the `data-fidelity` anchor both the rig
+ * and that test key off.
  *
  * The built side is reachable at the standalone dev harness `/console-dev/module`
  * (a live read); `config` selects which proof config drives the state.

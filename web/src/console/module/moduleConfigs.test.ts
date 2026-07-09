@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
 import { demoTickets, demoWorkOrders } from "../../test/module-fixtures";
-import { supportTicketModuleConfig, workOrderModuleConfig } from "./moduleConfigs";
+import { supportTicketModuleConfig, workOrderModuleConfig, type Ticket } from "./moduleConfigs";
 
 /**
  * Proves the two configs bind their REAL endpoints end to end at the data
@@ -77,5 +77,20 @@ describe("supportTicketModuleConfig — live binding", () => {
 
   it("support has no link chips (UUID-keyed, no issued code)", () => {
     expect(supportTicketModuleConfig.detail.links(demoTickets[0])).toEqual([]);
+  });
+});
+
+describe("list cells — DESIGN §4.7-1 예외만 칩 (chips for exceptions only)", () => {
+  const statusCol = supportTicketModuleConfig.columns.find((c) => c.key === "status");
+  const mk = (status: Ticket["status"]) => ({ ...demoTickets[0], status });
+
+  it("gives an exception status (OPEN→warn) a chip tone", () => {
+    expect(statusCol?.cell(mk("OPEN")).tone).toBe("warn");
+  });
+
+  it("renders a routine status (CLOSED→neutral, RESOLVED→ok, IN_PROGRESS→accent) as plain text", () => {
+    expect(statusCol?.cell(mk("CLOSED")).tone).toBeUndefined();
+    expect(statusCol?.cell(mk("RESOLVED")).tone).toBeUndefined();
+    expect(statusCol?.cell(mk("IN_PROGRESS")).tone).toBeUndefined();
   });
 });

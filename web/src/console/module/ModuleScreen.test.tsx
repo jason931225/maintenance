@@ -111,6 +111,28 @@ describe("ModuleScreen — PolicyGated affordances (deny-by-omission)", () => {
   });
 });
 
+describe("ModuleScreen — statbar zero grammar (§4.7-1 0은 숨김/—)", () => {
+  it("renders a zero count as an em dash, never '0'", () => {
+    // No URGENT ticket in this single-row set → the "긴급" stat is 0.
+    const { container } = render(
+      <PolicyGateProvider decide={() => true}>
+        <ModuleScreen
+          config={supportTicketModuleConfig}
+          rows={[{ ...demoTickets[1] }]}
+          loadState="idle"
+        />
+      </PolicyGateProvider>,
+    );
+    const statbar = container.querySelector('[data-fidelity="module-statbar"]') as HTMLElement;
+    expect(statbar.textContent).toContain("—");
+    expect(statbar.querySelectorAll("span")).not.toHaveLength(0);
+    // the urgent stat cell shows the dash, not a literal zero
+    const urgent = within(statbar).getByText(SP.stat.urgent).parentElement as HTMLElement;
+    expect(urgent.textContent).toContain("—");
+    expect(urgent.textContent).not.toContain("0");
+  });
+});
+
 describe("ModuleScreen — generic fields", () => {
   it("renders a progress bar for a `prog` field", () => {
     const progConfig: ModuleConfig<(typeof demoTickets)[number]> = {

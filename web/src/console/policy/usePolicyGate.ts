@@ -13,18 +13,21 @@ import { createContext, useContext } from "react";
  *
  * Semantics (DESIGN §4.5, deny-by-omission): a denied affordance renders
  * NOTHING. This is a UI-only projection; the backend RLS/PBAC layer is the real
- * authority. The default decider (no provider) is permissive because a
- * standalone primitive has no policy source; a real screen wraps its subtree in
- * a `PolicyGateProvider` fed from the session's authorization projection.
+ * authority. The default decider (no provider) DENIES everything: an unprovided
+ * gate must never leak an affordance. Every real screen wraps its subtree in a
+ * `PolicyGateProvider` fed from the session's authorization projection; a demo
+ * or harness that deliberately wants all affordances visible mounts an explicit
+ * allow-all provider (never relies on the default).
  */
 export type PolicyDecider = (action: string) => boolean;
 
-const ALLOW_ALL: PolicyDecider = () => true;
+const DENY_ALL: PolicyDecider = () => false;
 
 export const PolicyGateContext = createContext<PolicyDecider | null>(null);
 
-/** The active decider. Falls back to allow-all when no provider wraps the tree
- * (see the convergence note); real screens always provide one. */
+/** The active decider. Falls back to DENY-all when no provider wraps the tree —
+ * fail-closed, so a forgotten provider hides affordances rather than exposing
+ * them. Real screens (and demos wanting visible affordances) always provide one. */
 export function usePolicyGate(): PolicyDecider {
-  return useContext(PolicyGateContext) ?? ALLOW_ALL;
+  return useContext(PolicyGateContext) ?? DENY_ALL;
 }

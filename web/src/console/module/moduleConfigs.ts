@@ -23,6 +23,15 @@ type TicketStatus = components["schemas"]["SupportTicketStatus"];
 
 const PAGE = 100;
 
+/**
+ * DESIGN §4.7-1 "예외만 칩" — a list cell is a chip ONLY when its value is an
+ * exception that needs attention; routine/neutral values render as plain text.
+ * Exception tones are the attention/alarm family (warn, danger); everything
+ * else (neutral, info, accent, ok, purple) is a routine state and stays plain.
+ */
+const EXCEPTION_TONES = new Set<Tone>(["warn", "danger"]);
+const chipTone = (tone: Tone): Tone | undefined => (EXCEPTION_TONES.has(tone) ? tone : undefined);
+
 /* ─────────────────────────────── work orders ──────────────────────────── */
 
 const WO = ko.console.module.workOrder;
@@ -87,8 +96,8 @@ export const workOrderModuleConfig: ModuleConfig<WorkOrder> = {
     { key: "code", header: WO.col.code, width: 168, minWidth: 120, cell: (r) => ({ text: workOrderCode(r.request_no), mono: true }) },
     { key: "customer", header: WO.col.customer, width: 160, minWidth: 90, cell: (r) => ({ text: safeLabel(r.customer.name) }) },
     { key: "equipment", header: WO.col.equipment, width: 180, minWidth: 90, cell: (r) => ({ text: safeLabel(r.equipment.model, r.equipment.equipment_no) }) },
-    { key: "status", header: WO.col.status, width: 108, minWidth: 72, cell: (r) => ({ text: WO.status[r.status], tone: WO_STATUS_TONE[r.status] }) },
-    { key: "priority", header: WO.col.priority, width: 80, minWidth: 56, align: "end", cell: (r) => ({ text: WO.priority[r.priority], tone: PRIORITY_TONE[r.priority] }) },
+    { key: "status", header: WO.col.status, width: 108, minWidth: 72, cell: (r) => ({ text: WO.status[r.status], tone: chipTone(WO_STATUS_TONE[r.status]) }) },
+    { key: "priority", header: WO.col.priority, width: 80, minWidth: 56, align: "end", cell: (r) => ({ text: WO.priority[r.priority], tone: chipTone(PRIORITY_TONE[r.priority]) }) },
   ],
   statbar: (rows) => [
     { key: "total", label: WO.stat.total, value: String(rows.length) },
@@ -161,8 +170,8 @@ export const supportTicketModuleConfig: ModuleConfig<Ticket> = {
     { key: "title", header: SP.col.title, width: 240, minWidth: 120, cell: (r) => ({ text: safeLabel(r.title) }) },
     { key: "requester", header: SP.col.requester, width: 120, minWidth: 80, cell: (r) => ({ text: safeLabel(r.requester_name) }) },
     { key: "category", header: SP.col.category, width: 120, minWidth: 80, cell: (r) => ({ text: SP.category[r.category] }) },
-    { key: "status", header: SP.col.status, width: 96, minWidth: 64, cell: (r) => ({ text: SP.status[r.status], tone: TICKET_STATUS_TONE[r.status] }) },
-    { key: "priority", header: SP.col.priority, width: 80, minWidth: 56, align: "end", cell: (r) => ({ text: SP.priority[r.priority], tone: TICKET_PRIORITY_TONE[r.priority] }) },
+    { key: "status", header: SP.col.status, width: 96, minWidth: 64, cell: (r) => ({ text: SP.status[r.status], tone: chipTone(TICKET_STATUS_TONE[r.status]) }) },
+    { key: "priority", header: SP.col.priority, width: 80, minWidth: 56, align: "end", cell: (r) => ({ text: SP.priority[r.priority], tone: chipTone(TICKET_PRIORITY_TONE[r.priority]) }) },
   ],
   statbar: (rows) => [
     { key: "total", label: SP.stat.total, value: String(rows.length) },

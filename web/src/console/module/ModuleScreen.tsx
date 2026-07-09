@@ -183,7 +183,8 @@ function StatBar<Row>({ config, rows }: { config: ModuleConfig<Row>; rows: Row[]
             {s.label}
           </span>
           <span style={{ fontSize: "var(--text-value)", fontWeight: "var(--fw-strong)", color: s.tone ? TONE(s.tone).tx : "var(--ink)" }}>
-            {s.value}
+            {/* DESIGN §4.7-1 "0은 숨김/—": a zero count reads as an em dash, never "0". */}
+            {s.value === "0" ? "—" : s.value}
           </span>
         </div>
       ))}
@@ -218,6 +219,8 @@ function ProgBar({ done, total }: { done: number; total: number }) {
 /* ─────────────────────────────── list table ───────────────────────────── */
 
 const ROW_HEIGHT = 40;
+// DESIGN §4.7-1 "8px 틱" — column resize snaps to this grid (readme.md:25).
+const COLUMN_TICK = 8;
 
 function useColumnWidths<Row>(config: ModuleConfig<Row>) {
   const defaults = useMemo(() => {
@@ -238,7 +241,10 @@ function useColumnWidths<Row>(config: ModuleConfig<Row>) {
     const startX = e.clientX;
     const startW = widths[key];
     const onMove = (ev: globalThis.MouseEvent) => {
-      setWidths((prev) => ({ ...prev, [key]: Math.max(min, startW + (ev.clientX - startX)) }));
+      // DESIGN §4.7-1: column drag snaps to 8px ticks, floored at the
+      // per-column legibility minimum.
+      const snapped = Math.round((startW + (ev.clientX - startX)) / COLUMN_TICK) * COLUMN_TICK;
+      setWidths((prev) => ({ ...prev, [key]: Math.max(min, snapped) }));
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);

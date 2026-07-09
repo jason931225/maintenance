@@ -1,6 +1,7 @@
 import { type CSSProperties } from "react";
 
 import type { components } from "@maintenance/api-client-ts";
+import { PolicyGateProvider } from "../policy/PolicyGated";
 import { ModuleScreen } from "./ModuleScreen";
 import { supportTicketModuleConfig, workOrderModuleConfig } from "./moduleConfigs";
 
@@ -14,7 +15,13 @@ import { supportTicketModuleConfig, workOrderModuleConfig } from "./moduleConfig
  *   • list        → support config (table body)
  *   • detail-open → support config with a row's detail pre-opened
  *   • lanes       → work-order config (kanban body — its `lanes` field)
+ *
+ * The policy gate defaults to deny-all, so this fidelity demo mounts an
+ * EXPLICIT allow-all provider — the point of the capture is to show every
+ * affordance (primary action, row action) rendered, not gated away.
  */
+const ALLOW_ALL = () => true;
+
 export type ModuleDemoState = "list" | "detail-open" | "lanes";
 
 type Ticket = components["schemas"]["SupportTicketSummary"];
@@ -36,16 +43,19 @@ const frameStyle: CSSProperties = {
 export function ModuleDemo({ state, tickets, workOrders }: ModuleDemoProps) {
   return (
     <div className="console" data-console-root style={frameStyle}>
-      {state === "lanes" ? (
-        <ModuleScreen config={workOrderModuleConfig} rows={workOrders} loadState="idle" />
-      ) : (
-        <ModuleScreen
-          config={supportTicketModuleConfig}
-          rows={tickets}
-          loadState="idle"
-          initialOpenId={state === "detail-open" ? tickets[0]?.id : undefined}
-        />
-      )}
+      <PolicyGateProvider decide={ALLOW_ALL}>
+        {state === "lanes" ? (
+          <ModuleScreen config={workOrderModuleConfig} rows={workOrders} loadState="idle" onPrimaryAction={() => undefined} />
+        ) : (
+          <ModuleScreen
+            config={supportTicketModuleConfig}
+            rows={tickets}
+            loadState="idle"
+            initialOpenId={state === "detail-open" ? tickets[0]?.id : undefined}
+            onPrimaryAction={() => undefined}
+          />
+        )}
+      </PolicyGateProvider>
     </div>
   );
 }
