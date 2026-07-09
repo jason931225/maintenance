@@ -10,6 +10,7 @@ import { AuthContext } from "./context/auth";
 import type { AuthContextValue, AuthSession } from "./context/auth";
 import { createConsoleApiClient } from "./api/client";
 import type { AbsenceExitDashboardResponse } from "./api/types";
+import { ROUTE_LOAD_OPTIONS, waitForRouteReady } from "./test/routeReady";
 
 vi.mock("./features/dispatch/leafletIcon", () => ({
   ensureLeafletIcon: vi.fn(),
@@ -236,7 +237,6 @@ const server = setupServer(
 );
 
 let attendanceRecordReads = 0;
-const ROUTE_LOAD_OPTIONS = { timeout: 30_000 };
 
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
@@ -338,13 +338,7 @@ describe("every page renders cleanly against an empty backend", () => {
 
       // PageHeader owns the page's single <h1>; the sidebar nav and feature
       // panels reuse the same label as a link / <h2>, so pin level: 1.
-      expect(
-        await screen.findByRole(
-          "heading",
-          { name: page.heading, level: 1 },
-          ROUTE_LOAD_OPTIONS,
-        ),
-      ).toBeVisible();
+      expect(await waitForRouteReady(page.heading)).toBeVisible();
       // Empty copy can surface in more than one sub-panel (e.g. the dispatch
       // board and the work-order list) — assert at least one is shown.
       expect(
@@ -366,13 +360,7 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("reads punch status exactly once while Overview is active (no hidden attendance-screen fetch)", async () => {
     renderAt("/overview");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "통합 개요", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
     await waitForNetworkIdle();
     // The Today panel's punch-status chip issues ONE read; the mounted-but-
     // inactive attendance screen must not add its own.
@@ -383,13 +371,7 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("fetches attendance records once the attendance screen is active", async () => {
     renderAt("/attendance");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "내 근태 기록", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("내 근태 기록")).toBeVisible();
     await waitFor(() => {
       expect(attendanceRecordReads).toBe(1);
     });
@@ -397,13 +379,7 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("renders /payroll with zero readiness counts and no crash", async () => {
     renderAt("/payroll");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "급여 준비", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("급여 준비")).toBeVisible();
     expect(await screen.findByText("급여 산출 준비도")).toBeVisible();
     expect(await screen.findByText("법적 검토 게이트 차단")).toBeVisible();
     await waitForNetworkIdle();
@@ -411,13 +387,7 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("renders /equipment (no data assumed) without crashing", async () => {
     renderAt("/equipment");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "장비 조회", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("장비 조회")).toBeVisible();
     // Empty response → empty-state message rendered.
     expect(
       await screen.findByText(
@@ -431,24 +401,12 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("renders /intake against an empty backend", async () => {
     renderAt("/intake");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "접수 입력", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("접수 입력")).toBeVisible();
   });
 
   it("renders /dispatch-map empty-state (no geocoded sites) without a blank map", async () => {
     renderAt("/dispatch-map");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "배차 지도", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("배차 지도")).toBeVisible();
     // Zero geocoded sites must surface the empty-state message + a link to site
     // management, never a blank map or a fabricated pin.
     expect(
@@ -462,24 +420,12 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("renders /settings/location against an empty backend", async () => {
     renderAt("/settings/location");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "GPS 위치 동의", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("GPS 위치 동의")).toBeVisible();
   });
 
   it("renders /settings/profile against an empty backend", async () => {
     renderAt("/settings/profile");
-    expect(
-      await screen.findByRole(
-        "heading",
-        { name: "내 프로필", level: 1 },
-        ROUTE_LOAD_OPTIONS,
-      ),
-    ).toBeVisible();
+    expect(await waitForRouteReady("내 프로필")).toBeVisible();
   });
 
   it("renders /wallboard (kiosk) against an empty backend", async () => {

@@ -11,6 +11,7 @@ import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import type { components } from "@maintenance/api-client-ts";
 import { branchId } from "../../test/fixtures";
+import { waitForRouteReady } from "../../test/routeReady";
 
 const server = setupServer();
 
@@ -190,15 +191,9 @@ function renderApp(ctx: AuthContextValue) {
   );
 }
 
-const ROUTE_LOAD_OPTIONS = { timeout: 30_000 };
-
 async function renderFinancialApp(ctx: AuthContextValue) {
   renderApp(ctx);
-  await screen.findByRole(
-    "heading",
-    { name: "구매·정산", level: 1 },
-    ROUTE_LOAD_OPTIONS,
-  );
+  await waitForRouteReady("구매·정산");
 }
 
 function session(roles: string[], orgId = knlOrgId): AuthSession {

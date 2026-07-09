@@ -333,17 +333,21 @@ export function AppRouter() {
         <Route
           path="/overview"
           element={
-            <Suspense fallback={<PageSpinner />}>
-              <ConsoleShell />
-            </Suspense>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ConsoleShell />
+              </Suspense>
+            </RouteErrorBoundary>
           }
         />
         <Route
           path="/attendance"
           element={
-            <Suspense fallback={<PageSpinner />}>
-              <ConsoleShell />
-            </Suspense>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ConsoleShell />
+              </Suspense>
+            </RouteErrorBoundary>
           }
         />
 
