@@ -768,7 +768,7 @@ fn cedar_compiled_bundle_cache_key_requires_versioned_identity() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 50);
+    assert_eq!(Feature::ALL.len(), 52);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

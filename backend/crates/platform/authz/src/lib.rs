@@ -207,10 +207,18 @@ pub enum Feature {
     /// Generate/draft the exit settlement package + submit it for approval
     /// (퇴직 정산 초안/승인 상신). ADMIN + SUPER_ADMIN — the HR settlement tier.
     ExitSettlementManage,
+    /// Lock/unlock payroll & accounting freeze windows (월마감/마감). Locking a
+    /// period makes every date-stamping write inside it fail closed, so this is
+    /// the close authority: ADMIN + EXECUTIVE + SUPER_ADMIN.
+    PeriodLockManage,
+    /// Drive the generic object-lifecycle engine (state transitions, legal
+    /// hold, retention). ADMIN + SUPER_ADMIN — the records-management tier,
+    /// mirroring how payroll admin endpoints gate.
+    LifecycleManage,
 }
 
 impl Feature {
-    pub const ALL: [Self; 50] = [
+    pub const ALL: [Self; 52] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -261,6 +269,8 @@ impl Feature {
         Self::ExitCaseHrConfirm,
         Self::ExitCaseHqConfirm,
         Self::ExitSettlementManage,
+        Self::PeriodLockManage,
+        Self::LifecycleManage,
     ];
 
     #[must_use]
@@ -316,6 +326,8 @@ impl Feature {
             Self::ExitCaseHrConfirm => "exit_case_hr_confirm",
             Self::ExitCaseHqConfirm => "exit_case_hq_confirm",
             Self::ExitSettlementManage => "exit_settlement_manage",
+            Self::PeriodLockManage => "period_lock_manage",
+            Self::LifecycleManage => "lifecycle_manage",
         }
     }
 
@@ -394,6 +406,11 @@ impl Feature {
             Self::ExitCaseHrConfirm => [D, D, D, A, D, A],
             Self::ExitCaseHqConfirm => [D, D, D, D, A, A],
             Self::ExitSettlementManage => [D, D, D, A, D, A],
+            // Freezing a payroll/accounting period is close authority: the
+            // branch close tier (ADMIN) plus org-wide leadership (EXECUTIVE),
+            // and SUPER_ADMIN.
+            Self::PeriodLockManage => [D, D, D, A, A, A],
+            Self::LifecycleManage => [D, D, D, A, D, A],
         }
     }
 }
@@ -453,6 +470,8 @@ impl FromStr for Feature {
             "exit_case_hr_confirm" => Ok(Self::ExitCaseHrConfirm),
             "exit_case_hq_confirm" => Ok(Self::ExitCaseHqConfirm),
             "exit_settlement_manage" => Ok(Self::ExitSettlementManage),
+            "period_lock_manage" => Ok(Self::PeriodLockManage),
+            "lifecycle_manage" => Ok(Self::LifecycleManage),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
