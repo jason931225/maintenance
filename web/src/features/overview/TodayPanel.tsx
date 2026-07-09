@@ -184,7 +184,7 @@ export function TodayPanel({ active = true }: { active?: boolean }) {
             ) : null}
             <Link
               to="/attendance"
-              className="text-[11px] font-bold text-console-signal underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-console-signal"
+              className="text-[11px] font-bold text-console-accent-tx underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-console-signal"
             >
               {t.punchLink}
             </Link>

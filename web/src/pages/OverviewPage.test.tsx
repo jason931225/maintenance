@@ -30,6 +30,7 @@ const adminSession: AuthSession = {
 const claimRequests: unknown[] = [];
 const decideRequests: unknown[] = [];
 const dispatchResponses: unknown[] = [];
+const attendanceRequests: unknown[] = [];
 const transitionRequests: { id: string; body: unknown }[] = [];
 
 const tasks = {
@@ -121,9 +122,10 @@ const server = setupServer(
   http.get("*/api/v1/workflow-tasks", () => HttpResponse.json(tasks)),
   http.get("*/api/v1/me/dispatch-offers", () => HttpResponse.json(offers)),
   http.get("*/api/v1/support/tickets", () => HttpResponse.json(tickets)),
-  http.get("*/api/v1/hr/attendance-summary", () =>
-    HttpResponse.json(attendanceSummary),
-  ),
+  http.get("*/api/v1/hr/attendance-summary", ({ request }) => {
+    attendanceRequests.push(request.url);
+    return HttpResponse.json(attendanceSummary);
+  }),
   http.get("*/api/v1/kpi", () => HttpResponse.json(kpiReport)),
   http.get("*/api/v1/me/todos", () => HttpResponse.json({ items: [] })),
   http.get("*/api/v1/hr/attendance-records/me", () =>
@@ -207,6 +209,7 @@ beforeEach(() => {
   claimRequests.length = 0;
   decideRequests.length = 0;
   dispatchResponses.length = 0;
+  attendanceRequests.length = 0;
   transitionRequests.length = 0;
 });
 afterEach(() => {
@@ -216,9 +219,9 @@ afterAll(() => {
   server.close();
 });
 
-function renderPage() {
+function renderPage(session: AuthSession = adminSession) {
   return render(
-    <AuthTestProvider session={adminSession}>
+    <AuthTestProvider session={session}>
       <MemoryRouter>
         <OverviewPage />
       </MemoryRouter>
@@ -250,6 +253,19 @@ describe("OverviewPage", () => {
 
     // Compact KPI strip renders from the reporting endpoint.
     expect(screen.getByText("완료 건수")).toBeVisible();
+  });
+
+  it("does not probe org-wide attendance summary for branch-scoped admins", async () => {
+    renderPage({
+      ...adminSession,
+      roles: ["ADMIN"],
+      branches: ["50000000-0000-4000-8000-000000000001"],
+    });
+
+    expect(await screen.findByText("정비 완료 승인")).toBeVisible();
+    expect(screen.getByRole("button", { name: "전체 4건" })).toBeVisible();
+    expect(screen.queryByText("김정비 근태 확인 필요")).not.toBeInTheDocument();
+    expect(attendanceRequests).toHaveLength(0);
   });
 
   it("renders an actionable group-wide priority inbox without explanatory text walls", async () => {

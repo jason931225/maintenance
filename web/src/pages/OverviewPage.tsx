@@ -60,7 +60,10 @@ import type { PinKind } from "../features/workspace/types";
 import { ko } from "../i18n/ko";
 import { cn } from "../lib/utils";
 
-const HR_READ_ROLES = [ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
+// /api/v1/hr/attendance-summary is an org-wide HR read. Backend
+// authorize_org_wide deliberately rejects branch-scoped ADMIN, so the overview
+// must not probe it for branch-scoped users and create noisy 403 console errors.
+const HR_ORG_WIDE_ROLES = [ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
 const HR_READ_FEATURES = [FEATURES.EMPLOYEE_DIRECTORY_READ] as const;
 const KPI_ROLES = [ROLES.ADMIN, ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
 
@@ -166,9 +169,11 @@ export function OverviewPage({ active = true }: OverviewPageProps = {}) {
   const [kpi, setKpi] = useState<KpiReport | undefined>();
   const [busyItemId, setBusyItemId] = useState<string | undefined>();
 
+  const hasOrgWideScope = (session?.branches?.length ?? 0) === 0;
   const canSeeHr =
-    hasAnyRole(session?.roles, HR_READ_ROLES) ||
-    hasAnyFeatureGrant(session?.feature_grants, HR_READ_FEATURES);
+    hasOrgWideScope &&
+    (hasAnyRole(session?.roles, HR_ORG_WIDE_ROLES) ||
+      hasAnyFeatureGrant(session?.feature_grants, HR_READ_FEATURES));
   const canSeeKpi = hasAnyRole(session?.roles, KPI_ROLES);
 
   useEffect(() => {

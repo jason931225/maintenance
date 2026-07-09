@@ -59,7 +59,7 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
     .click();
 
   const notificationsHeader = rail.getByRole("button", {
-    name: new RegExp(RAIL.sectionNotifications),
+    name: new RegExp(`^${RAIL.sectionNotifications}(?:\\s+\\d+)?$`),
   });
   await expect(notificationsHeader).toBeVisible({ timeout: 5_000 });
 
@@ -73,9 +73,9 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
     .getByRole("banner")
     .getByRole("button", { name: RAIL.openNotifications })
     .click();
-  await expect(
-    rail.getByRole("button", { name: RAIL.markAllRead }),
-  ).toBeHidden({ timeout: 5_000 });
+  await expect(rail.getByRole("button", { name: RAIL.markAllRead })).toBeHidden(
+    { timeout: 5_000 },
+  );
 
   // Promotion: opening the messenger page hides the rail's messenger section.
   await navigateByHref(page, "/messenger");

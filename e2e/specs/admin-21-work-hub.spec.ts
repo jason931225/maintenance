@@ -1,4 +1,11 @@
-import { test, expect } from "../fixtures/roles";
+import {
+  test,
+  expect,
+  sql,
+  ROLE_CONFIG,
+  TENANT_BRANCH_ID,
+  TENANT_ORG_ID,
+} from "../fixtures/roles";
 import { attachConsoleGuard, auditPage } from "../fixtures/ux";
 
 /**
@@ -25,20 +32,28 @@ test("ADMIN-21 admin drives the overview action inbox end to end", async ({
   const consoleGuard = attachConsoleGuard(page);
   await loginAs("ADMIN");
 
-  // Seed one REAL actionable ticket through the public intake API so the run
-  // is self-contained regardless of suite ordering.
+  // Seed one REAL actionable branch-scoped ticket. Public intake creates
+  // branch-less untriaged tickets, which are intentionally hidden from
+  // branch-scoped ADMIN users in the Overview inbox.
   const ticketTitle = `Overview E2E ticket ${Date.now()}`;
-  const intake = await page.request.post("/api/v1/support/intake", {
-    data: {
-      category: "OPERATIONAL",
-      priority: "URGENT",
-      title: ticketTitle,
-      body: "Seeded by admin-21 to prove the overview primary action round-trip.",
-      requester_name: "Overview E2E",
-      requester_contact: "overview-e2e@example.invalid",
-    },
-  });
-  expect(intake.ok()).toBe(true);
+  sql(`
+    INSERT INTO support_tickets (
+      branch_id, origin, category, priority, status,
+      title, body, requester_user_id, due_at, org_id
+    )
+    VALUES (
+      '${TENANT_BRANCH_ID}',
+      'INTERNAL',
+      'OPERATIONAL',
+      'URGENT',
+      'OPEN',
+      '${ticketTitle}',
+      'Seeded by admin-21 to prove the overview primary action round-trip.',
+      '${ROLE_CONFIG.ADMIN.userId}',
+      now() + interval '1 hour',
+      '${TENANT_ORG_ID}'
+    );
+  `);
 
   await page.goto("/overview");
   await expect(
@@ -103,7 +118,9 @@ test("ADMIN-21 admin drives the overview action inbox end to end", async ({
 
   await test.step("route-error fallback stays absent", async () => {
     // (3) No route-error fallback anywhere on the surface.
-    await expect(page.getByText("이 화면을 표시하지 못했습니다.")).not.toBeVisible();
+    await expect(
+      page.getByText("이 화면을 표시하지 못했습니다."),
+    ).not.toBeVisible();
   });
 
   await auditPage(page, { context: "/overview-action-inbox", consoleGuard });
