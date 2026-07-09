@@ -1,10 +1,10 @@
-# ADR-0022 — Cloud-Agnostic Bare-Metal Portability + High Availability (De-OCI)
+# ADR-0022 — Cloud-Agnostic Multi-Substrate Portability + High Availability
 
-Status: **Proposed** · Supersedes the OCI-single-node substrate posture · Amends ADR-0005 (SeaweedFS/WORM), ADR-0015 (DR), and the observability direction in `docs/specs/log-persistence.md` · Adopts patterns from the sibling **oyatie** project (same owner; full-license reuse).
+Status: **Proposed** · **The OCI Talos cluster running today stays a first-class supported target** — this ADR *adds* bare-metal/on-prem portability + HA, it does **not** migrate off or remove OCI · Amends ADR-0005 (SeaweedFS/WORM), ADR-0015 (DR), and the observability direction in `docs/specs/log-persistence.md` · Adopts patterns from the sibling **oyatie** project (same owner; full-license reuse).
 
 ## Context
 
-The platform must run on the owner's **own bare-metal, multi-cluster, HA Talos** on-prem. Hard requirements: **never lock into OCI**, **portable across the entire repo**, **HA (no single point of failure)**, **multicluster**.
+The platform must be **fully portable** — able to run on the owner's **own bare-metal, multi-cluster, HA Talos** on-prem **as well as the OCI Talos cluster running today**. Hard requirements: **never *lock* into OCI** (OCI becomes one swappable substrate among several, and keeps working), **portable across the entire repo**, **HA (no single point of failure)**, **multicluster**. This is an **additive** portability + HA effort — not an OCI migration or removal.
 
 A four-part audit established the exact shape of the problem:
 
@@ -19,13 +19,15 @@ A four-part audit established the exact shape of the problem:
 
 **Cloud is a swappable substrate, never a dependency.** Concretely:
 
-1. **Deployment-context IaC layout** (adopt oyatie ADR-0339). OpenTofu modules live under `<context>/<primitive>` where `context ∈ {oci-guest, on-prem, colo, …}`; each service ships a thin (≤80 LOC, `module`-blocks-only) wrapper that selects primitives. **Swapping OCI → bare-metal = deploying the `on-prem` wrappers.** There is intentionally no single "cluster" abstraction — primitives are context-scoped and real. Start with a 2-context layout (`oci-guest` + `on-prem`) to future-proof the exit even before the cutover.
+1. **Deployment-context IaC layout** (adopt oyatie ADR-0339). OpenTofu modules live under `<context>/<primitive>` where `context ∈ {oci-guest, on-prem, colo, …}`; each service ships a thin (≤80 LOC, `module`-blocks-only) wrapper that selects primitives. **`oci-guest` and `on-prem` are BOTH first-class and coexist** — today's OCI stack is refactored *into* the `oci-guest` context (kept working, not deleted) and bare-metal is added as the `on-prem` context. Deploying a substrate = choosing its wrappers. There is intentionally no single "cluster" abstraction — primitives are context-scoped and real.
 2. **Vendor-lock-in discipline** (adopt oyatie ADR-0173). OSS-first / own-the-stack. Managed cloud services are forbidden with a named OSS replacement (Secrets Manager/Vault → **OpenBao**; CloudWatch/OCI Logging → **OTel + VictoriaMetrics/LGTM + Grafana**; managed object store → **SeaweedFS/MinIO/Ceph-RGW**). **S3 is used only as an open protocol over self-hosted implementations**, never as a managed cloud service. Runtime vendor seams get a kernel port trait + ≥2 adapters.
 3. **Mechanically enforced.** Lift oyatie's pure-Rust `oya-check-iac-tier-discipline` into a `mnt-gate-iac-tier` CI binary (Tier A = ArgoCD / Tier B = OpenTofu / Tier C = Cluster API; flags any `aws_*`/`google_*`/`azurerm_*`/`oci_*` primitive leaking into app manifests), plus a small vendor phase-out registry gate. This is how portability is prevented from rotting back.
 
-## Target architecture — HA multicluster bare-metal Talos
+## Target architecture — HA multicluster bare-metal Talos (added alongside OCI)
 
-| Concern | Today (OCI, single-node) | Target (bare-metal, HA, multicluster) |
+> The "Today" column is the current **`oci-guest`** context, which **remains a supported target**. The right column is the **`on-prem`** context being *added*. HA is the universal goal — on OCI it is reached by growing past the free-tier single node, on bare-metal by the multi-node design below. The two substrates **coexist** via the deployment-context layout; nothing here removes the ability to deploy to OCI.
+
+| Concern | Today (OCI `oci-guest`, single-node) | Added target (bare-metal `on-prem`, HA, multicluster) |
 |---|---|---|
 | Cluster lifecycle | 1 `oci_core_instance` + `dd` flasher hack | **Talos install-media + Cluster API** (+ `cluster-api-provider-metal3`) + per-cell ArgoCD; **3 control-plane nodes** (etcd quorum) + N workers |
 | Provisioning | `oracle/oci` provider, `~/.oci/config` | `on-prem` OpenTofu wrappers + Talos machineconfig against a node inventory; no cloud IaaS provider |
@@ -51,7 +53,7 @@ A four-part audit established the exact shape of the problem:
 2. **Self-hosted S3 endpoint swap** — point CNPG barman + evidence `MNT_S3_ENDPOINT_URL`/`endpointURL` at SeaweedFS/MinIO; **re-test and likely drop** the `AWS_*_CHECKSUM_*=when_required` OCI workaround (silent-corruption risk if copied blindly).
 3. **Multi-arch image builds** — extend `image-release.yml` `platforms:` to `linux/amd64,linux/arm64`.
 4. **CI hardening-gate rewrite** — `scripts/check-production-hardening.mjs` hardcodes OCI shape strings + `instances: 1`; de-OCI it and require `instances >= 3` (must land in the same PR as the cutover or it blocks the migration).
-5. **Bare-metal Talos provisioning** — deployment-context OpenTofu (`on-prem` wrappers) + Cluster API + metal3; rip out `deploy/opentofu/**` OCI resources. The big substrate rebuild.
+5. **Bare-metal Talos provisioning** — **add** `on-prem` deployment-context OpenTofu wrappers + Cluster API + metal3 **alongside** the existing OCI stack (refactor `deploy/opentofu/**` into an `oci-guest` context, keep it working — do not delete). The big substrate *addition*.
 6. **HA** — 3-node control plane, Longhorn/Ceph replicated storage, CNPG `instances: 3`, MetalLB/kube-vip VIP, Cilium, multi-cluster ApplicationSet.
 7. **`mail_sync` HA fix** (above).
 8. **Self-hosted observability** — OTel + VictoriaMetrics/LGTM + Grafana; supersede `log-persistence.md` Direction A; adopt the wide-event/matched-template-label discipline.
@@ -64,7 +66,7 @@ Lift-and-reuse: `infra/external-secrets/*` + `infra/kms/openbao.k8s.yaml` (secre
 
 ## Consequences
 
-- **Full data sovereignty** (on-prem), **no cloud lock-in**, **HA across every tier**, no per-GB cloud fees.
+- **Full data sovereignty** (on-prem option), **no cloud *lock-in*** — OCI stays a supported substrate but becomes swappable — **HA across every tier**, no per-GB cloud fees on the on-prem substrate.
 - Effort is **concentrated in the substrate**; application code changes are limited to the single `mail_sync` fix + config/endpoint swaps.
 - Adopting oyatie's battle-tested blueprint **reduces risk and time** versus a from-scratch design.
 - New standing discipline: the `mnt-gate-iac-tier` + vendor-lockin gates make OCI (or any single-cloud) coupling a CI failure going forward — portability becomes enforced, not aspirational.
