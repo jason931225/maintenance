@@ -1,11 +1,20 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import type { AuthSession } from "../../context/auth";
 import { ConsoleApp } from "../ConsoleApp";
 import { Sidebar } from "./Sidebar";
 import type { ThemeMode } from "./theme";
+
+const markConsoleRoute = vi.fn();
+
+vi.mock("../rum/rum", () => ({
+  initConsoleRum: () => () => {},
+  markConsoleRoute: (screen: string) => {
+    markConsoleRoute(screen);
+  },
+}));
 
 function renderConsole(session: AuthSession) {
   return render(
@@ -23,6 +32,10 @@ const ADMIN: AuthSession = {
 };
 
 describe("ConsoleShell chrome", () => {
+  beforeEach(() => {
+    markConsoleRoute.mockClear();
+  });
+
   it("renders the grouped nav, topbar and comms-rail strip", () => {
     renderConsole(ADMIN);
     const nav = screen.getByRole("navigation", { name: "주 메뉴" });
@@ -48,6 +61,7 @@ describe("ConsoleShell chrome", () => {
     expect(audit).toHaveAttribute("aria-current", "true");
     expect(overview).not.toHaveAttribute("aria-current");
     expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+    expect(markConsoleRoute).toHaveBeenCalledWith("audit");
   });
 
   it("collapses and expands the sidebar", () => {

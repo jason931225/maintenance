@@ -8,6 +8,7 @@ import { defaultScreen, visibleConsoleNav } from "./nav";
 import { Sidebar } from "./Sidebar";
 import type { NavBadge } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { markConsoleRoute } from "../rum/rum";
 import type { ThemeMode } from "./theme";
 
 const S = ko.console.shell;
@@ -71,6 +72,10 @@ export function ConsoleShell({
     screen && groups.some((g) => g.items.some((i) => i.screen === screen))
       ? screen
       : defaultScreen(grants);
+
+  useEffect(() => {
+    markConsoleRoute(activeScreen);
+  }, [activeScreen]);
 
   const [scopeOpen, setScopeOpen] = useState(false);
   const closeScope = useCallback(() => {
