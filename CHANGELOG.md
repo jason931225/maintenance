@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.45](https://github.com/jason931225/maintenance/compare/v0.1.44...v0.1.45) (2026-07-09)
+
+
+### Features
+
+* add no-code Workflow Studio canvas MVP ([#147](https://github.com/jason931225/maintenance/issues/147)) ([cb1fe6e](https://github.com/jason931225/maintenance/commit/cb1fe6ea06597ba7991216b8876641f26d640bb1))
+* **console:** UI-M2a integration — live pin bodies, drag tokens, palette→pin, mention delivery ([#202](https://github.com/jason931225/maintenance/issues/202)) ([53b3261](https://github.com/jason931225/maintenance/commit/53b326179fa4e207ea01daca61b688b8f5cfeb67))
+
+
+### Bug Fixes
+
+* **authz:** non-normal token mints carry real subject-freshness (Cedar promotion prerequisite) ([#203](https://github.com/jason931225/maintenance/issues/203)) ([e02dd0b](https://github.com/jason931225/maintenance/commit/e02dd0baeed2282d785a36e19805772a12f68c63))
+* **e2e:** version-independent storefront visual guard (visibility:hidden) ([#199](https://github.com/jason931225/maintenance/issues/199)) ([a36c0b2](https://github.com/jason931225/maintenance/commit/a36c0b2f1b0bc0125cb133e04bb78c929ca9f4ff))
+* **hr:** unlinked accounts read empty self-attendance instead of 403 ([#201](https://github.com/jason931225/maintenance/issues/201)) ([cf67220](https://github.com/jason931225/maintenance/commit/cf67220f46f6bcea5ff36d0fc3363205470badeb))
+* **workflow:** Engine-Gen follow-ups — start_policy authoring rule + ?q= submission filter ([#192](https://github.com/jason931225/maintenance/issues/192)) ([e9837ad](https://github.com/jason931225/maintenance/commit/e9837adfb62cc0e2fba9f74c0dae715cb5eb2db6))
+
 ## [0.1.44](https://github.com/jason931225/maintenance/compare/v0.1.43...v0.1.44) (2026-07-09)
 
 
