@@ -71,6 +71,7 @@ import com.maintenance.api.client.model.CreateInternalTicketRequest
 import com.maintenance.api.client.model.CreateListingRequest
 import com.maintenance.api.client.model.CreateListingResponse
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
+import com.maintenance.api.client.model.CreateObjectLinkRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreateOwnershipTransferRequest
 import com.maintenance.api.client.model.CreatePolicyRoleRequest
@@ -80,9 +81,11 @@ import com.maintenance.api.client.model.CreateRegionRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
 import com.maintenance.api.client.model.CreateSiteRequest
 import com.maintenance.api.client.model.CreateTodoRequest
+import com.maintenance.api.client.model.CreateTriggerBindingRequest
 import com.maintenance.api.client.model.CreateUserRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
 import com.maintenance.api.client.model.CreateWorkflowDefinitionRequest
+import com.maintenance.api.client.model.CreateWorkflowScheduleRequest
 import com.maintenance.api.client.model.CreatedCustomer
 import com.maintenance.api.client.model.CreatedSite
 import com.maintenance.api.client.model.CustomerInquiryPage
@@ -155,6 +158,7 @@ import com.maintenance.api.client.model.MailThreadReadStateRequest
 import com.maintenance.api.client.model.MailThreadView
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMemberListResponse
+import com.maintenance.api.client.model.MessengerMemberSummary
 import com.maintenance.api.client.model.MessengerMessageListResponse
 import com.maintenance.api.client.model.MessengerMessagePage
 import com.maintenance.api.client.model.MessengerMessageSummary
@@ -167,6 +171,9 @@ import com.maintenance.api.client.model.NotificationReadAllResponse
 import com.maintenance.api.client.model.NotificationSummary
 import com.maintenance.api.client.model.ObjectActionCatalogResponse
 import com.maintenance.api.client.model.ObjectActionExecutionResponse
+import com.maintenance.api.client.model.ObjectHead
+import com.maintenance.api.client.model.ObjectLinkResponse
+import com.maintenance.api.client.model.ObjectLinksListResponse
 import com.maintenance.api.client.model.OpsSummary
 import com.maintenance.api.client.model.OtpRedeemRequest
 import com.maintenance.api.client.model.OtpRedeemResponse
@@ -196,6 +203,8 @@ import com.maintenance.api.client.model.PollStatus
 import com.maintenance.api.client.model.PostFinalizationRejectionRequest
 import com.maintenance.api.client.model.PostFinalizationRejectionResponse
 import com.maintenance.api.client.model.PrepareExpenditureRequest
+import com.maintenance.api.client.model.PreviewScheduleRequest
+import com.maintenance.api.client.model.PreviewScheduleResponse
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.PrivacyConsentAcceptRequest
 import com.maintenance.api.client.model.PrivacyConsentStatusResponse
@@ -221,6 +230,7 @@ import com.maintenance.api.client.model.RollbackWorkflowDefinitionRequest
 import com.maintenance.api.client.model.SalesListingPage
 import com.maintenance.api.client.model.SalesListingView
 import com.maintenance.api.client.model.SavePurchasePreferencesRequest
+import com.maintenance.api.client.model.ScheduleRunListResponse
 import com.maintenance.api.client.model.SendMailRequest
 import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
@@ -253,6 +263,9 @@ import com.maintenance.api.client.model.TodoSummary
 import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.TransitionTicketRequest
 import com.maintenance.api.client.model.TriageFindingRequest
+import com.maintenance.api.client.model.TriggerBindingListResponse
+import com.maintenance.api.client.model.TriggerBindingResponse
+import com.maintenance.api.client.model.UnreadNotificationCountResponse
 import com.maintenance.api.client.model.UpdateBranchRequest
 import com.maintenance.api.client.model.UpdateEquipmentRequest
 import com.maintenance.api.client.model.UpdateInquiryStatusRequest
@@ -266,6 +279,7 @@ import com.maintenance.api.client.model.UpdateUserRequest
 import com.maintenance.api.client.model.UpdateWorkOrderIntakeRequest
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
 import com.maintenance.api.client.model.UpdateWorkflowDefinitionRequest
+import com.maintenance.api.client.model.UpdateWorkflowScheduleRequest
 import com.maintenance.api.client.model.UserPage
 import com.maintenance.api.client.model.UserSummary
 import com.maintenance.api.client.model.VotePollRequest
@@ -279,6 +293,8 @@ import com.maintenance.api.client.model.WorkflowDefinitionHistoryResponse
 import com.maintenance.api.client.model.WorkflowDefinitionListResponse
 import com.maintenance.api.client.model.WorkflowDefinitionResponse
 import com.maintenance.api.client.model.WorkflowRunListResponse
+import com.maintenance.api.client.model.WorkflowScheduleListResponse
+import com.maintenance.api.client.model.WorkflowScheduleResponse
 import com.maintenance.api.client.model.WorkflowSimulationResponse
 import com.maintenance.api.client.model.WorkflowStepUpRequest
 import com.maintenance.api.client.model.WorkflowStudioCatalogResponse
@@ -4355,6 +4371,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/object-links
+     * Create a generic, audited link between two objects
+     * Creates one directed edge (src -&gt; dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+     * @param createObjectLinkRequest
+     * @return ObjectLinkResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createObjectLink(createObjectLinkRequest: CreateObjectLinkRequest) : ObjectLinkResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createObjectLinkWithHttpInfo(createObjectLinkRequest = createObjectLinkRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectLinkResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/object-links
+     * Create a generic, audited link between two objects
+     * Creates one directed edge (src -&gt; dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+     * @param createObjectLinkRequest
+     * @return ApiResponse<ObjectLinkResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createObjectLinkWithHttpInfo(createObjectLinkRequest: CreateObjectLinkRequest) : ApiResponse<ObjectLinkResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createObjectLinkRequestConfig(createObjectLinkRequest = createObjectLinkRequest)
+
+        return@withContext request<CreateObjectLinkRequest, ObjectLinkResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createObjectLink
+     *
+     * @param createObjectLinkRequest
+     * @return RequestConfig
+     */
+    fun createObjectLinkRequestConfig(createObjectLinkRequest: CreateObjectLinkRequest) : RequestConfig<CreateObjectLinkRequest> {
+        val localVariableBody = createObjectLinkRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/object-links",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/work-orders/{workOrderId}/outsource-works
      * Create an outsource work request for a work order
      *
@@ -5101,6 +5191,154 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/workflow-studio/schedules
+     * Create a workflow cron schedule
+     * cron_expr is evaluated in the schedule&#39;s IANA timezone (default Asia/Seoul). The background poller starts one idempotent run per fire and advances next_run_at.
+     * @param createWorkflowScheduleRequest
+     * @return WorkflowScheduleResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createWorkflowSchedule(createWorkflowScheduleRequest: CreateWorkflowScheduleRequest) : WorkflowScheduleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createWorkflowScheduleWithHttpInfo(createWorkflowScheduleRequest = createWorkflowScheduleRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowScheduleResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/schedules
+     * Create a workflow cron schedule
+     * cron_expr is evaluated in the schedule&#39;s IANA timezone (default Asia/Seoul). The background poller starts one idempotent run per fire and advances next_run_at.
+     * @param createWorkflowScheduleRequest
+     * @return ApiResponse<WorkflowScheduleResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createWorkflowScheduleWithHttpInfo(createWorkflowScheduleRequest: CreateWorkflowScheduleRequest) : ApiResponse<WorkflowScheduleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createWorkflowScheduleRequestConfig(createWorkflowScheduleRequest = createWorkflowScheduleRequest)
+
+        return@withContext request<CreateWorkflowScheduleRequest, WorkflowScheduleResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createWorkflowSchedule
+     *
+     * @param createWorkflowScheduleRequest
+     * @return RequestConfig
+     */
+    fun createWorkflowScheduleRequestConfig(createWorkflowScheduleRequest: CreateWorkflowScheduleRequest) : RequestConfig<CreateWorkflowScheduleRequest> {
+        val localVariableBody = createWorkflowScheduleRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/schedules",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/trigger-bindings
+     * Bind a registered domain event to a workflow definition
+     * When the bound event&#39;s audited mutation commits, the dispatcher starts one idempotent run of the bound definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered domain event.
+     * @param createTriggerBindingRequest
+     * @return TriggerBindingResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createWorkflowTriggerBinding(createTriggerBindingRequest: CreateTriggerBindingRequest) : TriggerBindingResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createWorkflowTriggerBindingWithHttpInfo(createTriggerBindingRequest = createTriggerBindingRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TriggerBindingResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/trigger-bindings
+     * Bind a registered domain event to a workflow definition
+     * When the bound event&#39;s audited mutation commits, the dispatcher starts one idempotent run of the bound definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered domain event.
+     * @param createTriggerBindingRequest
+     * @return ApiResponse<TriggerBindingResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createWorkflowTriggerBindingWithHttpInfo(createTriggerBindingRequest: CreateTriggerBindingRequest) : ApiResponse<TriggerBindingResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createWorkflowTriggerBindingRequestConfig(createTriggerBindingRequest = createTriggerBindingRequest)
+
+        return@withContext request<CreateTriggerBindingRequest, TriggerBindingResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createWorkflowTriggerBinding
+     *
+     * @param createTriggerBindingRequest
+     * @return RequestConfig
+     */
+    fun createWorkflowTriggerBindingRequestConfig(createTriggerBindingRequest: CreateTriggerBindingRequest) : RequestConfig<CreateTriggerBindingRequest> {
+        val localVariableBody = createTriggerBindingRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/trigger-bindings",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * DELETE /api/v1/branches/{id}
      * Soft-delete (deactivate) a branch
      * Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment, so live operational data is never orphaned. Returns the deactivated branch.
@@ -5758,6 +5996,77 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * DELETE /api/v1/object-links/{id}
+     * Remove an object link (audited)
+     * Hard-deletes the link; the audit event&#39;s before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
+     * @param id
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deleteObjectLink(id: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = deleteObjectLinkWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/object-links/{id}
+     * Remove an object link (audited)
+     * Hard-deletes the link; the audit event&#39;s before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
+     * @param id
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deleteObjectLinkWithHttpInfo(id: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deleteObjectLinkRequestConfig(id = id)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deleteObjectLink
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun deleteObjectLinkRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/object-links/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * DELETE /api/v1/passkeys/{id}
      * Revoke one of the authenticated user&#39;s own passkey credentials
      * Deletes a credential owned by the caller. A credential that is not the caller&#39;s own returns 404. The caller&#39;s last remaining passkey cannot be deleted (409) so they do not lock themselves out.
@@ -5821,6 +6130,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.DELETE,
             path = "/api/v1/passkeys/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/trigger-bindings/{id}/disable
+     * Disable a workflow trigger binding
+     *
+     * @param id
+     * @return TriggerBindingResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun disableWorkflowTriggerBinding(id: java.util.UUID) : TriggerBindingResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = disableWorkflowTriggerBindingWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TriggerBindingResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/trigger-bindings/{id}/disable
+     * Disable a workflow trigger binding
+     *
+     * @param id
+     * @return ApiResponse<TriggerBindingResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun disableWorkflowTriggerBindingWithHttpInfo(id: java.util.UUID) : ApiResponse<TriggerBindingResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = disableWorkflowTriggerBindingRequestConfig(id = id)
+
+        return@withContext request<Unit, TriggerBindingResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation disableWorkflowTriggerBinding
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun disableWorkflowTriggerBindingRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/trigger-bindings/{id}/disable".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -6116,6 +6498,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/employees/import/{run_id}/dry-run".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/trigger-bindings/{id}/enable
+     * Enable a workflow trigger binding
+     *
+     * @param id
+     * @return TriggerBindingResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun enableWorkflowTriggerBinding(id: java.util.UUID) : TriggerBindingResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = enableWorkflowTriggerBindingWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TriggerBindingResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/trigger-bindings/{id}/enable
+     * Enable a workflow trigger binding
+     *
+     * @param id
+     * @return ApiResponse<TriggerBindingResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun enableWorkflowTriggerBindingWithHttpInfo(id: java.util.UUID) : ApiResponse<TriggerBindingResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = enableWorkflowTriggerBindingRequestConfig(id = id)
+
+        return@withContext request<Unit, TriggerBindingResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation enableWorkflowTriggerBinding
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun enableWorkflowTriggerBindingRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/trigger-bindings/{id}/enable".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -6657,6 +7112,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/mail/forward",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/branches/{id}
+     * Fetch one branch&#39;s summary for an org-unit pin panel
+     * Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller&#39;s org. No audit — org-structure metadata, not PII. A branch outside the caller&#39;s org returns 404.
+     * @param id
+     * @return BranchSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getBranch(id: java.util.UUID) : BranchSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getBranchWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as BranchSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/branches/{id}
+     * Fetch one branch&#39;s summary for an org-unit pin panel
+     * Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller&#39;s org. No audit — org-structure metadata, not PII. A branch outside the caller&#39;s org returns 404.
+     * @param id
+     * @return ApiResponse<BranchSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getBranchWithHttpInfo(id: java.util.UUID) : ApiResponse<BranchSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getBranchRequestConfig(id = id)
+
+        return@withContext request<Unit, BranchSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getBranch
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getBranchRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/branches/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -7684,6 +8212,155 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/mail/threads/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/messenger/members/{userId}
+     * Fetch one branch member&#39;s summary for a person pin panel
+     * Returns a single active branch member&#39;s summary using the same non-admin branch directory as the member list, so any employee can open a coworker&#39;s person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller&#39;s branch returns 404 with no audit trail (deny-by-omission).
+     * @param userId
+     * @param branchId
+     * @return MessengerMemberSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMessengerMember(userId: java.util.UUID, branchId: java.util.UUID) : MessengerMemberSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getMessengerMemberWithHttpInfo(userId = userId, branchId = branchId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerMemberSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/members/{userId}
+     * Fetch one branch member&#39;s summary for a person pin panel
+     * Returns a single active branch member&#39;s summary using the same non-admin branch directory as the member list, so any employee can open a coworker&#39;s person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller&#39;s branch returns 404 with no audit trail (deny-by-omission).
+     * @param userId
+     * @param branchId
+     * @return ApiResponse<MessengerMemberSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMessengerMemberWithHttpInfo(userId: java.util.UUID, branchId: java.util.UUID) : ApiResponse<MessengerMemberSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMessengerMemberRequestConfig(userId = userId, branchId = branchId)
+
+        return@withContext request<Unit, MessengerMemberSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMessengerMember
+     *
+     * @param userId
+     * @param branchId
+     * @return RequestConfig
+     */
+    fun getMessengerMemberRequestConfig(userId: java.util.UUID, branchId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("branch_id", listOf(branchId.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/members/{userId}".replace("{"+"userId"+"}", encodeURIComponent(userId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/me/notifications/unread-count
+     * Count the authenticated user&#39;s unread notifications
+     *
+     * @return UnreadNotificationCountResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMyUnreadNotificationCount() : UnreadNotificationCountResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getMyUnreadNotificationCountWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as UnreadNotificationCountResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/notifications/unread-count
+     * Count the authenticated user&#39;s unread notifications
+     *
+     * @return ApiResponse<UnreadNotificationCountResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMyUnreadNotificationCountWithHttpInfo() : ApiResponse<UnreadNotificationCountResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMyUnreadNotificationCountRequestConfig()
+
+        return@withContext request<Unit, UnreadNotificationCountResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMyUnreadNotificationCount
+     *
+     * @return RequestConfig
+     */
+    fun getMyUnreadNotificationCountRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/notifications/unread-count",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -11649,6 +12326,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/object-links
+     * List the generic links touching one object, in both directions
+     * Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller&#39;s org are visible.
+     * @param kind Object kind slug (must be a known object type).
+     * @param id Object id/reference (a UUID or issued code, ≤200 chars).
+     * @return ObjectLinksListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listObjectLinks(kind: kotlin.String, id: kotlin.String) : ObjectLinksListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listObjectLinksWithHttpInfo(kind = kind, id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectLinksListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/object-links
+     * List the generic links touching one object, in both directions
+     * Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller&#39;s org are visible.
+     * @param kind Object kind slug (must be a known object type).
+     * @param id Object id/reference (a UUID or issued code, ≤200 chars).
+     * @return ApiResponse<ObjectLinksListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listObjectLinksWithHttpInfo(kind: kotlin.String, id: kotlin.String) : ApiResponse<ObjectLinksListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listObjectLinksRequestConfig(kind = kind, id = id)
+
+        return@withContext request<Unit, ObjectLinksListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listObjectLinks
+     *
+     * @param kind Object kind slug (must be a known object type).
+     * @param id Object id/reference (a UUID or issued code, ≤200 chars).
+     * @return RequestConfig
+     */
+    fun listObjectLinksRequestConfig(kind: kotlin.String, id: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("kind", listOf(kind.toString()))
+                put("id", listOf(id.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/object-links",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/passkeys
      * List the authenticated user&#39;s own passkey credentials
      * Returns the caller&#39;s own WebAuthn credentials (id and registration / last-use timestamps). No secret material is ever returned.
@@ -12638,6 +13395,149 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/workflow-studio/schedules/{id}/runs
+     * Run history for a workflow schedule
+     *
+     * @param id
+     * @return ScheduleRunListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowScheduleRuns(id: java.util.UUID) : ScheduleRunListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowScheduleRunsWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ScheduleRunListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/schedules/{id}/runs
+     * Run history for a workflow schedule
+     *
+     * @param id
+     * @return ApiResponse<ScheduleRunListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowScheduleRunsWithHttpInfo(id: java.util.UUID) : ApiResponse<ScheduleRunListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowScheduleRunsRequestConfig(id = id)
+
+        return@withContext request<Unit, ScheduleRunListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowScheduleRuns
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun listWorkflowScheduleRunsRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/schedules/{id}/runs".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/schedules
+     * List workflow cron schedules
+     *
+     * @return WorkflowScheduleListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowSchedules() : WorkflowScheduleListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowSchedulesWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowScheduleListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/schedules
+     * List workflow cron schedules
+     *
+     * @return ApiResponse<WorkflowScheduleListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowSchedulesWithHttpInfo() : ApiResponse<WorkflowScheduleListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowSchedulesRequestConfig()
+
+        return@withContext request<Unit, WorkflowScheduleListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowSchedules
+     *
+     * @return RequestConfig
+     */
+    fun listWorkflowSchedulesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/schedules",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/workflow-tasks
      * List approval-inbox waiting tasks (group or personal)
      * Group inbox via role_key, personal inbox via assignee&#x3D;me. Policy-bearing rows are gated legacy-enforce with an inert Cedar shadow and denied rows are OMITTED (deny-by-omission), never returned as a 403. Requires role_key or assignee&#x3D;me.
@@ -12720,6 +13620,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/workflow-tasks",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/trigger-bindings
+     * List workflow trigger bindings (domain event → workflow start rules)
+     *
+     * @return TriggerBindingListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowTriggerBindings() : TriggerBindingListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowTriggerBindingsWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TriggerBindingListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/trigger-bindings
+     * List workflow trigger bindings (domain event → workflow start rules)
+     *
+     * @return ApiResponse<TriggerBindingListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowTriggerBindingsWithHttpInfo() : ApiResponse<TriggerBindingListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowTriggerBindingsRequestConfig()
+
+        return@withContext request<Unit, TriggerBindingListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowTriggerBindings
+     *
+     * @return RequestConfig
+     */
+    fun listWorkflowTriggerBindingsRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/trigger-bindings",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -13776,6 +14746,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/workflow-studio/schedules/preview-next-runs
+     * Preview the next fire times for a cron expression
+     *
+     * @param previewScheduleRequest
+     * @return PreviewScheduleResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun previewWorkflowScheduleNextRuns(previewScheduleRequest: PreviewScheduleRequest) : PreviewScheduleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = previewWorkflowScheduleNextRunsWithHttpInfo(previewScheduleRequest = previewScheduleRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PreviewScheduleResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/schedules/preview-next-runs
+     * Preview the next fire times for a cron expression
+     *
+     * @param previewScheduleRequest
+     * @return ApiResponse<PreviewScheduleResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun previewWorkflowScheduleNextRunsWithHttpInfo(previewScheduleRequest: PreviewScheduleRequest) : ApiResponse<PreviewScheduleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = previewWorkflowScheduleNextRunsRequestConfig(previewScheduleRequest = previewScheduleRequest)
+
+        return@withContext request<PreviewScheduleRequest, PreviewScheduleResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation previewWorkflowScheduleNextRuns
+     *
+     * @param previewScheduleRequest
+     * @return RequestConfig
+     */
+    fun previewWorkflowScheduleNextRunsRequestConfig(previewScheduleRequest: PreviewScheduleRequest) : RequestConfig<PreviewScheduleRequest> {
+        val localVariableBody = previewScheduleRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/schedules/preview-next-runs",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/workflow-studio/definitions/{id}/publish
      * Publish a workflow definition version
      * Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
@@ -14748,6 +15792,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/target-change-requests".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/objects/{kind}/{id}
+     * Resolve any object to a compact head (code, title, status, route hint)
+     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+     * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+     * @param id
+     * @return ObjectHead
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun resolveObject(kind: kotlin.String, id: kotlin.String) : ObjectHead = withContext(Dispatchers.IO) {
+        val localVarResponse = resolveObjectWithHttpInfo(kind = kind, id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectHead
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/objects/{kind}/{id}
+     * Resolve any object to a compact head (code, title, status, route hint)
+     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+     * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+     * @param id
+     * @return ApiResponse<ObjectHead?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun resolveObjectWithHttpInfo(kind: kotlin.String, id: kotlin.String) : ApiResponse<ObjectHead?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = resolveObjectRequestConfig(kind = kind, id = id)
+
+        return@withContext request<Unit, ObjectHead>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation resolveObject
+     *
+     * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
+     * @param id
+     * @return RequestConfig
+     */
+    fun resolveObjectRequestConfig(kind: kotlin.String, id: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/objects/{kind}/{id}".replace("{"+"kind"+"}", encodeURIComponent(kind.toString())).replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -18031,6 +19151,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/workflow-studio/definitions/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/workflow-studio/schedules/{id}
+     * Update a workflow cron schedule (label, cron, timezone, enabled)
+     * Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are durable objects — disable instead of delete (run history stays dereferenceable).
+     * @param id
+     * @param updateWorkflowScheduleRequest
+     * @return WorkflowScheduleResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateWorkflowSchedule(id: java.util.UUID, updateWorkflowScheduleRequest: UpdateWorkflowScheduleRequest) : WorkflowScheduleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = updateWorkflowScheduleWithHttpInfo(id = id, updateWorkflowScheduleRequest = updateWorkflowScheduleRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowScheduleResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/workflow-studio/schedules/{id}
+     * Update a workflow cron schedule (label, cron, timezone, enabled)
+     * Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are durable objects — disable instead of delete (run history stays dereferenceable).
+     * @param id
+     * @param updateWorkflowScheduleRequest
+     * @return ApiResponse<WorkflowScheduleResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateWorkflowScheduleWithHttpInfo(id: java.util.UUID, updateWorkflowScheduleRequest: UpdateWorkflowScheduleRequest) : ApiResponse<WorkflowScheduleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateWorkflowScheduleRequestConfig(id = id, updateWorkflowScheduleRequest = updateWorkflowScheduleRequest)
+
+        return@withContext request<UpdateWorkflowScheduleRequest, WorkflowScheduleResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateWorkflowSchedule
+     *
+     * @param id
+     * @param updateWorkflowScheduleRequest
+     * @return RequestConfig
+     */
+    fun updateWorkflowScheduleRequestConfig(id: java.util.UUID, updateWorkflowScheduleRequest: UpdateWorkflowScheduleRequest) : RequestConfig<UpdateWorkflowScheduleRequest> {
+        val localVariableBody = updateWorkflowScheduleRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/workflow-studio/schedules/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
