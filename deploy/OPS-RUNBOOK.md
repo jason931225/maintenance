@@ -136,13 +136,15 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   socket after the pod is Ready:
 
   ```sh
+  set -euo pipefail
   set +x
   MOX_PASS_SECRET_OCID="${MOX_PASS_SECRET_OCID:?set to the mnt-mox-postmaster-password OCI Vault secret OCID}"
-  oci secrets secret-bundle get --secret-id "$MOX_PASS_SECRET_OCID" \
-    --query 'data."secret-bundle-content".content' --raw-output | base64 -d | \
-  kubectl exec -i -n maintenance statefulset/mnt-mox -- \
+  MOX_PASS="$(oci secrets secret-bundle get --secret-id "$MOX_PASS_SECRET_OCID" \
+    --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
+  test -n "$MOX_PASS"
+  printf '%s' "$MOX_PASS" | kubectl exec -i -n maintenance statefulset/mnt-mox -- \
     /bin/mox -config /mox-data/config/mox.conf setaccountpassword postmaster
-  unset MOX_PASS_SECRET_OCID
+  unset MOX_PASS MOX_PASS_SECRET_OCID
   ```
 
   `setaccountpassword` reads stdin and stores derived verifier material in
@@ -164,21 +166,37 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
 - Dark smoke without public MX:
 
   ```sh
+  set -euo pipefail
   set +x
+  MNT_MOX_PF_PID=""
+  MNT_APP_PF_PID=""
+  cleanup_mox_e2e() {
+    [ -z "${MNT_MOX_PF_PID:-}" ] || kill "$MNT_MOX_PF_PID" 2>/dev/null || true
+    [ -z "${MNT_APP_PF_PID:-}" ] || kill "$MNT_APP_PF_PID" 2>/dev/null || true
+    unset MOX_PASS WEBHOOK_SECRET MOX_PASS_SECRET_OCID MNT_MOX_PF_PID MNT_APP_PF_PID
+  }
+  trap cleanup_mox_e2e EXIT
   MOX_PASS_SECRET_OCID="${MOX_PASS_SECRET_OCID:?set to the mnt-mox-postmaster-password OCI Vault secret OCID}"
   MOX_PASS="$(oci secrets secret-bundle get --secret-id "$MOX_PASS_SECRET_OCID" \
     --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
   WEBHOOK_SECRET="$(kubectl -n maintenance get secret mnt-secrets \
     -o jsonpath='{.data.MNT_MAIL_MOX_WEBHOOK_SECRET}' | base64 -d)"
-  kubectl -n maintenance port-forward svc/mnt-mox 1080:1080
-  kubectl -n maintenance port-forward svc/mnt-app 8090:8080
+  test -n "$MOX_PASS"
+  test -n "$WEBHOOK_SECRET"
+  kubectl -n maintenance port-forward svc/mnt-mox 1080:1080 >/tmp/mnt-mox-port-forward.log 2>&1 &
+  MNT_MOX_PF_PID=$!
+  kubectl -n maintenance port-forward svc/mnt-app 8090:8080 >/tmp/mnt-app-port-forward.log 2>&1 &
+  MNT_APP_PF_PID=$!
+  for url in http://127.0.0.1:1080/webapi/v0/ http://127.0.0.1:8090/readyz; do
+    for i in $(seq 1 30); do curl -fsS "$url" >/dev/null && break || sleep 1; done
+    curl -fsS "$url" >/dev/null
+  done
   MNT_MOX_WEBAPI_URL=http://127.0.0.1:1080 \
   MNT_DEV_BACKEND_URL=http://127.0.0.1:8090 \
   MNT_MOX_USER=postmaster@knllogistic.com \
   MNT_MOX_PASS="$MOX_PASS" \
   MNT_MAIL_MOX_WEBHOOK_SECRET="$WEBHOOK_SECRET" \
   node scripts/mox-e2e.mjs
-  unset MOX_PASS WEBHOOK_SECRET MOX_PASS_SECRET_OCID
   ```
 
 - Backup/restore: CNPG/Barman covers Postgres only; it does **not** back up
@@ -189,17 +207,24 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   and local scratch copies:
 
   ```sh
+  set -euo pipefail
   set +x
   umask 077
   STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
   POD_BACKUP="/tmp/mox-backup-$STAMP"
   LOCAL_BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mox-backup.XXXXXX")"
+  trap 'echo "backup failed; preserving pod path $POD_BACKUP and local dir $LOCAL_BACKUP_DIR" >&2' ERR
   ARCHIVE="$LOCAL_BACKUP_DIR/mox-backup-$STAMP.tgz"
   ENC_ARCHIVE="$ARCHIVE.enc"
   BACKUP_ENC_SECRET_OCID="${BACKUP_ENC_SECRET_OCID:?set to the mox backup encryption passphrase secret OCID}"
+  BACKUP_MAC_SECRET_OCID="${BACKUP_MAC_SECRET_OCID:?set to the mox backup HMAC secret OCID}"
   MNT_MOX_BACKUP_BUCKET="${MNT_MOX_BACKUP_BUCKET:?set to the approved encrypted retention bucket}"
   BACKUP_ENC_PASS="$(oci secrets secret-bundle get --secret-id "$BACKUP_ENC_SECRET_OCID" \
     --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
+  BACKUP_MAC_KEY="$(oci secrets secret-bundle get --secret-id "$BACKUP_MAC_SECRET_OCID" \
+    --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
+  test -n "$BACKUP_ENC_PASS"
+  test -n "$BACKUP_MAC_KEY"
 
   kubectl exec -n maintenance statefulset/mnt-mox -- /bin/sh -ceu '
     umask 077
@@ -211,18 +236,38 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   tar -C "$LOCAL_BACKUP_DIR/mox-backup" -czf "$ARCHIVE" .
   openssl enc -aes-256-cbc -pbkdf2 -salt -in "$ARCHIVE" -out "$ENC_ARCHIVE" \
     -pass env:BACKUP_ENC_PASS
+  python3 - "$ENC_ARCHIVE" "$ENC_ARCHIVE.hmac" <<'PY'
+  import base64, hashlib, hmac, os, sys
+  key = os.environ["BACKUP_MAC_KEY"].encode()
+  with open(sys.argv[1], "rb") as src:
+      mac = hmac.new(key, src.read(), hashlib.sha256).digest()
+  with open(sys.argv[2], "w", encoding="utf-8") as dst:
+      dst.write(base64.b64encode(mac).decode() + "\n")
+  PY
   (cd "$LOCAL_BACKUP_DIR" && shasum -a 256 "$(basename "$ENC_ARCHIVE")" > "$(basename "$ENC_ARCHIVE").sha256")
   oci os object put --bucket-name "$MNT_MOX_BACKUP_BUCKET" \
     --name "mox/$STAMP/$(basename "$ENC_ARCHIVE")" --file "$ENC_ARCHIVE"
   oci os object put --bucket-name "$MNT_MOX_BACKUP_BUCKET" \
     --name "mox/$STAMP/$(basename "$ENC_ARCHIVE").sha256" --file "$ENC_ARCHIVE.sha256"
+  oci os object put --bucket-name "$MNT_MOX_BACKUP_BUCKET" \
+    --name "mox/$STAMP/$(basename "$ENC_ARCHIVE").hmac" --file "$ENC_ARCHIVE.hmac"
   oci os object get --bucket-name "$MNT_MOX_BACKUP_BUCKET" \
     --name "mox/$STAMP/$(basename "$ENC_ARCHIVE")" --file "$LOCAL_BACKUP_DIR/verify.enc"
   test "$(shasum -a 256 "$LOCAL_BACKUP_DIR/verify.enc" | awk '{print $1}')" = \
     "$(cut -d ' ' -f1 "$ENC_ARCHIVE.sha256")"
+  python3 - "$LOCAL_BACKUP_DIR/verify.enc" "$LOCAL_BACKUP_DIR/verify.enc.hmac" <<'PY'
+  import base64, hashlib, hmac, os, sys
+  key = os.environ["BACKUP_MAC_KEY"].encode()
+  with open(sys.argv[1], "rb") as src:
+      mac = hmac.new(key, src.read(), hashlib.sha256).digest()
+  with open(sys.argv[2], "w", encoding="utf-8") as dst:
+      dst.write(base64.b64encode(mac).decode() + "\n")
+  PY
+  cmp -s "$LOCAL_BACKUP_DIR/verify.enc.hmac" "$ENC_ARCHIVE.hmac"
   kubectl exec -n maintenance statefulset/mnt-mox -- rm -rf "$POD_BACKUP"
   rm -rf "$LOCAL_BACKUP_DIR"
-  unset BACKUP_ENC_PASS BACKUP_ENC_SECRET_OCID MNT_MOX_BACKUP_BUCKET
+  trap - ERR
+  unset BACKUP_ENC_PASS BACKUP_MAC_KEY BACKUP_ENC_SECRET_OCID BACKUP_MAC_SECRET_OCID MNT_MOX_BACKUP_BUCKET
   ```
 
   Restore drill: prove this on a fresh PVC/workload when possible; for an
@@ -304,8 +349,12 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   kubectl -n maintenance rollout restart deployment/mnt-worker
   kubectl argo rollouts status mnt-app -n maintenance --timeout 300s
   kubectl -n maintenance rollout status deployment/mnt-worker --timeout=300s
-  ! kubectl -n maintenance exec -l app=mnt-app -- printenv MNT_MAIL_MOX_BASE_URL
-  ! kubectl -n maintenance exec -l app=mnt-worker -- printenv MNT_MAIL_MOX_BASE_URL
+  APP_POD="$(kubectl -n maintenance get pods -l app=mnt-app -o jsonpath='{.items[0].metadata.name}')"
+  WORKER_POD="$(kubectl -n maintenance get pods -l app=mnt-worker -o jsonpath='{.items[0].metadata.name}')"
+  test -n "$APP_POD"
+  test -n "$WORKER_POD"
+  ! kubectl -n maintenance exec "$APP_POD" -- printenv MNT_MAIL_MOX_BASE_URL
+  ! kubectl -n maintenance exec "$WORKER_POD" -- printenv MNT_MAIL_MOX_BASE_URL
   ```
 
   Scale `mnt-mox` to 0 only after a successful backup/export; do not delete the
