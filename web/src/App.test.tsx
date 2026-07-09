@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse, ws } from "msw";
+import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -20,6 +20,7 @@ import {
   workOrderListItems,
   workOrders,
 } from "./test/fixtures";
+import { createConsoleMessengerWsHandlers } from "./test/messengerWs";
 import { ROUTE_LOAD_OPTIONS, waitForRouteReady } from "./test/routeReady";
 
 // ── MSW handlers ──────────────────────────────────────────────────────────────
@@ -60,9 +61,6 @@ const homeSupportTicket = {
   resolved_at: null,
   closed_at: null,
 } as const;
-
-const messengerWs = ws.link("ws://localhost/api/v1/ws*");
-const devMessengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
 function approvalContext(source: "WORK_ORDER", objectId: string, branchId: string) {
   return {
@@ -121,8 +119,7 @@ function approvalItemsPage() {
 }
 
 const server = setupServer(
-  messengerWs.addEventListener("connection", () => {}),
-  devMessengerWs.addEventListener("connection", () => {}),
+  ...createConsoleMessengerWsHandlers(),
   http.get("*/api/approval-items", ({ request }) => {
     const url = new URL(request.url);
     approvalRequests.push(url);

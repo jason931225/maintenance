@@ -327,11 +327,10 @@ export function AppRouter() {
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
         {/* ConsoleShell (UI-M1b) — the window-engine shell owns only /overview
-            and /attendance. Keep these routes explicit: a pathless layout here
-            matches every protected URL before AppShell can claim it, which makes
-            /dispatch, /intake, /settings/*, etc. render the overview shell. */}
+            and /attendance. Keep the pathless shell parent constrained by the
+            two explicit child paths below; an unconstrained pathless layout here
+            would match every protected URL before AppShell can claim it. */}
         <Route
-          path="/overview"
           element={
             <RouteErrorBoundary>
               <Suspense fallback={<PageSpinner />}>
@@ -339,17 +338,10 @@ export function AppRouter() {
               </Suspense>
             </RouteErrorBoundary>
           }
-        />
-        <Route
-          path="/attendance"
-          element={
-            <RouteErrorBoundary>
-              <Suspense fallback={<PageSpinner />}>
-                <ConsoleShell />
-              </Suspense>
-            </RouteErrorBoundary>
-          }
-        />
+        >
+          <Route path="/overview" element={null} />
+          <Route path="/attendance" element={null} />
+        </Route>
 
         {/* Carbon-copy console (charter D1). A catch-all under /console so the
             prototype-style state.screen navigation lives inside one route,

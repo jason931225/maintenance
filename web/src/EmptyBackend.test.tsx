@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { http, HttpResponse, ws } from "msw";
+import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -10,6 +10,7 @@ import { AuthContext } from "./context/auth";
 import type { AuthContextValue, AuthSession } from "./context/auth";
 import { createConsoleApiClient } from "./api/client";
 import type { AbsenceExitDashboardResponse } from "./api/types";
+import { createConsoleMessengerWsHandlers } from "./test/messengerWs";
 import { ROUTE_LOAD_OPTIONS, waitForRouteReady } from "./test/routeReady";
 
 vi.mock("./features/dispatch/leafletIcon", () => ({
@@ -36,9 +37,6 @@ vi.mock("react-leaflet", () => ({
 
 const BRANCH_ID = "00000000-0000-4000-8000-000000000001";
 const USER_ID = "00000000-0000-4000-8000-000000000002";
-
-const messengerWs = ws.link("ws://localhost/api/v1/ws*");
-const devMessengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
 // An otherwise-valid KPI report with no rollups and no data — the cold-start
 // shape the aggregation endpoint returns before any work orders exist.
@@ -125,8 +123,7 @@ const me = {
 };
 
 const server = setupServer(
-  messengerWs.addEventListener("connection", () => {}),
-  devMessengerWs.addEventListener("connection", () => {}),
+  ...createConsoleMessengerWsHandlers(),
   // Paginated list endpoints → empty page envelope.
   http.get("*/api/approval-items", () =>
     HttpResponse.json({
