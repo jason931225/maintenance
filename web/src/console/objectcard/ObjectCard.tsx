@@ -186,9 +186,11 @@ function RelationChip({
   farId: string;
   target: { kind: string; id: string };
   onOpen?: (t: { kind: string; id: string }) => void;
-  onRemove: (linkId: string) => void;
+  onRemove: (linkId: string) => Promise<boolean>;
 }) {
   const gate = usePolicyGate();
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
   const canOpen = gate.can(OBJECT_CARD_ACTIONS.view, { kind: farKind, id: farId });
   const label = `${slugLabel(farKind)} ${farId}`;
   const inner = (
@@ -227,21 +229,40 @@ function RelationChip({
         <button
           type="button"
           onClick={() => {
-            onRemove(edge.id);
+            if (pending) return;
+            setPending(true);
+            setFailed(false);
+            void onRemove(edge.id)
+              .then((ok) => {
+                setFailed(!ok);
+              })
+              .catch(() => {
+                setFailed(true);
+              })
+              .finally(() => {
+                setPending(false);
+              });
           }}
+          disabled={pending}
           aria-label={t.relation.remove.replace("{label}", label)}
+          aria-describedby={failed ? `${edge.id}-remove-error` : undefined}
           style={{
             border: "none",
             background: "transparent",
             padding: 0,
-            cursor: "pointer",
+            cursor: pending ? "wait" : "pointer",
             color: "var(--faint)",
             fontSize: "var(--text-sm)",
             lineHeight: 1,
           }}
         >
-          ×
+          {pending ? "…" : "×"}
         </button>
+        {failed ? (
+          <span id={`${edge.id}-remove-error`} role="status" style={{ fontSize: "var(--text-micro)", color: "var(--danger-tx)" }}>
+            {t.relation.removeFailed}
+          </span>
+        ) : null}
       </PolicyGated>
     </span>
   );
@@ -260,7 +281,7 @@ function RelationGroup({
   farEnd: (edge: ObjectLinkResponse) => { kind: string; id: string };
   target: { kind: string; id: string };
   onOpen?: (t: { kind: string; id: string }) => void;
-  onRemove: (linkId: string) => void;
+  onRemove: (linkId: string) => Promise<boolean>;
 }) {
   if (edges.length === 0) return null;
   return (
@@ -289,10 +310,16 @@ function RelationGroup({
 function AddRelation({ onAdd }: { onAdd: (code: string) => Promise<boolean> }) {
   const [code, setCode] = useState("");
   const [rejected, setRejected] = useState(false);
+  const [pending, setPending] = useState(false);
   const submit = async () => {
     const value = code.trim();
-    if (!value) return;
-    const ok = await onAdd(value);
+    if (!value || pending) return;
+    setPending(true);
+    const ok = await onAdd(value)
+      .catch(() => false)
+      .finally(() => {
+        setPending(false);
+      });
     if (ok) {
       setCode("");
       setRejected(false);
@@ -312,7 +339,7 @@ function AddRelation({ onAdd }: { onAdd: (code: string) => Promise<boolean> }) {
           setRejected(false);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (e.key === "Enter" && !pending) {
             e.preventDefault();
             void submit();
           }
@@ -333,6 +360,7 @@ function AddRelation({ onAdd }: { onAdd: (code: string) => Promise<boolean> }) {
       />
       <button
         type="button"
+        disabled={pending}
         onClick={() => {
           void submit();
         }}
@@ -344,10 +372,10 @@ function AddRelation({ onAdd }: { onAdd: (code: string) => Promise<boolean> }) {
           background: "var(--signal)",
           border: "1px solid var(--signal-deep)",
           borderRadius: "var(--radius-sm)",
-          cursor: "pointer",
+          cursor: pending ? "wait" : "pointer",
         }}
       >
-        {t.relation.add}
+        {pending ? "…" : t.relation.add}
       </button>
     </label>
   );
@@ -378,9 +406,7 @@ export function ObjectCard({ target, api, bearerToken, onOpenObject }: ObjectCar
       target={target}
       onOpenObject={onOpenObject}
       onAddRelation={addRelation}
-      onRemoveRelation={(id) => {
-        void removeRelation(id);
-      }}
+      onRemoveRelation={removeRelation}
     />
   );
 }
@@ -390,7 +416,7 @@ export interface ObjectCardViewProps {
   target: { kind: string; id: string };
   onOpenObject?: (target: { kind: string; id: string }) => void;
   onAddRelation: (code: string) => Promise<boolean>;
-  onRemoveRelation: (linkId: string) => void;
+  onRemoveRelation: (linkId: string) => Promise<boolean>;
 }
 
 /**

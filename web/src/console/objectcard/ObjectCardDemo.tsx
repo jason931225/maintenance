@@ -2,7 +2,7 @@ import { type CSSProperties } from "react";
 
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { ObjectCardView } from "./ObjectCard";
-import type { ObjectCardState } from "./useObjectCard";
+import { OBJECT_CARD_ACTIONS, type ObjectCardState } from "./useObjectCard";
 
 /**
  * Deterministic render of the object card's distinct states for the fidelity
@@ -28,7 +28,7 @@ export interface ObjectCardDemoProps {
 // Full 3-layer: every affordance permitted so the add/remove controls render.
 const ALLOW_ALL: PolicyGate = { can: () => true };
 // Minimal/redacted: mutations denied (deny-by-omission hides add/remove).
-const DENY_MUTATIONS: PolicyGate = { can: (action) => action === "object.view" };
+const DENY_MUTATIONS: PolicyGate = { can: (action) => action === OBJECT_CARD_ACTIONS.view };
 
 const panel: CSSProperties = {
   minHeight: "100dvh",
@@ -52,7 +52,7 @@ export function ObjectCardDemo({ state, full, minimal }: ObjectCardDemoProps) {
             target={target}
             onOpenObject={() => undefined}
             onAddRelation={() => Promise.resolve(true)}
-            onRemoveRelation={() => undefined}
+            onRemoveRelation={() => Promise.resolve(true)}
           />
         </PolicyGateProvider>
       </div>

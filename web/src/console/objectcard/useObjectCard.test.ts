@@ -95,6 +95,28 @@ describe("useObjectCard — 3-layer load", () => {
     expect(result.current.state.lifecycle).toBeNull();
     expect(result.current.state.audit).toBeNull();
   });
+
+  it("moves to error instead of staying loading when the head request rejects", async () => {
+    server.use(http.get("*/api/objects/work_order/wo-1", () => HttpResponse.error()));
+
+    const { result } = renderCard();
+
+    await waitFor(() => { expect(result.current.state.status).toBe("error"); });
+  });
+
+  it("still resolves when relation loading rejects", async () => {
+    server.use(
+      http.get("*/api/objects/work_order/wo-1", () => HttpResponse.json(headBody(true))),
+      http.get("*/api/v1/lifecycles/work_order/wo-1", () => new HttpResponse(null, { status: 403 })),
+      http.get("*/api/audit", () => new HttpResponse(null, { status: 403 })),
+      http.get("*/api/v1/object-links", () => HttpResponse.error()),
+    );
+
+    const { result } = renderCard();
+
+    await waitFor(() => { expect(result.current.state.status).toBe("resolved"); });
+    expect(result.current.state.links).toEqual({ outgoing: [], incoming: [] });
+  });
 });
 
 describe("useObjectCard — deny-by-omission", () => {

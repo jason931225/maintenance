@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { PolicyGateProvider, type PolicyGate } from "../policy";
@@ -56,7 +56,7 @@ function renderView(state: ObjectCardState, gate: PolicyGate = ALLOW_ALL) {
         target={TARGET}
         onOpenObject={() => undefined}
         onAddRelation={() => Promise.resolve(true)}
-        onRemoveRelation={() => undefined}
+        onRemoveRelation={() => Promise.resolve(true)}
       />
     </PolicyGateProvider>,
   );
@@ -124,6 +124,24 @@ describe("ObjectCardView — policy omission", () => {
     renderView(resolved());
     expect(screen.getByText("관계 연결")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /관계 해제/ })).toBeInTheDocument();
+  });
+
+  it("keeps a failed remove visible as feedback", async () => {
+    render(
+      <PolicyGateProvider gate={ALLOW_ALL}>
+        <ObjectCardView
+          state={resolved()}
+          target={TARGET}
+          onOpenObject={() => undefined}
+          onAddRelation={() => Promise.resolve(true)}
+          onRemoveRelation={() => Promise.resolve(false)}
+        />
+      </PolicyGateProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /관계 해제/ }));
+
+    await waitFor(() => { expect(screen.getByText("해제 실패")).toBeInTheDocument(); });
   });
 
   it("renders the related object as a clickable open button only when view is permitted", () => {

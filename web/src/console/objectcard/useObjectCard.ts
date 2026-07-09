@@ -112,11 +112,15 @@ export function useObjectCard(
   });
 
   const loadLinks = useCallback(async () => {
-    const response = await api.GET("/api/v1/object-links", {
-      params: { query: { kind: target.kind, id: target.id } },
-    });
-    if (response.error) return EMPTY_LINKS;
-    return { outgoing: response.data.outgoing, incoming: response.data.incoming };
+    try {
+      const response = await api.GET("/api/v1/object-links", {
+        params: { query: { kind: target.kind, id: target.id } },
+      });
+      if (response.error) return EMPTY_LINKS;
+      return { outgoing: response.data.outgoing, incoming: response.data.incoming };
+    } catch {
+      return EMPTY_LINKS;
+    }
   }, [api, target.kind, target.id]);
 
   const { kind, id } = target;
@@ -132,32 +136,37 @@ export function useObjectCard(
     const run = { cancelled: false };
     const cancelled = () => run.cancelled;
     async function load() {
-      const resolved = await api.GET("/api/objects/{kind}/{id}", {
-        params: { path: { kind, id } },
-      });
-      if (cancelled()) return;
-      if (resolved.error) {
+      try {
+        const resolved = await api.GET("/api/objects/{kind}/{id}", {
+          params: { path: { kind, id } },
+        });
+        if (cancelled()) return;
+        if (resolved.error) {
+          setState({ status: "error", lifecycle: null, audit: null, links: EMPTY_LINKS });
+          return;
+        }
+        const head = resolved.data;
+        if (!head.exists) {
+          // Deny-by-omission: absent OR outside scope, indistinguishably — no card.
+          setState({ status: "absent", head, lifecycle: null, audit: null, links: EMPTY_LINKS });
+          return;
+        }
+        const [lifecycle, audit, links] = await Promise.all([
+          api
+            .GET("/api/v1/lifecycles/{objectType}/{objectId}", {
+              params: { path: { objectType: kind, objectId: id } },
+            })
+            .then((r) => (r.error ? null : (r.data ?? null)))
+            .catch(() => null),
+          fetchObjectAudit(bearerToken, { kind, id }),
+          loadLinks(),
+        ]);
+        if (cancelled()) return;
+        setState({ status: "resolved", head, lifecycle, audit, links });
+      } catch {
+        if (cancelled()) return;
         setState({ status: "error", lifecycle: null, audit: null, links: EMPTY_LINKS });
-        return;
       }
-      const head = resolved.data;
-      if (!head.exists) {
-        // Deny-by-omission: absent OR outside scope, indistinguishably — no card.
-        setState({ status: "absent", head, lifecycle: null, audit: null, links: EMPTY_LINKS });
-        return;
-      }
-      const [lifecycle, audit, links] = await Promise.all([
-        api
-          .GET("/api/v1/lifecycles/{objectType}/{objectId}", {
-            params: { path: { objectType: kind, objectId: id } },
-          })
-          .then((r) => (r.error ? null : (r.data ?? null)))
-          .catch(() => null),
-        fetchObjectAudit(bearerToken, { kind, id }),
-        loadLinks(),
-      ]);
-      if (cancelled()) return;
-      setState({ status: "resolved", head, lifecycle, audit, links });
     }
     void load();
     return () => {
@@ -174,32 +183,40 @@ export function useObjectCard(
     async (code: string): Promise<boolean> => {
       const dst = linkTargetFromCode(code);
       if (!dst) return false;
-      const response = await api.POST("/api/v1/object-links", {
-        body: {
-          src_kind: target.kind,
-          src_id: target.id,
-          dst_kind: dst.kind,
-          dst_id: dst.id,
-          link_type: RELATES_TO,
-        },
-      });
-      if (response.error) return false;
-      const links = await loadLinks();
-      setState((prev) => ({ ...prev, links }));
-      return true;
+      try {
+        const response = await api.POST("/api/v1/object-links", {
+          body: {
+            src_kind: target.kind,
+            src_id: target.id,
+            dst_kind: dst.kind,
+            dst_id: dst.id,
+            link_type: RELATES_TO,
+          },
+        });
+        if (response.error) return false;
+        const links = await loadLinks();
+        setState((prev) => ({ ...prev, links }));
+        return true;
+      } catch {
+        return false;
+      }
     },
     [api, target.kind, target.id, loadLinks],
   );
 
   const removeRelation = useCallback(
     async (linkId: string): Promise<boolean> => {
-      const response = await api.DELETE("/api/v1/object-links/{id}", {
-        params: { path: { id: linkId } },
-      });
-      if (response.error) return false;
-      const links = await loadLinks();
-      setState((prev) => ({ ...prev, links }));
-      return true;
+      try {
+        const response = await api.DELETE("/api/v1/object-links/{id}", {
+          params: { path: { id: linkId } },
+        });
+        if (response.error) return false;
+        const links = await loadLinks();
+        setState((prev) => ({ ...prev, links }));
+        return true;
+      } catch {
+        return false;
+      }
     },
     [api, loadLinks],
   );

@@ -233,6 +233,7 @@ export const ko = {
         addPlaceholder: "코드 입력 후 Enter",
         add: "관계 연결",
         remove: "{label} 관계 해제",
+        removeFailed: "해제 실패",
         open: "{label} 열기",
         empty: "연결된 개체 없음",
       },
