@@ -11,6 +11,10 @@ export interface ObjectCandidate {
    * object — the display `code` (e.g. "WO-20260612-001") is not the detail
    * route key. Absent for `person`, whose `code` already IS the id. */
   id?: string;
+  /** Lowercased haystack the caller re-filters locally as the query narrows.
+   * A provider fetches one page; `filterCandidates` matches against this, so a
+   * burst of keystrokes never refetches. */
+  search: string;
 }
 
 /** Distinguishes "loaded, zero matches" from "the fetch failed" — a provider
@@ -21,9 +25,10 @@ export type CandidateResult =
   | { status: "error" };
 
 /**
- * Kind-scoped candidate lookup for the token-grammar dropdown: given the
- * in-progress query text (may be empty — "show everything"), resolve
- * candidates for exactly one object kind.
+ * Kind-scoped candidate lookup for the token-grammar dropdown: fetch one
+ * permission-scoped page for exactly one object kind and return every visible
+ * row as a candidate. The caller re-filters the page locally (`filterCandidates`)
+ * as the query narrows, so typing never refetches.
  *
  * PBAC contract: a provider must return ONLY objects the signed-in principal
  * is permitted to see (deny-by-omission, DESIGN.md §4.5). This module never
@@ -33,7 +38,7 @@ export type CandidateResult =
  * resolve through a provider must be left as plain text by the caller
  * (`TokenText`'s `resolveObject`), never rendered as a link.
  */
-export type CandidateProvider = (query: string) => Promise<CandidateResult>;
+export type CandidateProvider = () => Promise<CandidateResult>;
 
 const CANDIDATE_LIMIT = 8;
 // Same constraint as work orders below: /api/messenger/members has no
@@ -41,9 +46,13 @@ const CANDIDATE_LIMIT = 8;
 // matches beyond this page size are invisible to the dropdown.
 const MEMBER_FETCH_PAGE_SIZE = 100;
 
-function matches(needle: string, ...haystack: Array<string | null | undefined>): boolean {
-  if (!needle) return true;
-  return haystack.some((value) => value?.toLowerCase().includes(needle));
+/** Narrow a fetched page to the visible dropdown slice by matching `query`
+ * against each candidate's `search` haystack — the per-keystroke step, no
+ * network. Empty query shows the head of the page. */
+export function filterCandidates(candidates: ObjectCandidate[], query: string): ObjectCandidate[] {
+  const needle = query.trim().toLowerCase();
+  const matched = needle ? candidates.filter((c) => c.search.includes(needle)) : candidates;
+  return matched.slice(0, CANDIDATE_LIMIT);
 }
 
 /**
@@ -62,7 +71,7 @@ export function createPersonCandidateProvider(
   api: ConsoleApiClient,
   branchId: string,
 ): CandidateProvider {
-  return async (query) => {
+  return async () => {
     let response;
     try {
       response = await api.GET("/api/messenger/members", {
@@ -73,15 +82,12 @@ export function createPersonCandidateProvider(
     }
     if (response.error || !response.response.ok) return { status: "error" };
 
-    const needle = query.trim().toLowerCase();
-    const candidates = response.data.items
-      .filter((member) => matches(needle, member.display_name))
-      .slice(0, CANDIDATE_LIMIT)
-      .map((member) => ({
-        kind: "person" as const,
-        code: member.id,
-        label: safeLabel(member.display_name),
-      }));
+    const candidates = response.data.items.map((member) => ({
+      kind: "person" as const,
+      code: member.id,
+      label: safeLabel(member.display_name),
+      search: member.display_name.toLowerCase(),
+    }));
     return { status: "ok", candidates };
   };
 }
@@ -95,7 +101,7 @@ const FETCH_PAGE_SIZE = 100;
 
 /** `#`/`!` work-order candidates, backed by the branch-scoped work-order list. */
 export function createWorkOrderCandidateProvider(api: ConsoleApiClient): CandidateProvider {
-  return async (query) => {
+  return async () => {
     let response;
     try {
       response = await api.GET("/api/v1/work-orders", {
@@ -106,25 +112,17 @@ export function createWorkOrderCandidateProvider(api: ConsoleApiClient): Candida
     }
     if (response.error || !response.response.ok) return { status: "error" };
 
-    const needle = query.trim().toLowerCase();
-    const candidates = response.data.items
-      .filter((wo) =>
-        matches(
-          needle,
-          wo.request_no,
-          wo.customer.name,
-          wo.site.name,
-          wo.equipment.model,
-          wo.equipment.equipment_no,
-        ),
-      )
-      .slice(0, CANDIDATE_LIMIT)
-      .map((wo) => ({
-        kind: "workOrder" as const,
-        code: workOrderCode(wo.request_no),
-        id: wo.id,
-        label: `${safeLabel(wo.customer.name)} · ${safeLabel(wo.equipment.model, wo.equipment.equipment_no)}`,
-      }));
+    const candidates = response.data.items.map((wo) => ({
+      kind: "workOrder" as const,
+      code: workOrderCode(wo.request_no),
+      id: wo.id,
+      label: `${safeLabel(wo.customer.name)} · ${safeLabel(wo.equipment.model, wo.equipment.equipment_no)}`,
+      // "\n"-joined so a needle can't match across two fields (queries never
+      // contain a newline) — equivalent to the old per-field OR match.
+      search: [wo.request_no, wo.customer.name, wo.site.name, wo.equipment.model, wo.equipment.equipment_no]
+        .map((value) => value?.toLowerCase() ?? "")
+        .join("\n"),
+    }));
     return { status: "ok", candidates };
   };
 }

@@ -19,6 +19,13 @@ import type { PinKind, PinnedObject } from "./types";
  * `PinKind` (approval/dailyPlan/conversation/attendance) has no M2a detail
  * fetch yet and renders from its pinned snapshot.
  */
+export const FETCHABLE_PIN_KINDS: ReadonlySet<PinKind> = new Set<PinKind>([
+  "person",
+  "workOrder",
+  "support",
+  "org",
+]);
+
 export async function fetchPinnedObject(
   api: ConsoleApiClient,
   kind: PinKind,
@@ -37,44 +44,19 @@ function isNoPinStatus(status: number): boolean {
   return status === 403 || status === 404;
 }
 
-function statusFromError(error: unknown): number | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  if ("status" in error && typeof error.status === "number") return error.status;
-  if ("response" in error) {
-    const response = error.response;
-    if (response instanceof Response) return response.status;
-    if (response && typeof response === "object" && "status" in response && typeof response.status === "number") {
-      return response.status;
-    }
-  }
-  return undefined;
-}
-
 function dataOrNoPin<T>(result: ApiResult<T>): T | null {
   if (result.data !== undefined) return result.data;
   if (isNoPinStatus(result.response.status)) return null;
   throw new Error(`Pinned object fetch failed with HTTP ${String(result.response.status)}`);
 }
 
-function rethrowUnlessNoPin(error: unknown): null {
-  const status = statusFromError(error);
-  if (status !== undefined && isNoPinStatus(status)) return null;
-  throw error;
-}
-
 async function fetchOrgPin(
   api: ConsoleApiClient,
   branchId: string,
 ): Promise<PinnedObject | null> {
-  let branch;
-  try {
-    const response = await api.GET("/api/v1/branches/{id}", {
-      params: { path: { id: branchId } },
-    });
-    branch = dataOrNoPin(response);
-  } catch (error) {
-    branch = rethrowUnlessNoPin(error);
-  }
+  const branch = dataOrNoPin(
+    await api.GET("/api/v1/branches/{id}", { params: { path: { id: branchId } } }),
+  );
   if (!branch) return null;
 
   return {
@@ -90,15 +72,9 @@ async function fetchSupportPin(
   api: ConsoleApiClient,
   ticketId: string,
 ): Promise<PinnedObject | null> {
-  let detail;
-  try {
-    const response = await api.GET("/api/v1/support/tickets/{id}", {
-      params: { path: { id: ticketId } },
-    });
-    detail = dataOrNoPin(response);
-  } catch (error) {
-    detail = rethrowUnlessNoPin(error);
-  }
+  const detail = dataOrNoPin(
+    await api.GET("/api/v1/support/tickets/{id}", { params: { path: { id: ticketId } } }),
+  );
   const ticket = detail?.ticket;
   if (!ticket) return null;
 
@@ -116,15 +92,9 @@ async function fetchWorkOrderPin(
   api: ConsoleApiClient,
   workOrderId: string,
 ): Promise<PinnedObject | null> {
-  let wo;
-  try {
-    const response = await api.GET("/api/v1/work-orders/{workOrderId}", {
-      params: { path: { workOrderId } },
-    });
-    wo = dataOrNoPin(response);
-  } catch (error) {
-    wo = rethrowUnlessNoPin(error);
-  }
+  const wo = dataOrNoPin(
+    await api.GET("/api/v1/work-orders/{workOrderId}", { params: { path: { workOrderId } } }),
+  );
   if (!wo) return null;
 
   const code = workOrderCode(wo.request_no);
@@ -146,17 +116,13 @@ async function fetchPersonPin(
   branchId: string | undefined,
 ): Promise<PinnedObject | null> {
   if (!branchId) return null;
-  let member;
-  try {
-    const response = await api.GET("/api/messenger/members/{userId}", {
-      params: { path: { userId }, query: { branch_id: branchId } },
-    });
-    member = dataOrNoPin(response);
-  } catch (error) {
-    member = rethrowUnlessNoPin(error);
-  }
   // A forbidden/not-found target leaves `data` undefined → no pin
   // (deny-by-omission); the audit was rolled back server-side.
+  const member = dataOrNoPin(
+    await api.GET("/api/messenger/members/{userId}", {
+      params: { path: { userId }, query: { branch_id: branchId } },
+    }),
+  );
   if (!member) return null;
   return {
     kind: "person",

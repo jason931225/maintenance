@@ -15,6 +15,7 @@ import { ko } from "../../i18n/ko";
 import {
   createPersonCandidateProvider,
   createWorkOrderCandidateProvider,
+  filterCandidates,
   type ObjectCandidate,
 } from "../../lib/objectCandidates";
 import { objectRegistry } from "../../lib/objectRegistry";
@@ -59,9 +60,14 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   const resultsId = `${sectionId}-results`;
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  // Raw fetched pages (fetched once on open); filtered client-side below.
   const [work, setWork] = useState<ObjectCandidate[]>([]);
   const [people, setPeople] = useState<ObjectCandidate[]>([]);
+  // True only for the one open-fetch below (both pages share it, since they
+  // fetch together) — not touched by query changes, which just re-filter.
+  const [objectsLoading, setObjectsLoading] = useState(true);
 
   const commands = useMemo<ScreenCommand[]>(() => {
     return visibleNavItemsForRoles(
@@ -96,29 +102,43 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
     [api, branchId],
   );
 
-  // Pending work + people from the real APIs, refreshed as the query changes.
-  // The screen list stays instant/client-side; object lookups are async and
-  // deny-by-omission (the providers are branch/RLS-scoped server-side).
+  // Fetch both pages once when the palette opens; the object lookups are
+  // deny-by-omission (the providers are branch/RLS-scoped server-side). The
+  // query never refetches — it re-filters the cached pages below.
   useEffect(() => {
     const guard = { live: true };
-    // Debounce so a burst of keystrokes fires one pair of provider calls, not
-    // one per character.
-    const timer = setTimeout(() => {
-      void (async () => {
-        const [workResult, peopleResult] = await Promise.all([
-          workProvider(query),
-          personProvider ? personProvider(query) : Promise.resolve(null),
-        ]);
-        if (!guard.live) return;
-        setWork(workResult.status === "ok" ? workResult.candidates : []);
-        setPeople(peopleResult && peopleResult.status === "ok" ? peopleResult.candidates : []);
-      })();
-    }, 200);
+    void (async () => {
+      setObjectsLoading(true);
+      const [workResult, peopleResult] = await Promise.all([
+        workProvider(),
+        personProvider ? personProvider() : Promise.resolve(null),
+      ]);
+      if (!guard.live) return;
+      setWork(workResult.status === "ok" ? workResult.candidates : []);
+      setPeople(peopleResult && peopleResult.status === "ok" ? peopleResult.candidates : []);
+      setObjectsLoading(false);
+    })();
     return () => {
       guard.live = false;
+    };
+  }, [workProvider, personProvider]);
+
+  // Debounce so a burst of keystrokes runs one client-side filter pass over the
+  // cached object pages, not one per character. The screen list stays instant.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 200);
+    return () => {
       clearTimeout(timer);
     };
-  }, [workProvider, personProvider, query]);
+  }, [query]);
+
+  const filteredWork = useMemo(() => filterCandidates(work, debouncedQuery), [work, debouncedQuery]);
+  const filteredPeople = useMemo(
+    () => filterCandidates(people, debouncedQuery),
+    [people, debouncedQuery],
+  );
 
   // Flat navigable list = screens, then work, then people.
   const rows = useMemo<PaletteRow[]>(() => {
@@ -128,18 +148,18 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
         key: `screen:${command.nav.key}`,
         command,
       })),
-      ...work.map((candidate) => ({
+      ...filteredWork.map((candidate) => ({
         type: "object" as const,
         key: `work:${candidate.code}`,
         candidate,
       })),
-      ...people.map((candidate) => ({
+      ...filteredPeople.map((candidate) => ({
         type: "object" as const,
         key: `person:${candidate.code}`,
         candidate,
       })),
     ];
-  }, [filteredCommands, work, people]);
+  }, [filteredCommands, filteredWork, filteredPeople]);
 
   useEffect(() => {
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -209,15 +229,10 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
     }
   }
 
-  const screenRows = rows.filter((row) => row.type === "screen");
-  const workRows = rows.filter(
-    (row): row is Extract<PaletteRow, { type: "object" }> =>
-      row.type === "object" && row.candidate.kind === "workOrder",
-  );
-  const peopleRows = rows.filter(
-    (row): row is Extract<PaletteRow, { type: "object" }> =>
-      row.type === "object" && row.candidate.kind === "person",
-  );
+  // Flat indices of each section within `rows` (= screens, then work, then
+  // people), so a row can report its own index without scanning.
+  const workOffset = filteredCommands.length;
+  const peopleOffset = workOffset + filteredWork.length;
 
   return (
     <Dialog
@@ -269,20 +284,20 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
             <PaletteSection
               labelId={`${sectionId}-screens`}
               label={ko.shell.commandPalette.sections.screens}
-              hasRows={screenRows.length > 0}
+              hasRows={filteredCommands.length > 0}
             >
-              {screenRows.map((row) => (
+              {filteredCommands.map((command, i) => (
                 <ScreenRowButton
-                  key={row.key}
-                  id={rowDomId(sectionId, row)}
-                  command={row.command}
-                  active={rows[boundedActiveIndex]?.key === row.key}
+                  key={`screen:${command.nav.key}`}
+                  id={rowDomId(sectionId, rows[i])}
+                  command={command}
+                  active={boundedActiveIndex === i}
                   currentPath={location.pathname}
                   onHover={() => {
-                    setActiveIndex(rows.findIndex((r) => r.key === row.key));
+                    setActiveIndex(i);
                   }}
                   onRun={() => {
-                    runScreen(row.command);
+                    runScreen(command);
                   }}
                 />
               ))}
@@ -290,19 +305,22 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
             <PaletteSection
               labelId={`${sectionId}-work`}
               label={ko.shell.commandPalette.sections.work}
-              hasRows={workRows.length > 0}
+              hasRows={filteredWork.length > 0 || objectsLoading}
             >
-              {workRows.map((row) => (
+              {objectsLoading && filteredWork.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-steel">{ko.shell.commandPalette.loading}</li>
+              ) : null}
+              {filteredWork.map((candidate, i) => (
                 <ObjectRowButton
-                  key={row.key}
-                  id={rowDomId(sectionId, row)}
-                  candidate={row.candidate}
-                  active={rows[boundedActiveIndex]?.key === row.key}
+                  key={`work:${candidate.code}`}
+                  id={rowDomId(sectionId, rows[workOffset + i])}
+                  candidate={candidate}
+                  active={boundedActiveIndex === workOffset + i}
                   onHover={() => {
-                    setActiveIndex(rows.findIndex((r) => r.key === row.key));
+                    setActiveIndex(workOffset + i);
                   }}
                   onRun={() => {
-                    runObject(row.candidate);
+                    runObject(candidate);
                   }}
                 />
               ))}
@@ -310,19 +328,22 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
             <PaletteSection
               labelId={`${sectionId}-people`}
               label={ko.shell.commandPalette.sections.people}
-              hasRows={peopleRows.length > 0}
+              hasRows={filteredPeople.length > 0 || objectsLoading}
             >
-              {peopleRows.map((row) => (
+              {objectsLoading && filteredPeople.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-steel">{ko.shell.commandPalette.loading}</li>
+              ) : null}
+              {filteredPeople.map((candidate, i) => (
                 <ObjectRowButton
-                  key={row.key}
-                  id={rowDomId(sectionId, row)}
-                  candidate={row.candidate}
-                  active={rows[boundedActiveIndex]?.key === row.key}
+                  key={`person:${candidate.code}`}
+                  id={rowDomId(sectionId, rows[peopleOffset + i])}
+                  candidate={candidate}
+                  active={boundedActiveIndex === peopleOffset + i}
                   onHover={() => {
-                    setActiveIndex(rows.findIndex((r) => r.key === row.key));
+                    setActiveIndex(peopleOffset + i);
                   }}
                   onRun={() => {
-                    runObject(row.candidate);
+                    runObject(candidate);
                   }}
                 />
               ))}

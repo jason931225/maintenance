@@ -304,19 +304,16 @@ fn write_canonical_json(
     match value {
         serde_json::Value::Object(map) => {
             out.push(b'{');
-            let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
-            keys.sort_unstable();
-            for (i, key) in keys.iter().enumerate() {
+            let mut entries: Vec<_> = map.iter().collect();
+            entries.sort_unstable_by_key(|(k, _)| *k);
+            for (i, (key, child)) in entries.into_iter().enumerate() {
                 if i > 0 {
                     out.push(b',');
                 }
                 // Key as a JSON string (serde's escaping), then ':' then value.
-                serde_json::to_writer(&mut *out, *key)
+                serde_json::to_writer(&mut *out, key)
                     .map_err(|err| AuditChainError::Canonical(format!("json key: {err}")))?;
                 out.push(b':');
-                let child = map
-                    .get(*key)
-                    .ok_or_else(|| AuditChainError::Canonical("map key vanished".to_owned()))?;
                 write_canonical_json(child, out)?;
             }
             out.push(b'}');

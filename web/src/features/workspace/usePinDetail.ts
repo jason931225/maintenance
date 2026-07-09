@@ -1,15 +1,8 @@
 import { useContext, useEffect, useState } from "react";
 
 import { AuthContext } from "../../context/auth";
-import { fetchPinnedObject } from "./objectPin";
-import type { PinKind, PinnedObject } from "./types";
-
-const FETCHABLE: ReadonlySet<PinKind> = new Set<PinKind>([
-  "person",
-  "workOrder",
-  "support",
-  "org",
-]);
+import { FETCHABLE_PIN_KINDS, fetchPinnedObject } from "./objectPin";
+import type { PinnedObject } from "./types";
 
 export type PinDetailStatus = "idle" | "loading" | "error";
 
@@ -46,7 +39,7 @@ export function usePinDetail(snapshot: PinnedObject): PinDetail {
   const detailKey = `${branchId ?? ""}:${kind}:${refId ?? ""}:${code}`;
 
   useEffect(() => {
-    if (!api || !refId || !FETCHABLE.has(kind)) return undefined;
+    if (!api || !refId || !FETCHABLE_PIN_KINDS.has(kind)) return undefined;
     const guard = { live: true };
     void (async () => {
       setLiveDetail({ key: detailKey, status: "loading" });

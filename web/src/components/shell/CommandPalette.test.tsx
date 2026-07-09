@@ -88,6 +88,81 @@ describe("CommandPalette (UI-M2a)", () => {
     expect(screen.getAllByText(/WO-/).length).toBeGreaterThan(0);
   });
 
+  it("shows the loading row in the work/people sections while the open-fetch is pending, then replaces it with results", async () => {
+    let releaseWorkOrders!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseWorkOrders = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/work-orders", async () => {
+        await gate;
+        return HttpResponse.json({
+          items: workOrderListItems,
+          limit: 100,
+          offset: 0,
+          total: workOrderListItems.length,
+        });
+      }),
+      http.get("*/api/messenger/members", () => HttpResponse.json({ items: [] })),
+    );
+
+    renderPalette();
+
+    // Both async sections show the loading row while the combined fetch (work
+    // gated above + people, which resolves fast) is still in flight.
+    expect(await screen.findAllByText(ko.shell.commandPalette.loading)).toHaveLength(2);
+
+    releaseWorkOrders();
+
+    expect(await screen.findByText(/케이앤엘/)).toBeInTheDocument();
+    expect(screen.queryByText(ko.shell.commandPalette.loading)).not.toBeInTheDocument();
+  });
+
+  it("fetches both pages once on open, then narrows client-side as the query changes (no refetch)", async () => {
+    let workRequests = 0;
+    let memberRequests = 0;
+    server.use(
+      http.get("*/api/v1/work-orders", () => {
+        workRequests += 1;
+        return HttpResponse.json({
+          items: workOrderListItems,
+          limit: 100,
+          offset: 0,
+          total: workOrderListItems.length,
+        });
+      }),
+      http.get("*/api/messenger/members", () => {
+        memberRequests += 1;
+        return HttpResponse.json({
+          items: [
+            { id: "22222222-2222-4222-8222-222222222222", display_name: "홍길동", team: "MAINTENANCE" },
+            { id: "33333333-3333-4333-8333-333333333333", display_name: "김철수", team: "MAINTENANCE" },
+          ],
+        });
+      }),
+    );
+
+    renderPalette();
+
+    // Both pages fetched exactly once on open.
+    expect(await screen.findByText("홍길동")).toBeInTheDocument();
+    expect(screen.getByText("김철수")).toBeInTheDocument();
+    expect(workRequests).toBe(1);
+    expect(memberRequests).toBe(1);
+
+    // Typing narrows the cached people page client-side (200ms-debounced),
+    // without any further network fetch.
+    const input = screen.getByRole("combobox", { name: ko.shell.commandPalette.searchLabel });
+    fireEvent.change(input, { target: { value: "홍길동" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("김철수")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("홍길동")).toBeInTheDocument();
+    expect(workRequests).toBe(1);
+    expect(memberRequests).toBe(1);
+  });
+
   it("pins an object result (not navigate) when onPinObject is provided — the ConsoleShell path", async () => {
     server.use(
       http.get("*/api/v1/work-orders", () => HttpResponse.json({ items: [], limit: 100, offset: 0, total: 0 })),

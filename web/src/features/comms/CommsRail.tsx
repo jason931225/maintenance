@@ -670,7 +670,7 @@ function ThreadSubview({ threadId }: { threadId: string }) {
           />
           <button
             type="button"
-            aria-label={ko.shell.commsRail.send}
+            aria-label={sending ? ko.shell.commsRail.sending : ko.shell.commsRail.send}
             disabled={!composer.trim() || sending}
             onClick={() => {
               void handleSend();
