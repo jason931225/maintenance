@@ -19,6 +19,20 @@ pub struct KpiQuery {
     pub branch_scope: BranchScope,
 }
 
+/// Audited KPI workbook download request. Carries the same aggregation inputs as
+/// `KpiQuery` plus the actor/trace/timestamp needed to record the download in
+/// `excel_export_logs` + `audit_events`, exactly like the sibling
+/// daily-status / work-diary exports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KpiExportQuery {
+    pub actor: UserId,
+    pub period: Period,
+    pub scope: KpiScope,
+    pub branch_scope: BranchScope,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum KpiQueryError {
     #[error(transparent)]
@@ -123,10 +137,12 @@ pub trait ReportingExportPort {
     ) -> impl Future<Output = Result<ExportedWorkbook, ReportingExportError>> + Send + '_;
 
     /// Build the KPI report (identical aggregation to the JSON `query_kpis`
-    /// path) as a downloadable Excel workbook.
+    /// path) as a downloadable Excel workbook. The download is audited exactly
+    /// like the sibling daily-status / work-diary exports: one
+    /// `excel_export_logs` row plus one `audit_events` row, recorded under RLS.
     fn export_kpi(
         &self,
-        query: KpiQuery,
+        query: KpiExportQuery,
     ) -> impl Future<Output = Result<ExportedWorkbook, ReportingExportError>> + Send + '_;
 }
 

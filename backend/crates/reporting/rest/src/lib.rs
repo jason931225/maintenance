@@ -13,9 +13,9 @@ use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_application::{
-    KpiQuery, KpiQueryError, KpiQueryPort, KpiScope, OpsSummaryPort, OpsSummaryQuery, Period,
-    ReportingExportError, ReportingExportPort, ReportingExportQuery, WorkDiaryBody,
-    WorkDiaryConfirmCommand, WorkDiaryDraft, WorkDiaryDraftPort, WorkDiaryQuery,
+    KpiExportQuery, KpiQuery, KpiQueryError, KpiQueryPort, KpiScope, OpsSummaryPort,
+    OpsSummaryQuery, Period, ReportingExportError, ReportingExportPort, ReportingExportQuery,
+    WorkDiaryBody, WorkDiaryConfirmCommand, WorkDiaryDraft, WorkDiaryDraftPort, WorkDiaryQuery,
     WorkDiaryUpdateCommand,
 };
 use serde::{Deserialize, Serialize};
@@ -295,10 +295,13 @@ async fn get_kpi_export(
     authorize_reporting_feature(&principal, Feature::ExcelDownload)?;
     let workbook = state
         .repository
-        .export_kpi(KpiQuery {
+        .export_kpi(KpiExportQuery {
+            actor: principal.user_id,
             period,
             scope,
             branch_scope: principal.branch_scope.clone(),
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
         })
         .await
         .map_err(RestError::from_export)?;

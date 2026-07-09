@@ -14,9 +14,9 @@ use mnt_platform_excel::{
 };
 use mnt_platform_request_context::current_org;
 use mnt_reporting_application::{
-    ExportedWorkbook, KpiQuery, KpiQueryError, KpiQueryPort, OpsSummaryPort, OpsSummaryQuery,
-    ReportingExportError, ReportingExportPort, ReportingExportQuery, WorkDiaryConfirmCommand,
-    WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
+    ExportedWorkbook, KpiExportQuery, KpiQuery, KpiQueryError, KpiQueryPort, OpsSummaryPort,
+    OpsSummaryQuery, ReportingExportError, ReportingExportPort, ReportingExportQuery,
+    WorkDiaryConfirmCommand, WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
 };
 use mnt_reporting_domain::{
     DailyStatusReport, DailyStatusRow, ExportSourceNote, KPI_EXPORT_HEADERS, KpiInputRecord,
@@ -499,13 +499,17 @@ impl PgKpiRepository {
 
     async fn export_kpi_inner(
         &self,
-        query: KpiQuery,
+        query: KpiExportQuery,
     ) -> Result<ExportedWorkbook, ReportingExportError> {
         // Build the workbook from the SAME aggregation the JSON KPI endpoint
         // serves, so the export can never diverge from the on-screen numbers.
         let period = query.period;
         let report = self
-            .query_kpis_inner(query)
+            .query_kpis_inner(KpiQuery {
+                period,
+                scope: query.scope,
+                branch_scope: query.branch_scope.clone(),
+            })
             .await
             .map_err(export_error_from_kpi_query)?;
         let bytes = render_kpi(&report)?;
@@ -514,11 +518,20 @@ impl PgKpiRepository {
             iso_date(period.start.date()),
             iso_date(period.end.date())
         );
-        // ponytail: KPI downloads are NOT yet recorded in excel_export_logs like
-        // the sibling daily-status/work-diary exports are. That table's
-        // `export_kind` CHECK only permits ('daily_status','work_diary') and this
-        // slice adds no migration; auditing the download is a one-line CHECK
-        // migration (add 'kpi') plus an audit-carrying query away.
+        // Audited exactly like the sibling daily-status / work-diary exports:
+        // one excel_export_logs row + one audit_events row, under RLS as mnt_rt.
+        self.record_export_log(ExportLogCommand {
+            export_kind: "kpi",
+            action: "export.kpi",
+            actor: query.actor,
+            branch_scope: query.branch_scope,
+            export_date: period.start.date(),
+            file_name: &file_name,
+            source_notes: &[] as &[ExportSourceNote],
+            trace: query.trace,
+            occurred_at: query.occurred_at,
+        })
+        .await?;
         Ok(ExportedWorkbook {
             file_name,
             content_type: EXCEL_CONTENT_TYPE,
@@ -1357,7 +1370,10 @@ impl ReportingExportPort for PgKpiRepository {
             .map_err(Into::into)
     }
 
-    async fn export_kpi(&self, query: KpiQuery) -> Result<ExportedWorkbook, ReportingExportError> {
+    async fn export_kpi(
+        &self,
+        query: KpiExportQuery,
+    ) -> Result<ExportedWorkbook, ReportingExportError> {
         self.export_kpi_inner(query).await
     }
 }

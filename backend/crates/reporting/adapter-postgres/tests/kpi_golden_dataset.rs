@@ -2,10 +2,12 @@
 
 use std::io::Cursor;
 
-use mnt_kernel_core::{BranchId, BranchScope, OrgId, RegionId, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, OrgId, RegionId, TraceContext, UserId};
 use mnt_platform_excel::umya_spreadsheet;
 use mnt_reporting_adapter_postgres::PgKpiRepository;
-use mnt_reporting_application::{KpiQuery, KpiQueryPort, KpiScope, Period, ReportingExportPort};
+use mnt_reporting_application::{
+    KpiExportQuery, KpiQuery, KpiQueryPort, KpiScope, Period, ReportingExportPort,
+};
 use mnt_reporting_domain::{KpiMetric, KpiRollupScope};
 use sqlx::pool::PoolOptions;
 use sqlx::{Executor, PgConnection, PgPool};
@@ -326,22 +328,28 @@ async fn mnt_rt_pool(owner_pool: &PgPool) -> PgPool {
 }
 
 /// The KPI Excel export is built from the same aggregation as the JSON endpoint,
-/// read under the unprivileged `mnt_rt` role (RLS fully enforced), and returns a
-/// readable workbook whose company row carries the golden numbers.
+/// read under the unprivileged `mnt_rt` role (RLS fully enforced), returns a
+/// readable workbook whose company row carries the golden numbers, and is
+/// audited exactly like the sibling daily-status / work-diary exports: one
+/// `excel_export_logs` row (export_kind='kpi') plus one `audit_events` row
+/// (action='export.kpi').
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn export_kpi_builds_workbook_under_rls(pool: PgPool) {
+async fn export_kpi_builds_audited_workbook_under_rls(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
-        seed_golden_dataset(&pool).await;
+        let seeded = seed_golden_dataset(&pool).await;
 
-        // Run the export read path as `mnt_rt`, exactly as the deployed app does;
-        // the owner pool would bypass non-FORCE RLS and hide a broken read.
+        // Run the export read+audit path as `mnt_rt`, exactly as the deployed app
+        // does; the owner pool would bypass non-FORCE RLS and hide a broken path.
         let rt_pool = mnt_rt_pool(&pool).await;
         let repo = PgKpiRepository::new(rt_pool.clone());
         let export = repo
-            .export_kpi(KpiQuery {
+            .export_kpi(KpiExportQuery {
+                actor: seeded.tech_a,
                 period: period(),
                 scope: KpiScope::Company,
                 branch_scope: BranchScope::All,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
             })
             .await
             .unwrap();
@@ -361,6 +369,20 @@ async fn export_kpi_builds_workbook_under_rls(pool: PgPool) {
         assert_eq!(cell(sheet, 2, 2), "전체");
         // Column 4 is "완료 건수"; the golden company rollup completes 3 work orders.
         assert_eq!(cell(sheet, 4, 2), "3");
+
+        // Audited exactly like the sibling exports (read back on the owner pool).
+        let export_log_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM excel_export_logs WHERE export_kind = 'kpi'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(export_log_count, 1);
+        let audit_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'export.kpi'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(audit_count, 1);
     })
     .await;
 }
