@@ -26,7 +26,7 @@ CREATE TABLE document_versions (
     org_id        UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
     -- Logical document identity. Monotonic version numbering is scoped to
     -- (org_id, document_ref).
-    document_ref  TEXT        NOT NULL CHECK (char_length(btrim(document_ref)) BETWEEN 1 AND 200),
+    document_ref  TEXT        NOT NULL CHECK (document_ref = btrim(document_ref) AND char_length(document_ref) BETWEEN 1 AND 200),
     -- 1-based, gap-free per document (COALESCE(MAX,0)+1 at insert time; the
     -- UNIQUE below rejects a concurrent duplicate).
     version_no    INT         NOT NULL CHECK (version_no > 0),
@@ -50,12 +50,20 @@ CREATE TABLE document_versions (
     -- force-save callback carries no user principal).
     created_by    UUID        NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (org_id, document_ref, version_no)
+    UNIQUE (org_id, document_ref, version_no),
+    CONSTRAINT document_versions_restored_from_fk
+        FOREIGN KEY (org_id, document_ref, restored_from)
+        REFERENCES document_versions (org_id, document_ref, version_no)
 );
 
--- Latest-version lookup ("open the document") + the version list, newest first.
-CREATE INDEX idx_document_versions_doc
-    ON document_versions (org_id, document_ref, version_no DESC);
+-- Latest-version lookup ("open the document") + the version list use the
+-- UNIQUE (org_id, document_ref, version_no) index; Postgres can scan it
+-- backward for newest-first ordering, so no duplicate DESC index is needed.
+-- Growth/retention plan: rows stay immutable for the live audit trail. When
+-- volume requires archival, copy cold document/version rows plus blobs into a
+-- records-lifecycle archive by org/document after legal-hold and retention
+-- deadlines clear, then introduce the narrow DELETE/partition migration that
+-- policy requires instead of weakening this slice-0 append-only grant model.
 
 -- Callback idempotency: at most one stored version per editing-session key.
 CREATE UNIQUE INDEX idx_document_versions_source_key

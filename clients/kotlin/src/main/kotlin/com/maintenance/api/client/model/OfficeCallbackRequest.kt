@@ -32,6 +32,13 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param token The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
+ * @param status ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+ * @param url Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+ * @param key The document.key of the editing session that produced this callback.
+ * @param filetype ONLYOFFICE file type for the produced document.
+ * @param users ONLYOFFICE user identifiers participating in the callback, when supplied.
+ * @param actions ONLYOFFICE action metadata, when supplied.
+ * @param history ONLYOFFICE history payload, when supplied.
  */
 @Serializable
 
@@ -39,9 +46,48 @@ data class OfficeCallbackRequest (
 
     /* The ONLYOFFICE-signed callback payload (v7.1+ in-body token). */
     @SerialName(value = "token")
-    val token: kotlin.String? = null
+    val token: kotlin.String? = null,
+
+    /* ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops). */
+    @SerialName(value = "status")
+    val status: kotlin.Int? = null,
+
+    /* Short-lived DocumentServer URL for the produced document when status is 2 or 6. */
+    @Contextual @SerialName(value = "url")
+    val url: java.net.URI? = null,
+
+    /* The document.key of the editing session that produced this callback. */
+    @SerialName(value = "key")
+    val key: kotlin.String? = null,
+
+    /* ONLYOFFICE file type for the produced document. */
+    @SerialName(value = "filetype")
+    val filetype: OfficeCallbackRequest.Filetype? = null,
+
+    /* ONLYOFFICE user identifiers participating in the callback, when supplied. */
+    @SerialName(value = "users")
+    val users: kotlin.collections.List<kotlin.String>? = null,
+
+    /* ONLYOFFICE action metadata, when supplied. */
+    @SerialName(value = "actions")
+    val actions: kotlin.collections.List<@Contextual kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>? = null,
+
+    /* ONLYOFFICE history payload, when supplied. */
+    @Contextual @SerialName(value = "history")
+    val history: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>? = null
 
 ) {
 
+    /**
+     * ONLYOFFICE file type for the produced document.
+     *
+     * Values: DOCX,XLSX,PPTX
+     */
+    @Serializable
+    enum class Filetype(val value: kotlin.String) {
+        @SerialName(value = "docx") DOCX("docx"),
+        @SerialName(value = "xlsx") XLSX("xlsx"),
+        @SerialName(value = "pptx") PPTX("pptx");
+    }
 
 }

@@ -343,3 +343,55 @@ async fn replay_of_old_callback_key_after_later_versions_is_inert(owner_pool: Pg
     );
     let _ = v2;
 }
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn document_ref_is_trimmed_before_storage(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    seed_org(&owner_pool, *org.as_uuid(), "A").await;
+    let actor = seed_active_user(&owner_pool, *org.as_uuid()).await;
+
+    let mut padded = record(org, Some(actor), "office/a/x/trimmed.docx", "hash1", None);
+    padded.document_ref = format!("  {DOC}  ");
+
+    let v1 = record_version(&rt, padded)
+        .await
+        .expect("record padded document_ref as normalized document");
+    assert_eq!(v1.document_ref, DOC);
+
+    let versions = list_versions(&rt, org, &format!("\t{DOC}\t"))
+        .await
+        .expect("list trims document_ref before lookup");
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].id, v1.id);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn restored_from_must_reference_an_existing_same_document_version(owner_pool: PgPool) {
+    let org = *OrgId::knl().as_uuid();
+    seed_org(&owner_pool, org, "A").await;
+
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let result = sqlx::query(
+        "INSERT INTO document_versions \
+         (org_id, document_ref, version_no, content_hash, storage_key, file_type, byte_size, restored_from) \
+         VALUES ($1, $2, 1, $3, $4, 'docx', 1024, 99)",
+    )
+    .bind(org)
+    .bind(DOC)
+    .bind("hash1")
+    .bind("office/a/x/bad-restore.docx")
+    .execute(&mut *tx)
+    .await;
+
+    assert!(
+        result.is_err(),
+        "restored_from must not point at a missing version in the same document"
+    );
+    tx.rollback().await.unwrap();
+}

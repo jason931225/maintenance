@@ -16725,6 +16725,30 @@ export interface operations {
                 "application/json": {
                     /** @description The ONLYOFFICE-signed callback payload (v7.1+ in-body token). */
                     token?: string;
+                    /** @description ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops). */
+                    status?: number;
+                    /**
+                     * Format: uri
+                     * @description Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                     */
+                    url?: string;
+                    /** @description The document.key of the editing session that produced this callback. */
+                    key?: string;
+                    /**
+                     * @description ONLYOFFICE file type for the produced document.
+                     * @enum {string}
+                     */
+                    filetype?: "docx" | "xlsx" | "pptx";
+                    /** @description ONLYOFFICE user identifiers participating in the callback, when supplied. */
+                    users?: string[];
+                    /** @description ONLYOFFICE action metadata, when supplied. */
+                    actions?: {
+                        [key: string]: unknown;
+                    }[];
+                    /** @description ONLYOFFICE history payload, when supplied. */
+                    history?: {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

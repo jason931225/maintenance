@@ -83644,15 +83644,123 @@ public enum Operations {
                     ///
                     /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/token`.
                     public var token: Swift.String?
+                    /// ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/status`.
+                    public var status: Swift.Int?
+                    /// Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/url`.
+                    public var url: Swift.String?
+                    /// The document.key of the editing session that produced this callback.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/key`.
+                    public var key: Swift.String?
+                    /// ONLYOFFICE file type for the produced document.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/filetype`.
+                    @frozen public enum FiletypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                        case docx = "docx"
+                        case xlsx = "xlsx"
+                        case pptx = "pptx"
+                    }
+                    /// ONLYOFFICE file type for the produced document.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/filetype`.
+                    public var filetype: Operations.OfficeCallback.Input.Body.JsonPayload.FiletypePayload?
+                    /// ONLYOFFICE user identifiers participating in the callback, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/users`.
+                    public var users: [Swift.String]?
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/ActionsPayload`.
+                    public struct ActionsPayloadPayload: Codable, Hashable, Sendable {
+                        /// A container of undocumented properties.
+                        public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                        /// Creates a new `ActionsPayloadPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - additionalProperties: A container of undocumented properties.
+                        public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                            self.additionalProperties = additionalProperties
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                        }
+                        public func encode(to encoder: any Swift.Encoder) throws {
+                            try encoder.encodeAdditionalProperties(additionalProperties)
+                        }
+                    }
+                    /// ONLYOFFICE action metadata, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/actions`.
+                    public typealias ActionsPayload = [Operations.OfficeCallback.Input.Body.JsonPayload.ActionsPayloadPayload]
+                    /// ONLYOFFICE action metadata, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/actions`.
+                    public var actions: Operations.OfficeCallback.Input.Body.JsonPayload.ActionsPayload?
+                    /// ONLYOFFICE history payload, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/history`.
+                    public struct HistoryPayload: Codable, Hashable, Sendable {
+                        /// A container of undocumented properties.
+                        public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                        /// Creates a new `HistoryPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - additionalProperties: A container of undocumented properties.
+                        public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                            self.additionalProperties = additionalProperties
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                        }
+                        public func encode(to encoder: any Swift.Encoder) throws {
+                            try encoder.encodeAdditionalProperties(additionalProperties)
+                        }
+                    }
+                    /// ONLYOFFICE history payload, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/history`.
+                    public var history: Operations.OfficeCallback.Input.Body.JsonPayload.HistoryPayload?
                     /// Creates a new `JsonPayload`.
                     ///
                     /// - Parameters:
                     ///   - token: The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
-                    public init(token: Swift.String? = nil) {
+                    ///   - status: ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+                    ///   - url: Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                    ///   - key: The document.key of the editing session that produced this callback.
+                    ///   - filetype: ONLYOFFICE file type for the produced document.
+                    ///   - users: ONLYOFFICE user identifiers participating in the callback, when supplied.
+                    ///   - actions: ONLYOFFICE action metadata, when supplied.
+                    ///   - history: ONLYOFFICE history payload, when supplied.
+                    public init(
+                        token: Swift.String? = nil,
+                        status: Swift.Int? = nil,
+                        url: Swift.String? = nil,
+                        key: Swift.String? = nil,
+                        filetype: Operations.OfficeCallback.Input.Body.JsonPayload.FiletypePayload? = nil,
+                        users: [Swift.String]? = nil,
+                        actions: Operations.OfficeCallback.Input.Body.JsonPayload.ActionsPayload? = nil,
+                        history: Operations.OfficeCallback.Input.Body.JsonPayload.HistoryPayload? = nil
+                    ) {
                         self.token = token
+                        self.status = status
+                        self.url = url
+                        self.key = key
+                        self.filetype = filetype
+                        self.users = users
+                        self.actions = actions
+                        self.history = history
                     }
                     public enum CodingKeys: String, CodingKey {
                         case token
+                        case status
+                        case url
+                        case key
+                        case filetype
+                        case users
+                        case actions
+                        case history
                     }
                 }
                 /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/content/application\/json`.

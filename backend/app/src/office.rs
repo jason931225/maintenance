@@ -84,6 +84,10 @@ const CALLBACK_CLAIMS_LEEWAY_SECS: u64 = 30;
 const DOCUMENT_REF_MAX_CHARS: usize = 200;
 /// Maximum produced document bytes fetched from DocumentServer on callback.
 const PRODUCED_DOCUMENT_MAX_BYTES: usize = 50 * 1024 * 1024;
+/// Connection timeout for fetching force-saved documents from DocumentServer.
+const DOCSERVER_CONNECT_TIMEOUT: StdDuration = StdDuration::from_secs(5);
+/// End-to-end timeout for fetching force-saved documents from DocumentServer.
+const DOCSERVER_REQUEST_TIMEOUT: StdDuration = StdDuration::from_secs(30);
 
 /// Document formats slice 0 accepts (ONLYOFFICE word/cell/slide editors).
 const ALLOWED_FILE_TYPES: &[&str] = &["docx", "xlsx", "pptx"];
@@ -176,6 +180,8 @@ impl OfficeState {
         // forged (but same-origin) redirect target bypass the SSRF guard below.
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(DOCSERVER_CONNECT_TIMEOUT)
+            .timeout(DOCSERVER_REQUEST_TIMEOUT)
             .build()
             .ok()?;
         Some(Arc::new(SeaweedOfficeBlobStore {
@@ -1312,6 +1318,14 @@ mod tests {
     fn file_type_allowlist_rejects_unknown() {
         assert!(validate_file_type("docx").is_ok());
         assert!(validate_file_type("exe").is_err());
+    }
+
+    #[test]
+    fn document_ref_is_trimmed_bounded_and_control_free() {
+        assert_eq!(normalize_document_ref("  DOC-1  ").unwrap(), "DOC-1");
+        assert!(normalize_document_ref("   ").is_err());
+        assert!(normalize_document_ref("DOC\n1").is_err());
+        assert!(normalize_document_ref(&"x".repeat(DOCUMENT_REF_MAX_CHARS + 1)).is_err());
     }
 
     // -----------------------------------------------------------------------

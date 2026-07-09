@@ -8394,6 +8394,35 @@ paths:
                   type: string
                   minLength: 1
                   description: The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
+                status:
+                  type: integer
+                  description: ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+                url:
+                  type: string
+                  format: uri
+                  description: Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                key:
+                  type: string
+                  description: The document.key of the editing session that produced this callback.
+                filetype:
+                  type: string
+                  enum: [docx, xlsx, pptx]
+                  description: ONLYOFFICE file type for the produced document.
+                users:
+                  type: array
+                  items:
+                    type: string
+                  description: ONLYOFFICE user identifiers participating in the callback, when supplied.
+                actions:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: ONLYOFFICE action metadata, when supplied.
+                history:
+                  type: object
+                  additionalProperties: true
+                  description: ONLYOFFICE history payload, when supplied.
       responses:
         '200':
           description: Always 200. `error` is 0 on success/ignore, non-zero on a rejected callback.
@@ -18895,8 +18924,7 @@ components:
           minimum: 1
         contentHash:
           type: string
-          minLength: 1
-          maxLength: 128
+          pattern: ^[a-f0-9]{64}$
         fileType:
           type: string
           enum: [docx, xlsx, pptx]
