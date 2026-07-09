@@ -22,7 +22,9 @@ metadata:
   labels: { app: mnt-mox }
 spec:
   selector:
-    matchLabels: { app: mnt-mox }
+    # The headless StatefulSet Service also has app=mnt-mox; select only the
+    # scrape-facing ClusterIP Service to avoid duplicate Prometheus targets.
+    matchLabels: { app: mnt-mox, monitoring: "true" }
   endpoints:
     - port: metrics # named port 8010 on the ClusterIP-only mnt-mox Service
       path: /metrics

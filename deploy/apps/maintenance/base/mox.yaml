@@ -152,7 +152,7 @@ kind: Service
 metadata:
   name: mnt-mox
   namespace: maintenance
-  labels: { app: mnt-mox }
+  labels: { app: mnt-mox, monitoring: "true" }
 spec:
   type: ClusterIP
   selector: { app: mnt-mox }
