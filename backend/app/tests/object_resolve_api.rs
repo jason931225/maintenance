@@ -265,11 +265,14 @@ async fn resolves_kinds_and_denies_by_omission(pool: PgPool) {
 
 /// The generic resolver must enforce the same feature guards as the domain
 /// read endpoints it aggregates: work_order and equipment GETs require
-/// `WorkOrderReadAll`, which a MEMBER (Login-only, matrix index 0) is denied.
-/// Without the kind-level gate a MEMBER could read heads its role forbids by
-/// harvesting ids from object_links and resolving them here. The deny fires
-/// before any lookup (id-independent), so it introduces no existence oracle;
-/// membership-gated kinds (support_ticket) stay at membership parity.
+/// `WorkOrderReadAll`, and account GETs require `UserManage` (identity/rest
+/// get_user/list_users/deactivate_user) — all of which a MEMBER (Login-only,
+/// matrix index 0) is denied. Without the kind-level gate a MEMBER could read
+/// heads its role forbids by harvesting ids from object_links and resolving
+/// them here (an account head leaks display_name + active/inactive lifecycle
+/// status). The deny fires before any lookup (id-independent), so it
+/// introduces no existence oracle; membership-gated kinds (support_ticket)
+/// stay at membership parity.
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn resolve_enforces_domain_feature_guards(pool: PgPool) {
     let signing_key = SigningKey::random(&mut OsRng);
@@ -298,9 +301,10 @@ async fn resolve_enforces_domain_feature_guards(pool: PgPool) {
         vec![branch],
     );
 
-    // MEMBER holds Login but not WorkOrderReadAll: both guarded kinds are 403
-    // regardless of the id — the gate fires before resolution.
-    for kind in ["work_order", "equipment"] {
+    // MEMBER holds Login but neither WorkOrderReadAll nor UserManage: all three
+    // guarded kinds are 403 regardless of the id — the gate fires before
+    // resolution.
+    for kind in ["work_order", "equipment", "account"] {
         let denied = resolve(
             &pool,
             &public_key_pem,
@@ -341,6 +345,26 @@ async fn resolve_enforces_domain_feature_guards(pool: PgPool) {
     .await;
     assert_eq!(allowed.0, StatusCode::OK);
     assert_eq!(allowed.1["exists"], false);
+
+    // Control: a UserManage-holding role (ADMIN) resolves an in-scope account —
+    // proving the gate admits the privileged caller, not just denies the MEMBER.
+    let subject = UserId::new();
+    seed_user_in_branch(&pool, subject, "MECHANIC", branch).await;
+    let acct = resolve(
+        &pool,
+        &public_key_pem,
+        &admin_token,
+        "account",
+        &subject.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(acct.0, StatusCode::OK);
+    assert_eq!(
+        acct.1["exists"], true,
+        "ADMIN resolves in-scope account: {}",
+        acct.1
+    );
+    assert_eq!(acct.1["status"], "active");
 }
 
 /// Identity object kinds (Identity Console UI-M13 / charter G-b): account

@@ -391,15 +391,24 @@ async fn resolve_object(
     }
     // Feature parity with the domain read endpoints: work_order and equipment
     // GETs require WorkOrderReadAll (workorder/rest get_work_order, registry/rest
-    // authorize_read_access), so the generic head must too — otherwise a MEMBER
-    // (Login-only) could read heads its role is denied. The deny is kind-level,
-    // independent of the id, so it cannot become an existence oracle. This is
-    // the LOUD form (403) for a directly-requested top-level kind; resolve_head
-    // (shared with object_graph) carries the quiet per-node form of the same
-    // guard (omit, not error) for kinds discovered mid-walk.
+    // authorize_read_access); account GETs require UserManage (identity/rest
+    // get_user/list_users/deactivate_user), so the generic head must too —
+    // otherwise a MEMBER (Login-only) could read heads its role is denied
+    // (an account head leaks display_name + active/inactive lifecycle status).
+    // The deny is kind-level, independent of the id, so it cannot become an
+    // existence oracle. This is the LOUD form (403) for a directly-requested
+    // top-level kind; resolve_head (shared with object_graph) carries the quiet
+    // per-node form of the same guard (omit, not error) for kinds discovered
+    // mid-walk.
     let can_read_work_order =
         authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
+    let can_manage_users = authorize_object_feature(&principal, Feature::UserManage).is_ok();
     if matches!(kind.as_str(), "work_order" | "equipment") && !can_read_work_order {
+        return Err(ObjectError::from_kernel(KernelError::forbidden(
+            "insufficient permission for this object kind",
+        )));
+    }
+    if kind.as_str() == "account" && !can_manage_users {
         return Err(ObjectError::from_kernel(KernelError::forbidden(
             "insufficient permission for this object kind",
         )));
@@ -430,6 +439,7 @@ async fn resolve_object(
                     caller,
                     &held_role_keys,
                     can_read_work_order,
+                    can_manage_users,
                     &kind,
                     &id,
                 )
@@ -445,15 +455,18 @@ async fn resolve_object(
 /// Dispatch a single (kind, id) to its per-kind resolver. Shared by
 /// `resolve_object` (one object, 404/403 up front) and `object_graph` (many
 /// nodes; an unregistered/unresolvable/insufficiently-privileged kind is just
-/// omitted, never an error) — the SAME visibility guard (including the
-/// WorkOrderReadAll feature gate — `can_read_work_order`), so a node in the
-/// graph can never be more visible than a direct resolve of that node would be.
+/// omitted, never an error) — the SAME visibility guards (the WorkOrderReadAll
+/// feature gate `can_read_work_order` for work_order/equipment, and the
+/// UserManage gate `can_manage_users` for account), so a node in the graph can
+/// never be more visible than a direct resolve of that node would be.
+#[allow(clippy::too_many_arguments)] // per-kind guard inputs, threaded not bundled
 async fn resolve_head(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     scope: &BranchScope,
     caller: Uuid,
     held_role_keys: &[String],
     can_read_work_order: bool,
+    can_manage_users: bool,
     kind: &str,
     id: &str,
 ) -> Result<Option<ResolvedHead>, ObjectError> {
@@ -466,14 +479,16 @@ async fn resolve_head(
         "approval_run" => resolve_approval_run(tx, caller, held_role_keys, id).await,
         // Identity kinds (Identity Console UI-M13 / charter G-b). account =
         // person's branch-membership visibility (lifecycle object, so it shows
-        // deactivated in-scope accounts + status); passkey/consent are
-        // self-owned (only the caller resolves their own credential/consent).
-        "account" => resolve_account(tx, scope, id).await,
+        // deactivated in-scope accounts + status), gated on UserManage to match
+        // the identity domain endpoints; passkey/consent are self-owned (only
+        // the caller resolves their own credential/consent).
+        "account" if can_manage_users => resolve_account(tx, scope, id).await,
         "passkey" => resolve_passkey(tx, caller, id).await,
         "consent" => resolve_consent(tx, caller, id).await,
-        // work_order/equipment without WorkOrderReadAll, any other kind
-        // (including ones not in RESOLVABLE_KINDS): no resolver applies ->
-        // treated identically to "not found"/"not visible".
+        // work_order/equipment without WorkOrderReadAll, account without
+        // UserManage, any other kind (including ones not in RESOLVABLE_KINDS):
+        // no resolver applies -> treated identically to "not found"/"not
+        // visible".
         _ => Ok(None),
     }
 }
@@ -519,12 +534,13 @@ async fn object_graph(
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
     let caller = *principal.user_id.as_uuid();
-    // Same feature gate resolve_object enforces loudly (403) for a directly-
-    // requested work_order/equipment kind; here it is quiet (a work_order or
-    // equipment node the caller lacks WorkOrderReadAll for is simply omitted
-    // from the walk, never a 403 for the whole graph request).
+    // Same feature gates resolve_object enforces loudly (403) for a directly-
+    // requested work_order/equipment (WorkOrderReadAll) or account (UserManage)
+    // kind; here they are quiet (a node the caller lacks the gating feature for
+    // is simply omitted from the walk, never a 403 for the whole graph request).
     let can_read_work_order =
         authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
+    let can_manage_users = authorize_object_feature(&principal, Feature::UserManage).is_ok();
     let held_role_keys = crate::workflow_studio::held_authority_role_keys(
         &principal,
         org,
@@ -560,6 +576,7 @@ async fn object_graph(
                     caller,
                     &held_role_keys,
                     can_read_work_order,
+                    can_manage_users,
                     &kind,
                     &id,
                 )
@@ -638,6 +655,7 @@ async fn object_graph(
                             caller,
                             &held_role_keys,
                             can_read_work_order,
+                            can_manage_users,
                             &node_kind,
                             &node_id,
                         )
