@@ -8319,6 +8319,188 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           description: JWT verification is not configured.
+  /api/v1/office/sessions:
+    post:
+      operationId: createOfficeSession
+      summary: Issue a signed DocumentServer editor config for a document
+      description: Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document.
+        The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache;
+        permissions map from the caller's authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document
+        (initial-version creation is a records-module concern).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentRef]
+              properties:
+                documentRef:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Trimmed logical document reference; control characters are rejected.
+      responses:
+        '200':
+          description: The editor config to hand to DocumentServer.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documentServerUrl, config]
+                properties:
+                  documentServerUrl:
+                    type: string
+                  config:
+                    type: object
+                    description: The ONLYOFFICE DocEditor config object, carrying its signed `token`.
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: Office editor or document storage is not configured.
+  /api/v1/office/callback:
+    post:
+      operationId: officeCallback
+      summary: DocumentServer force-save callback (machine, JWT-verified)
+      description: The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE
+        JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save)
+        the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always
+        responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+      parameters:
+      - name: ct
+        in: query
+        required: true
+        description: Host-issued callback token binding the request to (org, document).
+        schema:
+          type: string
+          minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  description: The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
+                status:
+                  type: integer
+                  description: ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+                url:
+                  type: string
+                  format: uri
+                  description: Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                key:
+                  type: string
+                  description: The document.key of the editing session that produced this callback.
+                filetype:
+                  type: string
+                  enum: [docx, xlsx, pptx]
+                  description: ONLYOFFICE file type for the produced document.
+                users:
+                  type: array
+                  items:
+                    type: string
+                  description: ONLYOFFICE user identifiers participating in the callback, when supplied.
+                actions:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: ONLYOFFICE action metadata, when supplied.
+                history:
+                  type: object
+                  additionalProperties: true
+                  description: ONLYOFFICE history payload, when supplied.
+      responses:
+        '200':
+          description: Always 200. `error` is 0 on success/ignore, non-zero on a rejected callback.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: integer
+                    minimum: 0
+  /api/v1/office/documents/{documentRef}/versions:
+    get:
+      operationId: listOfficeDocumentVersions
+      summary: List a document's immutable version history (newest first)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: documentRef
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+      responses:
+        '200':
+          description: The append-only version list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DocumentVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore:
+    post:
+      operationId: restoreOfficeDocumentVersion
+      summary: Non-destructively restore a version (re-publish it as a new version)
+      description: Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with
+        restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: documentRef
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+      - name: versionNo
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: The newly appended (restored) version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
     bearerAuth:
@@ -18725,3 +18907,39 @@ components:
           type: string
           format: date
           description: ISO date; omit or null to clear the retention deadline.
+    DocumentVersion:
+      type: object
+      description: One immutable version of an in-console office document. The storage key is internal and never returned.
+      required: [id, documentRef, versionNo, contentHash, fileType, byteSize, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        documentRef:
+          type: string
+          minLength: 1
+          maxLength: 200
+        versionNo:
+          type: integer
+          minimum: 1
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        fileType:
+          type: string
+          enum: [docx, xlsx, pptx]
+        byteSize:
+          type: integer
+          format: int64
+          minimum: 0
+        restoredFrom:
+          type: integer
+          minimum: 1
+          description: The version_no this version non-destructively restored, when it is a rollback.
+        createdBy:
+          type: string
+          format: uuid
+          description: Actor who produced the version; omitted for system-initiated (force-save callback) versions.
+        createdAt:
+          type: string
+          format: date-time

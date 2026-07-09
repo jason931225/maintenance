@@ -70,6 +70,37 @@ services:
     cpus: 0.5
     restart: unless-stopped
 
+  # DEV-ONLY: ONLYOFFICE DocumentServer for the in-console office editor
+  # (HANDOFF §12). OPT-IN: dev-up.mjs only lists this service in the `up -d`
+  # call (and only injects the MNT_OFFICE_* backend env) when MNT_DEV_OFFICE=1
+  # is set — the image is ~2GB and most dev-up sessions never touch the office
+  # editor. The OFFICIAL, UNMODIFIED community image, consumed purely
+  # through its editor + callback API — no fork, so no AGPL source-publication
+  # obligation is triggered yet (the heavy-fork epic will; flagged for
+  # compliance review). JWT is enabled with the same shared secret the host
+  # signs/verifies with (MNT_OFFICE_JWT_SECRET). The host runs on the bacon HOST,
+  # so DocumentServer reaches its callback via host.docker.internal.
+  onlyoffice:
+    image: onlyoffice/documentserver:9.4.0.1
+    ports:
+      - "127.0.0.1:${MNT_OFFICE_DOCSERVER_PORT:-8888}:80"
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${MNT_OFFICE_JWT_SECRET:-office-dev-shared-secret}
+      JWT_HEADER: Authorization
+      JWT_IN_BODY: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/healthcheck | grep -q true"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    mem_limit: 2g
+    cpus: 1.0
+    restart: unless-stopped
+
 volumes:
   mailpit-data:
   mox-data:

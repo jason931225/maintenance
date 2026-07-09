@@ -111,6 +111,7 @@ mod hr;
 pub mod lifecycle;
 mod mail_sync;
 pub mod objects;
+pub mod office;
 mod workflow_drain;
 pub mod workflow_schedules;
 mod workflow_studio;
@@ -260,6 +261,11 @@ pub struct AppConfig {
     /// console with a random uuid, so a public inquiry lands in the SAME org the
     /// staff inquiry inbox reads under (#19.21) instead of the `0x…a1` sentinel.
     pub storefront_org: Option<OrgId>,
+    /// In-console office editor (ONLYOFFICE DocumentServer) integration. `None`
+    /// unless all of `MNT_OFFICE_JWT_SECRET` / `MNT_OFFICE_CALLBACK_BASE_URL` /
+    /// `MNT_OFFICE_DOCSERVER_URL` are set; the office routes still mount but
+    /// return `503 office_not_configured`.
+    pub office: Option<office::OfficeConfig>,
 }
 
 /// Native app-link association config for the `/.well-known/*` endpoints.
@@ -445,6 +451,8 @@ impl AppConfig {
             ),
             None => None,
         };
+        let office = office::office_config_from_vars(|key| non_empty(vars.get(key)))
+            .map_err(AppError::Config)?;
 
         Ok(Self {
             role,
@@ -471,6 +479,7 @@ impl AppConfig {
             mail_enabled,
             audit_chain_seal_enabled,
             storefront_org,
+            office,
         })
     }
 }
@@ -1451,6 +1460,23 @@ pub fn build_router(state: AppState) -> Router {
                     pool.clone(),
                     state.jwt_verifier.clone(),
                 )))
+                .merge(office::router({
+                    // Reuse the already-configured SeaweedFS handle (evidence /
+                    // sales media) as the office blob store — no new object-store
+                    // client. `None` blobs ⇒ office endpoints 503, like mail.
+                    let office_blobs = match (&state.config.office, &state.sales_media_storage) {
+                        (Some(cfg), Some((store, bucket))) => {
+                            office::OfficeState::seaweed_blobs(cfg, store.clone(), bucket.clone())
+                        }
+                        _ => None,
+                    };
+                    office::OfficeState::new(
+                        pool.clone(),
+                        state.jwt_verifier.clone(),
+                        state.config.office.clone(),
+                        office_blobs,
+                    )
+                }))
                 .merge(mnt_sales_rest::router({
                     let mut sales_state =
                         SalesRestState::new(sales_store, state.jwt_verifier.clone())

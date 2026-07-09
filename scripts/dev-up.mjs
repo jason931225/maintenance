@@ -20,6 +20,12 @@
 //              then exits. No watch loop — this is what CI's smoke job runs.
 //   down       stops whatever `up`/`bootstrap` started (host process(es) via
 //              the pid file, then the compose deps).
+//
+// Env flags:
+//   MNT_DEV_OFFICE=1  also start the ONLYOFFICE DocumentServer dep (in-console
+//                      office editor). Off by default — the image is ~2GB and
+//                      most dev-up sessions never touch the office editor; the
+//                      backend's office routes gracefully 503 without it.
 import { spawn, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import {
@@ -52,7 +58,22 @@ const COMPOSE_FILES = [
   "ops/compose.dev.yml",
   "ops/compose.dev-deps.yml",
 ];
-const DEPS_SERVICES = ["postgres", "seaweedfs", "otel-collector", "mailpit", "mox"];
+// Opt-in: the ONLYOFFICE DocumentServer image is ~2GB, so it stays out of the
+// routine dev-up path unless explicitly requested.
+const OFFICE_ENABLED = process.env.MNT_DEV_OFFICE === "1";
+const DEPS_SERVICES = [
+  "postgres",
+  "seaweedfs",
+  "otel-collector",
+  "mailpit",
+  "mox",
+  ...(OFFICE_ENABLED ? ["onlyoffice"] : []),
+];
+
+// Shared HS256 secret between the host and the DocumentServer container. Dev
+// only; production injects a real per-deploy secret (docs/release/SECRETS.md).
+const OFFICE_JWT_SECRET =
+  process.env.MNT_OFFICE_JWT_SECRET ?? "office-dev-shared-secret";
 
 // Deliberately NOT the compose files' own defaults (5432/8333/8080): a local
 // dev tool cannot assume it owns the only Postgres/S3/8080 on the machine.
@@ -67,6 +88,7 @@ const PORTS = {
   moxWebapi: Number(process.env.MNT_MOX_WEBAPI_PORT ?? 1080),
   moxSubmission: Number(process.env.MNT_MOX_SUBMISSION_PORT ?? 1587),
   moxImap: Number(process.env.MNT_MOX_IMAP_PORT ?? 1143),
+  office: Number(process.env.MNT_OFFICE_DOCSERVER_PORT ?? 8888),
   backend: Number(process.env.MNT_DEV_HTTP_PORT ?? 8090),
   vite: Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173),
 };
@@ -438,7 +460,15 @@ async function bringUpDeps() {
     MNT_OTEL_PORT: String(PORTS.otel),
     MNT_MAILPIT_SMTP_PORT: String(PORTS.mailpitSmtp),
     MNT_MAILPIT_UI_PORT: String(PORTS.mailpitUi),
+    MNT_OFFICE_DOCSERVER_PORT: String(PORTS.office),
+    MNT_OFFICE_JWT_SECRET: OFFICE_JWT_SECRET,
   };
+
+  if (!OFFICE_ENABLED) {
+    log(
+      "office editor (ONLYOFFICE DocumentServer, ~2GB) is disabled — set MNT_DEV_OFFICE=1 to enable",
+    );
+  }
 
   const up = runCompose(compose, ["up", "-d", ...DEPS_SERVICES], {
     cwd: REPO_ROOT,
@@ -528,6 +558,20 @@ function buildAppEnv(role) {
       process.env.MNT_MAIL_MOX_BASE_URL ?? `http://127.0.0.1:${PORTS.moxWebapi}`,
     MNT_MAIL_MOX_WEBHOOK_SECRET:
       process.env.MNT_MAIL_MOX_WEBHOOK_SECRET ?? "mox-dev-webhook-secret-change-me",
+    // In-console office editor (ONLYOFFICE), only when MNT_DEV_OFFICE=1 started
+    // the DocumentServer dep. Omitting all three MNT_OFFICE_* vars otherwise
+    // leaves the office routes on their existing graceful-503 path (same as an
+    // unconfigured prod deploy) instead of pointing at a container that was
+    // never started. The shared JWT secret matches the DocumentServer
+    // container's JWT_SECRET; DocumentServer reaches the host-run app back
+    // over host.docker.internal at the backend port.
+    ...(OFFICE_ENABLED
+      ? {
+          MNT_OFFICE_JWT_SECRET: OFFICE_JWT_SECRET,
+          MNT_OFFICE_DOCSERVER_URL: `http://127.0.0.1:${PORTS.office}`,
+          MNT_OFFICE_CALLBACK_BASE_URL: `http://host.docker.internal:${PORTS.backend}`,
+        }
+      : {}),
     RUST_LOG: process.env.RUST_LOG ?? "info,tower_http=info",
     SQLX_OFFLINE: "true",
   };
