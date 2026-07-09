@@ -9,9 +9,9 @@ use mnt_kernel_core::{
 };
 use mnt_messenger_application::{
     CreateThreadCommand, EnsureWorkOrderThreadCommand, ListMembersQuery, ListThreadsQuery,
-    MarkThreadReadCommand, MemberSummary, MessageNotifier, MessagePage, MessagePageQuery,
-    MessagePostedNotification, MessageSummary, ReadReceiptSummary, SearchMessagesQuery,
-    SendMessageCommand, ThreadSummary, messenger_audit_event,
+    MarkThreadReadCommand, MemberProfileQuery, MemberSummary, MessageNotifier, MessagePage,
+    MessagePageQuery, MessagePostedNotification, MessageSummary, ReadReceiptSummary,
+    SearchMessagesQuery, SendMessageCommand, ThreadSummary, messenger_audit_event,
 };
 use mnt_messenger_domain::{MessageBody, ThreadKind, extract_mention_user_ids};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
@@ -499,6 +499,54 @@ impl PgMessengerStore {
             .collect()
     }
 
+    /// Fetch one branch member's summary for a person pin panel (UI-M2a AC).
+    /// Viewing another person records a `person.view` audit event inside the
+    /// read transaction — so the "열람 — 기록 남음" evidence and the read commit
+    /// or roll back together. A self-view records no audit. A target that is not
+    /// a visible active member of the branch yields `not_found` and (for the
+    /// audited path) rolls back, so an unauthorized view leaves no audit trail.
+    pub async fn member_profile(
+        &self,
+        query: MemberProfileQuery,
+    ) -> Result<MemberSummary, PgMessengerError> {
+        ensure_branch_scope(&query.branch_scope, query.branch_id)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let branch_id = query.branch_id;
+        let target = query.user_id;
+
+        if query.actor == target {
+            // Self-view: plain branch-scoped read, no audit.
+            let member = with_org_conn::<_, _, PgMessengerError>(&self.pool, org, move |tx| {
+                Box::pin(async move { fetch_branch_member_tx(tx, branch_id, target).await })
+            })
+            .await?;
+            return member.ok_or_else(|| {
+                KernelError::not_found("member was not found in the branch").into()
+            });
+        }
+
+        let event = messenger_audit_event(
+            "person.view",
+            query.actor,
+            branch_id,
+            "person",
+            target,
+            query.trace,
+            query.occurred_at,
+        )?
+        .with_org(org);
+        with_audit::<_, MemberSummary, PgMessengerError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                fetch_branch_member_tx(tx, branch_id, target)
+                    .await?
+                    .ok_or_else(|| {
+                        KernelError::not_found("member was not found in the branch").into()
+                    })
+            })
+        })
+        .await
+    }
+
     pub async fn message_page(
         &self,
         query: MessagePageQuery,
@@ -819,6 +867,36 @@ async fn resolve_mention_recipients(
         .into_iter()
         .filter(|id| *id != actor && member_uuids.contains(id.as_uuid()))
         .collect())
+}
+
+async fn fetch_branch_member_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    branch_id: BranchId,
+    user_id: UserId,
+) -> Result<Option<MemberSummary>, PgMessengerError> {
+    let row = sqlx::query(
+        r#"
+        SELECT u.id, u.display_name, u.team
+        FROM users u
+        JOIN user_branches ub
+          ON ub.user_id = u.id
+         AND ub.branch_id = $1
+        WHERE u.is_active = true
+          AND u.id = $2
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(*user_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    row.map(|row| {
+        Ok(MemberSummary {
+            id: UserId::from_uuid(row.try_get("id")?),
+            display_name: row.try_get("display_name")?,
+            team: row.try_get("team")?,
+        })
+    })
+    .transpose()
 }
 
 async fn require_thread_access(

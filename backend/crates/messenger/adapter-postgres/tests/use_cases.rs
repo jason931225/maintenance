@@ -8,8 +8,8 @@ use mnt_kernel_core::{
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_application::{
     CreateThreadCommand, EnsureWorkOrderThreadCommand, ListThreadsQuery, MarkThreadReadCommand,
-    MessageNotifier, MessageNotifyFuture, MessagePageQuery, MessagePostedNotification,
-    SearchMessagesQuery, SendMessageCommand,
+    MemberProfileQuery, MessageNotifier, MessageNotifyFuture, MessagePageQuery,
+    MessagePostedNotification, SearchMessagesQuery, SendMessageCommand,
 };
 use mnt_messenger_domain::ThreadKind;
 use sqlx::{PgPool, Row};
@@ -135,6 +135,66 @@ async fn at_mention_notifies_thread_member_object_link_and_nonmember_do_not(pool
             .find(|t| t.id == thread.id)
             .expect("recipient sees the thread");
         assert_eq!(summary.unread_count, 3);
+    })
+    .await;
+}
+
+// AC (UI-M2a): opening a person chip pins a summary from a real branch-scoped
+// API and records a `person.view` audit for a non-self view (DESIGN §4.7 "열람
+// — 기록 남음"); a self-view records none; a target outside the branch yields
+// not_found with no audit (deny-by-omission).
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn member_profile_records_person_view_audit_for_non_self_only(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let isolated_branch = seed_branch(&pool, "Isolated Branch").await;
+        let outsider = seed_user(&pool, "Outsider", "MECHANIC", isolated_branch).await;
+        let store = PgMessengerStore::new(pool.clone());
+
+        // Non-self view of a branch coworker → summary + one person.view audit.
+        let profile = store
+            .member_profile(MemberProfileQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                branch_id: seeded.branch,
+                user_id: seeded.recipient,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(profile.id, seeded.recipient);
+        assert_eq!(person_view_audit_count(&pool, seeded.recipient).await, 1);
+
+        // Self-view → summary, but NO audit event.
+        let own = store
+            .member_profile(MemberProfileQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                branch_id: seeded.branch,
+                user_id: seeded.sender,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(own.id, seeded.sender);
+        assert_eq!(person_view_audit_count(&pool, seeded.sender).await, 0);
+
+        // A target outside the actor's branch → not_found, no audit trail.
+        let denied = store
+            .member_profile(MemberProfileQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                branch_id: seeded.branch,
+                user_id: outsider,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(denied.kind(), ErrorKind::NotFound);
+        assert_eq!(person_view_audit_count(&pool, outsider).await, 0);
     })
     .await;
 }
@@ -682,6 +742,16 @@ async fn send_from(
         })
         .await
         .unwrap()
+}
+
+async fn person_view_audit_count(pool: &PgPool, target: UserId) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM audit_events WHERE action = 'person.view' AND target_id = $1",
+    )
+    .bind(target.to_string())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn seed_context(pool: &PgPool) -> SeededContext {

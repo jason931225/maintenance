@@ -2076,6 +2076,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messenger/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch one branch member's summary for a person pin panel
+         * @description Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
+         */
+        get: operations["getMessengerMember"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/messenger/threads": {
         parameters: {
             query?: never;
@@ -10161,6 +10181,33 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getMessengerMember: {
+        parameters: {
+            query: {
+                branch_id: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path: {
+                user_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch member's summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMemberSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listMessengerThreads: {

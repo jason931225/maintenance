@@ -92,6 +92,21 @@ pub struct ListMembersQuery {
     pub limit: i64,
 }
 
+/// Fetch one branch-scoped member's summary for a person pin panel
+/// (UI-M2a AC). Unlike the admin-gated `/api/v1/users/{id}`, this reads the
+/// same non-admin branch directory as `list_members`, so any employee can open
+/// a coworker's card. Viewing someone else records a `person.view` audit event
+/// (DESIGN §4.7 "열람 — 기록 남음"); a self-view records none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberProfileQuery {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub branch_id: BranchId,
+    pub user_id: UserId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessagePageQuery {
     pub actor: UserId,
