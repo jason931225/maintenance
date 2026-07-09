@@ -294,3 +294,70 @@ async fn known_recipient_ingests_and_is_idempotent(pool: PgPool) {
         .unwrap();
     assert_eq!(count, 1, "exactly one inbound row persisted");
 }
+
+/// `email_accounts` is unique only per `(org_id, email_address)` — the SAME
+/// address can exist under TWO different orgs. That must never route
+/// nondeterministically to a plan-order-picked winner: delivery is refused to
+/// BOTH orgs, an anomaly audit row lands (platform-tier, `org_id IS NULL`),
+/// and mox still gets a 200 (quarantined-but-acked, so it does not retry
+/// forever).
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn dual_org_match_is_quarantined_and_audited(pool: PgPool) {
+    let cipher = test_cipher();
+    let org_a = OrgId::knl();
+    let org_b = OrgId::new();
+    seed_org(&pool, org_a).await;
+    seed_org(&pool, org_b).await;
+    let actor_a = seed_active_user(&pool, org_a).await;
+    let actor_b = seed_active_user(&pool, org_b).await;
+    // Seed + serve as the genuine runtime role (mnt_rt) — same as the
+    // single-match happy path above.
+    let rt = runtime_role_pool(&pool).await;
+    seed_account(&PgMailStore::new(rt.clone()), &cipher, org_a, actor_a).await;
+    seed_account(&PgMailStore::new(rt.clone()), &cipher, org_b, actor_b).await;
+    let state = CommsRestState::new(PgMailStore::new(rt), None, None)
+        .with_mox_webhook_secret(Some(SECRET.to_owned()));
+
+    let resp = post_webhook(
+        router(state),
+        Some(&format!("Bearer {SECRET}")),
+        incoming_body(99, RECIPIENT, "should not land anywhere"),
+    )
+    .await;
+    assert_eq!(resp.status, StatusCode::OK, "{:?}", resp.json);
+    assert_eq!(
+        resp.json["ingested"],
+        json!(false),
+        "an ambiguous address must not be ingested"
+    );
+
+    // Neither org's read model received the message.
+    for org in [org_a, org_b] {
+        let count: i64 = CURRENT_ORG
+            .scope(org, async {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM email_messages WHERE direction = 'IN' AND subject = $1",
+                )
+                .bind("should not land anywhere")
+                .fetch_one(&pool)
+                .await
+            })
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "ambiguous address must deliver to neither org");
+    }
+
+    // The anomaly is audited exactly once, as a platform-tier row (no single
+    // tenant owns a cross-tenant ambiguity).
+    let audit_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events \
+         WHERE action = 'email.webhook.address_ambiguous' \
+           AND org_id IS NULL \
+           AND target_id = $1",
+    )
+    .bind(RECIPIENT)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audit_count, 1, "the ambiguity must be audited exactly once");
+}

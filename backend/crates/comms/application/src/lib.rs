@@ -746,6 +746,28 @@ pub fn send_audit_event(
     ))
 }
 
+/// Build the anomaly audit event for a mox delivery whose recipient address
+/// resolved [`AddressLookup::Ambiguous`] (ACTIVE accounts in more than one
+/// org). `org_id` is deliberately left unset: no single tenant owns this event
+/// — it is a platform-tier row (`audit_events` RLS `WITH CHECK (org_id IS
+/// NULL)` passes unconditionally, mirroring the retention-job carve-out). The
+/// snapshot records the bare recipient address only — never message content.
+pub fn address_ambiguous_audit_event(
+    address: &str,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        None,
+        AuditAction::new("email.webhook.address_ambiguous")?,
+        "email_address",
+        address.to_owned(),
+        trace,
+        occurred_at,
+    )
+    .with_snapshots(None, Some(serde_json::json!({ "address": address }))))
+}
+
 /// Build the read/unread audit event for a thread-level mailbox action. The
 /// snapshots record only counters/state — never subject, body, or addresses.
 pub fn thread_read_state_audit_event(
@@ -1516,6 +1538,21 @@ pub struct DueAccount {
     pub account_id: EmailAccountId,
 }
 
+/// The outcome of resolving a recipient address to its owning tenant (the mox
+/// delivery webhook's cross-tenant, id-only lookup). `email_accounts` is unique
+/// only per `(org_id, email_address)`, so the SAME address can exist under two
+/// different orgs — `Ambiguous` is that tenant-boundary anomaly and the caller
+/// MUST refuse delivery to every match rather than guess one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddressLookup {
+    /// No ACTIVE account anywhere has this address.
+    NotFound,
+    /// Exactly one ACTIVE account, in exactly one org, has this address.
+    Found(DueAccount),
+    /// ACTIVE accounts in more than one org have this address.
+    Ambiguous,
+}
+
 // ---------------------------------------------------------------------------
 // Inbound store port (extends MailStore conceptually; kept a separate trait so
 // the send-only B-mail-2 surface is unchanged and the read API is cohesive).
@@ -1576,16 +1613,17 @@ pub trait MailReadStore: Send + Sync {
         now: Timestamp,
     ) -> MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>>;
 
-    /// Resolve the single account whose `email_address` matches `address`,
-    /// returning its (org_id, account_id) or `None`. Like [`list_due_accounts`]
-    /// this is an id-only lookup on an owner connection that must see ACROSS
-    /// tenants — the mox delivery webhook has no request principal, so the
-    /// recipient address is the only tenant selector. The caller then arms the
-    /// resolved org for the actual ingest. Reads NO message content.
+    /// Resolve the account whose `email_address` matches `address`. Like
+    /// [`list_due_accounts`] this is an id-only lookup on an owner connection
+    /// that must see ACROSS tenants — the mox delivery webhook has no request
+    /// principal, so the recipient address is the only tenant selector. A
+    /// [`AddressLookup::Found`] result arms the resolved org for the actual
+    /// ingest; [`AddressLookup::Ambiguous`] (the address exists under more than
+    /// one org) MUST deliver to none of them. Reads NO message content.
     fn find_account_by_address<'a>(
         &'a self,
         address: &'a str,
-    ) -> MailFuture<'a, Result<Option<DueAccount>, MailServiceError>>;
+    ) -> MailFuture<'a, Result<AddressLookup, MailServiceError>>;
 
     // --- READ API (backs the REST GET endpoints; all org-armed) -------------
 
@@ -1692,7 +1730,7 @@ impl<R: MailReadStore + ?Sized> MailReadStore for &R {
     fn find_account_by_address<'a>(
         &'a self,
         address: &'a str,
-    ) -> MailFuture<'a, Result<Option<DueAccount>, MailServiceError>> {
+    ) -> MailFuture<'a, Result<AddressLookup, MailServiceError>> {
         (**self).find_account_by_address(address)
     }
 
@@ -2503,8 +2541,8 @@ mod tests {
         fn find_account_by_address<'a>(
             &'a self,
             _address: &'a str,
-        ) -> MailFuture<'a, Result<Option<DueAccount>, MailServiceError>> {
-            Box::pin(async { Ok(None) })
+        ) -> MailFuture<'a, Result<AddressLookup, MailServiceError>> {
+            Box::pin(async { Ok(AddressLookup::NotFound) })
         }
 
         fn list_folders<'a>(

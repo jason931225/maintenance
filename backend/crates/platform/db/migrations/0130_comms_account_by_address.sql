@@ -7,13 +7,22 @@
 -- armed — which the webhook cannot do before it knows the org.
 --
 -- Mirrors the 0057 `comms_due_email_accounts` pattern exactly: a narrow SECURITY
--- DEFINER function that returns ONLY the (org_id, account_id) identity of the one
--- ACTIVE account whose `email_address` matches — NEVER a credential, host, or any
--- business field. The webhook then ARMS app.current_org to that org and performs
--- the audited inbound UPSERT under RLS. The function pins search_path, toggles
--- row_security only for the id-only read, and is EXECUTE-granted to mnt_rt alone
--- (REVOKE FROM PUBLIC). Match is case-insensitive on the address (email is
--- case-insensitive in practice for the local delivery path). No Korean copy.
+-- DEFINER function that returns ONLY the (org_id, account_id) identity of the
+-- ACTIVE account(s) whose `email_address` matches — NEVER a credential, host, or
+-- any business field. The webhook then ARMS app.current_org to that org and
+-- performs the audited inbound UPSERT under RLS. The function pins search_path,
+-- toggles row_security only for the id-only read, and is EXECUTE-granted to
+-- mnt_rt alone (REVOKE FROM PUBLIC). Match is case-insensitive on the address
+-- (email is case-insensitive in practice for the local delivery path).
+--
+-- Returns ALL matching rows (not LIMIT 1): `email_accounts` is unique only on
+-- (org_id, email_address), so the same address CAN exist under two different
+-- orgs. Silently picking one with LIMIT 1 would route inbound mail to the wrong
+-- tenant nondeterministically (a PG plan/order artifact, not a real selection).
+-- The caller (find_account_by_address_inner) treats >1 row as an ambiguous
+-- tenant-boundary anomaly and refuses delivery to all matches rather than guess.
+-- ORDER BY is defense-in-depth for any single-row consumer, not the correctness
+-- fix — the correctness fix is the caller's row-count check. No Korean copy.
 
 CREATE OR REPLACE FUNCTION comms_account_by_address(
     p_address TEXT
@@ -30,7 +39,7 @@ BEGIN
         FROM email_accounts a
         WHERE a.status = 'ACTIVE'
           AND lower(a.email_address) = lower(btrim(p_address))
-        LIMIT 1;
+        ORDER BY a.org_id, a.id;
     SET LOCAL row_security = on;
 END;
 $$;

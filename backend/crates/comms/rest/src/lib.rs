@@ -34,11 +34,11 @@ use mnt_comms_adapter_mox::{Incoming, MoxWebapiSender};
 use mnt_comms_adapter_postgres::{PgMailNotifier, PgMailStore};
 use mnt_comms_adapter_smtp::LettreMailSender;
 use mnt_comms_application::{
-    AccountService, AccountView, ConfigureAccountCommand, EmailMessageId, FolderView, ImapFolder,
-    InboundUpsert, MailAttachmentStore, MailFuture, MailNotifier, MailReadStore, MailServiceError,
-    MessageView, SendKind, SendMessageCommand, SendResult, SendService, SmtpSender,
-    SmtpTransportConfig, StoredAccount, SyncService, TestConnectionResult, ThreadDetail,
-    ThreadQuery, ThreadView,
+    AccountService, AccountView, AddressLookup, ConfigureAccountCommand, EmailMessageId,
+    FolderView, ImapFolder, InboundUpsert, MailAttachmentStore, MailFuture, MailNotifier,
+    MailReadStore, MailServiceError, MessageView, SendKind, SendMessageCommand, SendResult,
+    SendService, SmtpSender, SmtpTransportConfig, StoredAccount, SyncService, TestConnectionResult,
+    ThreadDetail, ThreadQuery, ThreadView,
 };
 use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
 use mnt_comms_domain::{FolderRole, MailSecurity, MessageAddress, normalize_subject};
@@ -47,6 +47,7 @@ use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
 
 pub const MAIL_ACCOUNT_PATH: &str = "/api/v1/mail/account";
@@ -707,7 +708,7 @@ async fn mox_webhook(
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
-    if !constant_time_eq(presented.as_bytes(), expected.as_bytes()) {
+    if !bool::from(presented.as_bytes().ct_eq(expected.as_bytes())) {
         return Err(RestError::unauthorized("invalid mox webhook credential"));
     }
 
@@ -721,15 +722,20 @@ async fn mox_webhook(
     };
 
     // 3. Resolve the tenant/account by recipient address (owner-conn, id-only).
-    //    An unknown local recipient is ACKed (200, ingested=false) so mox does not
-    //    retry forever — there is simply no local mailbox to deliver into.
-    let Some(account) = state
+    //    An unknown local recipient, and an AMBIGUOUS one (the address exists
+    //    under more than one org — the store already wrote the anomaly audit +
+    //    error log), are both ACKed (200, ingested=false) so mox does not retry
+    //    forever; an ambiguous address is delivered to NONE of the matching orgs.
+    let account = match state
         .store
         .find_account_by_address(&recipient)
         .await
         .map_err(RestError::from_service)?
-    else {
-        return Ok(Json(WebhookAck { ingested: false }).into_response());
+    {
+        AddressLookup::Found(account) => account,
+        AddressLookup::NotFound | AddressLookup::Ambiguous => {
+            return Ok(Json(WebhookAck { ingested: false }).into_response());
+        }
     };
     let org = account.org_id;
 
@@ -778,20 +784,6 @@ async fn mox_webhook(
             .await;
     }
     Ok(Json(WebhookAck { ingested }).into_response())
-}
-
-/// Constant-time byte-slice equality (avoids a timing side channel on the webhook
-/// secret). Compares the full length regardless of an early mismatch; a length
-/// difference is folded in so it also fails without branching on it.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    let mut diff = (a.len() ^ b.len()) as u8;
-    let n = a.len().max(b.len());
-    for i in 0..n {
-        let x = a.get(i).copied().unwrap_or(0);
-        let y = b.get(i).copied().unwrap_or(0);
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 /// Read the tenant's single configured mailbox as a [`StoredAccount`] (sealed
@@ -1072,8 +1064,39 @@ impl IntoResponse for RestError {
 
 #[cfg(test)]
 mod tests {
+    use super::ConstantTimeEq;
     use super::keep_existing_if_blank;
     use secrecy::ExposeSecret;
+
+    // -------------------------------------------------------------------
+    // Webhook credential comparison: the length-XOR-truncated-to-u8
+    // hand-roll this replaced would silently mask a length delta that is a
+    // multiple of 256 (`(a.len() ^ b.len()) as u8 == 0` for such deltas).
+    // The 256-length-delta vector proves the `subtle`-backed check catches
+    // exactly that case: a 256-byte-longer presented value must still be
+    // rejected.
+    // -------------------------------------------------------------------
+    #[test]
+    fn credential_eq_rejects_256_length_delta() {
+        let expected = b"Bearer test-mox-webhook-secret".to_vec();
+        let mut presented = expected.clone();
+        presented.extend(std::iter::repeat_n(b'x', 256));
+        assert!(!bool::from(presented.as_slice().ct_eq(expected.as_slice())));
+    }
+
+    #[test]
+    fn credential_eq_accepts_exact_match() {
+        let secret = b"Bearer test-mox-webhook-secret".to_vec();
+        assert!(bool::from(secret.as_slice().ct_eq(secret.as_slice())));
+    }
+
+    #[test]
+    fn credential_eq_rejects_wrong_value_same_length() {
+        let expected = b"Bearer test-mox-webhook-secret".to_vec();
+        let mut presented = expected.clone();
+        *presented.last_mut().unwrap() ^= 0x01;
+        assert!(!bool::from(presented.as_slice().ct_eq(expected.as_slice())));
+    }
 
     #[test]
     fn blank_password_keeps_existing_secret() {

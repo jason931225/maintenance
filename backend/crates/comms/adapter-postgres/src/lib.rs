@@ -17,13 +17,14 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_comms_application::{
-    AccountUpsert, AttachmentRef, AttachmentView, DueAccount, EmailAccountId, EmailMessageId,
-    FolderCursor, FolderView, ImapFolder, InboundUpsert, MailFuture, MailNotifier, MailReadStore,
-    MailServiceError, MailStore, MessageView, OutboundRecord, SealedCredential, StoredAccount,
-    StoredAttachment, ThreadDetail, ThreadQuery, ThreadView, thread_grouping_key,
+    AccountUpsert, AddressLookup, AttachmentRef, AttachmentView, DueAccount, EmailAccountId,
+    EmailMessageId, FolderCursor, FolderView, ImapFolder, InboundUpsert, MailFuture, MailNotifier,
+    MailReadStore, MailServiceError, MailStore, MessageView, OutboundRecord, SealedCredential,
+    StoredAccount, StoredAttachment, ThreadDetail, ThreadQuery, ThreadView,
+    address_ambiguous_audit_event, thread_grouping_key,
 };
 use mnt_comms_domain::{MailSecurity, MessageAddress, normalize_subject};
-use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, UserId};
+use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, TraceContext, UserId};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -520,25 +521,53 @@ impl PgMailStore {
     async fn find_account_by_address_inner(
         &self,
         address: &str,
-    ) -> Result<Option<DueAccount>, PgMailError> {
+    ) -> Result<AddressLookup, PgMailError> {
         // Cross-tenant id-only lookup via the 0130 SECURITY DEFINER function. Runs
         // on the raw pool (NO org armed) — the function REVOKEs PUBLIC and only
-        // mnt_rt may EXECUTE it; it returns ONLY the (org_id, account_id) pair of
-        // the ACTIVE account matching this recipient address. The webhook then
-        // arms that org for the audited inbound upsert.
-        let row: Option<sqlx::postgres::PgRow> =
+        // mnt_rt may EXECUTE it; it returns ONLY the (org_id, account_id) pairs of
+        // every ACTIVE account matching this recipient address. `email_accounts`
+        // is unique only per (org_id, email_address), so >1 row means the SAME
+        // address exists under DIFFERENT orgs — a tenant-boundary anomaly, not a
+        // pick-one situation. The webhook arms the single resolved org for the
+        // audited inbound upsert; an ambiguous address is refused for ALL of them.
+        let rows: Vec<sqlx::postgres::PgRow> =
             sqlx::query("SELECT org_id, account_id FROM comms_account_by_address($1)")
                 .bind(address)
                 // rls-arming: ok comms_account_by_address is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) returning id-only (org_id, account_id) for the mox delivery webhook, which has no principal to arm an org with; it exposes no tenant data
-                .fetch_optional(&self.pool)
+                .fetch_all(&self.pool)
                 .await?;
-        row.map(|row| {
-            Ok(DueAccount {
-                org_id: OrgId::from_uuid(row.try_get("org_id")?),
-                account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
-            })
-        })
-        .transpose()
+        match rows.len() {
+            0 => Ok(AddressLookup::NotFound),
+            1 => {
+                let row = &rows[0];
+                Ok(AddressLookup::Found(DueAccount {
+                    org_id: OrgId::from_uuid(row.try_get("org_id")?),
+                    account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
+                }))
+            }
+            _ => {
+                tracing::error!(
+                    address,
+                    match_count = rows.len(),
+                    "mox webhook: recipient address matched ACTIVE accounts in more than one org; quarantining delivery (no message content logged)"
+                );
+                let audit = address_ambiguous_audit_event(
+                    address,
+                    TraceContext::generate(),
+                    Timestamp::now_utc(),
+                )
+                .map_err(PgMailError::Domain)?;
+                // No `org` to arm (that is exactly the anomaly) — insert the
+                // platform-tier audit row on the raw pool. `with_audit` leaves
+                // `app.current_org` unset when `event.org_id` is `None`; the
+                // `audit_events` RLS `WITH CHECK (org_id IS NULL)` clause admits it.
+                with_audit::<_, (), PgMailError>(&self.pool, audit, |_tx| {
+                    Box::pin(async move { Ok(()) })
+                })
+                .await?;
+                Ok(AddressLookup::Ambiguous)
+            }
+        }
     }
 
     async fn list_folders_inner(
@@ -852,7 +881,7 @@ impl MailReadStore for PgMailStore {
     fn find_account_by_address<'a>(
         &'a self,
         address: &'a str,
-    ) -> mnt_comms_application::MailFuture<'a, Result<Option<DueAccount>, MailServiceError>> {
+    ) -> mnt_comms_application::MailFuture<'a, Result<AddressLookup, MailServiceError>> {
         Box::pin(async move {
             self.find_account_by_address_inner(address)
                 .await

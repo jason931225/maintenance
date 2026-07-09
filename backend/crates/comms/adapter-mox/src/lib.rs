@@ -68,9 +68,10 @@ impl SmtpSender for MoxWebapiSender {
     ) -> MailFuture<'a, Result<TestConnectionResult, MailServiceError>> {
         Box::pin(async move {
             // Reachability + auth probe: a basic-auth GET to the webapi base.
-            // mox answers authenticated requests here; a transport error means
-            // the server is unreachable. Full credential validation happens on
-            // the first real send (mox rejects bad auth there with 401).
+            // mox answers authenticated requests here with 2xx; wrong credentials
+            // get 401/403 (still a successful HTTP round-trip, just not authed) —
+            // only a genuine 2xx counts as `ok`. A transport error means the
+            // server is unreachable.
             // ponytail: reachability probe, not a deep credential check — the
             // webapi has no dedicated no-op auth endpoint and we must not send.
             let resp = self
@@ -80,9 +81,19 @@ impl SmtpSender for MoxWebapiSender {
                 .send()
                 .await;
             match resp {
-                Ok(_) => Ok(TestConnectionResult {
+                Ok(resp) if resp.status().is_success() => Ok(TestConnectionResult {
                     ok: true,
                     error_code: None,
+                }),
+                Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                    Ok(TestConnectionResult {
+                        ok: false,
+                        error_code: Some("auth_failed".to_owned()),
+                    })
+                }
+                Ok(_) => Ok(TestConnectionResult {
+                    ok: false,
+                    error_code: Some("connect_failed".to_owned()),
                 }),
                 Err(_) => Ok(TestConnectionResult {
                     ok: false,
@@ -367,6 +378,7 @@ fn trim_angle(raw: &str) -> Option<String> {
 mod tests {
     use super::*;
     use mnt_comms_application::SendKind;
+    use mnt_comms_domain::MailSecurity;
     use mnt_kernel_core::{TraceContext, UserId};
 
     fn command() -> SendMessageCommand {
@@ -439,5 +451,59 @@ mod tests {
         let inc: Incoming = serde_json::from_str(body).unwrap();
         assert_eq!(inc.recipient_address().as_deref(), Some("x@localhost"));
         assert_eq!(inc.mailbox_name(), "Inbox");
+    }
+
+    // -----------------------------------------------------------------------
+    // test_connection: only a genuine authenticated 2xx counts as `ok`.
+    // -----------------------------------------------------------------------
+
+    fn transport_config() -> SmtpTransportConfig {
+        SmtpTransportConfig {
+            host: "unused".to_owned(),
+            port: 0,
+            security: MailSecurity::StartTls,
+            username: "b".to_owned(),
+            password: secrecy::SecretString::from("pw".to_owned()),
+            from_address: "b@localhost".to_owned(),
+            from_name: None,
+        }
+    }
+
+    /// Serve exactly one raw HTTP response on an ephemeral localhost port and
+    /// return its base URL. No mock-HTTP crate needed: a minimal hand-written
+    /// status line is enough for reqwest's client to parse.
+    async fn serve_once(status_line: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let response =
+                    format!("{status_line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn test_connection_reports_ok_on_authenticated_success() {
+        let base_url = serve_once("HTTP/1.1 200 OK").await;
+        let sender = MoxWebapiSender::new(base_url);
+        let result = sender.test_connection(&transport_config()).await.unwrap();
+        assert!(result.ok);
+        assert_eq!(result.error_code, None);
+    }
+
+    #[tokio::test]
+    async fn test_connection_reports_failure_on_wrong_credentials() {
+        let base_url = serve_once("HTTP/1.1 401 Unauthorized").await;
+        let sender = MoxWebapiSender::new(base_url);
+        let result = sender.test_connection(&transport_config()).await.unwrap();
+        assert!(!result.ok);
+        assert_eq!(result.error_code.as_deref(), Some("auth_failed"));
     }
 }
