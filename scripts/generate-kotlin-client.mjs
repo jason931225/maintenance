@@ -59,6 +59,110 @@ function isGeneratedTextFile(path) {
   return textExtensions.has(extname(path)) || textFileNames.has(basename(path));
 }
 
+function replaceInGeneratedFile(path, replacements) {
+  let content = readFileSync(path, "utf8");
+  let updated = content;
+  for (const [from, to] of replacements) {
+    if (!updated.includes(from)) {
+      throw new Error(`Kotlin client generator patch target not found in ${relative(root, path)}`);
+    }
+    updated = updated.replaceAll(from, to);
+  }
+  if (updated !== content) {
+    writeFileSync(path, updated, "utf8");
+  }
+}
+
+function patchKnownGeneratorGaps(directory) {
+  const apiClientPath = resolve(
+    directory,
+    "src/main/kotlin/com/maintenance/api/client/infrastructure/ApiClient.kt",
+  );
+  replaceInGeneratedFile(apiClientPath, [
+    [
+      `        // take content-type/accept from spec or set to default (application/json) if not defined
+        if (requestConfig.body != null && requestConfig.headers[CONTENT_TYPE].isNullOrEmpty()) {
+            requestConfig.headers[CONTENT_TYPE] = JSON_MEDIA_TYPE
+        }
+        if (requestConfig.headers[ACCEPT].isNullOrEmpty()) {
+            requestConfig.headers[ACCEPT] = JSON_MEDIA_TYPE
+        }
+        val headers = requestConfig.headers
+
+        if (headers[ACCEPT].isNullOrEmpty()) {
+            throw kotlin.IllegalStateException("Missing ACCEPT header. This is required.")
+        }
+
+        val contentType = if (headers[CONTENT_TYPE] != null) {
+            // TODO: support multiple contentType options here.
+            (headers[CONTENT_TYPE] as String).substringBefore(";").lowercase(Locale.US)
+        } else {
+            null
+        }
+`,
+      `        // take content-type/accept from spec or set to default (application/json) if not defined
+        val inferredContentType = if (requestConfig.body is Map<*, *> && requestConfig.body.values.all { it is PartConfig<*> }) {
+            FORM_DATA_MEDIA_TYPE
+        } else {
+            null
+        }
+        if (requestConfig.body != null && requestConfig.headers[CONTENT_TYPE].isNullOrEmpty() && inferredContentType == null) {
+            requestConfig.headers[CONTENT_TYPE] = JSON_MEDIA_TYPE
+        }
+        if (requestConfig.headers[ACCEPT].isNullOrEmpty()) {
+            requestConfig.headers[ACCEPT] = JSON_MEDIA_TYPE
+        }
+        val headers = requestConfig.headers
+
+        if (headers[ACCEPT].isNullOrEmpty()) {
+            throw kotlin.IllegalStateException("Missing ACCEPT header. This is required.")
+        }
+
+        val contentType = if (headers[CONTENT_TYPE] != null) {
+            // TODO: support multiple contentType options here.
+            (headers[CONTENT_TYPE] as String).substringBefore(";").lowercase(Locale.US)
+        } else {
+            inferredContentType
+        }
+`,
+    ],
+  ]);
+
+  const apiDir = resolve(directory, "src/main/kotlin/com/maintenance/api/client/api");
+  for (const entry of readdirSync(apiDir, { withFileTypes: true })) {
+    if (!entry.isFile() || extname(entry.name) !== ".kt") {
+      continue;
+    }
+    const path = resolve(apiDir, entry.name);
+    const content = readFileSync(path, "utf8");
+    const updated = content.replaceAll(
+      `val localVariableHeaders: MutableMap<String, String> = mutableMapOf("Content-Type" to "multipart/form-data")`,
+      `val localVariableHeaders: MutableMap<String, String> = mutableMapOf()`,
+    );
+    if (updated !== content) {
+      writeFileSync(path, updated, "utf8");
+    }
+  }
+
+  replaceInGeneratedFile(resolve(apiDir, "EmployeesApi.kt"), [
+    [`fun exportEmployeesCsvRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"`,
+     `fun exportEmployeesCsvRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "text/csv"`],
+  ]);
+
+  replaceInGeneratedFile(resolve(apiDir, "ExportsApi.kt"), [
+    [`localVariableHeaders["Accept"] = "application/json"`,
+     `localVariableHeaders["Accept"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"`],
+  ]);
+}
+
 function dockerPath(path) {
   return `/workspace/${relative(root, path).split(sep).join("/")}`;
 }
@@ -170,6 +274,7 @@ try {
     );
   }
 
+  patchKnownGeneratorGaps(stagingDir);
   normalizeGeneratedTextFiles(stagingDir);
   writeFileSync(
     resolve(stagingDir, "gradle.properties"),

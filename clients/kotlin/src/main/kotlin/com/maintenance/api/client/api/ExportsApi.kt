@@ -121,7 +121,7 @@ open class ExportsApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
                 put("date", listOf(parseDateToQueryString<java.time.LocalDate>(date)))
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Accept"] = "application/json"
+        localVariableHeaders["Accept"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         return RequestConfig(
             method = RequestMethod.GET,
@@ -203,7 +203,7 @@ open class ExportsApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
                 }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Accept"] = "application/json"
+        localVariableHeaders["Accept"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         return RequestConfig(
             method = RequestMethod.GET,
@@ -279,7 +279,7 @@ open class ExportsApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
                 put("date", listOf(parseDateToQueryString<java.time.LocalDate>(date)))
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Accept"] = "application/json"
+        localVariableHeaders["Accept"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         return RequestConfig(
             method = RequestMethod.GET,
