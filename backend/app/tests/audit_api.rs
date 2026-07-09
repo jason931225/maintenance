@@ -133,6 +133,81 @@ async fn mechanic_role_is_denied_audit_read(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn audit_attestation_requires_org_wide_audit_authority(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Attestation Region", "Attestation Branch")
+        .await
+        .unwrap();
+    let admin_id = UserId::new();
+    seed_user_with_branch(&pool, admin_id, "ADMIN", branch_id)
+        .await
+        .unwrap();
+    let admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin_id,
+        vec!["ADMIN".to_owned()],
+        vec![branch_id],
+    )
+    .unwrap();
+    let service = build_router(app_state(pool.clone(), public_key_pem.clone()).unwrap());
+
+    let response = service
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/audit/attestation")
+                .header(header::AUTHORIZATION, format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "branch-scoped ADMIN can read branch-filtered /api/audit, but must not get a whole-tenant chain attestation"
+    );
+
+    let super_admin_id = UserId::new();
+    seed_user_with_branch(&pool, super_admin_id, "SUPER_ADMIN", branch_id)
+        .await
+        .unwrap();
+    let super_admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        super_admin_id,
+        vec!["SUPER_ADMIN".to_owned()],
+        Vec::new(),
+    )
+    .unwrap();
+    let service = build_router(app_state(pool.clone(), public_key_pem).unwrap());
+
+    let response = service
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/audit/attestation")
+                .header(header::AUTHORIZATION, format!("Bearer {super_admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["org_id"], OrgId::knl().as_uuid().to_string());
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["kind"], "ok");
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn target_id_filter_isolates_one_object_and_trace_id_correlates_across_objects(pool: PgPool) {
     let signing_key = SigningKey::random(&mut OsRng);
     let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();

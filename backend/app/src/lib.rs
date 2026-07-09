@@ -52,7 +52,7 @@ use mnt_platform_auth::{
     WebauthnSettings, android_assetlinks_json, apple_app_site_association_json,
 };
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, authorize_org_wide};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_email::{EmailSender, LettreSmtpSender, SmtpEmailConfig, StubEmailSender};
 use mnt_platform_jobs::{
@@ -1734,10 +1734,10 @@ async fn audit_log(
 
 /// L20 audit-chain PR-2: read-only attestation for the caller's tenant.
 /// Recomputes and compares the org's sealed hash chain (`verify_org_chain`,
-/// charter §5.3) and returns the verdict — never mutates. Authorized the same
-/// as `/api/audit` (`Feature::AuditLogRead`, ADMIN/SUPER_ADMIN): this is a
-/// strictly MORE sensitive audit surface (chain tamper evidence), so it must
-/// never be open to a wider audience than the raw audit log it attests.
+/// charter §5.3) and returns the verdict — never mutates. Unlike `/api/audit`,
+/// which can safely branch-filter rows for a branch-scoped ADMIN, this endpoint
+/// verifies the whole tenant chain. Require org-wide `AuditLogRead` so the
+/// attestation surface cannot widen branch-scoped audit visibility.
 ///
 /// Cost note: `verify_org_chain` re-derives every seal's batch from its full
 /// `audit_events` range — a FULL-CHAIN re-verify, not an incremental one, so
@@ -1766,7 +1766,7 @@ async fn audit_attestation(
         .verify_access_token(token)
         .map_err(|_| ApiError::unauthorized("invalid bearer token"))?;
     let principal = principal_from_claims(claims)?;
-    authorize_audit_read(&principal)?;
+    authorize_audit_attestation(&principal)?;
 
     // A throwaway signer is correct here: `InMemoryEd25519Signer::verify`
     // reconstructs the public key from each seal's OWN stored `key_ref`, never
@@ -1860,6 +1860,10 @@ fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {
         resource_branch,
     )
     .map_err(ApiError::from_kernel)
+}
+
+fn authorize_audit_attestation(principal: &Principal) -> Result<(), ApiError> {
+    authorize_org_wide(principal, Action::new(Feature::AuditLogRead)).map_err(ApiError::from_kernel)
 }
 
 fn normalize_audit_query(query: AuditQuery) -> Result<NormalizedAuditQuery, ApiError> {

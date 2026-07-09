@@ -427,7 +427,7 @@ export interface paths {
         };
         /**
          * L20 tamper-evident audit-chain attestation for the caller's tenant
-         * @description Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Authorized the same as GET /api/audit (SUPER_ADMIN / ADMIN) since this is a strictly more sensitive audit surface. Never mutates.
+         * @description Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority. Never mutates.
          */
         get: operations["getAuditChainAttestation"];
         put?: never;
