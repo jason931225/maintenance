@@ -12,8 +12,12 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, OrgId, UserId};
+use mnt_kernel_core::{BranchId, ErrorKind, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
+use mnt_workflow_domain::WaitingTaskStatus;
+use mnt_workflow_runtime_adapter_postgres::{
+    DecideWaitingTaskCommand, PgWorkflowRuntimeStore, TaskDecision,
+};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -228,6 +232,152 @@ async fn decision_approve_advances_the_line(pool: PgPool) {
         approved.json["next_task"]["assignee_role_key"],
         "manager_approver"
     );
+}
+
+// ===========================================================================
+// 3b. SoD / maker-checker (기안자 ≠ 승인자): the run initiator cannot APPROVE
+//     their own approval task; a different approver can. Exercised at the store
+//     boundary (like `financial`'s self-approval tests) so the actor is the
+//     genuine decider — the REST policy guard only admits SUPER_ADMIN-tier roles
+//     in this harness, which are the exempt case (covered by 3c below).
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn initiator_cannot_approve_own_run_but_other_approver_can(pool: PgPool) {
+    let branch = seed_branch(&pool).await;
+    // ADMIN is a valid, NON-exempt role (not SUPER_ADMIN, not org 대표) — the
+    // case the SoD guard must hard-block.
+    let initiator = UserId::new();
+    seed_user(&pool, initiator, "ADMIN", branch).await;
+    let definition_id = seed_approval_definition(&pool, "approval.instance.sod").await;
+    // An OPEN approval task owned by `initiator`, carrying a real decide policy.
+    let (_run_id, task_id) = seed_run_with_open_task(
+        &pool,
+        definition_id,
+        initiator,
+        "manager_approver",
+        Some("approval_decide"),
+    )
+    .await;
+    let store = PgWorkflowRuntimeStore::new(runtime_role_pool(&pool).await);
+
+    // (a) The initiator approves their own run → 403 forbidden (SoD), rolled back.
+    let blocked = store
+        .decide_waiting_task(
+            OrgId::knl(),
+            DecideWaitingTaskCommand {
+                task_id,
+                actor: initiator,
+                decision: TaskDecision::Approve,
+                comment: None,
+                idempotency_key: "sod-store-self-approve-01".to_owned(),
+                transition_audits: Vec::new(),
+            },
+        )
+        .await;
+    let err = blocked.expect_err("initiator must not approve their own run");
+    assert_eq!(err.kind, ErrorKind::Forbidden, "{err:?}");
+    assert!(err.message.contains("승인"), "{err:?}");
+    // A hard block writes NO governance finding, and the tx rolled back — the
+    // task is still OPEN and decidable by someone else.
+    assert_eq!(governance_finding_count(&pool).await, 0);
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM workflow_waiting_tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "OPEN");
+
+    // (b) A DIFFERENT approver (not the initiator) decides the same task → allowed.
+    let approver = UserId::new();
+    seed_user(&pool, approver, "ADMIN", branch).await;
+    let decided = store
+        .decide_waiting_task(
+            OrgId::knl(),
+            DecideWaitingTaskCommand {
+                task_id,
+                actor: approver,
+                decision: TaskDecision::Approve,
+                comment: None,
+                idempotency_key: "sod-store-other-approve-1".to_owned(),
+                transition_audits: Vec::new(),
+            },
+        )
+        .await
+        .expect("a non-initiator approver may decide");
+    assert_eq!(decided.status, WaitingTaskStatus::Approved);
+    // A legitimate, non-self approval writes no governance finding.
+    assert_eq!(governance_finding_count(&pool).await, 0);
+}
+
+// ===========================================================================
+// 3c. SoD exemption: the org 대표 / SUPER_ADMIN MAY self-approve (no higher
+//     approver exists), but the override is recorded as a governance finding.
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn super_admin_self_approval_allowed_and_writes_governance_finding(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let initiator = UserId::new();
+    seed_user(&pool, initiator, "SUPER_ADMIN", branch).await;
+    let definition_id = seed_approval_definition(&pool, "approval.instance.sodexempt").await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, initiator, "SUPER_ADMIN", branch);
+
+    let started = post(
+        service.clone(),
+        "/api/v1/workflow-runs",
+        &token,
+        json!({
+            "definition_id": definition_id,
+            "trigger_type": "MANUAL",
+            "idempotency_key": "instance-sodexempt-key-01",
+            "input_payload": {}
+        }),
+    )
+    .await;
+    assert_eq!(started.status, StatusCode::OK, "{:?}", started.json);
+    let task_id = started.json["next_task"]["task_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run_id = started.json["run"]["id"].as_str().unwrap().to_owned();
+
+    // SUPER_ADMIN self-approves → allowed (exempt), advances the line.
+    let approved = post(
+        service,
+        &format!("/api/v1/workflow-tasks/{task_id}/decide"),
+        &token,
+        json!({ "decision": "approve", "idempotency_key": "sodexempt-self-approve-1" }),
+    )
+    .await;
+    assert_eq!(approved.status, StatusCode::OK, "{:?}", approved.json);
+    assert_eq!(approved.json["task"]["status"], "APPROVED");
+
+    // Exactly one anomaly.self_approval finding for this run, subject = initiator.
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM governance_findings \
+         WHERE detector_id = 'anomaly.self_approval' AND entity_type = 'workflow_run' \
+           AND entity_id = $1 AND severity = 'HIGH'",
+    )
+    .bind(&run_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 1,
+        "exempt self-approval must write one governance finding"
+    );
+    let subject: Uuid = sqlx::query_scalar(
+        "SELECT subject_user_id FROM governance_findings \
+         WHERE detector_id = 'anomaly.self_approval' AND entity_id = $1",
+    )
+    .bind(&run_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(subject, *initiator.as_uuid());
 }
 
 // ===========================================================================
@@ -922,6 +1072,13 @@ async fn seed_approval_definition(pool: &PgPool, workflow_key: &str) -> Uuid {
 
 async fn count_runs(pool: &PgPool) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM workflow_runs")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn governance_finding_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM governance_findings")
         .fetch_one(pool)
         .await
         .unwrap()

@@ -1134,7 +1134,7 @@ impl PgWorkflowRuntimeStore {
                 let row = sqlx::query(
                     "SELECT t.id AS task_id, t.run_id, t.node_run_id, t.waiting_key, \
                             t.status AS task_status, t.claimed_by, t.completed_by, \
-                            t.decision_payload, r.status AS run_status \
+                            t.decision_payload, r.status AS run_status, r.initiated_by \
                      FROM workflow_waiting_tasks t \
                      JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
                      WHERE t.id = $1 FOR UPDATE OF t, r",
@@ -1158,6 +1158,7 @@ impl PgWorkflowRuntimeStore {
                 let run_status = RunStatus::from_db_str(&run_status_str)?;
                 let claimed_by: Option<Uuid> = row.try_get("claimed_by")?;
                 let completed_by: Option<Uuid> = row.try_get("completed_by")?;
+                let initiated_by: Option<Uuid> = row.try_get("initiated_by")?;
                 let existing_decision: Option<serde_json::Value> =
                     row.try_get("decision_payload")?;
 
@@ -1212,6 +1213,21 @@ impl PgWorkflowRuntimeStore {
                     return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
                         "workflow run is not waiting for a decision",
                     )));
+                }
+
+                // Segregation-of-duties (maker-checker / 기안자 ≠ 승인자): the run's
+                // initiator must not APPROVE their own approval task. Scoped to
+                // approval-decision nodes by construction — finalize/receipt tasks
+                // are rejected above, and those ARE the author's own step by design.
+                // reject/return (a withdrawal) is not a self-approval and stays
+                // allowed. Mirrors the financial self-approval guard: org 대표
+                // (is_org_lead) and SUPER_ADMIN may self-approve (no higher approver
+                // exists in the chain), but the override is recorded as a governance
+                // finding so allowed ≠ invisible.
+                if command.decision == TaskDecision::Approve
+                    && initiated_by == Some(*command.actor.as_uuid())
+                {
+                    check_self_approval_tx(tx, command.actor, org, run_id).await?;
                 }
 
                 let approved = command.decision == TaskDecision::Approve;
@@ -1431,6 +1447,70 @@ impl PgWorkflowRuntimeStore {
 
 fn is_human_node(node_type: &str) -> bool {
     matches!(node_type, "human_task" | "waiting_task")
+}
+
+/// Segregation-of-duties self-approval guard for the engine decide path.
+///
+/// Called only when the deciding `actor` is the run's initiator and the decision
+/// is an approval. Blocks the self-approval (403) unless the actor is the org
+/// 대표 (`is_org_lead`) or a SUPER_ADMIN — the two roles with no higher approver
+/// in the chain. Mirrors `financial`'s `check_self_approval_tx`: the override is
+/// allowed but recorded as an `anomaly.self_approval` governance finding so it is
+/// audited and surfaced on the integrity dashboard. Allowed ≠ invisible.
+async fn check_self_approval_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    actor: UserId,
+    org: OrgId,
+    run_id: Uuid,
+) -> Result<(), PgWorkflowRuntimeError> {
+    let actor_uuid = *actor.as_uuid();
+    let user_row = sqlx::query("SELECT roles, is_org_lead FROM users WHERE id = $1")
+        .bind(actor_uuid)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| KernelError::not_found("deciding user was not found"))?;
+
+    let roles: Vec<String> = user_row.try_get("roles")?;
+    let is_org_lead: bool = user_row.try_get("is_org_lead")?;
+    let is_super_admin = roles.iter().any(|role| role == "SUPER_ADMIN");
+
+    if !(is_org_lead || is_super_admin) {
+        return Err(KernelError::forbidden("본인이 기안한 건은 승인할 수 없습니다").into());
+    }
+
+    // Allowed exception: record a governance finding (idempotent upsert).
+    let exemption_reason = if is_super_admin {
+        "super_admin_exempt"
+    } else {
+        "org_lead_exempt"
+    };
+    let evidence = serde_json::json!({
+        "action": "workflow_task.decide",
+        "run_id": run_id.to_string(),
+        "approver": actor_uuid.to_string(),
+        "exemption_reason": exemption_reason,
+    });
+    let now = time::OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO governance_findings \
+             (id, org_id, detector_id, entity_type, entity_id, \
+              subject_user_id, score, severity, evidence, status, detected_at, created_at, updated_at) \
+         VALUES ($1, $2, 'anomaly.self_approval', 'workflow_run', $3, $4, 1.0, 'HIGH', $5, 'OPEN', $6, $6, $6) \
+         ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE \
+             SET score = EXCLUDED.score, severity = EXCLUDED.severity, \
+                 evidence = EXCLUDED.evidence, status = 'OPEN', \
+                 detected_at = EXCLUDED.detected_at, updated_at = EXCLUDED.updated_at",
+    )
+    .bind(Uuid::new_v4())
+    .bind(*org.as_uuid())
+    .bind(run_id.to_string())
+    .bind(actor_uuid)
+    .bind(evidence)
+    .bind(now)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(())
 }
 
 fn run_transition_audit(
