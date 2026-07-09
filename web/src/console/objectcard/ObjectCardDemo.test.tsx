@@ -21,7 +21,7 @@ const MINIMAL: ObjectCardState = {
   head: { kind: "support_ticket", id: "st-1", code: "CS-5001", title: null, status: null, exists: true },
   lifecycle: null,
   audit: null,
-  links: { outgoing: [], incoming: [] },
+  links: null,
 };
 
 function renderDemo(state: ObjectCardDemoState) {
@@ -43,6 +43,7 @@ describe("ObjectCardDemo (fidelity states)", () => {
     expect(container.querySelector('[data-fidelity="objectcard-minimal"]')).toBeInTheDocument();
     expect(screen.getByText("의미")).toBeInTheDocument();
     expect(screen.queryByText("동작")).not.toBeInTheDocument();
+    expect(screen.queryByText("역학")).not.toBeInTheDocument();
     expect(screen.queryByText("관계 연결")).not.toBeInTheDocument();
   });
 });

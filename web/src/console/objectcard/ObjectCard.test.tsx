@@ -120,6 +120,20 @@ describe("ObjectCardView — policy omission", () => {
     expect(screen.queryByRole("button", { name: /관계 해제/ })).not.toBeInTheDocument();
   });
 
+
+
+  it("renders an empty dynamics layer only when relations loaded as empty", () => {
+    renderView(resolved({ links: { outgoing: [], incoming: [] } }));
+    expect(screen.getByText("역학")).toBeInTheDocument();
+    expect(screen.getByText("연결된 개체 없음")).toBeInTheDocument();
+  });
+
+  it("omits the dynamics layer when relation reads are denied or failed", () => {
+    renderView(resolved({ links: null }));
+    expect(screen.queryByText("역학")).not.toBeInTheDocument();
+    expect(screen.queryByText("연결된 개체 없음")).not.toBeInTheDocument();
+  });
+
   it("renders the mutation affordances when the gate allows them", () => {
     renderView(resolved());
     expect(screen.getByText("관계 연결")).toBeInTheDocument();

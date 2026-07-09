@@ -47,9 +47,10 @@ export interface ObjectCardState {
   head?: ObjectHead;
   /** null = lifecycle not visible/registered (deny-by-omission) — no chip. */
   lifecycle: ObjectLifecycle | null;
-  /** null = audit read denied — no timeline. */
+  /** null = audit read denied/invalid — no timeline. */
   audit: AuditEntry[] | null;
-  links: { outgoing: ObjectLinkResponse[]; incoming: ObjectLinkResponse[] };
+  /** null = relation read denied/failed — no dynamics layer. */
+  links: { outgoing: ObjectLinkResponse[]; incoming: ObjectLinkResponse[] } | null;
 }
 
 function auditBaseUrl(): string {
@@ -83,8 +84,12 @@ async function fetchObjectAudit(
     return null;
   }
   if (!response.ok) return null;
-  const page = (await response.json()) as AuditPage;
-  return Array.isArray(page.items) ? page.items : [];
+  try {
+    const page = (await response.json()) as AuditPage;
+    return Array.isArray(page.items) ? page.items : [];
+  } catch {
+    return null;
+  }
 }
 
 const EMPTY_LINKS: { outgoing: ObjectLinkResponse[]; incoming: ObjectLinkResponse[] } = {
@@ -97,7 +102,7 @@ const EMPTY_LINKS: { outgoing: ObjectLinkResponse[]; incoming: ObjectLinkRespons
  * shared object substrate. Deny-by-omission is the top guard: an object that
  * does not resolve (`exists=false`) yields `status: "absent"` and the card
  * renders nothing. Each sub-layer independently degrades to null/empty when its
- * own read is denied.
+ * own read is denied (relation read denial is null so it is not shown as empty).
  */
 export function useObjectCard(
   api: ConsoleApiClient,
@@ -116,10 +121,10 @@ export function useObjectCard(
       const response = await api.GET("/api/v1/object-links", {
         params: { query: { kind: target.kind, id: target.id } },
       });
-      if (response.error) return EMPTY_LINKS;
+      if (response.error) return null;
       return { outgoing: response.data.outgoing, incoming: response.data.incoming };
     } catch {
-      return EMPTY_LINKS;
+      return null;
     }
   }, [api, target.kind, target.id]);
 

@@ -80,7 +80,7 @@ describe("useObjectCard — 3-layer load", () => {
     expect(result.current.state.head?.code).toBe("WO-20260612-001");
     expect(result.current.state.lifecycle?.currentState).toBe("active");
     expect(result.current.state.audit?.[0]?.action).toBe("work_order.update");
-    expect(result.current.state.links.outgoing).toHaveLength(1);
+    expect(result.current.state.links?.outgoing).toHaveLength(1);
   });
 
   it("degrades each layer independently when its read is denied", async () => {
@@ -96,6 +96,23 @@ describe("useObjectCard — 3-layer load", () => {
     expect(result.current.state.audit).toBeNull();
   });
 
+
+
+  it("still resolves when the audit response has malformed JSON", async () => {
+    server.use(
+      http.get("*/api/objects/work_order/wo-1", () => HttpResponse.json(headBody(true))),
+      http.get("*/api/v1/lifecycles/work_order/wo-1", () => new HttpResponse(null, { status: 403 })),
+      http.get("*/api/audit", () => new HttpResponse("not-json", { status: 200, headers: { "Content-Type": "application/json" } })),
+      http.get("*/api/v1/object-links", () => HttpResponse.json({ outgoing: [], incoming: [] })),
+    );
+
+    const { result } = renderCard();
+
+    await waitFor(() => { expect(result.current.state.status).toBe("resolved"); });
+    expect(result.current.state.audit).toBeNull();
+    expect(result.current.state.links).toEqual({ outgoing: [], incoming: [] });
+  });
+
   it("moves to error instead of staying loading when the head request rejects", async () => {
     server.use(http.get("*/api/objects/work_order/wo-1", () => HttpResponse.error()));
 
@@ -104,7 +121,7 @@ describe("useObjectCard — 3-layer load", () => {
     await waitFor(() => { expect(result.current.state.status).toBe("error"); });
   });
 
-  it("still resolves when relation loading rejects", async () => {
+  it("still resolves and omits relations when relation loading rejects", async () => {
     server.use(
       http.get("*/api/objects/work_order/wo-1", () => HttpResponse.json(headBody(true))),
       http.get("*/api/v1/lifecycles/work_order/wo-1", () => new HttpResponse(null, { status: 403 })),
@@ -115,7 +132,7 @@ describe("useObjectCard — 3-layer load", () => {
     const { result } = renderCard();
 
     await waitFor(() => { expect(result.current.state.status).toBe("resolved"); });
-    expect(result.current.state.links).toEqual({ outgoing: [], incoming: [] });
+    expect(result.current.state.links).toBeNull();
   });
 });
 
@@ -158,7 +175,7 @@ describe("useObjectCard — relation mutations", () => {
     });
     expect(ok).toBe(true);
     expect(created).toMatchObject({ src_kind: "work_order", src_id: "wo-1", dst_kind: "work_order", link_type: "relates_to" });
-    await waitFor(() => { expect(result.current.state.links.outgoing).toHaveLength(1); });
+    await waitFor(() => { expect(result.current.state.links?.outgoing).toHaveLength(1); });
   });
 
   it("does not POST an unlinkable bare code (deny-by-omission)", async () => {
@@ -194,7 +211,7 @@ describe("useObjectCard — relation mutations", () => {
       }),
     );
     const { result } = renderCard();
-    await waitFor(() => { expect(result.current.state.links.outgoing).toHaveLength(1); });
+    await waitFor(() => { expect(result.current.state.links?.outgoing).toHaveLength(1); });
 
     let ok = false;
     await act(async () => {
@@ -202,6 +219,6 @@ describe("useObjectCard — relation mutations", () => {
     });
     expect(ok).toBe(true);
     expect(deletedId).toBe("lnk-1");
-    await waitFor(() => { expect(result.current.state.links.outgoing).toHaveLength(0); });
+    await waitFor(() => { expect(result.current.state.links?.outgoing).toHaveLength(0); });
   });
 });

@@ -468,34 +468,37 @@ export function ObjectCardView({
         </Layer>
       ) : null}
 
-      {/* Layer 3 — 역학 (relations) */}
-      <Layer label={t.layer.dynamics}>
-        {links.outgoing.length === 0 && links.incoming.length === 0 ? (
-          <span style={{ fontSize: "var(--text-xs)", color: "var(--faint)" }}>{t.relation.empty}</span>
-        ) : (
-          <>
-            <RelationGroup
-              label={t.relation.outgoing}
-              edges={links.outgoing}
-              farEnd={(edge) => ({ kind: edge.dst_kind, id: edge.dst_id })}
-              target={target}
-              onOpen={onOpenObject}
-              onRemove={onRemoveRelation}
-            />
-            <RelationGroup
-              label={t.relation.incoming}
-              edges={links.incoming}
-              farEnd={(edge) => ({ kind: edge.src_kind, id: edge.src_id })}
-              target={target}
-              onOpen={onOpenObject}
-              onRemove={onRemoveRelation}
-            />
-          </>
-        )}
-        <PolicyGated action={OBJECT_CARD_ACTIONS.linkCreate} resource={target}>
-          <AddRelation onAdd={onAddRelation} />
-        </PolicyGated>
-      </Layer>
+      {/* Layer 3 — 역학 (relations). Null means the read was denied/failed, so
+          deny-by-omission hides the layer instead of pretending it is empty. */}
+      {links ? (
+        <Layer label={t.layer.dynamics}>
+          {links.outgoing.length === 0 && links.incoming.length === 0 ? (
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--faint)" }}>{t.relation.empty}</span>
+          ) : (
+            <>
+              <RelationGroup
+                label={t.relation.outgoing}
+                edges={links.outgoing}
+                farEnd={(edge) => ({ kind: edge.dst_kind, id: edge.dst_id })}
+                target={target}
+                onOpen={onOpenObject}
+                onRemove={onRemoveRelation}
+              />
+              <RelationGroup
+                label={t.relation.incoming}
+                edges={links.incoming}
+                farEnd={(edge) => ({ kind: edge.src_kind, id: edge.src_id })}
+                target={target}
+                onOpen={onOpenObject}
+                onRemove={onRemoveRelation}
+              />
+            </>
+          )}
+          <PolicyGated action={OBJECT_CARD_ACTIONS.linkCreate} resource={target}>
+            <AddRelation onAdd={onAddRelation} />
+          </PolicyGated>
+        </Layer>
+      ) : null}
     </article>
   );
 }
