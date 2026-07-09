@@ -90,7 +90,7 @@ const POLICY_ACTION_START_WORK_ORDER: &str = "maintenance:StartWorkOrder";
 const ALLOWED_CONNECTORS: &[ConnectorDescriptor] = &[
     ConnectorDescriptor {
         connector_key: "internal.approvals",
-        display_name: "전자결제시스템",
+        display_name: "전자결재시스템",
         action_keys: &["request_approval", "notify_assignee"],
     },
     ConnectorDescriptor {
@@ -5906,14 +5906,18 @@ mod tests {
     fn catalog_uses_electronic_approval_system_name_for_internal_approvals_connector() {
         let connector = ALLOWED_CONNECTORS
             .iter()
-            .find(|connector| connector.connector_key == "internal.approvals")
-            .expect("internal.approvals connector must remain allowlisted");
-
-        assert_eq!(connector.display_name, "전자결제시스템");
-        assert_eq!(
-            connector.action_keys,
-            &["request_approval", "notify_assignee"]
+            .find(|connector| connector.connector_key == "internal.approvals");
+        assert!(
+            connector.is_some(),
+            "internal.approvals connector must remain allowlisted"
         );
+        if let Some(connector) = connector {
+            assert_eq!(connector.display_name, "전자결재시스템");
+            assert_eq!(
+                connector.action_keys,
+                &["request_approval", "notify_assignee"]
+            );
+        }
     }
 
     /// The canonical completion→approval→payroll executable node graph (design

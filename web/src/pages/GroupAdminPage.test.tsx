@@ -179,7 +179,7 @@ describe("GroupAdminPage", () => {
     await user.click(
       screen.getByRole("button", { name: "코스 개인/부서 업무 바로가기" }),
     );
-    await user.click(screen.getByRole("button", { name: "코스 전자결제시스템" }));
+    await user.click(screen.getByRole("button", { name: "코스 전자결재시스템" }));
 
     await waitFor(() => {
       expect(enterViewAs).toHaveBeenCalledWith({

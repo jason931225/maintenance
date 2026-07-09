@@ -113,7 +113,7 @@ const catalogResponse = {
   connectors: [
     {
       connector_key: "internal.approvals",
-      display_name: "전자결제시스템",
+      display_name: "전자결재시스템",
       action_keys: ["request_approval", "notify_assignee"],
     },
     {
@@ -229,7 +229,7 @@ describe("WorkflowStudioPage", () => {
       ),
     ).toBeInTheDocument();
     expect(await screen.findByText("작업 완료 승인")).toBeInTheDocument();
-    expect(screen.getAllByText("전자결제시스템").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("전자결재시스템").length).toBeGreaterThan(0);
     expect(screen.getByText("request_approval")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "워크플로 캔버스" }),

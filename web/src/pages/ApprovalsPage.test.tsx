@@ -298,7 +298,7 @@ describe("ApprovalsPage", () => {
     renderPage();
 
     expect(
-      await screen.findByRole("heading", { name: "전자결제시스템 대기", level: 1 }),
+      await screen.findByRole("heading", { name: "전자결재시스템 대기", level: 1 }),
     ).toBeVisible();
     expect(screen.queryByText("Workflow + Approval")).not.toBeInTheDocument();
     expect(
@@ -306,12 +306,12 @@ describe("ApprovalsPage", () => {
         "작업 보고, 계획업무, 일정 변경 요청을 원천 업무 객체와 연결해 감사 가능한 승인 흐름으로 처리합니다.",
       ),
     ).not.toBeInTheDocument();
-    expect(await screen.findByText("전자결제시스템 액션 큐")).toBeVisible();
-    expect(screen.getByText("전자결제시스템 결재 대기")).toBeVisible();
-    expect(screen.getByText("전자결제시스템 상신문서")).toBeVisible();
-    expect(screen.getByText("전자결제시스템 결재완료")).toBeVisible();
+    expect(await screen.findByText("전자결재시스템 액션 큐")).toBeVisible();
+    expect(screen.getByText("전자결재시스템 결재 대기")).toBeVisible();
+    expect(screen.getByText("전자결재시스템 상신문서")).toBeVisible();
+    expect(screen.getByText("전자결재시스템 결재완료")).toBeVisible();
     const commandCenter = screen.getByRole("region", {
-      name: "전자결제시스템 액션 큐",
+      name: "전자결재시스템 액션 큐",
     });
     expect(commandCenter).toHaveClass("bg-brand-teal/5");
     expect(commandCenter).not.toHaveClass("bg-ink");
@@ -325,7 +325,7 @@ describe("ApprovalsPage", () => {
       "href",
       expect.stringContaining("/approvals?source=work-order&focus="),
     );
-    expect(screen.getByRole("link", { name: "전자결제시스템 작업 큐로 이동" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "전자결재시스템 작업 큐로 이동" })).toBeVisible();
     expect(screen.getByText("계획업무 검토")).toBeVisible();
     expect(screen.getByText("일정 변경 검토")).toBeVisible();
     expect(screen.getByText("전자결재 문서·연동 데스크")).toBeVisible();
@@ -390,8 +390,8 @@ describe("ApprovalsPage", () => {
       `/approvals?source=work-order&focus=${focusedWorkOrder.source_id}`,
     ]);
 
-    expect(await screen.findByText("통합 개요에서 연결된 전자결제시스템 건을 강조했습니다.")).toBeVisible();
-    const focusedApproval = screen.getByLabelText(/20260612-002 연결된 전자결제시스템 건/);
+    expect(await screen.findByText("통합 개요에서 연결된 전자결재시스템 건을 강조했습니다.")).toBeVisible();
+    const focusedApproval = screen.getByLabelText(/20260612-002 연결된 전자결재시스템 건/);
     expect(focusedApproval).toHaveAttribute(
       "id",
       `approval-work-order-${focusedWorkOrder.source_id}`,
@@ -408,9 +408,9 @@ describe("ApprovalsPage", () => {
 
     expect(
       await screen.findByText(
-        "연결된 전자결제시스템 건이 현재 전자결제시스템 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+        "연결된 전자결재시스템 건이 현재 전자결재시스템 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
       ),
     ).toBeVisible();
-    expect(screen.queryByLabelText(/20260612-002 연결된 전자결제시스템 건/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/20260612-002 연결된 전자결재시스템 건/)).not.toBeInTheDocument();
   });
 });

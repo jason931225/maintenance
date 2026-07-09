@@ -653,7 +653,7 @@ describe("routing", () => {
     expect(
       await screen.findByRole(
         "heading",
-        { name: "전자결제시스템 대기", level: 1 },
+        { name: "전자결재시스템 대기", level: 1 },
         { timeout: 15000 },
       ),
     ).toBeVisible();
