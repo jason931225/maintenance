@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RENDER="$(mktemp)"
 trap 'rm -f "$RENDER"' EXIT
+failures=0
 
 kustomize build "$ROOT/deploy/apps/maintenance/overlays/prod" > "$RENDER"
 
@@ -14,7 +15,7 @@ require() {
     printf 'PASS  %s\n' "$label"
   else
     printf 'FAIL  %s (missing %q)\n' "$label" "$needle" >&2
-    return 1
+    failures=$((failures + 1))
   fi
 }
 
@@ -23,7 +24,7 @@ reject() {
   local label="$2"
   if grep -Fq "$needle" "$RENDER"; then
     printf 'FAIL  %s (found forbidden %q)\n' "$label" "$needle" >&2
-    return 1
+    failures=$((failures + 1))
   else
     printf 'PASS  %s\n' "$label"
   fi
@@ -45,6 +46,11 @@ reject 'containerPort: 25' 'public SMTP/MX port 25 is not enabled'
 reject 'containerPort: 587' 'public submission port 587 is not enabled'
 reject 'containerPort: 993' 'public IMAPS port 993 is not enabled'
 reject 'hostPort:' 'mox does not bind host ports'
+
+if (( failures > 0 )); then
+  printf '\nStatic NetworkPolicy proof failed (%d checks). See FAIL lines above.\n' "$failures" >&2
+  exit 1
+fi
 
 cat <<'MSG'
 
