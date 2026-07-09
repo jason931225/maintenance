@@ -1,6 +1,7 @@
 import type { ConsoleApiClient } from "../../api/client";
-import { objectRegistry } from "../../lib/objectRegistry";
-import { safeLabel } from "../../lib/utils";
+import { ko } from "../../i18n/ko";
+import { objectRegistry, workOrderCode } from "../../lib/objectRegistry";
+import { priorityLabel, safeLabel } from "../../lib/utils";
 import type { PinKind, PinnedObject } from "./types";
 
 /**
@@ -24,7 +25,36 @@ export async function fetchPinnedObject(
   args: { id: string; code: string; branchId: string | undefined },
 ): Promise<PinnedObject | null> {
   if (kind === "person") return fetchPersonPin(api, args.id, args.branchId);
+  if (kind === "workOrder") return fetchWorkOrderPin(api, args.id);
   return null;
+}
+
+async function fetchWorkOrderPin(
+  api: ConsoleApiClient,
+  workOrderId: string,
+): Promise<PinnedObject | null> {
+  let wo;
+  try {
+    const response = await api.GET("/api/v1/work-orders/{workOrderId}", {
+      params: { path: { workOrderId } },
+    });
+    wo = response.data;
+  } catch {
+    return null;
+  }
+  if (!wo) return null;
+
+  const code = workOrderCode(wo.request_no);
+  return {
+    kind: "workOrder",
+    code,
+    title: `${safeLabel(wo.customer.name)} · ${safeLabel(wo.equipment.model, wo.equipment.equipment_no)}`,
+    fields: [
+      { label: ko.console.workspace.field.status, value: ko.status[wo.status] },
+      { label: ko.console.workspace.field.priority, value: priorityLabel(wo.priority) },
+    ],
+    href: objectRegistry.workOrder.route({ id: workOrderId, code }),
+  };
 }
 
 async function fetchPersonPin(

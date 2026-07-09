@@ -3,6 +3,8 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createConsoleApiClient } from "../../api/client";
+import { ko } from "../../i18n/ko";
+import { workOrderListItems } from "../../test/fixtures";
 import { fetchPinnedObject } from "./objectPin";
 
 const server = setupServer();
@@ -63,5 +65,38 @@ describe("fetchPinnedObject — person (AC4)", () => {
 
     expect(await fetchPinnedObject(api, "person", { id: personId, code: personId, branchId: undefined })).toBeNull();
     expect(called).toBe(false);
+  });
+});
+
+describe("fetchPinnedObject — work order (#21)", () => {
+  it("fetches the branch-scoped detail and builds a status/priority pin", async () => {
+    const wo = workOrderListItems[0];
+    server.use(http.get("*/api/v1/work-orders/:id", () => HttpResponse.json(wo)));
+    const api = createConsoleApiClient("test-token");
+
+    const pin = await fetchPinnedObject(api, "workOrder", {
+      id: wo.id,
+      code: `WO-${wo.request_no}`,
+      branchId,
+    });
+
+    expect(pin).toMatchObject({ kind: "workOrder", code: `WO-${wo.request_no}` });
+    expect(pin?.fields.map((f) => f.label)).toEqual([
+      ko.console.workspace.field.status,
+      ko.console.workspace.field.priority,
+    ]);
+    // Status/priority rendered as Korean labels, never raw enum codes.
+    expect(pin?.fields[0].value).toBe(ko.status[wo.status]);
+  });
+
+  it("returns null (no pin) when the work order is not found", async () => {
+    server.use(
+      http.get("*/api/v1/work-orders/:id", () => HttpResponse.json({ error: "nf" }, { status: 404 })),
+    );
+    const api = createConsoleApiClient("test-token");
+
+    expect(
+      await fetchPinnedObject(api, "workOrder", { id: "x", code: "WO-x", branchId }),
+    ).toBeNull();
   });
 });

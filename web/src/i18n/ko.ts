@@ -37,6 +37,7 @@ export const ko = {
         detail: "내용",
         due: "기한",
         status: "상태",
+        priority: "우선순위",
         occurredAt: "발생 시각",
         stateAfter: "이후 상태",
         note: "비고",
