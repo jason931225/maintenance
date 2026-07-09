@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.46](https://github.com/jason931225/maintenance/compare/v0.1.45...v0.1.46) (2026-07-09)
+
+
+### Features
+
+* **audit-chain:** L20 tamper-evident audit chain — seal worker + verify (PR-1, dark) ([#204](https://github.com/jason931225/maintenance/issues/204)) ([ab63633](https://github.com/jason931225/maintenance/commit/ab63633b69eafc42ac40b744f77e60536ff0fdf3))
+* **notifications:** unread-count endpoint for comms rail badge (UI-M2b backend) ([#212](https://github.com/jason931225/maintenance/issues/212)) ([09910af](https://github.com/jason931225/maintenance/commit/09910af60f586917a85c6feb99379da8ddd6e7a5))
+* **objects:** BE-OBJ slice 1 — audit per-object filters, object_links edge store, object resolve endpoint ([#206](https://github.com/jason931225/maintenance/issues/206)) ([0008f2f](https://github.com/jason931225/maintenance/commit/0008f2f15eaaf9064003cf8ba0e681d29032989d))
+
+
+### Bug Fixes
+
+* **workflow:** SoD guard — initiator cannot approve own engine run ([#205](https://github.com/jason931225/maintenance/issues/205)) ([7e45cd0](https://github.com/jason931225/maintenance/commit/7e45cd0215f90029bf8a328e554b72c9a0581ebd))
+
 ## [0.1.45](https://github.com/jason931225/maintenance/compare/v0.1.44...v0.1.45) (2026-07-09)
 
 
