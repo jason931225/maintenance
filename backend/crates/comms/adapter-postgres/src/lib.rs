@@ -465,6 +465,10 @@ impl PgMailStore {
                     SET last_sync_at = now(),
                         sync_status = $2,
                         last_sync_error = $3,
+                        -- Release the scheduler's claim lease so the account is
+                        -- eligible again on its next cadence (not blocked by a
+                        -- still-outstanding lease from this pass).
+                        claimed_until = NULL,
                         consecutive_auth_failures = CASE
                             WHEN $2 = 'AUTH_FAILED' THEN consecutive_auth_failures + 1
                             WHEN $2 = 'OK' THEN 0
@@ -489,15 +493,20 @@ impl PgMailStore {
         &self,
         now: Timestamp,
     ) -> Result<Vec<DueAccount>, PgMailError> {
-        // Cross-tenant id-only enumeration via the SECURITY DEFINER function. Runs
-        // on the raw pool (NO org armed) — the function REVOKEs PUBLIC and only
-        // mnt_rt may EXECUTE it; it returns ONLY (org_id, account_id) pairs.
-        let rows = sqlx::query("SELECT org_id, account_id FROM comms_due_email_accounts($1, $2)")
-            .bind(now)
-            .bind(SYNC_DISPATCH_LIMIT)
-            // rls-arming: ok comms_due_email_accounts is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) that returns id-only (org_id, account_id) pairs across tenants for the scheduler; it cannot be org-armed (it predates knowing the orgs) and exposes no tenant data
-            .fetch_all(&self.pool)
-            .await?;
+        // Cross-tenant id-only CLAIM via the SECURITY DEFINER function. Runs on the
+        // raw pool (NO org armed) — the function REVOKEs PUBLIC and only mnt_rt may
+        // EXECUTE it; it atomically locks the due, unclaimed rows with FOR UPDATE
+        // SKIP LOCKED, stamps a `claimed_until` lease on each, and returns ONLY the
+        // (org_id, account_id) pairs. Concurrent workers therefore claim DISJOINT
+        // batches; a crashed worker's lease is reclaimable once it expires.
+        let rows =
+            sqlx::query("SELECT org_id, account_id FROM comms_due_email_accounts($1, $2, $3)")
+                .bind(now)
+                .bind(SYNC_DISPATCH_LIMIT)
+                .bind(SYNC_CLAIM_LEASE_SECS)
+                // rls-arming: ok comms_due_email_accounts is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) that returns id-only (org_id, account_id) pairs across tenants for the scheduler; it cannot be org-armed (it predates knowing the orgs) and exposes no tenant data — it only stamps its own claim lease
+                .fetch_all(&self.pool)
+                .await?;
         rows.into_iter()
             .map(|row| {
                 Ok(DueAccount {
@@ -895,6 +904,11 @@ impl MailReadStore for PgMailStore {
 
 /// Per-tick cap on how many due accounts the scheduler enumerates + dispatches.
 const SYNC_DISPATCH_LIMIT: i32 = 100;
+/// Lease (seconds) stamped on a claimed account. Longer than any healthy sync
+/// pass so a slow-but-alive worker keeps its claim, short enough that a crashed
+/// worker's claim is reclaimable promptly. `record_sync_result` clears the lease
+/// on completion; this is the crash-recovery ceiling, not the steady-state hold.
+const SYNC_CLAIM_LEASE_SECS: i32 = 600;
 /// Max threads returned in one thread-list page.
 const MAX_THREAD_PAGE: i64 = 100;
 
