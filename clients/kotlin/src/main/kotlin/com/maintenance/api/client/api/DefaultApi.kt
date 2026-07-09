@@ -8769,7 +8769,6 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         )
     }
 
-
     /**
      * GET /api/v1/me/inbox-docs/{id}
      * Read one of the authenticated user&#39;s inbox documents

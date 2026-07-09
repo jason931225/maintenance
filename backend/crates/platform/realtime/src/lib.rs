@@ -1421,14 +1421,14 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                    WHERE read_receipt_message.id IS NOT NULL
                      AND (read_receipt_message.sent_at, read_receipt_message.id) >= (m.sent_at, m.id)
                )::BIGINT AS read_count,
-               COUNT(DISTINCT ack.user_id)::BIGINT AS ack_count
+               (SELECT COUNT(*) FROM messenger_message_acks ack
+                WHERE ack.message_id = m.id)::BIGINT AS ack_count
         FROM messenger_messages m
         LEFT JOIN LATERAL (
             SELECT array_agg(a.evidence_id ORDER BY a.sort_order) AS attachment_evidence_ids
             FROM messenger_message_attachments a
             WHERE a.message_id = m.id
         ) att ON true
-        LEFT JOIN messenger_message_acks ack ON ack.message_id = m.id
         LEFT JOIN messenger_thread_members tm_read_target
           ON tm_read_target.thread_id = m.thread_id
          AND tm_read_target.user_id <> m.sender_id

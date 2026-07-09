@@ -910,43 +910,69 @@ async fn racing_duplicate_ack_insert_is_absorbed_not_a_500(pool: PgPool) {
         )
         .await;
 
-        // The "winner": toggles on normally.
-        store
-            .toggle_ack(ToggleAckCommand {
-                actor: seeded.recipient,
-                branch_scope: BranchScope::single(seeded.branch),
-                message_id: message.id,
-                trace: TraceContext::generate(),
-                occurred_at: OffsetDateTime::now_utc(),
-            })
+        // Force both production `toggle_ack` calls onto the insert branch: the
+        // first insert pauses before writing, letting the second insert commit;
+        // the first then resumes and must hit ON CONFLICT DO NOTHING instead of
+        // surfacing a duplicate-key 500.
+        sqlx::query("CREATE SEQUENCE messenger_ack_race_seq")
+            .execute(&pool)
             .await
             .unwrap();
-
-        // The "loser": the exact INSERT toggle_ack issues on its own
-        // delete-then-insert not-yet-acked branch, run directly against the
-        // already-acked row.
-        let result = sqlx::query(
+        sqlx::query(
             r#"
-            INSERT INTO messenger_message_acks (message_id, user_id, org_id, acked_at)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (message_id, user_id) DO NOTHING
+            CREATE FUNCTION messenger_ack_race_pause() RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF nextval('messenger_ack_race_seq') = 1 THEN
+                    PERFORM pg_sleep(0.25);
+                END IF;
+                RETURN NEW;
+            END;
+            $$
             "#,
         )
-        .bind(*message.id.as_uuid())
-        .bind(*seeded.recipient.as_uuid())
-        .bind(*mnt_kernel_core::OrgId::knl().as_uuid())
-        .bind(OffsetDateTime::now_utc())
         .execute(&pool)
-        .await;
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            CREATE TRIGGER messenger_ack_race_pause
+            BEFORE INSERT ON messenger_message_acks
+            FOR EACH ROW EXECUTE FUNCTION messenger_ack_race_pause()
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
-        let result = result.expect(
-            "the racing duplicate ack INSERT must resolve via ON CONFLICT DO NOTHING, not a 500",
+        let first_store = store.clone();
+        let second_store = store.clone();
+        let first = first_store.toggle_ack(ToggleAckCommand {
+            actor: seeded.recipient,
+            branch_scope: BranchScope::single(seeded.branch),
+            message_id: message.id,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        });
+        let second = second_store.toggle_ack(ToggleAckCommand {
+            actor: seeded.recipient,
+            branch_scope: BranchScope::single(seeded.branch),
+            message_id: message.id,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        });
+
+        let (first, second) = tokio::join!(first, second);
+        let first = first.expect("first racing toggle_ack must not 500");
+        let second = second.expect("second racing toggle_ack must not 500");
+        assert!(first.acked, "first racing toggle should converge to acked");
+        assert!(
+            second.acked,
+            "second racing toggle should converge to acked"
         );
-        assert_eq!(
-            result.rows_affected(),
-            0,
-            "the conflict must be a no-op, not a second row"
-        );
+        assert_eq!(first.ack_count, 1);
+        assert_eq!(second.ack_count, 1);
 
         let row_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM messenger_message_acks WHERE message_id = $1")

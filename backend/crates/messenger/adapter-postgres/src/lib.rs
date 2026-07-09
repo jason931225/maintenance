@@ -1572,7 +1572,7 @@ fn thread_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<ThreadSummary,
 
 /// Builds the message read-model SELECT. `actor` is bound for the per-caller
 /// `acked_by_me` flag; ack count, reply-quote preview, read progress, and
-/// attachments are all resolved via joins so one row is one `MessageSummary`.
+/// attachments stay isolated from read/ack fan-out so one row is one `MessageSummary`.
 fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
@@ -1587,8 +1587,11 @@ fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
                    WHERE read_receipt_message.id IS NOT NULL
                      AND (read_receipt_message.sent_at, read_receipt_message.id) >= (m.sent_at, m.id)
                )::BIGINT AS read_count,
-               COUNT(DISTINCT ack.user_id)::BIGINT AS ack_count,
-               bool_or(ack.user_id =
+               (SELECT COUNT(*) FROM messenger_message_acks ack
+                WHERE ack.message_id = m.id)::BIGINT AS ack_count,
+               EXISTS (
+                   SELECT 1 FROM messenger_message_acks ack
+                   WHERE ack.message_id = m.id AND ack.user_id =
         "#,
     );
     builder.push_bind(*actor.as_uuid());
@@ -1600,7 +1603,6 @@ fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
             FROM messenger_message_attachments a
             WHERE a.message_id = m.id
         ) att ON true
-        LEFT JOIN messenger_message_acks ack ON ack.message_id = m.id
         LEFT JOIN messenger_thread_members tm_read_target
           ON tm_read_target.thread_id = m.thread_id
          AND tm_read_target.user_id <> m.sender_id

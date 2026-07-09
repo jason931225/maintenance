@@ -22,7 +22,7 @@ INSERT INTO messenger_threads (
 VALUES (
   '00000000-0000-0000-0000-000000c00002',
   'group',
-  'channel',
+  'direct',
   :'branch_id',
   'E2E 접수팀 대화',
   :'recp_id',
