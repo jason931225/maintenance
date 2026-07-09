@@ -121,6 +121,13 @@ pub trait ReportingExportPort {
         &self,
         query: ReportingExportQuery,
     ) -> impl Future<Output = Result<ExportedWorkbook, ReportingExportError>> + Send + '_;
+
+    /// Build the KPI report (identical aggregation to the JSON `query_kpis`
+    /// path) as a downloadable Excel workbook.
+    fn export_kpi(
+        &self,
+        query: KpiQuery,
+    ) -> impl Future<Output = Result<ExportedWorkbook, ReportingExportError>> + Send + '_;
 }
 
 pub trait WorkDiaryDraftPort {

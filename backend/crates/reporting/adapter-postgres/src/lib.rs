@@ -19,10 +19,11 @@ use mnt_reporting_application::{
     WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
 };
 use mnt_reporting_domain::{
-    DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiInspectionRecord,
-    KpiMetric, KpiP1Record, KpiReport, KpiRollupScope, KpiScope, OpsEquipmentStatus, OpsFunnel,
-    OpsMechanicLoad, OpsSummary, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry,
-    WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
+    DailyStatusReport, DailyStatusRow, ExportSourceNote, KPI_EXPORT_HEADERS, KpiInputRecord,
+    KpiInspectionRecord, KpiMetric, KpiP1Record, KpiReport, KpiRollupScope, KpiScope,
+    OpsEquipmentStatus, OpsFunnel, OpsMechanicLoad, OpsSummary, PeriodicInspectionRow,
+    UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus,
+    calculate_kpi_report, kpi_export_rows,
 };
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::{Date, Duration, OffsetDateTime, Time};
@@ -33,6 +34,7 @@ const WORK_DIARY_TEMPLATE_BYTES: &[u8] =
     include_bytes!("../../../../../docs/reference/업무일지_26.05.27.xlsx");
 const EXCEL_CONTENT_TYPE: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const KPI_SHEET_NAME: &str = "KPI";
 
 struct ExportLogCommand<'a> {
     export_kind: &'static str,
@@ -488,6 +490,35 @@ impl PgKpiRepository {
         })
         .await?;
 
+        Ok(ExportedWorkbook {
+            file_name,
+            content_type: EXCEL_CONTENT_TYPE,
+            bytes,
+        })
+    }
+
+    async fn export_kpi_inner(
+        &self,
+        query: KpiQuery,
+    ) -> Result<ExportedWorkbook, ReportingExportError> {
+        // Build the workbook from the SAME aggregation the JSON KPI endpoint
+        // serves, so the export can never diverge from the on-screen numbers.
+        let period = query.period;
+        let report = self
+            .query_kpis_inner(query)
+            .await
+            .map_err(export_error_from_kpi_query)?;
+        let bytes = render_kpi(&report)?;
+        let file_name = format!(
+            "kpi-{}-to-{}.xlsx",
+            iso_date(period.start.date()),
+            iso_date(period.end.date())
+        );
+        // ponytail: KPI downloads are NOT yet recorded in excel_export_logs like
+        // the sibling daily-status/work-diary exports are. That table's
+        // `export_kind` CHECK only permits ('daily_status','work_diary') and this
+        // slice adds no migration; auditing the download is a one-line CHECK
+        // migration (add 'kpi') plus an audit-carrying query away.
         Ok(ExportedWorkbook {
             file_name,
             content_type: EXCEL_CONTENT_TYPE,
@@ -1325,6 +1356,10 @@ impl ReportingExportPort for PgKpiRepository {
             .await
             .map_err(Into::into)
     }
+
+    async fn export_kpi(&self, query: KpiQuery) -> Result<ExportedWorkbook, ReportingExportError> {
+        self.export_kpi_inner(query).await
+    }
 }
 
 impl WorkDiaryDraftPort for PgKpiRepository {
@@ -1589,6 +1624,41 @@ fn render_daily_status(report: &DailyStatusReport) -> Result<Vec<u8>, PgReportin
         ],
     )
     .map_err(|error| PgReportingError::Workbook(error.to_string()))
+}
+
+fn export_error_from_kpi_query(error: KpiQueryError) -> ReportingExportError {
+    match error {
+        KpiQueryError::Kernel(error) => ReportingExportError::Kernel(error),
+        KpiQueryError::Database(message) => ReportingExportError::Database(message),
+    }
+}
+
+/// Render the KPI rollups into a fresh single-sheet workbook. The KPI report has
+/// no fixed Korean form to fill (unlike daily-status/work-diary), so this builds
+/// the sheet from scratch: a header row from `KPI_EXPORT_HEADERS` followed by one
+/// row per rollup produced by the pure `kpi_export_rows` shaping function.
+fn render_kpi(report: &KpiReport) -> Result<Vec<u8>, PgReportingError> {
+    let mut workbook = umya_spreadsheet::new_file();
+    workbook
+        .set_sheet_name(0, KPI_SHEET_NAME)
+        .map_err(|error| PgReportingError::Workbook(error.to_string()))?;
+    let sheet = workbook
+        .sheet_by_name_mut(KPI_SHEET_NAME)
+        .map_err(|error| PgReportingError::Workbook(error.to_string()))?;
+
+    for (column, header) in (1u32..).zip(KPI_EXPORT_HEADERS.iter()) {
+        write_cell(sheet, column, 1, *header);
+    }
+    for (row_number, row) in (2u32..).zip(kpi_export_rows(report)) {
+        for (column, value) in (1u32..).zip(row) {
+            write_cell(sheet, column, row_number, value);
+        }
+    }
+
+    let mut output = Vec::new();
+    umya_spreadsheet::writer::xlsx::write_writer(&workbook, &mut output)
+        .map_err(|error| PgReportingError::Workbook(error.to_string()))?;
+    Ok(output)
 }
 
 #[derive(Clone, Copy)]

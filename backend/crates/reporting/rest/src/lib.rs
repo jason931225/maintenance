@@ -26,6 +26,7 @@ pub const KPI_PATH: &str = "/api/v1/kpi";
 pub const OPS_SUMMARY_PATH: &str = "/api/v1/ops/summary";
 pub const DAILY_STATUS_EXPORT_PATH: &str = "/api/v1/exports/daily-status";
 pub const WORK_DIARY_EXPORT_PATH: &str = "/api/v1/exports/work-diary";
+pub const KPI_EXPORT_PATH: &str = "/api/v1/exports/kpi";
 pub const WORK_DIARY_PATH: &str = "/api/v1/reporting/work-diary";
 pub const WORK_DIARY_CONFIRM_PATH: &str = "/api/v1/reporting/work-diary/confirm";
 pub const KPI_ROUTE_PATHS: &[&str] = &[
@@ -33,6 +34,7 @@ pub const KPI_ROUTE_PATHS: &[&str] = &[
     OPS_SUMMARY_PATH,
     DAILY_STATUS_EXPORT_PATH,
     WORK_DIARY_EXPORT_PATH,
+    KPI_EXPORT_PATH,
     WORK_DIARY_PATH,
     WORK_DIARY_CONFIRM_PATH,
 ];
@@ -68,6 +70,7 @@ pub fn router(state: KpiRestState) -> Router {
         .route(OPS_SUMMARY_PATH, get(get_ops_summary))
         .route(DAILY_STATUS_EXPORT_PATH, get(get_daily_status_export))
         .route(WORK_DIARY_EXPORT_PATH, get(get_work_diary_export))
+        .route(KPI_EXPORT_PATH, get(get_kpi_export))
         .route(WORK_DIARY_PATH, get(get_work_diary).put(update_work_diary))
         .route(WORK_DIARY_CONFIRM_PATH, post(confirm_work_diary))
         .with_state(state);
@@ -276,6 +279,27 @@ async fn get_work_diary_export(
     let workbook = state
         .repository
         .export_work_diary(export_query(&principal, date))
+        .await
+        .map_err(RestError::from_export)?;
+    workbook_response(workbook.file_name, workbook.content_type, workbook.bytes)
+}
+
+async fn get_kpi_export(
+    State(state): State<KpiRestState>,
+    headers: HeaderMap,
+    Query(params): Query<KpiRequestQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let period = parse_period(&params.period)?;
+    let scope = parse_scope(params.scope.as_deref())?;
+    authorize_reporting_feature(&principal, Feature::ExcelDownload)?;
+    let workbook = state
+        .repository
+        .export_kpi(KpiQuery {
+            period,
+            scope,
+            branch_scope: principal.branch_scope.clone(),
+        })
         .await
         .map_err(RestError::from_export)?;
     workbook_response(workbook.file_name, workbook.content_type, workbook.bytes)
