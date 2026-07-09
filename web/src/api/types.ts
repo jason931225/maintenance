@@ -571,3 +571,15 @@ export type AttendanceSummaryItem =
   components["schemas"]["AttendanceSummaryItem"];
 export type TodoSummary = components["schemas"]["TodoSummary"];
 export type TodoRef = components["schemas"]["TodoRef"];
+
+// UI-M4 전자결재 (approvals on the workflow engine).
+export type WorkflowRunListItem =
+  components["schemas"]["WorkflowRunListItem"];
+export type WorkflowRunDetailResponse =
+  components["schemas"]["WorkflowRunDetailResponse"];
+export type WorkflowRunDetailRun =
+  components["schemas"]["WorkflowRunDetailRun"];
+export type WorkflowRunTimelineStep =
+  components["schemas"]["WorkflowRunTimelineStep"];
+export type DecideWorkflowTaskResponse =
+  components["schemas"]["DecideWorkflowTaskResponse"];

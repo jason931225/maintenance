@@ -18,6 +18,7 @@ import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
 import { ViewAsBanner } from "../../features/platform/ViewAsBanner";
 import { AttendancePage } from "../../pages/AttendancePage";
+import { EApprovalsPage } from "../../pages/EApprovalsPage";
 import { OverviewPage } from "../../pages/OverviewPage";
 import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { ConsoleToast } from "../console/primitives";
@@ -42,11 +43,13 @@ import { CommsRail } from "../../features/comms/CommsRail";
 const SCREEN_FOR_PATH: Record<string, ScreenKey> = {
   "/attendance": "attendance",
   "/overview": "overview",
+  "/e-approvals": "eApprovals",
 };
 
 const NAV_ITEM_FOR_SCREEN: Record<ScreenKey, NavItemKey> = {
   overview: "overview",
   attendance: "my-attendance",
+  eApprovals: "e-approvals",
 };
 
 const EMPTY_PANELS: Panel[] = [];
@@ -97,6 +100,12 @@ function ConsoleShellContent() {
     ),
     attendance: isNavItemVisible(
       NAV_ITEM_FOR_SCREEN.attendance,
+      session?.roles,
+      session?.group_roles,
+      session?.feature_grants,
+    ),
+    eApprovals: isNavItemVisible(
+      NAV_ITEM_FOR_SCREEN.eApprovals,
       session?.roles,
       session?.group_roles,
       session?.feature_grants,
@@ -253,6 +262,14 @@ function ConsoleShellContent() {
                 ownerKey={workspaceOwnerKey}
               >
                 <AttendancePage active={activeScreen === "attendance"} />
+              </ScreenSlot>
+              <ScreenSlot
+                screen="eApprovals"
+                active={activeScreen === "eApprovals"}
+                mounted={visible.eApprovals}
+                ownerKey={workspaceOwnerKey}
+              >
+                <EApprovalsPage active={activeScreen === "eApprovals"} />
               </ScreenSlot>
             </RouteErrorBoundary>
           </QuadrantContainer>

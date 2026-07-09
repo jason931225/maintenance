@@ -13,6 +13,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
 import {
+  createApprovalCandidateProvider,
   createPersonCandidateProvider,
   createWorkOrderCandidateProvider,
   filterCandidates,
@@ -65,6 +66,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   // Raw fetched pages (fetched once on open); filtered client-side below.
   const [work, setWork] = useState<ObjectCandidate[]>([]);
   const [people, setPeople] = useState<ObjectCandidate[]>([]);
+  const [approvals, setApprovals] = useState<ObjectCandidate[]>([]);
   // True only for the one open-fetch below (both pages share it, since they
   // fetch together) — not touched by query changes, which just re-filter.
   const [objectsLoading, setObjectsLoading] = useState(true);
@@ -101,6 +103,10 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
     () => (branchId ? createPersonCandidateProvider(api, branchId) : undefined),
     [api, branchId],
   );
+  const approvalProvider = useMemo(
+    () => createApprovalCandidateProvider(api),
+    [api],
+  );
 
   // Fetch both pages once when the palette opens; the object lookups are
   // deny-by-omission (the providers are branch/RLS-scoped server-side). The
@@ -109,19 +115,21 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
     const guard = { live: true };
     void (async () => {
       setObjectsLoading(true);
-      const [workResult, peopleResult] = await Promise.all([
+      const [workResult, peopleResult, approvalResult] = await Promise.all([
         workProvider(),
         personProvider ? personProvider() : Promise.resolve(null),
+        approvalProvider(),
       ]);
       if (!guard.live) return;
       setWork(workResult.status === "ok" ? workResult.candidates : []);
       setPeople(peopleResult && peopleResult.status === "ok" ? peopleResult.candidates : []);
+      setApprovals(approvalResult.status === "ok" ? approvalResult.candidates : []);
       setObjectsLoading(false);
     })();
     return () => {
       guard.live = false;
     };
-  }, [workProvider, personProvider]);
+  }, [workProvider, personProvider, approvalProvider]);
 
   // Debounce so a burst of keystrokes runs one client-side filter pass over the
   // cached object pages, not one per character. The screen list stays instant.
@@ -138,6 +146,10 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   const filteredPeople = useMemo(
     () => filterCandidates(people, debouncedQuery),
     [people, debouncedQuery],
+  );
+  const filteredApprovals = useMemo(
+    () => filterCandidates(approvals, debouncedQuery),
+    [approvals, debouncedQuery],
   );
 
   // Flat navigable list = screens, then work, then people.
@@ -158,8 +170,13 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
         key: `person:${candidate.code}`,
         candidate,
       })),
+      ...filteredApprovals.map((candidate) => ({
+        type: "object" as const,
+        key: `approval:${candidate.code}`,
+        candidate,
+      })),
     ];
-  }, [filteredCommands, filteredWork, filteredPeople]);
+  }, [filteredCommands, filteredWork, filteredPeople, filteredApprovals]);
 
   useEffect(() => {
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -233,6 +250,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   // people), so a row can report its own index without scanning.
   const workOffset = filteredCommands.length;
   const peopleOffset = workOffset + filteredWork.length;
+  const approvalsOffset = peopleOffset + filteredPeople.length;
 
   return (
     <Dialog
@@ -341,6 +359,26 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
                   active={boundedActiveIndex === peopleOffset + i}
                   onHover={() => {
                     setActiveIndex(peopleOffset + i);
+                  }}
+                  onRun={() => {
+                    runObject(candidate);
+                  }}
+                />
+              ))}
+            </PaletteSection>
+            <PaletteSection
+              labelId={`${sectionId}-approvals`}
+              label={ko.shell.commandPalette.sections.approvals}
+              hasRows={filteredApprovals.length > 0}
+            >
+              {filteredApprovals.map((candidate, i) => (
+                <ObjectRowButton
+                  key={`approval:${candidate.code}`}
+                  id={rowDomId(sectionId, rows[approvalsOffset + i])}
+                  candidate={candidate}
+                  active={boundedActiveIndex === approvalsOffset + i}
+                  onHover={() => {
+                    setActiveIndex(approvalsOffset + i);
                   }}
                   onRun={() => {
                     runObject(candidate);

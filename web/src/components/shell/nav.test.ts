@@ -39,6 +39,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "overview",
     "my-attendance",
     "approvals",
+    "e-approvals",
     "messenger",
     "mail",
     "dispatch",
@@ -74,6 +75,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "overview",
     "my-attendance",
     "approvals",
+    "e-approvals",
     "messenger",
     "mail",
     "dispatch",
@@ -107,6 +109,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.EXECUTIVE]: [
     "overview",
     "my-attendance",
+    "e-approvals",
     "messenger",
     "mail",
     "dispatch",
@@ -133,6 +136,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.MECHANIC]: [
     "overview",
     "my-attendance",
+    "e-approvals",
     "messenger",
     "dispatch",
     "dispatch-map",
@@ -150,6 +154,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.RECEPTIONIST]: [
     "overview",
     "my-attendance",
+    "e-approvals",
     "messenger",
     "mail",
     "dispatch",
@@ -184,6 +189,7 @@ describe("nav role gating", () => {
       "overview",
       "my-attendance",
       "approvals",
+      "e-approvals",
       "messenger",
       "mail",
     ]);

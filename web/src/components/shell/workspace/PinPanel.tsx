@@ -5,6 +5,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { ApprovalDetailPanel } from "../../../features/eApprovals/ApprovalDetailPanel";
 import { chipPrefix } from "../../../features/workspace/format";
 import type { PinKind, PinnedObject } from "../../../features/workspace/types";
 import { usePinDetail } from "../../../features/workspace/usePinDetail";
@@ -135,6 +136,21 @@ export function PinPanel({
             {ko.page.loadFailed}
           </p>
         ) : null}
+        {object.kind === "approval" && object.refId ? (
+          // UI-M4: the AP- object renders the live run detail + engine decision
+          // surface instead of the generic field grid.
+          <ApprovalDetailPanel runId={object.refId} />
+        ) : (
+          <ApprovalGenericBody object={object} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ApprovalGenericBody({ object }: { object: PinnedObject }) {
+  return (
+    <>
         <dl className="grid gap-2">
           {object.fields.map((field) => (
             <div key={field.label} className="grid grid-cols-[6rem_1fr] gap-2">
@@ -155,8 +171,7 @@ export function PinPanel({
             {ko.console.workspace.panel.open}
           </a>
         ) : null}
-      </div>
-    </section>
+    </>
   );
 }
 

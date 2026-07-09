@@ -55,7 +55,9 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "accent",
     icon: "fileCheck",
     kindLabel: ko.console.objectKinds.approval,
-    route: (ref) => `/approvals?ref=${encodeURIComponent(withPrefix("AP-", ref))}`,
+    // UI-M4: the AP- object is a workflow-engine run — its detail lives on the
+    // 전자결재 ConsoleShell screen, keyed by the full run id (not the display code).
+    route: (ref) => `/e-approvals?run=${encodeURIComponent(ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   workOrder: {

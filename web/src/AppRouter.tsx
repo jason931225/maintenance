@@ -304,9 +304,9 @@ export function AppRouter() {
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
         {/* ConsoleShell (UI-M1b) — the new window-engine shell hosting the
-            mounted-persistent /overview and /attendance screens. It is a layout
-            route with two pathless children so the shell instance is preserved
-            across /overview <-> /attendance navigation (mounted persistence);
+            mounted-persistent /overview, /attendance and /e-approvals screens.
+            It is a layout route with pathless children so the shell instance is
+            preserved across navigation between them (mounted persistence);
             ConsoleShell reads the location itself and does not use <Outlet />.
             Nav-visibility gating lives inside ConsoleShell. Every other route
             stays on AppShell below (two-shell coexistence). */}
@@ -319,6 +319,8 @@ export function AppRouter() {
         >
           <Route path="/overview" element={null} />
           <Route path="/attendance" element={null} />
+          {/* UI-M4: 전자결재 (approvals on the workflow engine). */}
+          <Route path="/e-approvals" element={null} />
         </Route>
 
         {/* UI-M3: /overview replaces /work-hub. Old links and bookmarks keep

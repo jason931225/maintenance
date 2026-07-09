@@ -12,6 +12,7 @@ import type {
 } from "../../api/types";
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
+import { objectRegistry } from "../../lib/objectRegistry";
 import { safeLabel } from "../../lib/utils";
 
 export type OverviewKind = "approval" | "dispatch" | "support" | "attendance";
@@ -88,6 +89,9 @@ export function buildApprovalItems(
         detail: claimedByMe
           ? ko.overview.rows.approvalClaimed
           : ko.overview.rows.approvalOpen,
+        // Drill-in to the 전자결재 (UI-M4) run detail — no dead end. Route
+        // authority is objectRegistry (keyed by the run id).
+        href: objectRegistry.approval.route({ id: task.run_id }),
         dueLabel: dueLabelFor(task.due_at),
         actionLabel: claimedByMe
           ? ko.overview.actions.approve

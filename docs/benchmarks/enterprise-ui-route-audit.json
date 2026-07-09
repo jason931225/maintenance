@@ -1268,6 +1268,28 @@
       "groupScopeStory": "Self-service view is employee-scoped; HR/payroll management review uses the separate /api/v1/hr/attendance-records org-wide gate and does not widen personal nav access."
     },
     {
+      "rawPath": "/e-approvals",
+      "canonicalPath": "/e-approvals",
+      "epRows": [
+        "EP-003"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "admin"
+      ],
+      "roleStoryEvidence": "UI-M4 전자결재 on the workflow engine: 결재함 (my waiting tasks) and 상신함 (runs I initiated) as AP- objects; a pinned run-detail panel shows the node-step timeline and the real engine decisions (claim / 승인·반려·거부 / 종결 / 대행 / 사후 반려). EApprovalsPage.test.tsx and ApprovalDetailPanel.test.tsx cover the rows, decision surface, and SoD omission; admin-28-e-approvals.spec.ts proves submit→approve-by-a-different-actor→finalize end to end.",
+      "accessibilityEvidence": "PageHeader single h1, role=tablist 결재함/상신함, role=list rows with J/K/Enter list navigation, status chips (not sentences), name-based action buttons, PageEmpty/PageError states, and the web lint UI-string gate; assertions in EApprovalsPage.test.tsx use accessible queries.",
+      "ownerLane": "UI-M4 approvals-on-the-engine lane; consumes the Engine-Gen instance/task REST and the #205 SoD guard, additive to the legacy /approvals completion-review queue.",
+      "dataClass": "workflow run/task metadata (status, node-step timeline, decision payload, initiator), no PII in the run head; decision comments are engine-audited.",
+      "sourceObject": "workflow_runs / workflow_waiting_tasks (the AP- approval_run object) resolved via the object registry and /api/v1/workflow-runs + /api/v1/workflow-tasks.",
+      "lifecycleStates": "empty inbox, empty requests, loading skeleton, error/retry, OPEN/CLAIMED/APPROVED/REJECTED task states, WAITING/SUCCEEDED/FAILED run states, SoD deny-by-omission on a self-initiated run.",
+      "e2eSpec": "Required browser story (admin-28-e-approvals.spec.ts): MECHANIC submits via the engine start endpoint, ADMIN claims+approves each line step via the 전자결재 screen, MECHANIC finalizes (종결), and a self-approval is blocked (UI omission + 403).",
+      "denialScopeTest": "Nav gate is operational-role/COMPLETION_REVIEW scoped; the inbox/상신함 are deny-by-omission at the API (assignee=me / initiated_by=me), and the SoD guard 403s self-approval — proven in admin-28-e-approvals.spec.ts.",
+      "screenshotTraceEvidence": "admin-28-e-approvals.spec.ts runs in the default chromium project with trace on-first-retry and screenshot-on-failure; DB assertions confirm each engine transition committed.",
+      "groupScopeStory": "전자결재 is 전 직원용 but every row is personal-scoped by the engine (my tasks / my runs); no client-side scope widening, and cross-org runs are invisible (deny-by-omission)."
+    },
+    {
       "rawPath": "/settings/employees",
       "canonicalPath": "/settings/employees",
       "epRows": [

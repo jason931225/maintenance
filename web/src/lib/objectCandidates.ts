@@ -1,4 +1,5 @@
 import type { ConsoleApiClient } from "../api/client";
+import { apCode } from "../features/eApprovals/approvals-data";
 import { workOrderCode, type ObjectKind } from "./objectRegistry";
 import { safeLabel } from "./utils";
 
@@ -123,6 +124,37 @@ export function createWorkOrderCandidateProvider(api: ConsoleApiClient): Candida
         .map((value) => value?.toLowerCase() ?? "")
         .join("\n"),
     }));
+    return { status: "ok", candidates };
+  };
+}
+
+/**
+ * `!`/`#` AP- (전자결재) candidates, backed by the caller's own submission box
+ * (`/api/v1/workflow-runs/mine`) — the PBAC-scoped, all-employee run list. Runs
+ * the caller cannot see are absent (deny-by-omission, server-scoped).
+ */
+export function createApprovalCandidateProvider(api: ConsoleApiClient): CandidateProvider {
+  return async () => {
+    let response;
+    try {
+      response = await api.GET("/api/v1/workflow-runs/mine", {});
+    } catch {
+      return { status: "error" };
+    }
+    if (response.error || !response.response.ok) return { status: "error" };
+
+    const candidates = response.data.items.map((run) => {
+      const code = apCode(run.run_id);
+      return {
+        kind: "approval" as const,
+        code,
+        id: run.run_id,
+        label: run.object_type ? safeLabel(run.object_type) : code,
+        search: [code, run.object_type, run.status]
+          .map((value) => value?.toLowerCase() ?? "")
+          .join("\n"),
+      };
+    });
     return { status: "ok", candidates };
   };
 }

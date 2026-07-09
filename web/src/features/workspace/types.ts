@@ -5,7 +5,7 @@
 // content reflows into a true split (not an overlay). Float panels are
 // position:fixed popouts; minimized panels live in the bottom tray.
 
-export const SCREEN_KEYS = ["overview", "attendance"] as const;
+export const SCREEN_KEYS = ["overview", "attendance", "eApprovals"] as const;
 export type ScreenKey = (typeof SCREEN_KEYS)[number];
 
 export const QUADRANTS = ["tl", "tr", "bl", "br"] as const;

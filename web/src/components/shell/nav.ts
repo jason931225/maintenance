@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Calculator,
   CheckSquare,
+  ClipboardCheck,
   ClipboardList,
   Inbox,
   Contact,
@@ -222,6 +223,11 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["my-attendance", OPERATIONAL_ROLES],
   ["messenger", OPERATIONAL_ROLES],
   ["approvals", ADMIN_ROLES],
+  // e-approvals (전자결재): the engine approval inbox/상신함 is 전 직원용 — every
+  // granted role has a personal 결재함/상신함 (rows are deny-by-omission at the
+  // API), so it mirrors overview's operational-role gate, not the legacy
+  // completion-review queue's ADMIN gate.
+  ["e-approvals", OPERATIONAL_ROLES],
   // mail (MailUse): shared corporate mailbox. Mechanics/MEMBER are denied.
   // The platform operates the mail server out of the box; there is no
   // tenant-visible SMTP/IMAP server configuration nav item.
@@ -306,6 +312,7 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["reporting", [FEATURES.EXCEL_DOWNLOAD]],
   ["collaboration", [FEATURES.WORK_ORDER_READ_ALL]],
   ["approvals", [FEATURES.COMPLETION_REVIEW]],
+  ["e-approvals", [FEATURES.COMPLETION_REVIEW]],
   [
     "daily-plan",
     [
@@ -376,6 +383,12 @@ export const NAV_GROUPS = [
         href: "/approvals",
         labelKey: "nav.approvals",
         Icon: CheckSquare,
+      },
+      {
+        key: "e-approvals",
+        href: "/e-approvals",
+        labelKey: "nav.e-approvals",
+        Icon: ClipboardCheck,
       },
       {
         key: "messenger",
