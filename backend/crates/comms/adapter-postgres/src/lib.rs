@@ -451,6 +451,7 @@ impl PgMailStore {
         &self,
         org: OrgId,
         account: EmailAccountId,
+        claim_token: uuid::Uuid,
         status: &str,
         error: Option<&str>,
     ) -> Result<(), PgMailError> {
@@ -466,21 +467,55 @@ impl PgMailStore {
                         sync_status = $2,
                         last_sync_error = $3,
                         -- Release the scheduler's claim lease so the account is
-                        -- eligible again on its next cadence (not blocked by a
-                        -- still-outstanding lease from this pass).
+                        -- eligible again on its next cadence. FENCED: only the
+                        -- worker still holding this claim's token clears it, so a
+                        -- stale worker whose lease was reclaimed (a newer token)
+                        -- matches no row and wipes NOTHING — it cannot stomp the
+                        -- reclaimer's fresh lease and cause an overlapping sync.
                         claimed_until = NULL,
+                        claim_token = NULL,
                         consecutive_auth_failures = CASE
                             WHEN $2 = 'AUTH_FAILED' THEN consecutive_auth_failures + 1
                             WHEN $2 = 'OK' THEN 0
                             ELSE consecutive_auth_failures
                         END,
                         updated_at = now()
-                    WHERE id = $1
+                    WHERE id = $1 AND claim_token = $4
                     "#,
                 )
                 .bind(account_uuid)
                 .bind(&status)
                 .bind(error.as_deref())
+                .bind(claim_token)
+                .execute(tx.as_mut())
+                .await?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    /// Release the claim lease with NO lifecycle write — a fenced compare-and-
+    /// clear that touches only `claimed_until`/`claim_token`, never
+    /// `last_sync_at`/`sync_status`/`last_sync_error`/auth-failure counters.
+    async fn release_claim_inner(
+        &self,
+        org: OrgId,
+        account: EmailAccountId,
+        claim_token: uuid::Uuid,
+    ) -> Result<(), PgMailError> {
+        let account_uuid = *account.as_uuid();
+        with_org_conn::<_, (), PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
+                    UPDATE email_accounts
+                    SET claimed_until = NULL, claim_token = NULL
+                    WHERE id = $1 AND claim_token = $2
+                    "#,
+                )
+                .bind(account_uuid)
+                .bind(claim_token)
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())
@@ -492,26 +527,35 @@ impl PgMailStore {
     async fn list_due_accounts_inner(
         &self,
         now: Timestamp,
+        limit: i32,
     ) -> Result<Vec<DueAccount>, PgMailError> {
         // Cross-tenant id-only CLAIM via the SECURITY DEFINER function. Runs on the
         // raw pool (NO org armed) — the function REVOKEs PUBLIC and only mnt_rt may
         // EXECUTE it; it atomically locks the due, unclaimed rows with FOR UPDATE
-        // SKIP LOCKED, stamps a `claimed_until` lease on each, and returns ONLY the
-        // (org_id, account_id) pairs. Concurrent workers therefore claim DISJOINT
-        // batches; a crashed worker's lease is reclaimable once it expires.
-        let rows =
-            sqlx::query("SELECT org_id, account_id FROM comms_due_email_accounts($1, $2, $3)")
-                .bind(now)
-                .bind(SYNC_DISPATCH_LIMIT)
-                .bind(SYNC_CLAIM_LEASE_SECS)
-                // rls-arming: ok comms_due_email_accounts is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) that returns id-only (org_id, account_id) pairs across tenants for the scheduler; it cannot be org-armed (it predates knowing the orgs) and exposes no tenant data — it only stamps its own claim lease
-                .fetch_all(&self.pool)
-                .await?;
+        // SKIP LOCKED, stamps a `claimed_until` lease + a fresh `claim_token` on
+        // each, and returns ONLY the (org_id, account_id, claim_token) triples.
+        // Concurrent workers therefore claim DISJOINT batches; a crashed worker's
+        // lease is reclaimable once it expires, and the token fences the release so
+        // a reclaimed worker cannot clear the reclaimer's fresh lease.
+        //
+        // `limit` is the caller's available start-immediately capacity (see the
+        // trait doc); SYNC_DISPATCH_LIMIT is only a defense-in-depth ceiling in
+        // case a caller ever passes something absurd.
+        let rows = sqlx::query(
+            "SELECT org_id, account_id, claim_token FROM comms_due_email_accounts($1, $2, $3)",
+        )
+        .bind(now)
+        .bind(limit.clamp(0, SYNC_DISPATCH_LIMIT))
+        .bind(SYNC_CLAIM_LEASE_SECS)
+        // rls-arming: ok comms_due_email_accounts is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) that returns id-only (org_id, account_id, claim_token) triples across tenants for the scheduler; it cannot be org-armed (it predates knowing the orgs) and exposes no tenant data — it only stamps its own claim lease + fencing token
+        .fetch_all(&self.pool)
+        .await?;
         rows.into_iter()
             .map(|row| {
                 Ok(DueAccount {
                     org_id: OrgId::from_uuid(row.try_get("org_id")?),
                     account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
+                    claim_token: row.try_get("claim_token")?,
                 })
             })
             .collect()
@@ -808,11 +852,25 @@ impl MailReadStore for PgMailStore {
         &'a self,
         org: OrgId,
         account: EmailAccountId,
+        claim_token: uuid::Uuid,
         status: &'a str,
         error: Option<&'a str>,
     ) -> mnt_comms_application::MailFuture<'a, Result<(), MailServiceError>> {
         Box::pin(async move {
-            self.record_sync_result_inner(org, account, status, error)
+            self.record_sync_result_inner(org, account, claim_token, status, error)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn release_claim<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+        claim_token: uuid::Uuid,
+    ) -> mnt_comms_application::MailFuture<'a, Result<(), MailServiceError>> {
+        Box::pin(async move {
+            self.release_claim_inner(org, account, claim_token)
                 .await
                 .map_err(Into::into)
         })
@@ -821,8 +879,13 @@ impl MailReadStore for PgMailStore {
     fn list_due_accounts(
         &self,
         now: Timestamp,
+        limit: i32,
     ) -> mnt_comms_application::MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>> {
-        Box::pin(async move { self.list_due_accounts_inner(now).await.map_err(Into::into) })
+        Box::pin(async move {
+            self.list_due_accounts_inner(now, limit)
+                .await
+                .map_err(Into::into)
+        })
     }
 
     fn list_folders<'a>(
@@ -902,12 +965,18 @@ impl MailReadStore for PgMailStore {
     }
 }
 
-/// Per-tick cap on how many due accounts the scheduler enumerates + dispatches.
+/// Absolute defense-in-depth ceiling on one claim call, regardless of the
+/// caller-supplied `limit`. The caller (the worker's tick) is expected to pass
+/// its actual start-immediately capacity (bounded by `MAX_CONCURRENT_SYNCS`,
+/// currently 4) — this constant only guards against a caller bug passing an
+/// unbounded value.
 const SYNC_DISPATCH_LIMIT: i32 = 100;
-/// Lease (seconds) stamped on a claimed account. Longer than any healthy sync
-/// pass so a slow-but-alive worker keeps its claim, short enough that a crashed
-/// worker's claim is reclaimable promptly. `record_sync_result` clears the lease
-/// on completion; this is the crash-recovery ceiling, not the steady-state hold.
+/// Lease (seconds) stamped on a claimed account. The worker bounds each pass
+/// (`mail_sync::SYNC_ACCOUNT_TIMEOUT`, 480s) SAFELY below this so a slow pass is
+/// aborted before the lease can be reclaimed — no overlapping syncs. Short enough
+/// that a crashed worker's claim is reclaimable promptly. `record_sync_result`
+/// fenced-clears the lease on completion; this is the crash-recovery ceiling, not
+/// the steady-state hold. Keep in sync with `mail_sync::SYNC_CLAIM_LEASE_SECS`.
 const SYNC_CLAIM_LEASE_SECS: i32 = 600;
 /// Max threads returned in one thread-list page.
 const MAX_THREAD_PAGE: i64 = 100;
