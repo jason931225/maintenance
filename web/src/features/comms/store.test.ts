@@ -319,4 +319,18 @@ describe("mark-read thunks", () => {
     expect(useCommsStore.getState().notificationUnread).toBe(0);
     expect(called).toBe(1);
   });
+
+  it("surfaces a failed mark-all instead of swallowing it (a rejected write must not look like success)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    server.use(
+      http.post("*/api/v1/me/notifications/read-all", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+    useCommsStore.getState().setNotifications([notification({ id: "a" })], 1);
+
+    await markAllNotificationsRead(createConsoleApiClient(TOKEN_V1));
+
+    expect(warn).toHaveBeenCalled();
+  });
 });
