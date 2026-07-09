@@ -233,6 +233,17 @@ async fn create_object_link(
     let org = principal.org_id;
     let actor = principal.user_id;
     let now = OffsetDateTime::now_utc();
+    // Same per-kind visibility inputs resolve_object threads into resolve_head,
+    // so the endpoint-existence guard below denies exactly what a direct resolve
+    // would (B3).
+    let scope = principal.branch_scope.clone();
+    let caller = *principal.user_id.as_uuid();
+    let satisfied = satisfied_features(&principal);
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
     let audit_after = json!({
         "id": link_id,
         "src_kind": link.src_kind,
@@ -256,6 +267,29 @@ async fn create_object_link(
         Box::pin(async move {
             // Both kinds must be known (clean 422 rather than a raw FK 500).
             ensure_kinds_exist(tx, &link.src_kind, &link.dst_kind).await?;
+            // B3: both endpoints must resolve for the caller — an edge can only
+            // connect objects it can actually see. Same tx as the insert, so the
+            // check and the write are atomic.
+            ensure_endpoint_resolvable(
+                tx,
+                &scope,
+                caller,
+                &held_role_keys,
+                &satisfied,
+                &link.src_kind,
+                &link.src_id,
+            )
+            .await?;
+            ensure_endpoint_resolvable(
+                tx,
+                &scope,
+                caller,
+                &held_role_keys,
+                &satisfied,
+                &link.dst_kind,
+                &link.dst_id,
+            )
+            .await?;
             let insert = sqlx::query(
                 r#"
                 INSERT INTO object_links (
@@ -1107,6 +1141,47 @@ fn branch_visible(scope: &BranchScope, branch_id: Option<Uuid>) -> bool {
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
+
+/// Deny creating a link whose endpoint the caller cannot actually see (B3):
+/// once a link is stored, slice-2 denormalized-title / graph-traversal surfaces
+/// turn it into a trust edge, so an edge must only ever connect objects the
+/// caller can resolve. Reuses `resolve_head` — the SAME per-kind visibility/RLS
+/// gate the resolve endpoint applies — so a missing OR out-of-scope endpoint is
+/// rejected with one indistinguishable message (deny-by-omission: no
+/// "absent" vs "not visible" oracle).
+///
+/// A kind with NO resolver (document/voucher/… — registered purely as a link
+/// target) has no title/graph exposure to leak and cannot be visibility-checked
+/// at this layer, so it passes through unchanged, exactly as before this guard.
+async fn ensure_endpoint_resolvable(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    caller: Uuid,
+    held_role_keys: &[String],
+    satisfied_features: &[Feature],
+    kind: &str,
+    id: &str,
+) -> Result<(), ObjectError> {
+    if required_auth_for_kind(kind).is_none() {
+        return Ok(());
+    }
+    let resolved = resolve_head(
+        tx,
+        scope,
+        caller,
+        held_role_keys,
+        satisfied_features,
+        kind,
+        id,
+    )
+    .await?;
+    if resolved.is_none() {
+        return Err(ObjectError::validation(
+            "src and dst must reference objects you can access",
+        ));
+    }
+    Ok(())
+}
 
 /// Confirm both link endpoints reference a seeded kind, inside the write tx so
 /// the check and the insert are atomic. Runs on `tx.as_mut()` (armed), never a
