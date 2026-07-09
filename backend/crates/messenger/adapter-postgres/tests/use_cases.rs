@@ -789,7 +789,7 @@ async fn channel_is_discoverable_and_joinable_but_dm_is_not(pool: PgPool) {
             .unwrap_err();
         assert_eq!(dm_join.kind(), ErrorKind::Forbidden);
 
-        // Joining outside branch scope is denied (deny-by-omission).
+        // Joining outside branch scope is hidden (deny-by-omission).
         let out_of_scope = store
             .join_thread(JoinThreadCommand {
                 actor: seeded.receptionist,
@@ -800,7 +800,7 @@ async fn channel_is_discoverable_and_joinable_but_dm_is_not(pool: PgPool) {
             })
             .await
             .unwrap_err();
-        assert_eq!(out_of_scope.kind(), ErrorKind::Forbidden);
+        assert_eq!(out_of_scope.kind(), ErrorKind::NotFound);
     })
     .await;
 }
