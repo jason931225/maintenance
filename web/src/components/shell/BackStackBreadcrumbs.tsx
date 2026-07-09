@@ -16,6 +16,42 @@ interface BackStackCrumb {
 
 const MAX_BACK_STACK = 5;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isRelativeAppPath(value: string): boolean {
+  return value.startsWith("/") && !value.startsWith("//");
+}
+
+function readBackStackSeed(
+  state: unknown,
+  roles: readonly string[] | undefined,
+  groupRoles: readonly string[] | undefined,
+  featureGrants: readonly string[] | undefined,
+): BackStackCrumb | undefined {
+  if (!isRecord(state) || !isRecord(state.backStackSeed)) return undefined;
+  const seed = state.backStackSeed;
+  if (
+    typeof seed.href === "string" &&
+    typeof seed.pathname === "string" &&
+    typeof seed.label === "string" &&
+    isRelativeAppPath(seed.href) &&
+    isRelativeAppPath(seed.pathname) &&
+    seed.href.split(/[?#]/, 1)[0] === seed.pathname
+  ) {
+    const navItem = visibleNavItemForPath(
+      seed.pathname,
+      roles,
+      groupRoles,
+      featureGrants,
+    );
+    if (navItem?.href !== seed.pathname) return undefined;
+    return { href: seed.href, pathname: seed.pathname, label: navItemLabel(navItem.key) };
+  }
+  return undefined;
+}
+
 function fallbackPathLabel(pathname: string): string {
   const segment = pathname.split("/").filter(Boolean).at(-1);
   return segment ? decodeURIComponent(segment) : ko.shell.title;
@@ -58,10 +94,27 @@ export function BackStackBreadcrumbs() {
       session?.group_roles,
       session?.feature_grants,
     );
+    const seed = readBackStackSeed(
+      location.state,
+      session?.roles,
+      session?.group_roles,
+      session?.feature_grants,
+    );
     const timer = window.setTimeout(() => {
       setCrumbs((previous) => {
+        const seeded =
+          seed && seed.pathname !== location.pathname
+            ? [
+                ...previous.filter(
+                  (crumb) =>
+                    crumb.pathname !== seed.pathname &&
+                    crumb.pathname !== location.pathname,
+                ),
+                seed,
+              ]
+            : previous;
         const next = [
-          ...previous.filter((crumb) => crumb.pathname !== location.pathname),
+          ...seeded.filter((crumb) => crumb.pathname !== location.pathname),
           { href, pathname: location.pathname, label },
         ].slice(-MAX_BACK_STACK);
         const unchanged =
@@ -81,6 +134,7 @@ export function BackStackBreadcrumbs() {
   }, [
     location.pathname,
     location.search,
+    location.state,
     session?.roles,
     session?.group_roles,
     session?.feature_grants,

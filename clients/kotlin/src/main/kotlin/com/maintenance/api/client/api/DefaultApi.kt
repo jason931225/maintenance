@@ -278,6 +278,8 @@ import com.maintenance.api.client.model.WorkflowSimulationResponse
 import com.maintenance.api.client.model.WorkflowStepUpRequest
 import com.maintenance.api.client.model.WorkflowStudioCatalogResponse
 import com.maintenance.api.client.model.WorkflowTaskListResponse
+import com.maintenance.api.client.model.WorkspaceResponse
+import com.maintenance.api.client.model.WorkspaceUpsertRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -6575,6 +6577,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/users/me",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/me/workspace
+     * Get the authenticated user&#39;s console workspace layout
+     * Returns the caller&#39;s saved Oyatie Console window/panel layout. The &#x60;layout&#x60; is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default &#x60;{}&#x60;.
+     * @return WorkspaceResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getCurrentUserWorkspace() : WorkspaceResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getCurrentUserWorkspaceWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkspaceResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/workspace
+     * Get the authenticated user&#39;s console workspace layout
+     * Returns the caller&#39;s saved Oyatie Console window/panel layout. The &#x60;layout&#x60; is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default &#x60;{}&#x60;.
+     * @return ApiResponse<WorkspaceResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getCurrentUserWorkspaceWithHttpInfo() : ApiResponse<WorkspaceResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getCurrentUserWorkspaceRequestConfig()
+
+        return@withContext request<Unit, WorkspaceResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getCurrentUserWorkspace
+     *
+     * @return RequestConfig
+     */
+    fun getCurrentUserWorkspaceRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/workspace",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -13469,6 +13541,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/workflow-studio/definitions/{id}/publish".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PUT /api/v1/me/workspace
+     * Upsert the authenticated user&#39;s console workspace layout
+     * Stores the caller&#39;s Oyatie Console layout verbatim. The &#x60;layout&#x60; must be a JSON object and is bounded in size by the server.
+     * @param workspaceUpsertRequest
+     * @return WorkspaceResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun putCurrentUserWorkspace(workspaceUpsertRequest: WorkspaceUpsertRequest) : WorkspaceResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = putCurrentUserWorkspaceWithHttpInfo(workspaceUpsertRequest = workspaceUpsertRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkspaceResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/v1/me/workspace
+     * Upsert the authenticated user&#39;s console workspace layout
+     * Stores the caller&#39;s Oyatie Console layout verbatim. The &#x60;layout&#x60; must be a JSON object and is bounded in size by the server.
+     * @param workspaceUpsertRequest
+     * @return ApiResponse<WorkspaceResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun putCurrentUserWorkspaceWithHttpInfo(workspaceUpsertRequest: WorkspaceUpsertRequest) : ApiResponse<WorkspaceResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = putCurrentUserWorkspaceRequestConfig(workspaceUpsertRequest = workspaceUpsertRequest)
+
+        return@withContext request<WorkspaceUpsertRequest, WorkspaceResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation putCurrentUserWorkspace
+     *
+     * @param workspaceUpsertRequest
+     * @return RequestConfig
+     */
+    fun putCurrentUserWorkspaceRequestConfig(workspaceUpsertRequest: WorkspaceUpsertRequest) : RequestConfig<WorkspaceUpsertRequest> {
+        val localVariableBody = workspaceUpsertRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/v1/me/workspace",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

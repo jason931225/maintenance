@@ -432,4 +432,6 @@ src/main/kotlin/com/maintenance/api/client/model/WorkflowStudioCatalogResponse.k
 src/main/kotlin/com/maintenance/api/client/model/WorkflowTaskListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowTaskSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowTemplateDescriptor.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkspaceResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkspaceUpsertRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/WormReplicaStatus.kt

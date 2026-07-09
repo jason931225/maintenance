@@ -20,6 +20,60 @@ export const ko = {
       undo: "실행 취소",
       close: "닫기",
     },
+    workspace: {
+      bodyLabel: "화면 본문",
+      placeholder: "빈 화면 — 상세를 끌어다 고정",
+      pin: {
+        label: "{title} 상세 고정",
+      },
+      panel: {
+        minimize: "최소화",
+        popout: "창으로 분리",
+        close: "닫기",
+        open: "원본 열기",
+      },
+      field: {
+        kind: "유형",
+        detail: "내용",
+        due: "기한",
+        status: "상태",
+        occurredAt: "발생 시각",
+        stateAfter: "이후 상태",
+        note: "비고",
+      },
+      tray: {
+        label: "작업 트레이",
+        empty: "최소화한 상세가 없습니다",
+        restore: "{title} 복원",
+        restoreDefault: "기본 배치",
+      },
+      zone: {
+        tl: "좌상",
+        tr: "우상",
+        bl: "좌하",
+        br: "우하",
+        top: "상단",
+        bottom: "하단",
+        left: "좌측",
+        right: "우측",
+        center: "중앙 (고정 안 함)",
+      },
+    },
+    // UI-M2a object registry (lib/objectRegistry.ts) — kind labels for
+    // accessible names/aria-labels on reference chips and token-grammar links.
+    objectKinds: {
+      approval: "결재",
+      workOrder: "정비/배차",
+      support: "회신",
+      attendance: "근태 예외",
+      payroll: "급여 회차",
+      contract: "계약",
+      journal: "업무일지",
+      intake: "접수",
+      person: "사람",
+      org: "조직",
+
+    },
   },
   nav: {
     "work-hub": "업무 허브",
@@ -1037,6 +1091,7 @@ export const ko = {
       note: "비고",
       payroll: "급여자료",
     },
+    pinColumn: "상세 고정",
   },
   employees: {
     title: "인사·조직 관리",

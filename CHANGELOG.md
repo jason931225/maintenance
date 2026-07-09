@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.43](https://github.com/jason931225/maintenance/compare/v0.1.42...v0.1.43) (2026-07-08)
+
+
+### Features
+
+* **cedar:** PBAC activation — role_manage shadow lane (dark, shadow-only) ([#182](https://github.com/jason931225/maintenance/issues/182)) ([950ada8](https://github.com/jason931225/maintenance/commit/950ada8778940bb090469c6baf4d5fa201483ffb))
+* **console:** UI-M0 — Oyatie design-system foundation (tokens, icons, primitives, list grammar) ([#184](https://github.com/jason931225/maintenance/issues/184)) ([6970700](https://github.com/jason931225/maintenance/commit/6970700c576bdc4c8c300ac46190d4d62da944ee))
+* **console:** UI-M1a — Oyatie shared chrome re-skin (sidebar/topbar/toast) + storefront visual guard ([#186](https://github.com/jason931225/maintenance/issues/186)) ([027c26e](https://github.com/jason931225/maintenance/commit/027c26ed36e9e7ef3a0a866c49236cad87e4adca))
+* **relay:** add non-OCI Talos iMessage prep ([#188](https://github.com/jason931225/maintenance/issues/188)) ([76d71ce](https://github.com/jason931225/maintenance/commit/76d71cec13e354c99b5b51a4ff110e32d4e93e2a))
+* **workflow:** Engine-Gen — generalized electronic-approval platform (instance REST, 8 templates, finalization/compensation) ([#187](https://github.com/jason931225/maintenance/issues/187)) ([fc67eb2](https://github.com/jason931225/maintenance/commit/fc67eb2b1266dcd87fa6fd14a3b3d1889428ff3f))
+
+
+### Bug Fixes
+
+* **image:** include embedded docs specs in backend build ([#190](https://github.com/jason931225/maintenance/issues/190)) ([d574432](https://github.com/jason931225/maintenance/commit/d574432e7d9b45dcd5fff4dc3a82e4f3da7f3768))
+
 ## [0.1.42](https://github.com/jason931225/maintenance/compare/v0.1.41...v0.1.42) (2026-07-04)
 
 

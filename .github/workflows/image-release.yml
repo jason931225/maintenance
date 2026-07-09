@@ -14,14 +14,15 @@ on:
     branches: [main]
     tags: ["v*"]
     # Build images only when source/build inputs change. Tag pushes still run
-    # regardless of path filters; deploy-only and docs/specs-only pushes should
-    # not wait for a CI run that intentionally never starts. Keep docs/reference
-    # because the backend reporting crate embeds those templates into the image.
+    # regardless of path filters; deploy-only pushes should not wait for a CI
+    # run that intentionally never starts. Keep docs/reference and docs/specs
+    # because backend crates embed those files into the image at compile time.
     paths:
       - "backend/**"
       - "clients/**"
       - "web/**"
       - "docs/reference/**"
+      - "docs/specs/**"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
