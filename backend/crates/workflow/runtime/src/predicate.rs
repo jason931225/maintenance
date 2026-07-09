@@ -55,7 +55,7 @@ impl CmpOp {
 }
 
 /// A parsed, deterministic condition predicate.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Predicate {
     /// `field <op> value` against the run context.
     Cmp {
@@ -170,7 +170,7 @@ fn values_eq(a: &Value, b: &Value) -> bool {
 fn eval_cmp(op: CmpOp, actual: Option<&Value>, expected: &Value) -> bool {
     match op {
         CmpOp::Eq => actual.is_some_and(|a| values_eq(a, expected)),
-        CmpOp::Ne => actual.is_none_or(|a| !values_eq(a, expected)),
+        CmpOp::Ne => actual.is_some_and(|a| !values_eq(a, expected)),
         CmpOp::In => expected.as_array().is_some_and(|items| {
             actual.is_some_and(|a| items.iter().any(|item| values_eq(item, a)))
         }),
@@ -229,6 +229,11 @@ mod tests {
         // Missing field / type mismatch is false, never an error.
         assert!(
             !Predicate::parse(&json!({"field":"missing","op":"gt","value":1}))
+                .unwrap()
+                .eval(&ctx)
+        );
+        assert!(
+            !Predicate::parse(&json!({"field":"missing","op":"ne","value":1}))
                 .unwrap()
                 .eval(&ctx)
         );

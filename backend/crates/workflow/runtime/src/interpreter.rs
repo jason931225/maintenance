@@ -19,7 +19,7 @@ use crate::idempotency::outbox_job_key;
 use crate::predicate::Predicate;
 
 /// The behavioral classification of a workflow node.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeKind {
     /// An object gate / event capture: passes through immediately (SUCCEEDED).
     ObjectGate,
@@ -57,7 +57,7 @@ pub enum HumanTaskSemantic {
 
 /// A typed workflow node: its stable `node_key`, its DB `node_type` spelling, and
 /// its behavioral [`NodeKind`].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeSpec {
     pub node_key: String,
     pub node_type: String,

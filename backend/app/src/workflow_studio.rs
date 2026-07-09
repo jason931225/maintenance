@@ -3787,6 +3787,8 @@ async fn insert_workflow_event(
 fn response_from_row(
     row: sqlx::postgres::PgRow,
 ) -> Result<WorkflowDefinitionResponse, WorkflowStudioError> {
+    let definition: Value = row.try_get("definition")?;
+    let object_kinds = definition_object_kinds(&definition);
     Ok(WorkflowDefinitionResponse {
         id: row.try_get("id")?,
         workflow_key: row.try_get("workflow_key")?,
@@ -3795,8 +3797,8 @@ fn response_from_row(
         status: row.try_get("status")?,
         latest_version: row.try_get("latest_version")?,
         active_version: row.try_get("active_version")?,
-        definition: row.try_get::<Value, _>("definition")?.clone(),
-        object_kinds: definition_object_kinds(&row.try_get::<Value, _>("definition")?),
+        definition,
+        object_kinds,
         approval_line: json_array(row.try_get("approval_line")?),
         payment_line: json_array(row.try_get("payment_line")?),
         notification_rules: json_array(row.try_get("notification_rules")?),

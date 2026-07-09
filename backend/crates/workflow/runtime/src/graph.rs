@@ -21,6 +21,8 @@
 //! compute reachable-from-untaken-minus-reachable-from-taken and emit SKIPPED
 //! node steps for that set.
 
+use std::collections::HashSet;
+
 use mnt_kernel_core::{AuditEvent, KernelError, OrgId};
 use mnt_workflow_domain::{RunStatus, WorkflowRuntimePort};
 use serde_json::{Value, json};
@@ -287,8 +289,15 @@ pub async fn drive_from<P: WorkflowRuntimePort + ?Sized>(
 ) -> Result<DriveOutcome, KernelError> {
     let mut node_key = start_key.to_owned();
     let mut guard_audits = first_node_guard_audits;
+    let mut visited = HashSet::new();
 
     loop {
+        if !visited.insert(node_key.clone()) {
+            return Err(KernelError::validation(
+                "workflow graph has a cycle; drive cannot resolve a linear path",
+            ));
+        }
+
         let spec = graph
             .node_spec(&node_key)
             .ok_or_else(|| {

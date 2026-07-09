@@ -72265,6 +72265,29 @@ public enum Operations {
                     }
                 }
             }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/workflow-studio/definitions/{id}/publish/post(publishWorkflowDefinition)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
             public struct PreconditionRequired: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/api/v1/workflow-studio/definitions/{id}/publish/POST/responses/428/content`.
                 @frozen public enum Body: Sendable, Hashable {

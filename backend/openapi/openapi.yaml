@@ -6786,6 +6786,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '428':
           description: Fresh passkey step-up is required.
           content:

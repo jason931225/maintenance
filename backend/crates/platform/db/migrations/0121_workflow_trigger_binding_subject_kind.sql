@@ -14,7 +14,7 @@ ALTER TABLE workflow_trigger_bindings
     ADD COLUMN subject_kind TEXT NULL
         REFERENCES object_types(kind) ON DELETE RESTRICT;
 
--- The by-object-kind panel's hot read: enabled bindings acting on one kind.
+-- The by-object-kind panel's hot read: all bindings (enabled and disabled) acting on one kind.
 CREATE INDEX idx_workflow_trigger_bindings_subject_kind
-    ON workflow_trigger_bindings (org_id, subject_kind)
-    WHERE enabled AND subject_kind IS NOT NULL;
+    ON workflow_trigger_bindings (org_id, subject_kind, created_at DESC)
+    WHERE subject_kind IS NOT NULL;
