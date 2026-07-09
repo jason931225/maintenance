@@ -182,7 +182,7 @@ if (matrix) {
     "web/src/pages/MessengerPage.tsx",
     "web/src/features/messenger/MessengerPanel.tsx",
     "web/src/pages/MailPage.tsx",
-    "web/src/pages/WorkHubPage.tsx",
+    "web/src/features/comms/CommsRail.tsx",
     "ios/Sources/MaintenanceFieldApp/FieldViews.swift",
     "android/app/src/main/kotlin/com/maintenance/field/ui/FieldApp.kt",
   ];

@@ -535,7 +535,7 @@
     },
     {
       "rawPath": "/work-hub",
-      "canonicalPath": "/overview",
+      "canonicalPath": "/work-hub",
       "epRows": [
         "EP-002",
         "EP-013"
@@ -548,13 +548,13 @@
       ],
       "roleStoryEvidence": "legacy bookmark-compat redirect only (UI-M3); AppRouter.tsx sends /work-hub straight to /overview, no page renders here",
       "accessibilityEvidence": "Navigate-only route, no DOM to violate; a11y evidence lives on the /overview row this redirect targets",
-      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "ownerLane": "unowned infrastructure redirect (no content lane); the G005 action inbox it once served now lives at /overview",
       "dataClass": "no data class; pure client-side redirect to /overview carries no domain payload",
       "sourceObject": "none; route renders <Navigate to=\"/overview\" replace /> with no source object fetch",
       "lifecycleStates": "n/a; a redirect has no lifecycle states of its own",
       "e2eSpec": "Required browser story: post-login landing and stale /work-hub bookmarks both resolve to /overview (통합 개요) heading in a real browser (admin-16-auth-08-recovery.spec.ts, admin-21-nav-fabric.spec.ts)",
       "denialScopeTest": "n/a; redirect carries no authz decision, /overview enforces access after landing",
-      "screenshotTraceEvidence": "n/a; no visual surface renders at this path to trace",
+      "screenshotTraceEvidence": "n/a; a pure redirect has no visual surface of its own to trace; see the /overview row for live-closure evidence",
       "groupScopeStory": "Redirects unconditionally; group scope is enforced by /overview after the bounce"
     },
     {
