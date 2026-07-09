@@ -284,6 +284,11 @@ async fn delete_object_link(
     Path(link_id): Path<Uuid>,
 ) -> Result<StatusCode, ObjectError> {
     authorize_object_member(&principal)?;
+    // A link is an audited (often governance) edge, so deletion is NOT open to
+    // every member the way create/list are: only the edge's own creator, or a
+    // UserManage-tier admin, may remove it. `created_by` is the stored author
+    // (NULL for system-planted rows -> only an admin can delete those).
+    let can_manage = authorize_object_feature(&principal, Feature::UserManage).is_ok();
     let org = principal.org_id;
     let actor = principal.user_id;
     let now = OffsetDateTime::now_utc();
@@ -309,6 +314,16 @@ async fn delete_object_link(
                 return Err(ObjectError::not_found("object link not found"));
             };
             let before = object_link_from_row(&row)?;
+            // Authorize deletion against the loaded row. The row is already
+            // org-RLS-scoped, so a cross-org id was 404 above — this 403 only
+            // fires for an in-org link the caller can already see via list, so
+            // it reveals no existence the list did not.
+            let is_creator = before.created_by == Some(*actor.as_uuid());
+            if !is_creator && !can_manage {
+                return Err(ObjectError::from_kernel(KernelError::forbidden(
+                    "only the link's creator or a user-manager may delete it",
+                )));
+            }
             sqlx::query("DELETE FROM object_links WHERE id = $1")
                 .bind(link_id)
                 .execute(tx.as_mut())
