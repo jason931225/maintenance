@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.48](https://github.com/jason931225/maintenance/compare/v0.1.47...v0.1.48) (2026-07-09)
+
+
+### Features
+
+* **audit-chain:** attestation endpoint + gap-hardening (PR-2: F2-F5) ([#226](https://github.com/jason931225/maintenance/issues/226)) ([76b7244](https://github.com/jason931225/maintenance/commit/76b7244419087dd710cb68e7415492461b3d8886))
+* **console:** UI-M3 — overview unified action inbox + todos domain ([#209](https://github.com/jason931225/maintenance/issues/209)) ([17cca43](https://github.com/jason931225/maintenance/commit/17cca4366b50cf1dfdfde4b07e5ce3da62f19b89))
+* **platform:** BE-LC slice 1 — period locks, generic versioning, lifecycle engine MVP ([#211](https://github.com/jason931225/maintenance/issues/211)) ([3a6a6ec](https://github.com/jason931225/maintenance/commit/3a6a6eca9a0047c55aa4b66f8586e4db9fbb4b48))
+* **reporting:** audited KPI Excel export (GET /api/v1/exports/kpi) ([#223](https://github.com/jason931225/maintenance/issues/223)) ([7f9bad8](https://github.com/jason931225/maintenance/commit/7f9bad8aa42bf3accbd324585466c80e408caddf))
+* **workflow:** BE-WF-HARDEN — run read surface + shared governance-finding helper ([#224](https://github.com/jason931225/maintenance/issues/224)) ([8101a21](https://github.com/jason931225/maintenance/commit/8101a217c544069370b52306d0e890cd723e547e))
+
+
+### Bug Fixes
+
+* **console:** repair chrome E2E after UI-M2b comms rail (dev-up smoke) ([#215](https://github.com/jason931225/maintenance/issues/215)) ([785299a](https://github.com/jason931225/maintenance/commit/785299a537be3cfd28336bedc9b8ff39a3bf2e73))
+* **e2e:** heal main — workflow studio, rail promotion, exec approve (post-merge-train) ([#225](https://github.com/jason931225/maintenance/issues/225)) ([e4be53a](https://github.com/jason931225/maintenance/commit/e4be53a48eecb4fc0a9c8ff83cdfcfb84101e4f1))
+* **objects:** resolve enforces domain feature guards for work_order/equipment ([#222](https://github.com/jason931225/maintenance/issues/222)) ([cd2943b](https://github.com/jason931225/maintenance/commit/cd2943bbd8f2b190f65b4e3997204c6eb841e174))
+* **workflow:** harden automation trigger follow-ups ([#221](https://github.com/jason931225/maintenance/issues/221)) ([920935e](https://github.com/jason931225/maintenance/commit/920935e9d19c759d61ba9839dfcb4fa35af16d78))
+
 ## [0.1.47](https://github.com/jason931225/maintenance/compare/v0.1.46...v0.1.47) (2026-07-09)
 
 
