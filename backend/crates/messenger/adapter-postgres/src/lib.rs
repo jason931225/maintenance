@@ -13,7 +13,7 @@ use mnt_messenger_application::{
     MessagePostedNotification, MessageSummary, ReadReceiptSummary, SearchMessagesQuery,
     SendMessageCommand, ThreadSummary, messenger_audit_event,
 };
-use mnt_messenger_domain::{MessageBody, ThreadKind};
+use mnt_messenger_domain::{MessageBody, ThreadKind, extract_mention_user_ids};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
@@ -285,11 +285,23 @@ impl PgMessengerStore {
         .await?;
 
         if let Some(notifier) = &self.notifier {
+            // DESIGN §4.7-7: `@` mentions notify their target, `#`/`!` links do
+            // not. Resolve the body's `@<uuid>` tokens to real recipients
+            // (thread members, minus the sender) and hand them to the notifier
+            // on top of the ordinary thread fan-out.
+            let mentioned_user_ids = resolve_mention_recipients(
+                &self.pool,
+                summary.thread_id,
+                command.actor,
+                summary.body.as_str(),
+            )
+            .await?;
             notifier
                 .message_posted(MessagePostedNotification {
                     message_id: summary.id,
                     thread_id: summary.thread_id,
                     branch_id: summary.branch_id,
+                    mentioned_user_ids,
                 })
                 .await;
         }
@@ -756,6 +768,57 @@ async fn insert_thread_tx(
     }
 
     Ok(())
+}
+
+/// Resolve which `@`-mentioned users are real, reachable recipients for a
+/// posted message: parsed `@<uuid>` tokens, kept only if they are members of
+/// this thread, with the sender removed (no self-notify). Order follows the
+/// body's first-seen order. Deny-by-omission — a mention of a non-member (or a
+/// nonexistent user) yields nothing, so it neither links nor notifies.
+async fn resolve_mention_recipients(
+    pool: &PgPool,
+    thread_id: ThreadId,
+    actor: UserId,
+    body: &str,
+) -> Result<Vec<UserId>, PgMessengerError> {
+    let mentioned = extract_mention_user_ids(body);
+    if mentioned.is_empty() {
+        return Ok(Vec::new());
+    }
+    let candidate_uuids: Vec<uuid::Uuid> = mentioned
+        .iter()
+        .filter(|id| **id != actor)
+        .map(|id| *id.as_uuid())
+        .collect();
+    if candidate_uuids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let org = current_org().map_err(KernelError::from)?;
+    let member_uuids: std::collections::HashSet<uuid::Uuid> =
+        with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT tm.user_id
+                    FROM messenger_thread_members tm
+                    WHERE tm.thread_id = $1
+                      AND tm.user_id = ANY($2)
+                    "#,
+                )
+                .bind(*thread_id.as_uuid())
+                .bind(&candidate_uuids)
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.into_iter()
+                    .map(|row| Ok(row.try_get::<uuid::Uuid, _>("user_id")?))
+                    .collect::<Result<std::collections::HashSet<uuid::Uuid>, PgMessengerError>>()
+            })
+        })
+        .await?;
+    Ok(mentioned
+        .into_iter()
+        .filter(|id| *id != actor && member_uuids.contains(id.as_uuid()))
+        .collect())
 }
 
 async fn require_thread_access(

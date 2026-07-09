@@ -16,11 +16,18 @@ use serde::{Deserialize, Serialize};
 
 pub type MessageNotifyFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessagePostedNotification {
     pub message_id: MessageId,
     pub thread_id: ThreadId,
     pub branch_id: BranchId,
+    /// Thread members `@`-mentioned in this message body (DESIGN §4.7-7): the
+    /// `@` trigger notifies its target, `#`/`!` links do not. Resolved from the
+    /// body's `@<uuid>` tokens and filtered to real thread members
+    /// (deny-by-omission — a mention of a non-member notifies no one). The
+    /// realtime adapter delivers a mention alert on top of the thread fan-out
+    /// for exactly these recipients.
+    pub mentioned_user_ids: Vec<UserId>,
 }
 
 pub trait MessageNotifier: Send + Sync {

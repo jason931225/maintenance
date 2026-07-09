@@ -57,8 +57,84 @@ async fn message_send_persists_audit_before_post_commit_notify(pool: PgPool) {
                 message_id: message.id,
                 thread_id: thread.id,
                 branch_id: seeded.branch,
+                mentioned_user_ids: Vec::new(),
             }]
         );
+    })
+    .await;
+}
+
+// AC (UI-M2a): in a messenger input an `@`-mention notifies its target via the
+// message-posted fan-out + recipient unread; a `#` object-link does not
+// (DESIGN §4.7-7). Deny-by-omission: mentioning a non-member notifies no one.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn at_mention_notifies_thread_member_object_link_and_nonmember_do_not(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let notifier = Arc::new(RecordingNotifier::new(pool.clone()));
+        let store = PgMessengerStore::new(pool.clone()).with_notifier(notifier.clone());
+        // Thread members: sender + recipient. receptionist is NOT a member.
+        let thread = create_team_thread(&store, &seeded).await;
+        let t0 = OffsetDateTime::now_utc();
+
+        // 1. `@`-mention of a thread member → that member is a notified recipient.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            &format!("@{} 지게차 점검 부탁드립니다", seeded.recipient),
+            t0,
+        )
+        .await;
+        // 2. `#` object-link only (no mention) → no mention recipients.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "#WO-20260612-001 관련 자료 첨부합니다",
+            t0 + Duration::seconds(1),
+        )
+        .await;
+        // 3. `@`-mention of a NON-member → deny-by-omission, no recipient.
+        send_at(
+            &store,
+            &seeded,
+            thread.id,
+            &format!("@{} 확인 바랍니다", seeded.receptionist),
+            t0 + Duration::seconds(2),
+        )
+        .await;
+
+        let calls = notifier.calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(
+            calls[0].mentioned_user_ids,
+            vec![seeded.recipient],
+            "@-mention of a thread member must resolve to that recipient",
+        );
+        assert!(
+            calls[1].mentioned_user_ids.is_empty(),
+            "a #-object-link must not notify anyone",
+        );
+        assert!(
+            calls[2].mentioned_user_ids.is_empty(),
+            "mentioning a non-member must resolve to no recipient (deny-by-omission)",
+        );
+
+        // The recipient's unread reflects the delivered fan-out (all 3 posts).
+        let threads = store
+            .list_threads(ListThreadsQuery {
+                actor: seeded.recipient,
+                branch_scope: BranchScope::single(seeded.branch),
+                limit: 10,
+            })
+            .await
+            .unwrap();
+        let summary = threads
+            .iter()
+            .find(|t| t.id == thread.id)
+            .expect("recipient sees the thread");
+        assert_eq!(summary.unread_count, 3);
     })
     .await;
 }
