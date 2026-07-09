@@ -1,0 +1,27 @@
+{
+  "screen": "composer",
+  "component": "web/src/console/composer/TokenComposer.tsx",
+  "demo": "web/src/console/composer/ComposerDemo.tsx",
+  "viewport": { "width": 1440, "height": 900 },
+  "note": "Component-level visual-regression states for the P0.3 token composer (charter D2 'grammar = versioned component library'). Each state renders deterministically via <ComposerDemo state=… candidates/resolved/text=…/> (fixtures passed in so the component ships with no hardcoded UI strings). The dual-capture rig (capture.mjs) screenshots BUILD once ComposerDemo is reachable behind a console dev/demo route (owned by ConsoleApp in P0.1 — this slice does not touch ConsoleApp); until then the three states are exercised by ComposerDemo.test.tsx. REFERENCE is the same dropdown/chip region in Oyatie Console.dc.html.",
+  "states": [
+    {
+      "name": "dropdown-open",
+      "demoState": "dropdown",
+      "selector": "[data-fidelity=\"composer-dropdown\"]",
+      "describes": "Candidate dropdown open below the field: person + object-link + code-link candidates, first row highlighted."
+    },
+    {
+      "name": "clamped-at-viewport-edge",
+      "demoState": "clamped",
+      "selector": "[data-fidelity=\"composer-clamped\"]",
+      "describes": "Dropdown pinned near the bottom viewport edge: flips above the caret and clamps its max-height (computeDropdownPosition), never clipping off-screen."
+    },
+    {
+      "name": "chip-render",
+      "demoState": "chips",
+      "selector": "[data-fidelity=\"composer-chips\"]",
+      "describes": "Stored token text rendered: @mention styling + #object-link chip + !code-link chip, with an unauthorized !CODE left as inert plain text (deny-by-omission)."
+    }
+  ]
+}
