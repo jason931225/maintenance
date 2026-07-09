@@ -27,5 +27,8 @@
 pub mod audit_tx;
 pub mod error;
 
-pub use audit_tx::{insert_audit_event, with_audit, with_audits, with_org_conn};
+pub use audit_tx::{
+    SubjectAuthzFreshness, insert_audit_event, read_subject_authz_freshness, with_audit,
+    with_audits, with_org_conn,
+};
 pub use error::DbError;
