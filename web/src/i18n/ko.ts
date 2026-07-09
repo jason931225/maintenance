@@ -207,6 +207,47 @@ export const ko = {
         directory: "주소록",
       },
     },
+    // P0.6 3-layer object card (console/objectcard/ObjectCard.tsx).
+    objectCard: {
+      layer: {
+        meaning: "의미",
+        behavior: "동작",
+        dynamics: "역학",
+      },
+      field: {
+        kind: "유형",
+        code: "코드",
+        status: "상태",
+      },
+      lifecycle: {
+        legalHold: "법적 보존",
+      },
+      audit: {
+        empty: "이력 없음",
+        actor: "행위자",
+      },
+      relation: {
+        outgoing: "상류",
+        incoming: "하류",
+        addLabel: "관계 코드",
+        addPlaceholder: "코드 입력 후 Enter",
+        add: "관계 연결",
+        remove: "{label} 관계 해제",
+        open: "{label} 열기",
+        empty: "연결된 개체 없음",
+      },
+      kinds: {
+        work_order: "정비/배차",
+        equipment: "장비",
+        account: "계정",
+        support_ticket: "고객회신",
+        org_unit: "조직",
+        person: "사람",
+        approval_run: "결재",
+        passkey: "패스키",
+        consent: "동의",
+      },
+    },
   },
   nav: {
     overview: "통합 개요",
