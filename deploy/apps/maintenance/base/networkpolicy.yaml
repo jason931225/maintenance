@@ -126,3 +126,94 @@ spec:
         - ipBlock: { cidr: 0.0.0.0/0 }
       ports:
         - { protocol: TCP, port: 443 }
+---
+# api/worker → internal mox webapi/IMAP only. This is deliberately not a public
+# mail-port policy: mox SMTP/submission/admin remain unexposed in the dark lane.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-egress-mox
+  namespace: maintenance
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [mnt-app, mnt-worker] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: mnt-mox }
+      ports:
+        - { protocol: TCP, port: 1080 }
+        - { protocol: TCP, port: 1143 }
+---
+# mox ingress: only the app/worker may use WebAPI/IMAP, and Prometheus may
+# scrape metrics from the monitoring namespace when the monitoring component is
+# enabled. No Ingress/LoadBalancer/NodePort exposes webapi, admin, or SMTP.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mox-ingress-internal
+  namespace: maintenance
+spec:
+  podSelector:
+    matchLabels: { app: mnt-mox }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [mnt-app, mnt-worker] }
+      ports:
+        - { protocol: TCP, port: 1080 }
+        - { protocol: TCP, port: 1143 }
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+      ports:
+        - { protocol: TCP, port: 8010 }
+---
+# Default-deny EGRESS for mox. Dark deployment only permits DNS and the internal
+# app webhook; outbound SMTP/public delivery is a separate operator gate.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress-mox
+  namespace: maintenance
+spec:
+  podSelector:
+    matchLabels: { app: mnt-mox }
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mox-egress-dns
+  namespace: maintenance
+spec:
+  podSelector:
+    matchLabels: { app: mnt-mox }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mox-egress-app-webhook
+  namespace: maintenance
+spec:
+  podSelector:
+    matchLabels: { app: mnt-mox }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: mnt-app }
+      ports:
+        - { protocol: TCP, port: 8080 }

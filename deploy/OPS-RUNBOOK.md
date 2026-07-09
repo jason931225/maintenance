@@ -87,6 +87,91 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   composition root refuses to boot (api/worker) if any remain (`mnt-app`'s
   `assert_no_dev_auth_personas`, compiled out only under `--features dev-auth`).
 
+## 4.5. Dark mox mail stack (ns `maintenance`)
+- Workload: `statefulset/mnt-mox` (single replica) with PVC
+  `mox-data-mnt-mox-0` mounted at `/mox-data`. The image is
+  `r.xmox.nl/mox@sha256:47497222e83679f95049329f12c5d8c4bfd3b809e62d4ffcfd508907e66b06a5`.
+  mox must start as root and then drops to UID/GID 10001 from `mox.conf`; the
+  container keeps `allowPrivilegeEscalation=false`, grants only the ownership and
+  setuid/setgid capabilities needed for that drop, and
+  exposes only ClusterIP ports 1080 (webapi), 1143 (plain IMAP, internal-only),
+  and 8010 (Prometheus metrics). There is no Ingress, hostPort, NodePort,
+  LoadBalancer, SMTP/25, submission, IMAPS, webmail, or admin interface in the
+  dark deployment.
+- App wiring: `mnt-config` sets
+  `MNT_MAIL_MOX_BASE_URL=http://mnt-mox.maintenance.svc:1080`; the app/worker
+  read `MNT_MAIL_MOX_WEBHOOK_SECRET` from `mnt-secrets`. HTTP is intentionally
+  service-local and protected by NetworkPolicy; do not switch it to HTTPS unless
+  the backend reqwest rustls feature/test path is updated in the same PR.
+- Initial mox config: on first boot the pod copies `mnt-mox-bootstrap` into the
+  PVC and renders `domains.conf` with the webhook Authorization value. Later mox
+  config/admin changes live on the PVC; validate edits with:
+  ```sh
+  kubectl exec -n maintenance statefulset/mnt-mox -- /bin/mox -config /mox-data/config/mox.conf config test
+  ```
+- Bootstrap account password: retrieve the operator-held postmaster/account
+  password from OCI Vault (see `SECRETS.md`) and set it over the in-pod control
+  socket after the pod is Ready:
+  ```sh
+  oci secrets secret-bundle get --secret-id <mnt-mox-postmaster-password-ocid> \
+    --query 'data."secret-bundle-content".content' --raw-output | base64 -d | \
+  kubectl exec -i -n maintenance statefulset/mnt-mox -- \
+    /bin/mox -config /mox-data/config/mox.conf setaccountpassword postmaster
+  ```
+  `setaccountpassword` reads stdin and stores derived verifier material in
+  `/mox-data`; never paste, echo, or log the secret in shell history.
+- NetworkPolicy: `default-deny-ingress` already covers the namespace.
+  `allow-app-egress-mox` permits only app/worker → mox webapi/IMAP;
+  `allow-mox-ingress-internal` permits only app/worker (webapi/IMAP) and the
+  `monitoring` namespace (metrics); `default-deny-egress-mox` plus DNS and
+  `allow-mox-egress-app-webhook` keep mox egress to DNS and the internal app
+  webhook. Plain flannel does not enforce this — record a live CNI smoke before
+  claiming runtime enforcement.
+- Static render/policy proof:
+  ```sh
+  scripts/check-networkpolicy-enforcement.sh
+  kustomize build deploy/apps/maintenance/overlays/prod >/tmp/mnt-prod.yaml
+  ```
+- Dark smoke without public MX:
+  ```sh
+  kubectl -n maintenance port-forward svc/mnt-mox 1080:1080
+  kubectl -n maintenance port-forward svc/mnt-app 8090:8080
+  MNT_MOX_WEBAPI_URL=http://127.0.0.1:1080 \
+  MNT_DEV_BACKEND_URL=http://127.0.0.1:8090 \
+  MNT_MOX_USER=postmaster@knllogistic.com \
+  MNT_MOX_PASS=<read from OCI Vault; do not log> \
+  MNT_MAIL_MOX_WEBHOOK_SECRET=<read from mnt-secrets; do not log> \
+  node scripts/mox-e2e.mjs
+  ```
+- Backup/restore: CNPG/Barman covers Postgres only; it does **not** back up
+  `/mox-data`. Before rollout, destructive changes, or PVC deletion, run mox's
+  file-level backup into a scratch directory and upload the tarball to an OCI
+  Object Storage bucket with explicit retention/quota approval:
+  ```sh
+  kubectl exec -n maintenance statefulset/mnt-mox -- /bin/mox -config /mox-data/config/mox.conf backup /tmp/mox-backup
+  kubectl cp maintenance/mnt-mox-0:/tmp/mox-backup ./mox-backup
+  tar -C ./mox-backup -czf mox-backup-$(date -u +%Y%m%dT%H%M%SZ).tgz .
+  # upload with the operator's OCI/S3 client credentials; never store secrets in git
+  ```
+  Restore drill: create a fresh PVC/workload or scale mox down, restore the
+  tarball into `/mox-data`, start mox, verify `/webapi/v0/`, run the dark smoke,
+  and compare app mail read-model consistency before deleting the old volume.
+- Observability: enable `deploy/apps/maintenance/components/monitoring` only when
+  Prometheus Operator CRDs exist. Scrape `svc/mnt-mox:8010/metrics` and alert on
+  `MntMoxDown`, `MntMoxWebhookFailures`, `MntMoxQueueBacklog`, and
+  `MntMoxPvcSaturation`. Keep mox `LogLevel: info`; never enable `traceauth` or
+  `tracedata` in production because those can expose credentials or full message
+  bodies.
+- Rollback: revert the Git commit/config, Argo sync, and remove
+  `MNT_MAIL_MOX_BASE_URL` from app config if app webmail traffic must stop using
+  mox. Scale `mnt-mox` to 0 only after a successful backup/export; do not delete
+  the PVC unless the restore path above has been proven.
+- Public MX/operator gate: public SMTP/MX, submission, IMAPS, webapi, or admin UI
+  must remain disabled until DNS MX/SPF/DKIM/DMARC/MTA-STS/TLS-RPT, TLS/cert
+  rotation, queue/dead-letter behavior, abuse/rate-limit/open-relay negatives,
+  monitoring/alerts, backup/restore, rollback, and OCI firewall/security-list
+  posture are all proven and explicitly approved.
+
 ## 5. The GitOps server (Argo CD, ns `argocd`)
 - Argo watches branch **main**, app-of-apps
   `root` → cert-manager, traefik, cnpg-operator, barman-plugin, local-path,

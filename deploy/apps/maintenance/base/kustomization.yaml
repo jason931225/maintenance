@@ -8,6 +8,7 @@ resources:
   - backend.yaml
   - web.yaml
   - worker.yaml
+  - mox.yaml
   - analysis.yaml
   - ingress.yaml
   - middleware.yaml

@@ -19,6 +19,7 @@ Consumed by `mnt-app` / `mnt-worker` via `envFrom`. Required keys:
 | `MNT_S3_ACCESS_KEY_ID` | OCI Customer Secret Key — access key (evidence bucket) |
 | `MNT_S3_SECRET_ACCESS_KEY` | OCI Customer Secret Key — secret |
 | `MNT_MAIL_MASTER_KEY` | Base64-encoded 32-byte webmail credential KEK from OCI Vault |
+| `MNT_MAIL_MOX_WEBHOOK_SECRET` | Hex/base64url shared secret mox uses as `Authorization: Bearer ...` for the internal delivery webhook |
 
 Optional (enable when the integrations go live — operator-blocked on KCC 신고 /
 Kakao / FCM credentials): `MNT_FCM_*`, `MNT_SOLAPI_*`.
@@ -44,6 +45,35 @@ commit, log, paste into tickets, or reuse this key across environments. With
 return 503; once it is present, the IMAP sync worker can run when object storage
 is also configured.
 
+`MNT_MAIL_MOX_WEBHOOK_SECRET` is a separate mox→app webhook bearer secret. It is
+not the `MNT_MAIL_MASTER_KEY`, not a mox account password, and not an admin
+credential. Generate it as a log-safe single-line random value (for example
+`openssl rand -hex 32`), store it in **OCI Vault**, project it into
+`mnt-secrets`, and rotate it by updating `mnt-secrets` plus the rendered
+`/mox-data/config/domains.conf` on the mox PVC. The committed mox bootstrap
+template only contains a placeholder; the StatefulSet renders the real value on
+first boot and never logs it.
+
+Dark mox account/bootstrap credentials are also OCI Vault material, but they are
+not committed to Kubernetes manifests:
+
+| Secret name in OCI Vault | What | Used by |
+|---|---|---|
+| `mnt-mox-postmaster-password` | Initial `postmaster@knllogistic.com`/mox webapi account password | Operator pipes it to `mox setaccountpassword postmaster` after `mnt-mox` is Ready; tenants can then store mox account credentials through the app's sealed webmail credential flow |
+| `mnt-mox-admin-password` | Reserved break-glass mox admin password | Keep in Vault only; the dark deployment disables the mox admin interface by default. If an operator intentionally enables admin later, expose it only over an internal port-forward/VPN and record the change. |
+| `mnt-mox-dkim-private-keys` | Future DKIM selector private keys if public MX/outbound deliverability is approved | Do not mount or generate for the dark lane. Public MX/DKIM is a separate operator/founder gate. |
+
+Set the initial postmaster password without echoing it into history:
+
+```sh
+# Retrieve from OCI Vault/Secrets Manager through a stdin-only pipeline controlled
+# by the operator. Do not paste or echo the value into the command.
+oci secrets secret-bundle get --secret-id <mnt-mox-postmaster-password-ocid> \
+  --query 'data."secret-bundle-content".content' --raw-output | base64 -d | \
+kubectl exec -i -n maintenance statefulset/mnt-mox -- \
+  /bin/mox -config /mox-data/config/mox.conf setaccountpassword postmaster
+```
+
 ```sh
 # Generate a fresh ES256 keypair (do NOT reuse ops/.dev-secrets — those are dev-only).
 # The private key MUST be PKCS#8 PEM: jsonwebtoken's
@@ -58,7 +88,8 @@ kubectl create secret generic mnt-secrets -n maintenance \
   --from-file=MNT_JWT_PUBLIC_KEY_PEM=jwt-public.pem \
   --from-literal=MNT_S3_ACCESS_KEY_ID=<oci-access-key> \
   --from-literal=MNT_S3_SECRET_ACCESS_KEY=<oci-secret-key> \
-  --from-literal=MNT_MAIL_MASTER_KEY=<base64-32-byte-key-from-oci-vault>
+  --from-literal=MNT_MAIL_MASTER_KEY=<base64-32-byte-key-from-oci-vault> \
+  --from-literal=MNT_MAIL_MOX_WEBHOOK_SECRET=<hex-32-byte-secret-from-oci-vault>
 rm -f jwt-private.pem jwt-public.pem
 
 # Example local generator for the value that must be stored in OCI Vault first:

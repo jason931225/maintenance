@@ -13,3 +13,17 @@ spec:
     - port: http # named port 8080 on the mnt-app Service
       path: /metrics
       interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mnt-mox
+  namespace: maintenance
+  labels: { app: mnt-mox }
+spec:
+  selector:
+    matchLabels: { app: mnt-mox }
+  endpoints:
+    - port: metrics # named port 8010 on the ClusterIP-only mnt-mox Service
+      path: /metrics
+      interval: 30s
