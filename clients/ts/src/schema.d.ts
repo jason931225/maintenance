@@ -3870,6 +3870,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-studio/trigger-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workflow trigger bindings (domain event → workflow start rules) */
+        get: operations["listWorkflowTriggerBindings"];
+        put?: never;
+        /**
+         * Bind a registered domain event to a workflow definition
+         * @description When the bound event's audited mutation commits, the dispatcher starts one idempotent run of the bound definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered domain event.
+         */
+        post: operations["createWorkflowTriggerBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/trigger-bindings/{id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable a workflow trigger binding */
+        post: operations["enableWorkflowTriggerBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/trigger-bindings/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable a workflow trigger binding */
+        post: operations["disableWorkflowTriggerBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workflow cron schedules */
+        get: operations["listWorkflowSchedules"];
+        put?: never;
+        /**
+         * Create a workflow cron schedule
+         * @description cron_expr is evaluated in the schedule's IANA timezone (default Asia/Seoul). The background poller starts one idempotent run per fire and advances next_run_at.
+         */
+        post: operations["createWorkflowSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a workflow cron schedule (label, cron, timezone, enabled)
+         * @description Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are durable objects — disable instead of delete (run history stays dereferenceable).
+         */
+        patch: operations["updateWorkflowSchedule"];
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules/preview-next-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview the next fire times for a cron expression */
+        post: operations["previewWorkflowScheduleNextRuns"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run history for a workflow schedule */
+        get: operations["listWorkflowScheduleRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow-tasks/{task_id}/finalize": {
         parameters: {
             query?: never;
@@ -5089,6 +5219,92 @@ export interface components {
             workflow_key?: string;
             display_name?: string;
             step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        TriggerBindingResponse: {
+            id: components["schemas"]["Uuid"];
+            definition_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
+            event_key: string;
+            enabled: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TriggerBindingListResponse: {
+            items: components["schemas"]["TriggerBindingResponse"][];
+            registered_event_keys: string[];
+        };
+        CreateTriggerBindingRequest: {
+            definition_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
+            event_key: string;
+            /** @default true */
+            enabled: boolean;
+        };
+        WorkflowScheduleResponse: {
+            id: components["schemas"]["Uuid"];
+            label: string;
+            cron_expr: string;
+            timezone: string;
+            definition_id: components["schemas"]["Uuid"];
+            enabled: boolean;
+            /** Format: date-time */
+            next_run_at?: string | null;
+            /** Format: date-time */
+            last_run_at?: string | null;
+            /** @enum {string|null} */
+            last_status?: "STARTED" | "SKIPPED" | "FAILED" | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkflowScheduleListResponse: {
+            items: components["schemas"]["WorkflowScheduleResponse"][];
+        };
+        CreateWorkflowScheduleRequest: {
+            label: string;
+            cron_expr: string;
+            /** @description IANA timezone the cron pattern is evaluated in (default Asia/Seoul). */
+            timezone?: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateWorkflowScheduleRequest: {
+            label?: string;
+            cron_expr?: string;
+            timezone?: string;
+            enabled?: boolean;
+        };
+        PreviewScheduleRequest: {
+            cron_expr: string;
+            /** @description IANA timezone (default Asia/Seoul). */
+            timezone?: string;
+        };
+        PreviewScheduleResponse: {
+            cron_expr: string;
+            timezone: string;
+            /** @description The next fire instants, RFC 3339 in UTC. */
+            fire_times: string[];
+        };
+        ScheduleRunItem: {
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            definition_version: number;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            failed_at?: string | null;
+        };
+        ScheduleRunListResponse: {
+            items: components["schemas"]["ScheduleRunItem"][];
         };
         SimulateWorkflowDefinitionRequest: {
             definition?: {
@@ -13879,6 +14095,239 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listWorkflowTriggerBindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trigger bindings plus the registered event-key vocabulary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkflowTriggerBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTriggerBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Created trigger binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    enableWorkflowTriggerBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated trigger binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    disableWorkflowTriggerBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated trigger binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listWorkflowSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow schedules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowScheduleListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created workflow schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowScheduleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkflowScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated workflow schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowScheduleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    previewWorkflowScheduleNextRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The next fire times (RFC 3339, UTC) for the expression in its timezone. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewScheduleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listWorkflowScheduleRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runs started by this schedule, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleRunListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     finalizeWorkflowTask: {
