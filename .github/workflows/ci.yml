@@ -6,6 +6,8 @@ on:
       - main
     tags:
       - "v*"
+    # GitHub Actions does not evaluate `paths` for tag pushes; release tags
+    # therefore run the full ADR-0009/0012 CI gate regardless of changed files.
     paths:
       - "backend/**"
       - "backend/openapi/**"
@@ -22,8 +24,12 @@ on:
       - "docs/GO-LIVE-CHECKLIST.md"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
+      - "docs/release/**"
       - "ops/**"
       - "scripts/**"
+      - "fastlane/**"
+      - "Gemfile"
+      - "Gemfile.lock"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
@@ -46,8 +52,12 @@ on:
       - "docs/GO-LIVE-CHECKLIST.md"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
+      - "docs/release/**"
       - "ops/**"
       - "scripts/**"
+      - "fastlane/**"
+      - "Gemfile"
+      - "Gemfile.lock"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
