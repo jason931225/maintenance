@@ -174,6 +174,36 @@ async fn audit_attestation_requires_org_wide_audit_authority(pool: PgPool) {
         "branch-scoped ADMIN can read branch-filtered /api/audit, but must not get a whole-tenant chain attestation"
     );
 
+    let admin_no_branch_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin_id,
+        vec!["ADMIN".to_owned()],
+        Vec::new(),
+    )
+    .unwrap();
+    let service = build_router(app_state(pool.clone(), public_key_pem.clone()).unwrap());
+
+    let response = service
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/audit/attestation")
+                .header(
+                    header::AUTHORIZATION,
+                    format!("Bearer {admin_no_branch_token}"),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "built-in ADMIN without branch claims is not upgraded into org-wide attestation authority"
+    );
+
     let super_admin_id = UserId::new();
     seed_user_with_branch(&pool, super_admin_id, "SUPER_ADMIN", branch_id)
         .await
