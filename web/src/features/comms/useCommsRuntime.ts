@@ -47,6 +47,16 @@ export function useCommsRuntime(
     [roles, groupRoles, featureGrants],
   );
 
+  // Wipe the shared singletons whenever the principal changes — login, logout
+  // (user_id → undefined), or an in-place impersonation swap — so the next
+  // principal never transiently sees the prior one's rail/badge data, and
+  // loadCounts' partial-merge can't retain counts for surfaces they lack. Runs
+  // before the load/subscribe effects below on the same change (effect order).
+  useEffect(() => {
+    useCommsStore.getState().reset();
+    realtimeHub.reset();
+  }, [currentUserId]);
+
   useEffect(() => {
     if (!token) return undefined;
     const accessToken = token;

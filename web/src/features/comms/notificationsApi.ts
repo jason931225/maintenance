@@ -65,7 +65,11 @@ export async function fetchNotifications(
     `/api/v1/me/notifications?limit=${String(limit)}`,
   );
   if (!res?.ok) return null;
-  return (await res.json()) as NotificationPage;
+  try {
+    return (await res.json()) as NotificationPage;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchUnreadCount(
@@ -78,8 +82,12 @@ export async function fetchUnreadCount(
     "/api/v1/me/notifications/unread-count",
   );
   if (!res?.ok) return null;
-  const data = (await res.json()) as { unread?: number };
-  return typeof data.unread === "number" ? data.unread : null;
+  try {
+    const data = (await res.json()) as { unread?: number };
+    return typeof data.unread === "number" ? data.unread : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function postNotificationRead(

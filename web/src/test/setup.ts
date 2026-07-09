@@ -2,6 +2,9 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
+import { realtimeHub } from "../features/comms/realtimeHub";
+import { useCommsStore } from "../features/comms/store";
+
 function makeMemoryStorage(): Storage {
   const values = new Map<string, string>();
   return {
@@ -43,4 +46,8 @@ ensureStorage("sessionStorage");
 
 afterEach(() => {
   cleanup();
+  // The comms store + realtime hub are module singletons; reset them so no test
+  // leaks rail/badge state (or a live reconnect timer) into the next file.
+  useCommsStore.getState().reset();
+  realtimeHub.reset();
 });

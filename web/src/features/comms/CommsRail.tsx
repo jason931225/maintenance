@@ -122,9 +122,12 @@ export function CommsRail() {
   const messengerPromoted = location.pathname === "/messenger";
   const mailPromoted = location.pathname === "/mail";
 
-  // Esc cascade: close a subview back to home, then collapse the rail. Consume
-  // the event (preventDefault) so the shell's own Esc cascade — which bails on
-  // defaultPrevented — does not also fire.
+  // Esc cascade: close a subview back to home, then collapse the rail. Runs on
+  // the CAPTURE phase so the rail wins over the shell's bubble-phase panel
+  // cascade regardless of listener registration order (this effect re-registers
+  // on subview/collapsed changes, so bubble order isn't guaranteed). When the
+  // rail consumes Esc it preventDefaults; the shell cascade bails on
+  // defaultPrevented, so only the rail acts.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
@@ -138,9 +141,9 @@ export function CommsRail() {
         setCollapsedPref(true);
       }
     }
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [subview, collapsed, setCollapsedPref, setSubview]);
 
@@ -513,10 +516,13 @@ function NotificationsSection({ open }: { open: boolean }) {
                         {notification.category}
                       </span>
                       {notification.unread ? (
-                        <span
-                          aria-hidden="true"
-                          className="h-[7px] w-[7px] rounded-full bg-console-danger-solid"
-                        />
+                        <>
+                          <span
+                            aria-hidden="true"
+                            className="h-[7px] w-[7px] rounded-full bg-console-danger-solid"
+                          />
+                          <span className="sr-only">{ko.shell.commsRail.unread}</span>
+                        </>
                       ) : null}
                     </span>
                     <span className="text-sm text-console-ink">{notification.text}</span>

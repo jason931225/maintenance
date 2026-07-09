@@ -784,19 +784,7 @@ export const ko = {
       openShort: "열림",
     },
     notifications: {
-      open: "개인 알림 열기",
       title: "개인별 실시간 알림",
-      loading: "알림을 불러오는 중",
-      loadFailed: "일부 알림을 새로고침하지 못했습니다.",
-      empty: "새 개인 알림이 없습니다.",
-      approvals: "결재할 전자결제",
-      submittedDocuments: "상신 전자문서",
-      completedApprovals: "결재완료",
-      messages: "읽지 않은 메시지",
-      mail: "읽지 않은 메일",
-      supportUnread: "읽지 않은 고객문의",
-      supportOpen: "열린 고객지원",
-      other: "기타 알림",
     },
     commsRail: {
       label: "커뮤니케이션",
@@ -814,6 +802,7 @@ export const ko = {
         notifications: "알림",
       },
       markAllRead: "모두 읽음",
+      unread: "읽지 않음",
       empty: {
         messenger: "새 메시지가 없습니다",
         mail: "메일이 없습니다",

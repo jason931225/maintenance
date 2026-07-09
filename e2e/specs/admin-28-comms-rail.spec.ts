@@ -1,5 +1,7 @@
-import { test, expect } from "../fixtures/roles";
+import { test, expect, sql, ROLE_CONFIG, TENANT_ORG_ID } from "../fixtures/roles";
 import { navigateByHref } from "../fixtures/ux";
+
+const ADMIN_USER_ID = ROLE_CONFIG.ADMIN.userId;
 
 // Mirrors ko.shell.commsRail (web/src/i18n/ko.ts) — e2e specs hardcode UI
 // strings rather than importing across packages.
@@ -25,6 +27,15 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
   page,
   loginAs,
 }) => {
+  // Seed exactly one unread notification so the mark-all path always runs
+  // (link shape mirrors the domain's serde: {type,screen}).
+  sql(`DELETE FROM notifications WHERE recipient_user_id = '${ADMIN_USER_ID}'`);
+  sql(
+    `INSERT INTO notifications (org_id, recipient_user_id, category, body, link, unread) ` +
+      `VALUES ('${TENANT_ORG_ID}', '${ADMIN_USER_ID}', '결재', 'E2E 미확인 알림', ` +
+      `'{"type":"screen","screen":"approvals"}'::jsonb, true)`,
+  );
+
   await loginAs("ADMIN");
   await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
 
@@ -42,21 +53,19 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
   });
   await expect(notificationsHeader).toBeVisible({ timeout: 5_000 });
 
-  // Mark-all persistence — only exercisable when the live account has unread
-  // notifications. When present, clearing them must survive a full reload.
+  // Mark-all persistence — the seeded unread guarantees this always runs.
   const markAll = rail.getByRole("button", { name: RAIL.markAllRead });
-  if (await markAll.isVisible().catch(() => false)) {
-    await markAll.click();
-    await expect(markAll).toBeHidden({ timeout: 5_000 });
-    await page.reload();
-    await page
-      .getByRole("banner")
-      .getByRole("button", { name: RAIL.openNotifications })
-      .click();
-    await expect(
-      rail.getByRole("button", { name: RAIL.markAllRead }),
-    ).toBeHidden({ timeout: 5_000 });
-  }
+  await expect(markAll).toBeVisible({ timeout: 5_000 });
+  await markAll.click();
+  await expect(markAll).toBeHidden({ timeout: 5_000 });
+  await page.reload();
+  await page
+    .getByRole("banner")
+    .getByRole("button", { name: RAIL.openNotifications })
+    .click();
+  await expect(
+    rail.getByRole("button", { name: RAIL.markAllRead }),
+  ).toBeHidden({ timeout: 5_000 });
 
   // Promotion: opening the messenger page hides the rail's messenger section.
   await navigateByHref(page, "/messenger");

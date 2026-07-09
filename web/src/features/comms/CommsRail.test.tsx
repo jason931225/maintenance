@@ -120,12 +120,16 @@ describe("CommsRail", () => {
 
   it("marks a notification read and navigates to its target on click", () => {
     setViewport(1400);
-    useCommsStore.setState({
-      notifications: [notification({ id: "a", link: { type: "screen", screen: "support" } })],
-      notificationUnread: 1,
-      openSection: "notifications",
-    });
     renderRail();
+    // Seed AFTER mount: useCommsRuntime resets the store on mount (principal
+    // isolation), which would wipe a pre-render seed.
+    act(() => {
+      useCommsStore.setState({
+        notifications: [notification({ id: "a", link: { type: "screen", screen: "support" } })],
+        notificationUnread: 1,
+        openSection: "notifications",
+      });
+    });
 
     fireEvent.click(screen.getByText("결재 요청"));
 
@@ -136,12 +140,14 @@ describe("CommsRail", () => {
 
   it("marks all notifications read from the section header", () => {
     setViewport(1400);
-    useCommsStore.setState({
-      notifications: [notification({ id: "a" }), notification({ id: "b" })],
-      notificationUnread: 2,
-      openSection: "notifications",
-    });
     renderRail();
+    act(() => {
+      useCommsStore.setState({
+        notifications: [notification({ id: "a" }), notification({ id: "b" })],
+        notificationUnread: 2,
+        openSection: "notifications",
+      });
+    });
 
     fireEvent.click(screen.getByRole("button", { name: ko.shell.commsRail.markAllRead }));
     expect(useCommsStore.getState().notificationUnread).toBe(0);
@@ -149,8 +155,10 @@ describe("CommsRail", () => {
 
   it("consumes Escape: subview → home, then collapses the rail", () => {
     setViewport(1400);
-    useCommsStore.setState({ collapsedPref: false, subview: { kind: "thread", threadId: "t1" } });
     renderRail();
+    act(() => {
+      useCommsStore.setState({ collapsedPref: false, subview: { kind: "thread", threadId: "t1" } });
+    });
 
     const first = new KeyboardEvent("keydown", { key: "Escape", cancelable: true, bubbles: true });
     act(() => {
