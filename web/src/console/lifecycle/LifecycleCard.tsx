@@ -11,7 +11,7 @@ import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
 import { chainFor } from "./chain";
 import { LifecycleCardView } from "./LifecycleCardView";
-import { PolicyProvider, type PolicyDecider } from "../policy";
+import { PolicyProvider, type PolicyQueryDecider } from "../policy";
 import { useLifecycle } from "./useLifecycle";
 
 const t = ko.console.lifecycle;
@@ -36,7 +36,7 @@ export function LifecycleCard({ objectType, objectId, title, mode = "live", asOf
   // ponytail: coarse JWT-hint gate. Real authority is org-wide LifecycleManage
   // resolved by the shared /me/authz gate the sibling cc-policy lane builds;
   // converge onto it (this whole decider drops out) when that merges.
-  const decide = useMemo<PolicyDecider>(() => {
+  const decide = useMemo<PolicyQueryDecider>(() => {
     const manages = (session?.roles ?? []).some((r) => LIFECYCLE_ROLES.has(r));
     return ({ action }) => (action.startsWith("lifecycle.") ? manages : true);
   }, [session]);

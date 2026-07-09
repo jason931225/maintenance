@@ -1,4 +1,19 @@
-export { PolicyGated, PolicyGateProvider, PolicyGateContext, usePolicyGate } from "./PolicyGate";
+export { PolicyGated, PolicyGateProvider } from "./PolicyGated";
+export { PolicyProvider, type PolicyQuery, type PolicyQueryDecider } from "./components";
+export {
+  usePolicyGate,
+  DENY_ALL,
+  type PolicyGate,
+  type PolicyDecider,
+  type PolicyResource,
+} from "./usePolicyGate";
+
+export {
+  PolicyGated as FeaturePolicyGated,
+  PolicyGateProvider as FeaturePolicyGateProvider,
+  PolicyGateContext as FeaturePolicyGateContext,
+  usePolicyGate as useFeaturePolicyGate,
+} from "./PolicyGate";
 export {
   gateAllows,
   makePolicyGate,
@@ -6,13 +21,12 @@ export {
   jwtFloorProjection,
   fetchAuthzProjection,
   DENY_ALL_PROJECTION,
-  type PolicyGate,
+  type PolicyGate as FeaturePolicyGate,
   type AuthzProjection,
   type Capability,
   type BranchScope,
   type Permission,
-  type PolicyQuery,
+  type PolicyQuery as FeaturePolicyQuery,
 } from "./authz";
-
-export { PolicyContext, type PolicyDecider, type PolicyQuery as ActionPolicyQuery } from "./context";
-export { PolicyProvider, PolicyGated as ActionPolicyGated } from "./components";
+export { PolicyProvider as ActionPolicyProvider } from "./components";
+export { PolicyGated as ActionPolicyGated } from "./PolicyGated";

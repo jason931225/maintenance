@@ -1,29 +1,43 @@
 import { type ReactNode } from "react";
 
-import { PolicyGateContext, usePolicyGate, type PolicyDecider } from "./usePolicyGate";
+import {
+  DENY_ALL,
+  PolicyGateContext,
+  usePolicyGate,
+  type PolicyDecider,
+  type PolicyGate,
+  type PolicyResource,
+} from "./usePolicyGate";
 
-/** Provides the active policy decider to a subtree (see usePolicyGate.ts). */
 export function PolicyGateProvider({
+  gate,
   decide,
   children,
 }: {
-  decide: PolicyDecider;
+  gate?: PolicyGate;
+  decide?: PolicyDecider;
   children: ReactNode;
 }) {
-  return <PolicyGateContext.Provider value={decide}>{children}</PolicyGateContext.Provider>;
-}
-
-export interface PolicyGatedProps {
-  /** Feature/permission key the affordance requires (e.g. "work_order.reject"). */
-  action: string;
-  children: ReactNode;
+  const value = gate ?? (decide ? { can: decide } : DENY_ALL);
+  return <PolicyGateContext.Provider value={value}>{children}</PolicyGateContext.Provider>;
 }
 
 /**
- * Renders `children` only when the active decider permits `action`; otherwise
- * renders nothing (deny-by-omission — no placeholder, no disabled control).
+ * Renders its children only when the current gate permits `action` on
+ * `resource`; otherwise renders nothing (deny-by-omission — never a disabled or
+ * greyed affordance).
  */
-export function PolicyGated({ action, children }: PolicyGatedProps) {
-  const decide = usePolicyGate();
-  return decide(action) ? <>{children}</> : null;
+export function PolicyGated({
+  action,
+  resource,
+  children,
+  fallback = null,
+}: {
+  action: string;
+  resource?: PolicyResource;
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const gate = usePolicyGate();
+  return <>{gate.can(action, resource) ? children : fallback}</>;
 }

@@ -117,6 +117,32 @@ function PasskeySetupProbe() {
   );
 }
 
+function AcceptTokensProbe({ accessToken }: { accessToken: string }) {
+  const { session, restoring, acceptTokens } = useAuth();
+  return (
+    <div>
+      <div data-testid="state">
+        {restoring
+          ? "restoring"
+          : session
+            ? `auth:${session.access_token}`
+            : "anon"}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          acceptTokens({
+            access_token: accessToken,
+            requires_passkey_setup: false,
+          });
+        }}
+      >
+        accept
+      </button>
+    </div>
+  );
+}
+
 function renderProvider() {
   return render(
     <AuthProvider>
@@ -180,6 +206,35 @@ describe("AuthProvider boot silent refresh", () => {
       expect(screen.getByTestId("state")).toHaveTextContent("anon");
     });
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it("lets an explicit token accept finish restoring while boot refresh is still pending", async () => {
+    const user = userEvent.setup();
+    const access = fakeAccessToken("00000000-0000-4000-8000-000000000001");
+    let resolveRefresh!: () => void;
+    const pendingRefresh = new Promise<void>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", async () => {
+        await pendingRefresh;
+        return HttpResponse.json({ error: "unauthorized" }, { status: 401 });
+      }),
+    );
+
+    render(
+      <AuthProvider>
+        <AcceptTokensProbe accessToken={access} />
+      </AuthProvider>,
+    );
+
+    expect(screen.getByTestId("state")).toHaveTextContent("restoring");
+    await user.click(screen.getByRole("button", { name: "accept" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("state")).toHaveTextContent(`auth:${access}`);
+    });
+    resolveRefresh();
   });
 
   it("preserves a zero-passkey setup requirement returned by silent refresh", async () => {
