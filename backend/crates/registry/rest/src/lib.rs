@@ -28,9 +28,9 @@ use mnt_registry_application::{
     EquipmentOwnershipTransferDecision, EquipmentOwnershipTransferRequest,
     EquipmentOwnershipTransferStatus, EquipmentOwnershipTransferStepKey, EquipmentReadQuery,
     EquipmentSortBy, EquipmentTimelineGraph, EquipmentTimelineGraphQuery, RegistryImportReport,
-    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
-    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateEquipmentFields,
-    UpdateSiteCommand, UpdateSiteFields,
+    RollbackEquipmentCommand, SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand,
+    SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand,
+    UpdateEquipmentFields, UpdateSiteCommand, UpdateSiteFields,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,9 @@ pub const EQUIPMENT_PATH: &str = "/api/v1/equipment";
 pub const EQUIPMENT_LIST_PATH: &str = "/api/v1/equipment/list";
 pub const EQUIPMENT_IMPORT_PATH: &str = "/api/v1/equipment/import";
 pub const EQUIPMENT_ID_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}";
+pub const EQUIPMENT_VERSIONS_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/versions";
+pub const EQUIPMENT_VERSION_ROLLBACK_PATH_TEMPLATE: &str =
+    "/api/v1/equipment/{id}/versions/{version}/rollback";
 pub const EQUIPMENT_TIMELINE_GRAPH_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/timeline-graph";
 pub const EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/substitutes";
 pub const EQUIPMENT_SUBSTITUTIONS_PATH: &str = "/api/v1/equipment-substitutions";
@@ -63,6 +66,8 @@ pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_LIST_PATH,
     EQUIPMENT_IMPORT_PATH,
     EQUIPMENT_ID_PATH_TEMPLATE,
+    EQUIPMENT_VERSIONS_PATH_TEMPLATE,
+    EQUIPMENT_VERSION_ROLLBACK_PATH_TEMPLATE,
     EQUIPMENT_TIMELINE_GRAPH_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTIONS_PATH,
@@ -153,6 +158,14 @@ pub fn router(state: RegistryRestState) -> Router {
             get(get_equipment)
                 .patch(update_equipment)
                 .delete(delete_equipment),
+        )
+        .route(
+            EQUIPMENT_VERSIONS_PATH_TEMPLATE,
+            get(list_equipment_versions),
+        )
+        .route(
+            EQUIPMENT_VERSION_ROLLBACK_PATH_TEMPLATE,
+            post(rollback_equipment),
         )
         .route(EQUIPMENT_BY_LOCATION_PATH, get(equipment_by_location))
         .route(CUSTOMERS_PATH, post(create_customer))
@@ -1734,6 +1747,91 @@ async fn update_equipment(
         .await
         .map_err(RestError::from_store)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EquipmentVersionResponse {
+    version: i32,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_version: Option<i32>,
+    content: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_by: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct EquipmentVersionListResponse {
+    items: Vec<EquipmentVersionResponse>,
+}
+
+/// GET /api/v1/equipment/{id}/versions — append-only version history, newest
+/// first. Read tier: same as the equipment detail read.
+async fn list_equipment_versions(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<EquipmentId>,
+) -> Result<Json<EquipmentVersionListResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_read_access(&principal)?;
+
+    let versions = state
+        .store
+        .list_equipment_versions(equipment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(EquipmentVersionListResponse {
+        items: versions
+            .into_iter()
+            .map(|record| EquipmentVersionResponse {
+                version: record.version,
+                status: record.status,
+                source_version: record.source_version,
+                content: record.content,
+                created_by: record.created_by,
+                created_at: record.created_at,
+            })
+            .collect(),
+    }))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EquipmentRollbackResponse {
+    version: i32,
+}
+
+/// POST /api/v1/equipment/{id}/versions/{version}/rollback — re-applies the
+/// target version's content as a NEW version; history is never mutated. Gated
+/// like the equipment update it is.
+async fn rollback_equipment(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path((equipment_id, version)): Path<(EquipmentId, i32)>,
+) -> Result<(StatusCode, Json<EquipmentRollbackResponse>), RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let new_version = state
+        .store
+        .rollback_equipment(RollbackEquipmentCommand {
+            actor: principal.user_id,
+            equipment_id,
+            version,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(EquipmentRollbackResponse {
+            version: new_version,
+        }),
+    ))
 }
 
 fn equipment_fields_from_request(

@@ -481,6 +481,18 @@ pub struct UpdateEquipmentCommand {
     pub occurred_at: Timestamp,
 }
 
+/// Roll an equipment row back to a prior captured version's content. The
+/// rollback lands as a NEW version (`ROLLBACK`, `source_version = version`);
+/// history is never rewritten.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RollbackEquipmentCommand {
+    pub actor: UserId,
+    pub equipment_id: EquipmentId,
+    pub version: i32,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeleteEquipmentCommand {
     pub actor: UserId,
