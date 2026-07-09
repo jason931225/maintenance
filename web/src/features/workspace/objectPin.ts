@@ -12,7 +12,7 @@ import type { PinKind, PinnedObject } from "./types";
  * unauthorized reference never pins (nothing to render).
  *
  * Person is the audited case: it reads the non-admin branch directory
- * (`/api/messenger/members/{user_id}`), which records a `person.view` audit
+ * (`/api/messenger/members/{userId}`), which records a `person.view` audit
  * event for a non-self view (열람 — 기록 남음) server-side. The fetch itself is
  * therefore the audit trigger — the client makes no audit call of its own.
  * work-order, support, and org-unit read their own detail endpoints; any other
@@ -148,8 +148,8 @@ async function fetchPersonPin(
   if (!branchId) return null;
   let member;
   try {
-    const response = await api.GET("/api/messenger/members/{user_id}", {
-      params: { path: { user_id: userId }, query: { branch_id: branchId } },
+    const response = await api.GET("/api/messenger/members/{userId}", {
+      params: { path: { userId }, query: { branch_id: branchId } },
     });
     member = dataOrNoPin(response);
   } catch (error) {

@@ -2076,7 +2076,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/messenger/members/{user_id}": {
+    "/api/messenger/members/{userId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -10283,7 +10283,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                user_id: components["schemas"]["Uuid"];
+                userId: components["schemas"]["Uuid"];
             };
             cookie?: never;
         };

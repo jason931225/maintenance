@@ -7616,7 +7616,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
-     * GET /api/messenger/members/{user_id}
+     * GET /api/messenger/members/{userId}
      * Fetch one branch member&#39;s summary for a person pin panel
      * Returns a single active branch member&#39;s summary using the same non-admin branch directory as the member list, so any employee can open a coworker&#39;s person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller&#39;s branch returns 404 with no audit trail (deny-by-omission).
      * @param userId
@@ -7649,7 +7649,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
-     * GET /api/messenger/members/{user_id}
+     * GET /api/messenger/members/{userId}
      * Fetch one branch member&#39;s summary for a person pin panel
      * Returns a single active branch member&#39;s summary using the same non-admin branch directory as the member list, so any employee can open a coworker&#39;s person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller&#39;s branch returns 404 with no audit trail (deny-by-omission).
      * @param userId
@@ -7686,7 +7686,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/messenger/members/{user_id}".replace("{"+"user_id"+"}", encodeURIComponent(userId.toString())),
+            path = "/api/messenger/members/{userId}".replace("{"+"userId"+"}", encodeURIComponent(userId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

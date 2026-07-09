@@ -3033,7 +3033,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-  /api/messenger/members/{user_id}:
+  /api/messenger/members/{userId}:
     get:
       operationId: getMessengerMember
       summary: Fetch one branch member's summary for a person pin panel
@@ -3046,7 +3046,7 @@ paths:
       security:
       - bearerAuth: []
       parameters:
-      - name: user_id
+      - name: userId
         in: path
         required: true
         schema:
