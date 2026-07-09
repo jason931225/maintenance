@@ -86,9 +86,9 @@ impl ExecGraph {
                                 Some(value.clone())
                             }
                             Some(_) => {
-                                return Some(Err(KernelError::validation(
+                                return Err(KernelError::validation(
                                     "workflow edge 'when' must be the string \"true\" or \"false\"",
-                                )));
+                                ));
                             }
                             None => None,
                         };
