@@ -50,11 +50,12 @@ not the `MNT_MAIL_MASTER_KEY`, not a mox account password, and not an admin
 credential. Generate it as a log-safe single-line random value (for example
 `openssl rand -hex 32`), store it in **OCI Vault**, project it into
 `mnt-secrets`, and rotate it by updating `mnt-secrets` plus restarting
-`statefulset/mnt-mox`. The committed mox bootstrap template only contains a
-placeholder; the StatefulSet renders the real value on first boot and refreshes
-only the existing `domains.conf` webhook `Authorization: Bearer ...` line on
-later starts, without logging the secret or overwriting other PVC-resident mox
-config.
+`statefulset/mnt-mox`, `rollout/mnt-app`, and `deployment/mnt-worker` so both
+sides reload the same credential. The committed mox bootstrap template only
+contains a placeholder; the StatefulSet renders the real value on first boot and
+refreshes only the existing `domains.conf` webhook `Authorization: Bearer ...`
+line on later starts, without logging the secret or overwriting other
+PVC-resident mox config.
 
 Dark mox account/bootstrap credentials are also OCI Vault material, but they are
 not committed to Kubernetes manifests:

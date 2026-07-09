@@ -114,15 +114,35 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   kubectl exec -n maintenance statefulset/mnt-mox -- /bin/mox -config /mox-data/config/mox.conf config test
   ```
 
+  Webhook-secret rotation: update `mnt-secrets`, then restart every consumer so
+  mox rewrites the bearer line and the api/worker reload the same new value.
+  Keep shell tracing off and verify with config test plus the dark smoke; do not
+  print `domains.conf` or secret env values.
+
+  ```sh
+  kubectl -n maintenance rollout restart statefulset/mnt-mox
+  kubectl argo rollouts restart mnt-app -n maintenance
+  kubectl -n maintenance rollout restart deployment/mnt-worker
+  kubectl -n maintenance rollout status statefulset/mnt-mox --timeout=300s
+  kubectl argo rollouts status mnt-app -n maintenance --timeout 300s
+  kubectl -n maintenance rollout status deployment/mnt-worker --timeout=300s
+  kubectl exec -n maintenance statefulset/mnt-mox -- \
+    /bin/mox -config /mox-data/config/mox.conf config test
+  # Then run the dark smoke below using the rotated Vault/mnt-secrets values.
+  ```
+
 - Bootstrap account password: retrieve the operator-held postmaster/account
   password from OCI Vault (see `SECRETS.md`) and set it over the in-pod control
   socket after the pod is Ready:
 
   ```sh
-  oci secrets secret-bundle get --secret-id <mnt-mox-postmaster-password-ocid> \
+  set +x
+  MOX_PASS_SECRET_OCID="${MOX_PASS_SECRET_OCID:?set to the mnt-mox-postmaster-password OCI Vault secret OCID}"
+  oci secrets secret-bundle get --secret-id "$MOX_PASS_SECRET_OCID" \
     --query 'data."secret-bundle-content".content' --raw-output | base64 -d | \
   kubectl exec -i -n maintenance statefulset/mnt-mox -- \
     /bin/mox -config /mox-data/config/mox.conf setaccountpassword postmaster
+  unset MOX_PASS_SECRET_OCID
   ```
 
   `setaccountpassword` reads stdin and stores derived verifier material in
@@ -144,26 +164,65 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
 - Dark smoke without public MX:
 
   ```sh
+  set +x
+  MOX_PASS_SECRET_OCID="${MOX_PASS_SECRET_OCID:?set to the mnt-mox-postmaster-password OCI Vault secret OCID}"
+  MOX_PASS="$(oci secrets secret-bundle get --secret-id "$MOX_PASS_SECRET_OCID" \
+    --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
+  WEBHOOK_SECRET="$(kubectl -n maintenance get secret mnt-secrets \
+    -o jsonpath='{.data.MNT_MAIL_MOX_WEBHOOK_SECRET}' | base64 -d)"
   kubectl -n maintenance port-forward svc/mnt-mox 1080:1080
   kubectl -n maintenance port-forward svc/mnt-app 8090:8080
   MNT_MOX_WEBAPI_URL=http://127.0.0.1:1080 \
   MNT_DEV_BACKEND_URL=http://127.0.0.1:8090 \
   MNT_MOX_USER=postmaster@knllogistic.com \
-  MNT_MOX_PASS=<read from OCI Vault; do not log> \
-  MNT_MAIL_MOX_WEBHOOK_SECRET=<read from mnt-secrets; do not log> \
+  MNT_MOX_PASS="$MOX_PASS" \
+  MNT_MAIL_MOX_WEBHOOK_SECRET="$WEBHOOK_SECRET" \
   node scripts/mox-e2e.mjs
+  unset MOX_PASS WEBHOOK_SECRET MOX_PASS_SECRET_OCID
   ```
 
 - Backup/restore: CNPG/Barman covers Postgres only; it does **not** back up
   `/mox-data`. Before rollout, destructive changes, or PVC deletion, run mox's
-  file-level backup into a scratch directory and upload the tarball to an OCI
-  Object Storage bucket with explicit retention/quota approval:
+  file-level backup into secure scratch directories, encrypt the tarball before
+  upload, store it in an encrypted OCI Object Storage bucket with explicit
+  retention/quota approval, verify the uploaded object, and only then remove pod
+  and local scratch copies:
 
   ```sh
-  kubectl exec -n maintenance statefulset/mnt-mox -- /bin/mox -config /mox-data/config/mox.conf backup /tmp/mox-backup
-  kubectl cp maintenance/mnt-mox-0:/tmp/mox-backup ./mox-backup
-  tar -C ./mox-backup -czf mox-backup-$(date -u +%Y%m%dT%H%M%SZ).tgz .
-  # upload with the operator's OCI/S3 client credentials; never store secrets in git
+  set +x
+  umask 077
+  STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+  POD_BACKUP="/tmp/mox-backup-$STAMP"
+  LOCAL_BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mox-backup.XXXXXX")"
+  ARCHIVE="$LOCAL_BACKUP_DIR/mox-backup-$STAMP.tgz"
+  ENC_ARCHIVE="$ARCHIVE.enc"
+  BACKUP_ENC_SECRET_OCID="${BACKUP_ENC_SECRET_OCID:?set to the mox backup encryption passphrase secret OCID}"
+  MNT_MOX_BACKUP_BUCKET="${MNT_MOX_BACKUP_BUCKET:?set to the approved encrypted retention bucket}"
+  BACKUP_ENC_PASS="$(oci secrets secret-bundle get --secret-id "$BACKUP_ENC_SECRET_OCID" \
+    --query 'data."secret-bundle-content".content' --raw-output | base64 -d)"
+
+  kubectl exec -n maintenance statefulset/mnt-mox -- /bin/sh -ceu '
+    umask 077
+    rm -rf "$1"
+    mkdir -m 700 "$1"
+    /bin/mox -config /mox-data/config/mox.conf backup "$1"
+  ' sh "$POD_BACKUP"
+  kubectl cp "maintenance/mnt-mox-0:$POD_BACKUP" "$LOCAL_BACKUP_DIR/mox-backup"
+  tar -C "$LOCAL_BACKUP_DIR/mox-backup" -czf "$ARCHIVE" .
+  openssl enc -aes-256-cbc -pbkdf2 -salt -in "$ARCHIVE" -out "$ENC_ARCHIVE" \
+    -pass env:BACKUP_ENC_PASS
+  (cd "$LOCAL_BACKUP_DIR" && shasum -a 256 "$(basename "$ENC_ARCHIVE")" > "$(basename "$ENC_ARCHIVE").sha256")
+  oci os object put --bucket-name "$MNT_MOX_BACKUP_BUCKET" \
+    --name "mox/$STAMP/$(basename "$ENC_ARCHIVE")" --file "$ENC_ARCHIVE"
+  oci os object put --bucket-name "$MNT_MOX_BACKUP_BUCKET" \
+    --name "mox/$STAMP/$(basename "$ENC_ARCHIVE").sha256" --file "$ENC_ARCHIVE.sha256"
+  oci os object get --bucket-name "$MNT_MOX_BACKUP_BUCKET" \
+    --name "mox/$STAMP/$(basename "$ENC_ARCHIVE")" --file "$LOCAL_BACKUP_DIR/verify.enc"
+  test "$(shasum -a 256 "$LOCAL_BACKUP_DIR/verify.enc" | awk '{print $1}')" = \
+    "$(cut -d ' ' -f1 "$ENC_ARCHIVE.sha256")"
+  kubectl exec -n maintenance statefulset/mnt-mox -- rm -rf "$POD_BACKUP"
+  rm -rf "$LOCAL_BACKUP_DIR"
+  unset BACKUP_ENC_PASS BACKUP_ENC_SECRET_OCID MNT_MOX_BACKUP_BUCKET
   ```
 
   Restore drill: prove this on a fresh PVC/workload when possible; for an
@@ -235,10 +294,22 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   `MntMoxPvcSaturation`. Keep mox `LogLevel: info`; never enable `traceauth` or
   `tracedata` in production because those can expose credentials or full message
   bodies.
-- Rollback: revert the Git commit/config, Argo sync, and remove
-  `MNT_MAIL_MOX_BASE_URL` from app config if app webmail traffic must stop using
-  mox. Scale `mnt-mox` to 0 only after a successful backup/export; do not delete
-  the PVC unless the restore path above has been proven.
+- Rollback: revert the Git commit/config, Argo sync, and remove or disable
+  `MNT_MAIL_MOX_BASE_URL` for both api and worker consumers if app webmail
+  traffic must stop using mox. Restart both workloads and verify neither still
+  sees the mox base URL before scaling down `mnt-mox`.
+
+  ```sh
+  kubectl argo rollouts restart mnt-app -n maintenance
+  kubectl -n maintenance rollout restart deployment/mnt-worker
+  kubectl argo rollouts status mnt-app -n maintenance --timeout 300s
+  kubectl -n maintenance rollout status deployment/mnt-worker --timeout=300s
+  ! kubectl -n maintenance exec -l app=mnt-app -- printenv MNT_MAIL_MOX_BASE_URL
+  ! kubectl -n maintenance exec -l app=mnt-worker -- printenv MNT_MAIL_MOX_BASE_URL
+  ```
+
+  Scale `mnt-mox` to 0 only after a successful backup/export; do not delete the
+  PVC unless the restore path above has been proven.
 - Public MX/operator gate: public SMTP/MX, submission, IMAPS, webapi, or admin UI
   must remain disabled until DNS MX/SPF/DKIM/DMARC/MTA-STS/TLS-RPT, TLS/cert
   rotation, queue/dead-letter behavior, abuse/rate-limit/open-relay negatives,
