@@ -640,3 +640,164 @@ async fn watermark_defers_fresh_rows_then_seals_without_gap(owner_pool: PgPool) 
         .unwrap();
     assert!(report.ok, "no gap after the deferred row seals: {report:?}");
 }
+
+// ---------------------------------------------------------------------------
+// §6.9 detect broken continuity (mid-chain prev_seal_hash tamper, seq intact)
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn verify_detects_broken_continuity(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    let cfg = immediate();
+
+    // Two seals so seq stays contiguous (1,2) — MissingSeq must NOT mask this.
+    write_events(&rt, org, user, branch, 2).await;
+    seal_org_once(&rt, OrgId::from_uuid(org), &signer, OffsetDateTime::now_utc(), &cfg)
+        .await
+        .unwrap()
+        .unwrap();
+    write_events(&rt, org, user, branch, 1).await;
+    let s2 = seal_org_once(&rt, OrgId::from_uuid(org), &signer, OffsetDateTime::now_utc(), &cfg)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s2.seq, 2);
+
+    // Repoint seq 2's prev_seal_hash to garbage (seq column untouched): the chain
+    // link breaks even though both seals still exist.
+    owner_tamper_seal(
+        &owner_pool,
+        "UPDATE audit_chain_seals SET prev_seal_hash = decode(repeat('cd', 32), 'hex') \
+         WHERE org_id = $1 AND seq = $2",
+        org,
+        2,
+    )
+    .await;
+
+    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, OffsetDateTime::now_utc(), &cfg)
+        .await
+        .unwrap();
+    assert!(!report.ok);
+    assert_eq!(report.kind, ChainReportKind::BrokenContinuity, "{report:?}");
+    assert_eq!(report.first_bad_seq, Some(2));
+}
+
+// ---------------------------------------------------------------------------
+// §6.10 an unsealed tail is a FRESHNESS signal, never a tamper failure
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn unsealed_tail_is_reported_but_ok_stays_true(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+
+    // Seal the first batch immediately.
+    let now1 = OffsetDateTime::now_utc();
+    write_events(&rt, org, user, branch, 2).await;
+    seal_org_once(&rt, OrgId::from_uuid(org), &signer, now1, &immediate())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // A new row past the head, left UNSEALED, that is older than the watermark
+    // at verify time — the rolling window a healthy live tenant always carries.
+    write_events(&rt, org, user, branch, 1).await;
+    let cfg = SealConfig {
+        seal_lag: Duration::seconds(60),
+        batch_max: 500,
+    };
+    let verify_now = now1 + Duration::seconds(120);
+    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, verify_now, &cfg)
+        .await
+        .unwrap();
+    assert!(report.ok, "behind-schedule is not tamper: {report:?}");
+    assert_eq!(report.kind, ChainReportKind::Ok);
+    assert!(report.unsealed_tail, "the unsealed row is reported as a freshness signal");
+}
+
+// ---------------------------------------------------------------------------
+// §6.11 detect a row reorder (swap the sort key of two sealed rows)
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn verify_detects_row_reorder(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    let ids = write_events(&rt, org, user, branch, 3).await;
+    let now = OffsetDateTime::now_utc();
+    let cfg = immediate();
+    seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Swap the created_at of the first two sealed rows: the (created_at,id) order
+    // flips, so the canonical batch bytes change. Detected either as a batch
+    // mismatch (still in range) or a coverage gap (pushed out of range) — both
+    // prove the reorder does not go unnoticed.
+    let mut tx = owner_pool.begin().await.unwrap();
+    tamper_prelude(&mut tx).await;
+    // Atomic swap of the first and last sealed rows' created_at: UPDATE..FROM
+    // reads the pre-statement snapshot, so each row takes the other's old value.
+    sqlx::query(
+        "UPDATE audit_events AS a SET created_at = b.created_at FROM audit_events AS b \
+         WHERE (a.id = $1 AND b.id = $2) OR (a.id = $2 AND b.id = $1)",
+    )
+    .bind(ids[0])
+    .bind(ids[2])
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .unwrap();
+    assert!(!report.ok, "a reorder must be detected: {report:?}");
+    assert!(
+        matches!(
+            report.kind,
+            ChainReportKind::BatchHashMismatch | ChainReportKind::CoverageGap
+        ),
+        "reorder → batch mismatch or coverage gap, got {report:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// §6.12 detect a backdated insert into a coverage gap (codex-class hole)
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn verify_detects_coverage_gap_before_genesis(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    let ids = write_events(&rt, org, user, branch, 3).await;
+    let now = OffsetDateTime::now_utc();
+    let cfg = immediate();
+    seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Simulate a backdated insert into the pre-genesis gap: move a sealed row's
+    // created_at earlier than the genesis seal's `from_`, so a committed row now
+    // sits below the first seal's start. verify must PROVE this is uncovered.
+    owner_tamper_uuid(
+        &owner_pool,
+        "UPDATE audit_events SET created_at = created_at - interval '1 hour' WHERE id = $1",
+        ids[1],
+    )
+    .await;
+
+    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .unwrap();
+    assert!(!report.ok);
+    assert_eq!(report.kind, ChainReportKind::CoverageGap, "{report:?}");
+    assert_eq!(report.first_bad_seq, Some(1));
+}

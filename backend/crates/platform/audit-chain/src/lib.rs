@@ -18,6 +18,24 @@
 //! is asymmetric so the DB owner does not hold it. The in-crate
 //! [`InMemoryEd25519Signer`] is for dev/test only.
 //!
+//! # PR-1 scope (dark plumbing — NO tamper evidence YET)
+//! This PR ships the chain plumbing with ONLY the in-crate signer, whose
+//! `verify` reconstructs the public key from the seal's own (attacker-writable)
+//! `key_ref` — so against the DB-writer threat actor above it provides **no real
+//! tamper evidence yet**: an attacker rewrites a row, recomputes the hashes,
+//! generates a fresh keypair, re-signs, and overwrites `signature` + `key_ref`.
+//! The evidentiary guarantee materializes only once the OCI Vault signer maps
+//! `key_ref` → public key through a store the DB writer cannot forge (PR-3, plus
+//! an out-of-band seal anchor). PR-1 is correct, DARK scaffolding: it changes no
+//! live behavior and provides the seal/verify machinery PR-2 (a read-only
+//! attestation endpoint) and PR-3 (the real signer) build on.
+//!
+//! # Coverage gap: NULL-org audit rows
+//! Platform-tier audit rows (`audit_events.org_id IS NULL` — retention/roster
+//! jobs) are invisible under org RLS, so they are never sealed and carry no
+//! tamper evidence. Seal and verify agree (no false alarm), but this is a known
+//! coverage gap a future platform-org chain can close.
+//!
 //! # Ordering (charter §2)
 //! The chain orders each org's events by `(created_at ASC, id ASC)`.
 //! `created_at` is DB-authoritative (`now()` at insert), immutable (append-only
@@ -789,12 +807,13 @@ pub async fn verify_org_chain(
             let seals: Vec<SealRow> = sqlx::query_as(SELECT_SEALS).fetch_all(tx.as_mut()).await?;
 
             let mut prev_seal_hash = GENESIS_PREV;
+            let mut prev_to: Option<Cursor> = None;
             for (index, seal) in seals.iter().enumerate() {
                 let expected_seq = i64::try_from(index + 1).unwrap_or(i64::MAX);
 
                 // (a) contiguity from 1.
                 if seal.seq != expected_seq {
-                    return Ok(ChainReport::bad(
+                    return Ok(ChainReport::tampered(
                         org_id,
                         Some(expected_seq),
                         ChainReportKind::MissingSeq,
@@ -807,16 +826,32 @@ pub async fn verify_org_chain(
 
                 // (b) continuity: this seal must link to the previous seal_hash.
                 if stored_prev != prev_seal_hash {
-                    return Ok(ChainReport::bad(
+                    return Ok(ChainReport::tampered(
                         org_id,
                         Some(seal.seq),
                         ChainReportKind::BrokenContinuity,
                     ));
                 }
 
+                // (b2) coverage: no committed audit_events row may sit strictly
+                // between the previous seal's `to_` (or start-of-time at genesis)
+                // and this seal's `from_`. A row bracketed by two seals was never
+                // legitimately sealed, so it can only be a backdated / commit-order
+                // -late insert → a DETECTABLE CoverageGap (closes the codex-class
+                // silent skip: the seal_lag watermark bounds it at seal time; this
+                // proves nothing slipped in below the head afterward).
+                let seal_from: Cursor = (seal.from_created_at, seal.from_event_id);
+                if rows_in_gap(tx, prev_to, seal_from).await? {
+                    return Ok(ChainReport::tampered(
+                        org_id,
+                        Some(seal.seq),
+                        ChainReportKind::CoverageGap,
+                    ));
+                }
+
                 // (c) signature over the stored seal_hash under the stored key_ref.
                 if !signer.verify(&stored_seal, &seal.signature, &seal.key_ref)? {
-                    return Ok(ChainReport::bad(
+                    return Ok(ChainReport::tampered(
                         org_id,
                         Some(seal.seq),
                         ChainReportKind::BadSignature,
@@ -842,7 +877,7 @@ pub async fn verify_org_chain(
                     &stored_prev,
                 )?;
                 if recomputed_seal != stored_seal {
-                    return Ok(ChainReport::bad(
+                    return Ok(ChainReport::tampered(
                         org_id,
                         Some(seal.seq),
                         ChainReportKind::SealHashMismatch,
@@ -858,7 +893,7 @@ pub async fn verify_org_chain(
                 )
                 .await?;
                 if batch_hash(&rows)? != stored_batch {
-                    return Ok(ChainReport::bad(
+                    return Ok(ChainReport::tampered(
                         org_id,
                         Some(seal.seq),
                         ChainReportKind::BatchHashMismatch,
@@ -866,20 +901,14 @@ pub async fn verify_org_chain(
                 }
 
                 prev_seal_hash = stored_seal;
+                prev_to = Some((seal.to_created_at, seal.to_event_id));
             }
 
-            // (f) unsealed-tail: any old-enough row beyond the head cursor is an
-            // integrity finding (worker fell behind / was stopped), not tamper.
-            let head_cursor = seals.last().map(|s| (s.to_created_at, s.to_event_id));
-            if unsealed_tail_exists(tx, head_cursor, watermark).await? {
-                return Ok(ChainReport::bad(
-                    org_id,
-                    None,
-                    ChainReportKind::UnsealedTail,
-                ));
-            }
-
-            Ok(ChainReport::ok(org_id))
+            // (f) unsealed-tail is a FRESHNESS signal, not tamper: a live tenant
+            // always carries a rolling window of committed-but-unsealed rows (up
+            // to seal_lag + tick). Report it as a flag; it never forces ok=false.
+            let unsealed_tail = unsealed_tail_exists(tx, prev_to, watermark).await?;
+            Ok(ChainReport::healthy(org_id, unsealed_tail))
         })
     })
     .await
@@ -929,6 +958,44 @@ async fn unsealed_tail_exists(
             .bind(watermark)
             .bind(cursor_ca)
             .bind(cursor_id)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+    };
+    Ok(count > 0)
+}
+
+/// Is there any committed `audit_events` row strictly inside the open interval
+/// `(lo, hi)` by `(created_at, id)` order? At genesis (`lo = None`) the interval
+/// is `(-inf, hi)`. Used to PROVE sealed ranges leave no coverage gap: a row
+/// bracketed by two seals — or before the first seal — was never legitimately
+/// sealed, so its presence is a detectable `CoverageGap`.
+async fn rows_in_gap(
+    tx: &mut Transaction<'_, Postgres>,
+    lo: Option<Cursor>,
+    hi: Cursor,
+) -> Result<bool, AuditChainError> {
+    let count: i64 = match lo {
+        None => {
+            sqlx::query_scalar(
+                "SELECT count(*) FROM audit_events \
+                 WHERE created_at < $1 OR (created_at = $1 AND id < $2)",
+            )
+            .bind(hi.0)
+            .bind(hi.1)
+            .fetch_one(tx.as_mut())
+            .await?
+        }
+        Some((lo_ca, lo_id)) => {
+            sqlx::query_scalar(
+                "SELECT count(*) FROM audit_events \
+                 WHERE (created_at > $1 OR (created_at = $1 AND id > $2)) \
+                   AND (created_at < $3 OR (created_at = $3 AND id < $4))",
+            )
+            .bind(lo_ca)
+            .bind(lo_id)
+            .bind(hi.0)
+            .bind(hi.1)
             .fetch_one(tx.as_mut())
             .await?
         }
