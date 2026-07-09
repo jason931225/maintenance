@@ -594,7 +594,7 @@ async fn due_account_enumeration_spans_tenants_as_runtime_role(owner_pool: PgPoo
     // Both are NEVER_SYNCED (last_sync_at NULL) → both due. The scheduler's
     // enumeration runs WITHOUT arming any org (it must see across tenants).
     let due = store
-        .list_due_accounts(OffsetDateTime::now_utc())
+        .list_due_accounts(OffsetDateTime::now_utc(), 100)
         .await
         .expect("enumerate due accounts as mnt_rt via SECURITY DEFINER");
 
@@ -716,5 +716,179 @@ async fn stale_lease_is_reclaimable_after_timeout(owner_pool: PgPool) {
     assert!(
         reclaimed.contains(account.as_uuid()),
         "a stale lease is reclaimable after its timeout"
+    );
+}
+
+/// FENCING: the fatal reclaim race. Worker A claims (token T1); its lease expires
+/// and worker B reclaims the SAME account (a fresh token T2). Worker A's late
+/// `record_sync_result` (still carrying T1) must NOT clear B's live claim — the
+/// compare-and-clear no-ops on the token mismatch, so B keeps its lease and no
+/// second, overlapping sync can start. B's own release (T2) then clears cleanly.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn stale_worker_cannot_clear_a_reclaimed_lease(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    seed_org(&owner_pool, *org.as_uuid(), "A").await;
+    let actor = seed_active_user(&owner_pool, *org.as_uuid()).await;
+    let cipher = test_cipher();
+    let store = PgMailStore::new(rt_pool.clone());
+    let account = seed_account(&store, &cipher, org, actor).await;
+
+    let now = OffsetDateTime::now_utc();
+
+    // Worker A claims with a 300s lease → token T1.
+    let (a_id, token_a): (Uuid, Uuid) = sqlx::query_as(
+        "SELECT account_id, claim_token FROM comms_due_email_accounts($1, 100, 300)",
+    )
+    .bind(now)
+    .fetch_one(&rt_pool)
+    .await
+    .unwrap();
+    assert_eq!(&a_id, account.as_uuid(), "worker A claims the due account");
+
+    // A's lease expires; worker B reclaims the SAME account → a FRESH token T2.
+    let after_expiry = now + time::Duration::seconds(600);
+    let (b_id, token_b): (Uuid, Uuid) = sqlx::query_as(
+        "SELECT account_id, claim_token FROM comms_due_email_accounts($1, 100, 300)",
+    )
+    .bind(after_expiry)
+    .fetch_one(&rt_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        b_id, a_id,
+        "worker B reclaims the same account after expiry"
+    );
+    assert_ne!(token_b, token_a, "the reclaim mints a fresh fencing token");
+
+    // The stale worker A finally finishes and tries to release with its OLD token
+    // T1. The fenced compare-and-clear must match NOTHING (row now holds T2).
+    store
+        .record_sync_result(org, account, token_a, "OK", None)
+        .await
+        .expect("stale release call itself succeeds (it simply clears nothing)");
+
+    // B's claim is UNTOUCHED: token still T2, lease still live.
+    let (claimed_until, live_token): (Option<OffsetDateTime>, Option<Uuid>) = {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let row =
+            sqlx::query_as("SELECT claimed_until, claim_token FROM email_accounts WHERE id = $1")
+                .bind(*account.as_uuid())
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        tx.commit().await.unwrap();
+        row
+    };
+    assert_eq!(
+        live_token,
+        Some(token_b),
+        "stale worker A must NOT clear worker B's fresh claim token"
+    );
+    assert!(
+        claimed_until.is_some(),
+        "worker B's lease must remain live after the stale release"
+    );
+
+    // The holder B releases with the matching token T2 → the lease clears cleanly.
+    store
+        .record_sync_result(org, account, token_b, "OK", None)
+        .await
+        .expect("holder release succeeds");
+    let (after_until, after_token): (Option<OffsetDateTime>, Option<Uuid>) = {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let row =
+            sqlx::query_as("SELECT claimed_until, claim_token FROM email_accounts WHERE id = $1")
+                .bind(*account.as_uuid())
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        tx.commit().await.unwrap();
+        row
+    };
+    assert!(
+        after_until.is_none() && after_token.is_none(),
+        "the token holder's fenced release clears the lease"
+    );
+}
+
+/// `release_claim` (the early-exit path — account vanished/identity-changed
+/// since enumeration, no sync was attempted) must clear ONLY the lease
+/// (`claimed_until`/`claim_token`) and leave the sync LIFECYCLE untouched:
+/// `last_sync_at` stays NULL and `sync_status` stays the default
+/// `NEVER_SYNCED`. Using `record_sync_result("OK", ...)` here instead would
+/// falsely report an unsynced account as a completed pass.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn release_claim_clears_lease_without_touching_sync_lifecycle(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    seed_org(&owner_pool, *org.as_uuid(), "A").await;
+    let actor = seed_active_user(&owner_pool, *org.as_uuid()).await;
+    let cipher = test_cipher();
+    let store = PgMailStore::new(rt_pool.clone());
+    let account = seed_account(&store, &cipher, org, actor).await;
+
+    let now = OffsetDateTime::now_utc();
+    let (claimed_id, token): (Uuid, Uuid) = sqlx::query_as(
+        "SELECT account_id, claim_token FROM comms_due_email_accounts($1, 100, 300)",
+    )
+    .bind(now)
+    .fetch_one(&rt_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        &claimed_id,
+        account.as_uuid(),
+        "the claim call above claims our seeded account"
+    );
+
+    // Simulate the early-exit: the worker releases the claim WITHOUT recording
+    // a sync result (no lifecycle write).
+    store
+        .release_claim(org, account, token)
+        .await
+        .expect("release_claim succeeds");
+
+    let (claimed_until, live_token, last_sync_at, sync_status): (
+        Option<OffsetDateTime>,
+        Option<Uuid>,
+        Option<OffsetDateTime>,
+        String,
+    ) = {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let row = sqlx::query_as(
+            r#"
+            SELECT claimed_until, claim_token, last_sync_at, sync_status
+            FROM email_accounts WHERE id = $1
+            "#,
+        )
+        .bind(*account.as_uuid())
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        row
+    };
+    assert!(claimed_until.is_none(), "release_claim clears the lease");
+    assert!(live_token.is_none(), "release_claim clears the claim token");
+    assert!(
+        last_sync_at.is_none(),
+        "release_claim must NOT stamp last_sync_at — no sync was attempted"
+    );
+    assert_eq!(
+        sync_status, "NEVER_SYNCED",
+        "release_claim must NOT touch sync_status — it only clears the lease"
     );
 }
