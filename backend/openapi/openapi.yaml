@@ -15053,6 +15053,7 @@ components:
         ap_submission:
           type: string
           description: submitted when a run was started, else pending_engine_definition.
+          enum: [submitted, pending_engine_definition]
     TodoRef:
       type: object
       description: >-

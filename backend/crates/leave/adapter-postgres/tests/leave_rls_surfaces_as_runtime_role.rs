@@ -24,10 +24,10 @@ use mnt_inbox_adapter_postgres::PgInboxStore;
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, TraceContext, UserId};
 use mnt_leave_adapter_postgres::PgLeaveStore;
 use mnt_leave_application::{
-    CreateLeaveRequestCommand, DecideLeaveRequestCommand, ListLeaveRequestsQuery,
+    ApSubmission, CreateLeaveRequestCommand, DecideLeaveRequestCommand, ListLeaveRequestsQuery,
     StatutoryPushCommand,
 };
-use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, PromotionKind};
+use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, NewLeaveRequest, PromotionKind};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use time::{Month, OffsetDateTime};
@@ -158,11 +158,14 @@ fn create_cmd(
         branch_id: branch,
         requester_user_id: requester,
         subject_employee_id: subject,
-        leave_type: LeaveType::Annual,
-        days,
-        start_date: date(2026, 7, 6),
-        end_date: date(2026, 7, 8),
-        reason: "여름 휴가".to_owned(),
+        request: NewLeaveRequest::new(
+            LeaveType::Annual,
+            days,
+            date(2026, 7, 6),
+            date(2026, 7, 8),
+            "여름 휴가",
+        )
+        .unwrap(),
         trace: TraceContext::generate(),
         occurred_at: OffsetDateTime::now_utc(),
     }
@@ -475,7 +478,7 @@ async fn statutory_push_delivers_receipt_doc_and_is_idempotent(owner_pool: PgPoo
     assert_eq!(r1.kind, PromotionKind::Promotion);
     assert_eq!(r1.round, 1);
     assert!(r1.ap_run_id.is_none());
-    assert_eq!(r1.ap_submission, "pending_engine_definition");
+    assert_eq!(r1.ap_submission, ApSubmission::PendingEngineDefinition);
 
     // The delivered notice is a LOCKED legal notice for the target.
     let (kind, notice_type, recipient): (String, Option<String>, Uuid) =

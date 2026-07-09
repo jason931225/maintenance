@@ -244,11 +244,19 @@ impl NewLeaveRequest {
                 "leave end date must not precede the start date",
             ));
         }
-        // A 반차 is a single half day; a 연차 span is at least a full day.
-        if leave_type == LeaveType::HalfDay && (days - 0.5).abs() > f64::EPSILON {
-            return Err(KernelError::validation(
-                "a 반차 (half day) must be 0.5 days",
-            ));
+        // A 반차 is a single half day on one calendar date; a 연차 span is at
+        // least a full day and may span multiple dates.
+        if leave_type == LeaveType::HalfDay {
+            if (days - 0.5).abs() > f64::EPSILON {
+                return Err(KernelError::validation(
+                    "a 반차 (half day) must be 0.5 days",
+                ));
+            }
+            if start_date != end_date {
+                return Err(KernelError::validation(
+                    "a 반차 (half day) must start and end on the same date",
+                ));
+            }
         }
         let reason = bounded(reason, "leave reason", REASON_MAX)?;
         Ok(Self {
@@ -366,6 +374,17 @@ mod tests {
         assert!(
             NewLeaveRequest::new(LeaveType::Annual, 1.0, d(2026, 7, 7), d(2026, 7, 6), "휴가")
                 .is_err()
+        );
+        assert!(
+            NewLeaveRequest::new(
+                LeaveType::HalfDay,
+                0.5,
+                d(2026, 7, 6),
+                d(2026, 7, 7),
+                "반차"
+            )
+            .is_err(),
+            "half day must not span multiple dates"
         );
         assert!(
             NewLeaveRequest::new(LeaveType::Annual, 1.0, d(2026, 7, 6), d(2026, 7, 6), "  ")

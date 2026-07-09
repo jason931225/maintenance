@@ -19,7 +19,7 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchScope, Date, KernelError, LeavePromotionId, LeaveRequestId,
     Timestamp, TraceContext, UserId,
 };
-use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, PromotionKind};
+use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, NewLeaveRequest, PromotionKind};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -37,11 +37,7 @@ pub struct CreateLeaveRequestCommand {
     pub branch_id: Uuid,
     pub requester_user_id: UserId,
     pub subject_employee_id: Uuid,
-    pub leave_type: LeaveType,
-    pub days: f64,
-    pub start_date: Date,
-    pub end_date: Date,
-    pub reason: String,
+    pub request: NewLeaveRequest,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -141,6 +137,18 @@ pub struct LeaveRequestPage {
     pub items: Vec<LeaveRequestView>,
 }
 
+/// Closed set for the balance roster's urgency/promotion bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaveBalanceTone {
+    /// Normal balance.
+    Ok,
+    /// Mostly unused balance that should be promoted for statutory use.
+    Promote,
+    /// Nearly exhausted balance.
+    Low,
+}
+
 /// One employee's balance row (직원별 연차 현황). `left` is derived here so the
 /// client never recomputes it. `tone` mirrors the prototype's ok/promote/low
 /// bucketing so the bar color and the 촉진 flag come from the backend.
@@ -153,12 +161,22 @@ pub struct LeaveBalanceView {
     pub used: f64,
     pub left: f64,
     /// `low` (mostly used), `promote` (mostly unused → 촉진 대상), or `ok`.
-    pub tone: String,
+    pub tone: LeaveBalanceTone,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LeaveBalancePage {
     pub items: Vec<LeaveBalanceView>,
+}
+
+/// Closed set for the engine-submission state attached to a statutory push.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApSubmission {
+    /// The engine AP- run was started.
+    Submitted,
+    /// The push is recorded but waiting for the engine submittable definition.
+    PendingEngineDefinition,
 }
 
 /// The result of a statutory push. `inbox_doc_id` is the receipt-gated document
@@ -175,7 +193,7 @@ pub struct StatutoryPushView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ap_run_id: Option<Uuid>,
     /// `submitted` when an engine run was started, else `pending_engine_definition`.
-    pub ap_submission: String,
+    pub ap_submission: ApSubmission,
 }
 
 // ---------------------------------------------------------------------------

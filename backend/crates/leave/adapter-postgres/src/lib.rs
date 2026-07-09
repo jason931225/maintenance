@@ -32,9 +32,10 @@ use mnt_kernel_core::{
     BranchScope, Date, ErrorKind, KernelError, LeavePromotionId, LeaveRequestId, OrgId, UserId,
 };
 use mnt_leave_application::{
-    CreateLeaveRequestCommand, DecideLeaveRequestCommand, LeaveBalancePage, LeaveBalanceView,
-    LeaveRequestPage, LeaveRequestView, ListLeaveRequestsQuery, StatutoryPushCommand,
-    StatutoryPushView, leave_promotion_audit_event, leave_request_audit_event,
+    ApSubmission, CreateLeaveRequestCommand, DecideLeaveRequestCommand, LeaveBalancePage,
+    LeaveBalanceTone, LeaveBalanceView, LeaveRequestPage, LeaveRequestView, ListLeaveRequestsQuery,
+    StatutoryPushCommand, StatutoryPushView, leave_promotion_audit_event,
+    leave_request_audit_event,
 };
 use mnt_leave_domain::{LeaveStatus, LeaveType, PromotionKind, validate_round};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
@@ -44,6 +45,18 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 const REQUEST_COLUMNS: &str = "id, branch_id, requester_user_id, subject_employee_id, leave_type, \
      days::float8 AS days, start_date, end_date, reason, status, decided_by, decided_at, \
      decision_comment, ap_run_id, created_at";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromotionInsert {
+    Inserted,
+    Duplicate,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PromotionRecord {
+    id: LeavePromotionId,
+    inbox_doc_id: uuid::Uuid,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum PgLeaveError {
@@ -116,6 +129,7 @@ impl PgLeaveStore {
         let org = current_org().map_err(KernelError::from)?;
         let id = LeaveRequestId::new();
         let requester = *command.requester_user_id.as_uuid();
+        let request = command.request;
         let event = leave_request_audit_event(
             "leave_request.create",
             Some(command.requester_user_id),
@@ -128,13 +142,13 @@ impl PgLeaveStore {
             None,
             Some(serde_json::json!({
                 "status": "pending",
-                "leave_type": command.leave_type.as_str(),
-                "days": command.days,
+                "leave_type": request.leave_type.as_str(),
+                "days": request.days,
                 "subject_employee_id": command.subject_employee_id,
             })),
         );
 
-        let leave_type = command.leave_type.as_str();
+        let leave_type = request.leave_type.as_str();
         let row =
             with_audit::<_, sqlx::postgres::PgRow, PgLeaveError>(&self.pool, event, move |tx| {
                 Box::pin(async move {
@@ -153,10 +167,10 @@ impl PgLeaveStore {
                     .bind(requester)
                     .bind(command.subject_employee_id)
                     .bind(leave_type)
-                    .bind(command.days)
-                    .bind(command.start_date)
-                    .bind(command.end_date)
-                    .bind(command.reason)
+                    .bind(request.days)
+                    .bind(request.start_date)
+                    .bind(request.end_date)
+                    .bind(request.reason)
                     .fetch_one(tx.as_mut())
                     .await?)
                 })
@@ -405,6 +419,25 @@ impl PgLeaveStore {
         let round = validate_round(command.kind, command.round).map_err(PgLeaveError::Domain)?;
         let notice_type = command.kind.notice_type();
         let legal_basis = command.kind.legal_basis();
+        let kind = command.kind.as_str();
+
+        self.ensure_target_employee_exists(org, command.target_employee_id)
+            .await?;
+
+        if let Some(existing) = self
+            .find_promotion(org, command.target_employee_id, kind, round)
+            .await?
+        {
+            return Ok(StatutoryPushView {
+                id: existing.id,
+                kind: command.kind,
+                round,
+                target_user_id: command.target_user_id,
+                inbox_doc_id: existing.inbox_doc_id,
+                ap_run_id: None,
+                ap_submission: ApSubmission::PendingEngineDefinition,
+            });
+        }
 
         let (title, body) = notice_body(&command, round);
         let dedup_key = format!(
@@ -466,11 +499,10 @@ impl PgLeaveStore {
             })),
         );
 
-        let kind = command.kind.as_str();
         let branch_id = command.branch_id;
         let target_employee_id = command.target_employee_id;
         let existing_id =
-            with_audit::<_, Option<uuid::Uuid>, PgLeaveError>(&self.pool, event, move |tx| {
+            with_audit::<_, PromotionInsert, PgLeaveError>(&self.pool, event, move |tx| {
                 Box::pin(async move {
                     let inserted = sqlx::query(
                         "INSERT INTO leave_promotions \
@@ -491,36 +523,58 @@ impl PgLeaveStore {
                     .bind(actor)
                     .fetch_optional(tx.as_mut())
                     .await?;
-                    // Row present => a genuinely new push (audited). Absent =>
-                    // a duplicate; signal via the sentinel so with_audit rolls
-                    // back the (empty) audit for the no-op.
-                    match inserted {
-                        Some(_) => Ok(None),
-                        None => Err(PgLeaveError::Domain(KernelError::conflict("__dup__"))),
-                    }
+                    Ok(match inserted {
+                        Some(_) => PromotionInsert::Inserted,
+                        None => PromotionInsert::Duplicate,
+                    })
                 })
             })
             .await;
 
-        let push_id = match existing_id {
-            Ok(_) => id,
+        let push = match existing_id {
+            Ok(PromotionInsert::Inserted) => PromotionRecord { id, inbox_doc_id },
             // Duplicate push: return the already-recorded row idempotently.
-            Err(PgLeaveError::Domain(ref e)) if e.message == "__dup__" => {
-                self.find_promotion(org, target_employee_id, kind, round)
-                    .await?
-            }
+            Ok(PromotionInsert::Duplicate) => self
+                .find_promotion(org, target_employee_id, kind, round)
+                .await?
+                .ok_or_else(|| {
+                    KernelError::internal("duplicate push but no existing promotion row")
+                })?,
             Err(other) => return Err(other),
         };
 
         Ok(StatutoryPushView {
-            id: push_id,
+            id: push.id,
             kind: command.kind,
             round,
             target_user_id: command.target_user_id,
-            inbox_doc_id,
+            inbox_doc_id: push.inbox_doc_id,
             ap_run_id: None,
-            ap_submission: "pending_engine_definition".to_owned(),
+            ap_submission: ApSubmission::PendingEngineDefinition,
         })
+    }
+
+    async fn ensure_target_employee_exists(
+        &self,
+        org: OrgId,
+        target_employee_id: uuid::Uuid,
+    ) -> Result<(), PgLeaveError> {
+        let exists = with_org_conn::<_, _, PgLeaveError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM employees WHERE id = $1)",
+                )
+                .bind(target_employee_id)
+                .fetch_one(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+        if exists {
+            Ok(())
+        } else {
+            Err(KernelError::not_found("target employee not found for leave promotion").into())
+        }
     }
 
     async fn find_promotion(
@@ -529,12 +583,12 @@ impl PgLeaveStore {
         target_employee_id: uuid::Uuid,
         kind: &str,
         round: i16,
-    ) -> Result<LeavePromotionId, PgLeaveError> {
+    ) -> Result<Option<PromotionRecord>, PgLeaveError> {
         let kind = kind.to_owned();
         let row = with_org_conn::<_, _, PgLeaveError>(&self.pool, org, move |tx| {
             Box::pin(async move {
                 Ok(sqlx::query(
-                    "SELECT id FROM leave_promotions \
+                    "SELECT id, inbox_doc_id FROM leave_promotions \
                      WHERE target_employee_id = $1 AND kind = $2 AND round = $3",
                 )
                 .bind(target_employee_id)
@@ -545,9 +599,13 @@ impl PgLeaveStore {
             })
         })
         .await?;
-        let row = row
-            .ok_or_else(|| KernelError::internal("duplicate push but no existing promotion row"))?;
-        Ok(LeavePromotionId::from_uuid(row.try_get("id")?))
+        row.map(|row| {
+            Ok(PromotionRecord {
+                id: LeavePromotionId::from_uuid(row.try_get("id")?),
+                inbox_doc_id: row.try_get("inbox_doc_id")?,
+            })
+        })
+        .transpose()
     }
 }
 
@@ -615,13 +673,13 @@ fn balance_from_row(row: &sqlx::postgres::PgRow) -> Result<LeaveBalanceView, PgL
 /// mostly-unused (used < 50% of grant) ⇒ `promote` (촉진 대상); nearly-exhausted
 /// (≤ 2 days left) ⇒ `low`; otherwise `ok`.
 // ponytail: fixed thresholds; move to org policy if HR wants them configurable.
-fn balance_tone(grant: f64, used: f64, left: f64) -> String {
+fn balance_tone(grant: f64, used: f64, left: f64) -> LeaveBalanceTone {
     if grant > 0.0 && used / grant < 0.5 {
-        "promote".to_owned()
+        LeaveBalanceTone::Promote
     } else if left <= 2.0 {
-        "low".to_owned()
+        LeaveBalanceTone::Low
     } else {
-        "ok".to_owned()
+        LeaveBalanceTone::Ok
     }
 }
 

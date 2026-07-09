@@ -60,7 +60,7 @@ data class LeaveStatutoryPushView (
 
     /* submitted when a run was started, else pending_engine_definition. */
     @SerialName(value = "ap_submission")
-    val apSubmission: kotlin.String,
+    val apSubmission: LeaveStatutoryPushView.ApSubmission,
 
     /* The engine AP- run, when the submittable definition exists. */
     @Contextual @SerialName(value = "ap_run_id")
@@ -77,6 +77,17 @@ data class LeaveStatutoryPushView (
     enum class Kind(val value: kotlin.String) {
         @SerialName(value = "promotion") PROMOTION("promotion"),
         @SerialName(value = "refusal") REFUSAL("refusal");
+    }
+
+    /**
+     *
+     *
+     * Values: SUBMITTED,PENDING_ENGINE_DEFINITION
+     */
+    @Serializable
+    enum class ApSubmission(val value: kotlin.String) {
+        @SerialName(value = "submitted") SUBMITTED("submitted"),
+        @SerialName(value = "pending_engine_definition") PENDING_ENGINE_DEFINITION("pending_engine_definition");
     }
 
 }
