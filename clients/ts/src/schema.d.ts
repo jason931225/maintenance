@@ -2116,26 +2116,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/messenger/members/{userId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Fetch one branch member's summary for a person pin panel
-         * @description Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
-         */
-        get: operations["getMessengerMember"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/messenger/threads": {
         parameters: {
             query?: never;
@@ -3044,23 +3024,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me/notifications/unread-count": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Count the authenticated user's unread notifications */
-        get: operations["getMyUnreadNotificationCount"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/me/notifications/read-all": {
         parameters: {
             query?: never;
@@ -3089,6 +3052,87 @@ export interface paths {
         put?: never;
         /** Mark one of the authenticated user's notifications read */
         post: operations["markMyNotificationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the authenticated user's todos, open first then newest first */
+        get: operations["listMyTodos"];
+        put?: never;
+        /**
+         * Create a todo owned by the authenticated user
+         * @description The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+         */
+        post: operations["createMyTodo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos/{todoId}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one of the authenticated user's todos done or undone
+         * @description Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user's row. Audited as todo.done / todo.undone.
+         */
+        post: operations["setMyTodoDone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos/{todoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete one of the authenticated user's todos
+         * @description A cross-user id is a 404, never another user's row. Audited as todo.delete.
+         */
+        delete: operations["deleteMyTodo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/dispatch-offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated mechanic's pending P1 dispatch offers
+         * @description BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+         */
+        get: operations["listMyDispatchOffers"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3236,11 +3280,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Fetch one branch's summary for an org-unit pin panel
-         * @description Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller's org. No audit — org-structure metadata, not PII. A branch outside the caller's org returns 404.
-         */
-        get: operations["getBranch"];
+        get?: never;
         put?: never;
         post?: never;
         /**
@@ -4268,70 +4308,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/object-links": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the generic links touching one object, in both directions
-         * @description Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller's org are visible.
-         */
-        get: operations["listObjectLinks"];
-        put?: never;
-        /**
-         * Create a generic, audited link between two objects
-         * @description Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
-         */
-        post: operations["createObjectLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/object-links/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove an object link (audited)
-         * @description Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
-         */
-        delete: operations["deleteObjectLink"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/objects/{kind}/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Resolve any object to a compact head (code, title, status, route hint)
-         * @description Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
-         */
-        get: operations["resolveObject"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/financial/purchase-requests/preferences": {
         parameters: {
             query?: never;
@@ -4509,50 +4485,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design). */
-        ObjectHead: {
-            kind: string;
-            id: string;
-            /** @description Canonical issued code if the kind has one (e.g. work-order request_no); absent otherwise. */
-            code?: string | null;
-            /** @description Human display label if available. */
-            title?: string | null;
-            /** @description Domain status string if available. */
-            status?: string | null;
-            /** @description Frontend route hint for navigating to the object. */
-            url_path: string;
-            exists: boolean;
-        };
-        /** @description Request to create a directed link between two known objects. */
-        CreateObjectLinkRequest: {
-            /** @description Source object kind slug (must be a known object type). */
-            src_kind: string;
-            /** @description Source object id/reference (≤200 chars). */
-            src_id: string;
-            /** @description Destination object kind slug (must be a known object type). */
-            dst_kind: string;
-            /** @description Destination object id/reference (≤200 chars). */
-            dst_id: string;
-            /** @description Relationship label slug (e.g. authorized_by, relates_to, blocks). */
-            link_type: string;
-        };
-        ObjectLinkResponse: {
-            id: components["schemas"]["Uuid"];
-            src_kind: string;
-            src_id: string;
-            dst_kind: string;
-            dst_id: string;
-            link_type: string;
-            created_by?: components["schemas"]["Uuid"];
-            created_at: components["schemas"]["Timestamp"];
-        };
-        /** @description Links touching one object, split by direction. */
-        ObjectLinksListResponse: {
-            /** @description Links where the queried object is the source. */
-            outgoing: components["schemas"]["ObjectLinkResponse"][];
-            /** @description Links where the queried object is the destination. */
-            incoming: components["schemas"]["ObjectLinkResponse"][];
-        };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
         /** @enum {string} */
@@ -6690,12 +6622,53 @@ export interface components {
              */
             marked: number;
         };
-        UnreadNotificationCountResponse: {
+        /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
+        TodoRef: {
+            kind: string;
+            id: string;
+            label?: string;
+        };
+        TodoSummary: {
+            id: components["schemas"]["Uuid"];
+            owner_user_id: components["schemas"]["Uuid"];
+            text: string;
+            scopes: components["schemas"]["TodoRef"][];
+            links: components["schemas"]["TodoRef"][];
+            done: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
             /**
-             * Format: int64
-             * @description The number of the caller's unread notifications.
+             * Format: date-time
+             * @description When the todo was first marked done; null while open.
              */
-            unread: number;
+            done_at: string | null;
+        };
+        TodoPage: {
+            items: components["schemas"]["TodoSummary"][];
+        };
+        CreateTodoRequest: {
+            /** @description 1..=500 characters after trimming. */
+            text: string;
+            /** @description Scope chips (person/team/site/entity refs); at most 20. */
+            scopes?: components["schemas"]["TodoRef"][];
+            /** @description Object links (kind+id pairs); at most 20. */
+            links?: components["schemas"]["TodoRef"][];
+        };
+        SetTodoDoneRequest: {
+            /** @description Explicit target state (true = done, false = undo). */
+            done: boolean;
+        };
+        /** @description One pending P1 offer for the signed-in mechanic: a BROADCASTING dispatch that fanned out to the caller, still inside its accept window, with no response from the caller yet. */
+        MyDispatchOffer: {
+            dispatch_id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            request_no: string;
+            accept_window_started_at: components["schemas"]["Timestamp"];
+            accept_window_ends_at: components["schemas"]["Timestamp"];
+        };
+        MyDispatchOfferPage: {
+            items: components["schemas"]["MyDispatchOffer"][];
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -10948,33 +10921,6 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
-    getMessengerMember: {
-        parameters: {
-            query: {
-                branch_id: components["schemas"]["Uuid"];
-            };
-            header?: never;
-            path: {
-                userId: components["schemas"]["Uuid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The branch member's summary. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessengerMemberSummary"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
     listMessengerThreads: {
         parameters: {
             query?: {
@@ -12720,36 +12666,6 @@ export interface operations {
             };
         };
     };
-    getMyUnreadNotificationCount: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The number of the caller's unread notifications. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UnreadNotificationCountResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            /** @description JWT verification is not configured. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     markAllMyNotificationsRead: {
         parameters: {
             query?: never;
@@ -12802,6 +12718,174 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyTodos: {
+        parameters: {
+            query?: {
+                /** @description When true, also return completed todos (default false). */
+                include_done?: boolean;
+                /** @description Page size (clamped server-side to 1..=200; default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's todos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createMyTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTodoRequest"];
+            };
+        };
+        responses: {
+            /** @description The created todo. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    setMyTodoDone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                todoId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTodoDoneRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated todo. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteMyTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                todoId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The todo was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyDispatchOffers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's pending dispatch offers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyDispatchOfferPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {
@@ -13258,31 +13342,6 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-        };
-    };
-    getBranch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["schemas"]["Uuid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The branch summary. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BranchSummary"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
         };
     };
     deactivateBranch: {
@@ -15037,113 +15096,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PollResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
-    listObjectLinks: {
-        parameters: {
-            query: {
-                /** @description Object kind slug (must be a known object type). */
-                kind: string;
-                /** @description Object id/reference (a UUID or issued code, ≤200 chars). */
-                id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Links touching the object, split into outgoing and incoming. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ObjectLinksListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
-    createObjectLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateObjectLinkRequest"];
-            };
-        };
-        responses: {
-            /** @description The created link. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ObjectLinkResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
-    deleteObjectLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["schemas"]["Uuid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The link was removed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    resolveObject: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run). */
-                kind: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The resolved object head (exists=false when not visible/absent). */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ObjectHead"];
                 };
             };
             401: components["responses"]["Unauthorized"];
