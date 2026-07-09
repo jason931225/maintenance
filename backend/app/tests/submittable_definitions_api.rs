@@ -8,6 +8,8 @@
 //! - a definition carrying a `start_policy` the caller cannot pass is omitted for
 //!   that caller but visible to a privileged one (mirrors the start endpoint —
 //!   the catalog never advertises a definition the caller would 403 starting);
+//! - the entry-node `required_policy` fallback is treated as start authority, and
+//!   malformed/no-entry graphs are fail-closed omitted;
 //! - a principal without Login is refused (403).
 
 use axum::body::{Body, to_bytes};
@@ -97,6 +99,48 @@ async fn definition_with_start_policy_is_deny_by_omission(pool: PgPool) {
     assert!(
         admin_ids.contains(&open.to_string()),
         "ADMIN also sees the self-service definition: {admin_body:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn entry_node_required_policy_and_no_entry_graph_are_deny_by_omission(pool: PgPool) {
+    let keys = Keys::new();
+    let branch = seed_branch(&pool).await;
+    let member = UserId::new();
+    seed_user(&pool, member, "MEMBER", branch).await;
+    let admin = UserId::new();
+    seed_user(&pool, admin, "ADMIN", branch).await;
+
+    // No top-level start_policy: the entry node itself is a human_task whose
+    // required_policy is the fallback start authority.
+    let entry_gated =
+        seed_entry_policy_definition(&pool, "ops.entry-gated", "completion_review").await;
+    // A graph with no entry node (cycle) parses but is not startable; the catalog
+    // must fail closed and omit it for every caller.
+    let no_entry = seed_no_entry_definition(&pool, "ops.no-entry").await;
+
+    let member_token = keys.token(member, &["MEMBER"], branch);
+    let (_, member_body) = list(&pool, &keys, &member_token).await;
+    let member_ids = ids(&member_body);
+    assert!(
+        !member_ids.contains(&entry_gated.to_string()),
+        "MEMBER must not see an entry-policy-gated definition: {member_body:?}"
+    );
+    assert!(
+        !member_ids.contains(&no_entry.to_string()),
+        "no-entry graph must be omitted for MEMBER: {member_body:?}"
+    );
+
+    let admin_token = keys.token(admin, &["ADMIN"], branch);
+    let (_, admin_body) = list(&pool, &keys, &admin_token).await;
+    let admin_ids = ids(&admin_body);
+    assert!(
+        admin_ids.contains(&entry_gated.to_string()),
+        "ADMIN (completion_review) sees the entry-policy-gated definition: {admin_body:?}"
+    );
+    assert!(
+        !admin_ids.contains(&no_entry.to_string()),
+        "no-entry graph must be omitted even for ADMIN: {admin_body:?}"
     );
 }
 
@@ -227,6 +271,70 @@ async fn seed_definition(
     .bind(format!("Template {workflow_key}"))
     .bind(status)
     .bind(active_version)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO workflow_definition_versions \
+             (org_id, definition_id, version, status, definition, required_approval_line, required_payment_line) \
+         VALUES ($1, $2, 1, 'PUBLISHED', $3, TRUE, FALSE)",
+    )
+    .bind(*org.as_uuid())
+    .bind(definition_id)
+    .bind(definition)
+    .execute(pool)
+    .await
+    .unwrap();
+    definition_id
+}
+
+async fn seed_entry_policy_definition(
+    pool: &PgPool,
+    workflow_key: &str,
+    required_policy: &str,
+) -> Uuid {
+    let definition = json!({
+        "schema_version": "wf.exec.v1",
+        "workflow_key": workflow_key,
+        "nodes": [
+            { "node_key": "entry.review", "node_type": "human_task", "title": "Entry review",
+              "assignee_role_key": "entry_reviewer", "required_policy": required_policy }
+        ],
+        "edges": []
+    });
+    seed_active_definition_with_graph(pool, workflow_key, definition).await
+}
+
+async fn seed_no_entry_definition(pool: &PgPool, workflow_key: &str) -> Uuid {
+    let definition = json!({
+        "schema_version": "wf.exec.v1",
+        "workflow_key": workflow_key,
+        "nodes": [
+            { "node_key": "a", "node_type": "object_gate", "title": "A" },
+            { "node_key": "b", "node_type": "object_gate", "title": "B" }
+        ],
+        "edges": [
+            { "from": "a", "to": "b" },
+            { "from": "b", "to": "a" }
+        ]
+    });
+    seed_active_definition_with_graph(pool, workflow_key, definition).await
+}
+
+async fn seed_active_definition_with_graph(
+    pool: &PgPool,
+    workflow_key: &str,
+    definition: Value,
+) -> Uuid {
+    let org = OrgId::knl();
+    let definition_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO workflow_definitions \
+             (org_id, workflow_key, display_name, object_type, status, latest_version, active_version) \
+         VALUES ($1, $2, $3, 'approval_document', 'ACTIVE', 1, 1) RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(workflow_key)
+    .bind(format!("Template {workflow_key}"))
     .fetch_one(pool)
     .await
     .unwrap();

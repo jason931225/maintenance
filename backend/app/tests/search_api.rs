@@ -9,6 +9,8 @@
 //! - work_order/equipment hits are gated on `WorkOrderReadAll` exactly as
 //!   `resolveObject` — a MEMBER lacking it gets zero hits of those kinds
 //!   (unauthorized-kind omission), an ADMIN holding it sees them;
+//! - support_ticket and org_unit hits obey the same branch-visible omission as
+//!   resolveObject (no cross-branch leak through search);
 //! - cross-org callers see nothing (RLS), never a 403.
 
 use axum::body::{Body, to_bytes};
@@ -139,6 +141,63 @@ async fn search_equipment_gated_by_work_order_read_all(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn search_support_ticket_and_org_unit_are_branch_scoped(pool: PgPool) {
+    let keys = Keys::new();
+    let branch_in = seed_branch(&pool, "Region Scope In", "Scoped Visible Branch").await;
+    let branch_out = seed_branch(&pool, "Region Scope Out", "Scoped Hidden Branch").await;
+
+    let caller = UserId::new();
+    seed_named_user(&pool, caller, "ADMIN", "Scoped Caller", branch_in, true).await;
+    let out_requester = UserId::new();
+    seed_named_user(
+        &pool,
+        out_requester,
+        "MEMBER",
+        "Out Requester",
+        branch_out,
+        true,
+    )
+    .await;
+
+    seed_support_ticket(&pool, branch_in, caller, "Scoped Visible Support Ticket").await;
+    seed_support_ticket(
+        &pool,
+        branch_out,
+        out_requester,
+        "Scoped Hidden Support Ticket",
+    )
+    .await;
+
+    let token = keys.token(caller, OrgId::knl().as_uuid(), &["ADMIN"], &[branch_in]);
+    let hits = search(&pool, &keys, &token, "scoped", None).await;
+    assert_eq!(hits.0, StatusCode::OK);
+
+    let support_titles = titles_for_kind(&hits.1, "support_ticket");
+    assert!(
+        support_titles.contains(&"Scoped Visible Support Ticket".to_owned()),
+        "in-scope support_ticket must be visible: {:?}",
+        hits.1
+    );
+    assert!(
+        !support_titles.contains(&"Scoped Hidden Support Ticket".to_owned()),
+        "out-of-scope support_ticket must be omitted: {:?}",
+        hits.1
+    );
+
+    let org_unit_titles = titles_for_kind(&hits.1, "org_unit");
+    assert!(
+        org_unit_titles.contains(&"Scoped Visible Branch".to_owned()),
+        "in-scope org_unit must be visible: {:?}",
+        hits.1
+    );
+    assert!(
+        !org_unit_titles.contains(&"Scoped Hidden Branch".to_owned()),
+        "out-of-scope org_unit must be omitted: {:?}",
+        hits.1
+    );
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn search_denies_cross_org_by_omission(pool: PgPool) {
     let keys = Keys::new();
     let branch = seed_branch(&pool, "Region KNL", "Branch KNL").await;
@@ -221,6 +280,18 @@ fn kinds_present(body: &Value) -> Vec<String> {
         .map(|arr| {
             arr.iter()
                 .filter_map(|h| h["kind"].as_str().map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn titles_for_kind(body: &Value, kind: &str) -> Vec<String> {
+    body["results"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|h| h["kind"] == kind)
+                .filter_map(|h| h["title"].as_str().map(ToOwned::to_owned))
                 .collect()
         })
         .unwrap_or_default()
@@ -353,6 +424,21 @@ async fn seed_equipment(pool: &PgPool, branch: BranchId, equipment_no: &str) {
     .bind(customer_id)
     .bind(site_id)
     .bind(equipment_no)
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_support_ticket(pool: &PgPool, branch: BranchId, requester: UserId, title: &str) {
+    sqlx::query(
+        "INSERT INTO support_tickets \
+             (branch_id, origin, category, priority, status, title, body, requester_user_id, org_id) \
+         VALUES ($1, 'INTERNAL', 'SYSTEM_BUG', 'LOW', 'OPEN', $2, 'Search branch scope', $3, $4)",
+    )
+    .bind(*branch.as_uuid())
+    .bind(title)
+    .bind(*requester.as_uuid())
     .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
