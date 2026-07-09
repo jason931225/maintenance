@@ -213,6 +213,25 @@ async fn resolves_kinds_and_denies_by_omission(pool: PgPool) {
         run_theirs.1
     );
 
+    // assignee-role holder: an unclaimed OPEN task routed to a role key the
+    // caller holds also makes the run resolvable, matching the waiting-task
+    // inbox widening without requiring a claim first.
+    let role_routed = seed_workflow_run(&pool, Some(other)).await;
+    seed_role_task(&pool, role_routed, "admin").await;
+    let run_role_routed = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "approval_run",
+        &role_routed.to_string(),
+    )
+    .await;
+    assert_eq!(
+        run_role_routed.1["exists"], true,
+        "an assignee-role holder resolves the unclaimed routed run: {}",
+        run_role_routed.1
+    );
+
     // approver-on-the-line: once the caller has CLAIMED a task on theirs, they
     // resolve the run (widened beyond initiator to the inbox's scoping).
     seed_claimed_task(&pool, theirs, caller).await;
@@ -378,6 +397,25 @@ async fn seed_claimed_task(pool: &PgPool, run_id: Uuid, claimed_by: UserId) {
     .bind(*OrgId::knl().as_uuid())
     .bind(run_id)
     .bind(*claimed_by.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_role_task(pool: &PgPool, run_id: Uuid, assignee_role_key: &str) {
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_waiting_tasks (
+            id, org_id, run_id, waiting_key, title, assignee_role_key, required_policy
+        )
+        VALUES ($1, $2, $3, $4, 'Approve as role', $5, 'approval_finalize')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(*OrgId::knl().as_uuid())
+    .bind(run_id)
+    .bind(format!("approval_step_{}", Uuid::new_v4().simple()))
+    .bind(assignee_role_key)
     .execute(pool)
     .await
     .unwrap();

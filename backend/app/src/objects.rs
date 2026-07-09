@@ -566,6 +566,7 @@ async fn resolve_approval_run(
               OR EXISTS (
                   SELECT 1 FROM workflow_waiting_tasks t
                   WHERE t.run_id = r.id AND t.org_id = r.org_id
+                    AND t.status IN ('OPEN', 'CLAIMED')
                     AND (t.claimed_by = $2 OR t.assignee_role_key = ANY($3))
               )
           )
