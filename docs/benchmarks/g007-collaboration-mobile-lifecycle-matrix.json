@@ -432,16 +432,40 @@
       ]
     },
     {
-      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/DefaultApi.kt",
-      "contract": "Generated Kotlin client must include mail, collaboration, messenger, approval, and passkey endpoints used by mobile code.",
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/CollaborationApi.kt",
+      "contract": "Generated Kotlin collaboration client must include calendar and poll endpoints used by mobile collaboration code.",
       "requiredSnippets": [
         "GET /api/v1/collaboration/calendar/events",
-        "GET /api/v1/collaboration/polls",
-        "POST /api/v1/mail/send",
-        "POST /api/v1/mail/reply",
+        "GET /api/v1/collaboration/polls"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/MailApi.kt",
+      "contract": "Generated Kotlin mail client must include thread, send, and reply endpoints used by mobile mail code.",
+      "requiredSnippets": [
         "GET /api/v1/mail/threads",
-        "PUT /api/messenger/threads/{threadId}/read-receipt",
-        "GET /api/approval-items",
+        "POST /api/v1/mail/send",
+        "POST /api/v1/mail/reply"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/MessengerApi.kt",
+      "contract": "Generated Kotlin messenger client must include read-receipt endpoints used by mobile messenger code.",
+      "requiredSnippets": [
+        "PUT /api/messenger/threads/{threadId}/read-receipt"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/ApprovalItemsApi.kt",
+      "contract": "Generated Kotlin approval-items client must include the federated approval queue used by mobile operations code.",
+      "requiredSnippets": [
+        "GET /api/approval-items"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/AuthApi.kt",
+      "contract": "Generated Kotlin auth client must include device-login polling used by mobile passkey and QR handoff flows.",
+      "requiredSnippets": [
         "POST /api/v1/auth/device-login/poll"
       ]
     }
