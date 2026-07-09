@@ -56,14 +56,15 @@ test("authenticated sidebar, topbar, drawer, menus, command palette, and toast h
   await expectNoAxeViolations(page, "aside[aria-label='콘솔']", "desktop sidebar");
   await expectNoAxeViolations(page, "header", "topbar");
 
-  await page.getByRole("button", { name: "개인 알림 열기" }).click();
-  await expect(
-    page.getByRole("dialog", { name: "개인별 실시간 알림" }),
-  ).toBeVisible();
+  // UI-M2b retired the topbar notification dropdown; the bell now toggles the
+  // comms rail's 알림 section (a complementary landmark).
+  await page.getByRole("banner").getByRole("button", { name: "알림 열기" }).click();
+  const commsRail = page.getByRole("complementary", { name: "커뮤니케이션" });
+  await expect(commsRail).toBeVisible();
   await expectNoAxeViolations(
     page,
-    "[role='dialog'][aria-label='개인별 실시간 알림']",
-    "notification popover",
+    "aside[aria-label='커뮤니케이션']",
+    "comms rail",
   );
   await page.keyboard.press("Escape");
 

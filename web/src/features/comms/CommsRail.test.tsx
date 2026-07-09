@@ -153,13 +153,14 @@ describe("CommsRail", () => {
     expect(useCommsStore.getState().notificationUnread).toBe(0);
   });
 
-  it("consumes Escape: subview → home, then collapses the rail", () => {
+  it("consumes Escape to close a subview, then yields Escape to the workspace", () => {
     setViewport(1400);
     renderRail();
     act(() => {
       useCommsStore.setState({ collapsedPref: false, subview: { kind: "thread", threadId: "t1" } });
     });
 
+    // Subview open → rail consumes Esc and returns to home.
     const first = new KeyboardEvent("keydown", { key: "Escape", cancelable: true, bubbles: true });
     act(() => {
       document.dispatchEvent(first);
@@ -167,12 +168,14 @@ describe("CommsRail", () => {
     expect(first.defaultPrevented).toBe(true);
     expect(useCommsStore.getState().subview).toEqual({ kind: "home" });
 
+    // Home → rail does NOT hijack Esc (the workspace panel cascade gets it); the
+    // rail stays open (collapse is via its button, not Escape).
     const second = new KeyboardEvent("keydown", { key: "Escape", cancelable: true, bubbles: true });
     act(() => {
       document.dispatchEvent(second);
     });
-    expect(second.defaultPrevented).toBe(true);
-    expect(useCommsStore.getState().collapsedPref).toBe(true);
+    expect(second.defaultPrevented).toBe(false);
+    expect(useCommsStore.getState().collapsedPref).toBe(false);
   });
 
   it("is hidden entirely below the mobile breakpoint", () => {

@@ -103,7 +103,6 @@ export function CommsRail() {
   const collapsedPref = useCommsStore((s) => s.collapsedPref);
   const openSection = useCommsStore((s) => s.openSection);
   const subview = useCommsStore((s) => s.subview);
-  const setCollapsedPref = useCommsStore((s) => s.setCollapsedPref);
   const setSubview = useCommsStore((s) => s.setSubview);
 
   const collapsed = collapsedPref ?? viewport.autoCollapsed;
@@ -122,30 +121,24 @@ export function CommsRail() {
   const messengerPromoted = location.pathname === "/messenger";
   const mailPromoted = location.pathname === "/mail";
 
-  // Esc cascade: close a subview back to home, then collapse the rail. Runs on
-  // the CAPTURE phase so the rail wins over the shell's bubble-phase panel
-  // cascade regardless of listener registration order (this effect re-registers
-  // on subview/collapsed changes, so bubble order isn't guaranteed). When the
-  // rail consumes Esc it preventDefaults; the shell cascade bails on
-  // defaultPrevented, so only the rail acts.
+  // Esc closes an in-rail subview back to home — and ONLY that. Registered
+  // (capture phase) only while a subview is open, so it beats the shell's
+  // bubble-phase panel-minimize cascade when the user is in a rail drilldown.
+  // With no subview, the rail stays out of the way: Esc falls through to the
+  // workspace cascade (minimize the focused panel). The rail collapses via its
+  // own button, never by hijacking Escape from the workspace.
   useEffect(() => {
+    if (subview.kind === "home") return undefined;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (subview.kind !== "home") {
-        event.preventDefault();
-        setSubview({ kind: "home" });
-        return;
-      }
-      if (!collapsed) {
-        event.preventDefault();
-        setCollapsedPref(true);
-      }
+      event.preventDefault();
+      setSubview({ kind: "home" });
     }
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [subview, collapsed, setCollapsedPref, setSubview]);
+  }, [subview.kind, setSubview]);
 
   if (viewport.hidden) return null;
 
