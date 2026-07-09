@@ -97,7 +97,7 @@ export const ko = {
     // product surface — labels exist only so the fidelity rig can capture the
     // four states in isolation.
     windowDemo: {
-      title: "창 엔진 데모",
+      title: "창 엔진 검증",
       screenA: "운영 현황",
       screenB: "결재/평가",
       cardRoster: "직원 명부",
