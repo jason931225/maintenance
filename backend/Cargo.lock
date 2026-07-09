@@ -3718,6 +3718,7 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-excel",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-reporting-application",
  "mnt-reporting-domain",
  "serde_json",
