@@ -756,6 +756,41 @@ impl PgWorkflowRuntimeStore {
                     let event_id: Uuid = row.try_get("id")?;
                     let run_id: Uuid = row.try_get("run_id")?;
 
+                    // Freeze-window gate: a payroll draft whose period overlaps
+                    // an active payroll period lock must NOT be created. The
+                    // event is left un-acked (PENDING) so it retries after the
+                    // period is unlocked — fail closed, never fail forgotten.
+                    let period: Option<(time::Date, time::Date)> = sqlx::query(
+                        "SELECT (payload->>'period_start')::date AS period_start, \
+                                (payload->>'period_end')::date AS period_end \
+                         FROM workflow_outbox_events WHERE id = $1",
+                    )
+                    .bind(event_id)
+                    .fetch_optional(tx.as_mut())
+                    .await
+                    .map_err(PgWorkflowRuntimeError::from)?
+                    .and_then(|r| {
+                        let start: Option<time::Date> = r.try_get("period_start").ok()?;
+                        let end: Option<time::Date> = r.try_get("period_end").ok()?;
+                        Some((start?, end?))
+                    });
+                    if let Some((period_start, period_end)) = period
+                        && mnt_platform_db::assert_period_open_range(
+                            tx,
+                            mnt_platform_db::PeriodLockDomain::Payroll,
+                            period_start,
+                            period_end,
+                        )
+                        .await
+                        .is_err()
+                    {
+                        tracing::warn!(
+                            run_id = %run_id,
+                            "payroll draft skipped: period is locked; event stays pending"
+                        );
+                        continue;
+                    }
+
                     // (a) Idempotent draft create keyed on the reused payroll
                     // natural key. period_start/end + connector/job come from the
                     // event payload; a replay of the same run collides on

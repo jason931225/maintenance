@@ -26,9 +26,14 @@
 
 pub mod audit_tx;
 pub mod error;
+pub mod lifecycle;
+pub mod period_lock;
+pub mod versioning;
 
 pub use audit_tx::{
     SubjectAuthzFreshness, insert_audit_event, read_subject_authz_freshness, with_audit,
     with_audits, with_org_conn,
 };
 pub use error::DbError;
+pub use period_lock::{PeriodLockDomain, assert_period_open, assert_period_open_range};
+pub use versioning::{ObjectVersionRecord, ObjectVersions};

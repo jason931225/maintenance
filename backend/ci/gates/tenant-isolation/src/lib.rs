@@ -56,6 +56,10 @@ pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
             "object_types",
             "canonical object-kind registry, seeded platform-wide, no tenant data",
         ),
+        (
+            "lifecycle_transition_rules",
+            "global seeded lifecycle FSM rules (object_type/from/to), no tenant data",
+        ),
         // Pre-auth throttle: keyed on (ip, purpose), exists before any user/org
         // is resolved. Transient, no tenant.
         ("auth_rate_limit", "pre-auth throttle, no resolved tenant"),

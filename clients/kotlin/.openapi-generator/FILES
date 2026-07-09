@@ -103,6 +103,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateObjectLinkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOutsourceWorkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOwnershipTransferRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreatePeriodLockRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatePolicyRoleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatePollRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatePurchaseRequest.kt
@@ -162,11 +163,14 @@ src/main/kotlin/com/maintenance/api/client/model/EquipmentListItem.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentListPage.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentLookupResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentRelationshipGraph.kt
+src/main/kotlin/com/maintenance/api/client/model/EquipmentRollbackResult.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentSortBy.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentTimelineEquipment.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentTimelineGraph.kt
+src/main/kotlin/com/maintenance/api/client/model/EquipmentVersion.kt
+src/main/kotlin/com/maintenance/api/client/model/EquipmentVersionList.kt
 src/main/kotlin/com/maintenance/api/client/model/ErrorBody.kt
 src/main/kotlin/com/maintenance/api/client/model/ErrorBodyError.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceConfirmResponse.kt
@@ -257,6 +261,8 @@ src/main/kotlin/com/maintenance/api/client/model/ObjectActionExecutionResponse.k
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionFieldDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionFieldOption.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectHead.kt
+src/main/kotlin/com/maintenance/api/client/model/ObjectLifecycle.kt
+src/main/kotlin/com/maintenance/api/client/model/ObjectLifecycleTransition.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectLinkResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectLinksListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsEquipmentStatus.kt
@@ -279,6 +285,8 @@ src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyStepUpAssertion.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/Period.kt
+src/main/kotlin/com/maintenance/api/client/model/PeriodLock.kt
+src/main/kotlin/com/maintenance/api/client/model/PeriodLockList.kt
 src/main/kotlin/com/maintenance/api/client/model/PolicyAssignmentPreviewResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PolicyAuditEventResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PolicyConditionResponse.kt
@@ -348,6 +356,7 @@ src/main/kotlin/com/maintenance/api/client/model/ScheduleRunListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMailRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMailResult.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SetLifecycleHoldRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SignupRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SignupResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SimulateWorkflowDefinitionRequest.kt
@@ -388,11 +397,13 @@ src/main/kotlin/com/maintenance/api/client/model/TargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TargetChangeRequestSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/Team.kt
 src/main/kotlin/com/maintenance/api/client/model/TokenPairResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/TransitionLifecycleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TransitionTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TriageFindingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TriggerBindingListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/TriggerBindingResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
+src/main/kotlin/com/maintenance/api/client/model/UnlockPeriodLockRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UnreadNotificationCountResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateBranchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateEquipmentRequest.kt

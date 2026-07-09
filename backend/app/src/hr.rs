@@ -1097,6 +1097,26 @@ async fn create_my_attendance_record(
                 .as_bytes(),
             );
 
+            // Freeze-window gate: an attendance write that stamps a work_date
+            // inside a locked payroll period must fail closed (rolls back the
+            // whole attendance record + material-ref transaction, 409).
+            let work_date_parsed = Date::parse(
+                &work_date,
+                &time::format_description::well_known::Iso8601::DATE,
+            )
+            .map_err(|e| {
+                HrError::from_kernel(KernelError::internal(format!(
+                    "attendance work_date unparseable: {e}"
+                )))
+            })?;
+            mnt_platform_db::assert_period_open(
+                tx,
+                mnt_platform_db::PeriodLockDomain::Payroll,
+                work_date_parsed,
+            )
+            .await
+            .map_err(HrError::from_kernel)?;
+
             let ref_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payroll_attendance_material_refs (

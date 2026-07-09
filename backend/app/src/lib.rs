@@ -100,6 +100,7 @@ use url::Url;
 
 mod collaboration;
 mod hr;
+pub mod lifecycle;
 mod mail_sync;
 pub mod objects;
 mod workflow_drain;
@@ -1391,6 +1392,10 @@ pub fn build_router(state: AppState) -> Router {
                     ),
                 ))
                 .merge(objects::router(objects::ObjectState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(lifecycle::router(lifecycle::LifecycleState::new(
                     pool.clone(),
                     state.jwt_verifier.clone(),
                 )))

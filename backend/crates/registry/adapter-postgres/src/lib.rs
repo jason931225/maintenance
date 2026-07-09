@@ -11,10 +11,10 @@ use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
-    AuditEventId, BranchId, BranchScope, CustomerId, EquipmentId, EquipmentSubstitutionId,
-    KernelError, SiteId, TraceContext, UserId, WorkOrderId,
+    AuditAction, AuditEvent, AuditEventId, BranchId, BranchScope, CustomerId, EquipmentId,
+    EquipmentSubstitutionId, KernelError, SiteId, TraceContext, UserId, WorkOrderId,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_db::{DbError, ObjectVersions, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
     CreateCustomerCommand, CreateEquipmentCommand, CreateEquipmentOwnershipTransferCommand,
@@ -27,11 +27,11 @@ use mnt_registry_application::{
     EquipmentRelationshipGraph, EquipmentSortBy, EquipmentTimelineBase, EquipmentTimelineEquipment,
     EquipmentTimelineGraph, EquipmentTimelineGraphQuery, EquipmentTimelineSubstitution,
     EquipmentTimelineWorkOrder, ImportSheet, MasterListEquipment, ParsedMasterList,
-    RegistryImportReport, RegistryRowError, SiteLocationGroup, SubstituteAssignment,
-    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
-    UpdateEquipmentCommand, UpdateSiteCommand, UpdateSiteFields, customer_create_audit_event,
-    equipment_create_audit_event, equipment_delete_audit_event,
-    equipment_ownership_transfer_decision_audit_event,
+    RegistryImportReport, RegistryRowError, RollbackEquipmentCommand, SiteLocationGroup,
+    SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateSiteCommand,
+    UpdateSiteFields, customer_create_audit_event, equipment_create_audit_event,
+    equipment_delete_audit_event, equipment_ownership_transfer_decision_audit_event,
     equipment_ownership_transfer_request_audit_event, equipment_update_audit_event,
     registry_import_audit_event, site_create_audit_event, site_update_audit_event,
     substitute_assign_audit_event, substitute_return_audit_event,
@@ -384,12 +384,14 @@ impl PgRegistryStore {
             .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
+        let before_snapshot = existing.snapshot.clone();
+        let after_snapshot = update_after_snapshot(&existing.snapshot, &command.fields);
         let event = equipment_update_audit_event(
             command.actor,
             existing.branch_id,
             command.equipment_id,
-            existing.snapshot.clone(),
-            update_after_snapshot(&existing.snapshot, &command.fields),
+            before_snapshot.clone(),
+            after_snapshot.clone(),
             command.trace.clone(),
             command.occurred_at,
         )?
@@ -398,6 +400,7 @@ impl PgRegistryStore {
         let equipment_id = command.equipment_id;
         let branch_uuid = *existing.branch_id.as_uuid();
         let fields = command.fields;
+        let actor_uuid = *command.actor.as_uuid();
 
         with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
             Box::pin(async move {
@@ -436,11 +439,121 @@ impl PgRegistryStore {
                     .await?;
                 }
 
-                apply_scalar_equipment_update(tx, equipment_id, &fields).await
+                apply_scalar_equipment_update(tx, equipment_id, &fields).await?;
+
+                // Non-destructive version capture (generalized 0069 pattern):
+                // the pre-update content backfills version 1 on first capture,
+                // then the post-update content lands as the next version — all
+                // inside the same audited transaction.
+                EQUIPMENT_VERSIONS
+                    .capture(
+                        tx,
+                        org_uuid,
+                        *equipment_id.as_uuid(),
+                        &before_snapshot,
+                        &after_snapshot,
+                        Some(actor_uuid),
+                    )
+                    .await?;
+                Ok(())
             })
         })
         .await?;
         Ok(audit_event_id)
+    }
+
+    /// List the append-only version history for one equipment row, newest
+    /// first (RLS-scoped read as the runtime role).
+    pub async fn list_equipment_versions(
+        &self,
+        equipment_id: EquipmentId,
+    ) -> Result<Vec<mnt_platform_db::ObjectVersionRecord>, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let exists: i64 =
+                    sqlx::query_scalar("SELECT COUNT(*) FROM registry_equipment WHERE id = $1")
+                        .bind(*equipment_id.as_uuid())
+                        .fetch_one(tx.as_mut())
+                        .await?;
+                if exists == 0 {
+                    return Err(KernelError::not_found("equipment was not found").into());
+                }
+                Ok(EQUIPMENT_VERSIONS.list(tx, *equipment_id.as_uuid()).await?)
+            })
+        })
+        .await
+    }
+
+    /// Roll one equipment row back to a prior version's content — by creating
+    /// a NEW version (`status = 'ROLLBACK'`, `source_version = target`), never
+    /// by mutating history. The stored content is re-applied through the same
+    /// scalar update path a normal edit uses, inside one audited transaction.
+    // mnt-gate: state-changing-handler
+    pub async fn rollback_equipment(
+        &self,
+        command: RollbackEquipmentCommand,
+    ) -> Result<i32, PgRegistryError> {
+        let existing = fetch_equipment_admin_row(self.pool(), command.equipment_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let equipment_id = command.equipment_id;
+        let target_version = command.version;
+        let actor_uuid = *command.actor.as_uuid();
+        let before_snapshot = existing.snapshot.clone();
+
+        let event = AuditEvent::new(
+            Some(command.actor),
+            AuditAction::new("registry.equipment.rollback")?,
+            "registry_equipment",
+            equipment_id.as_uuid().to_string(),
+            command.trace.clone(),
+            command.occurred_at,
+        )
+        .with_org(org)
+        .with_branch(existing.branch_id)
+        .with_snapshots(
+            Some(before_snapshot.clone()),
+            Some(serde_json::json!({ "rollback_to_version": target_version })),
+        );
+
+        with_audit::<_, i32, PgRegistryError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                let target = EQUIPMENT_VERSIONS
+                    .get(tx, *equipment_id.as_uuid(), target_version)
+                    .await?
+                    .ok_or_else(|| {
+                        KernelError::not_found(format!(
+                            "equipment version {target_version} was not found"
+                        ))
+                    })?;
+
+                let fields = equipment_fields_from_version_content(&target.content)?;
+                if fields.is_empty() {
+                    return Err(KernelError::validation(
+                        "stored version content has no restorable fields",
+                    )
+                    .into());
+                }
+                apply_scalar_equipment_update(tx, equipment_id, &fields).await?;
+
+                let new_version = EQUIPMENT_VERSIONS
+                    .append(
+                        tx,
+                        org_uuid,
+                        *equipment_id.as_uuid(),
+                        &target.content,
+                        Some(actor_uuid),
+                        "ROLLBACK",
+                        Some(target_version),
+                    )
+                    .await?;
+                Ok(new_version)
+            })
+        })
+        .await
     }
 
     /// Soft-delete one equipment row by marking it 폐기 (Disposed). Never hard
@@ -3028,6 +3141,73 @@ fn master_list_row_from_create(command: &CreateEquipmentCommand) -> MasterListEq
         residual_value: command.residual_value,
         note: command.note.clone(),
     }
+}
+
+/// Append-only version history for equipment master rows (generalized 0069
+/// pattern; table provisioned in migration 0107).
+const EQUIPMENT_VERSIONS: ObjectVersions = ObjectVersions::new("registry_equipment_versions");
+
+/// Rebuild an [`UpdateEquipmentFields`] patch from a stored version's content
+/// (the admin-row snapshot shape). Only keys present in the content are
+/// restored; identity/derived keys (`id`, `equipment_no`, `ton_milli`) are
+/// never written back directly.
+fn equipment_fields_from_version_content(
+    content: &serde_json::Value,
+) -> Result<mnt_registry_application::UpdateEquipmentFields, KernelError> {
+    let map = content
+        .as_object()
+        .ok_or_else(|| KernelError::validation("version content must be a JSON object"))?;
+
+    let opt_string = |key: &str| -> Option<Option<String>> {
+        map.get(key)
+            .map(|v| v.as_str().map(std::borrow::ToOwned::to_owned))
+    };
+    let opt_i64 =
+        |key: &str| -> Option<Option<i64>> { map.get(key).map(serde_json::Value::as_i64) };
+
+    let status = match map.get("status") {
+        Some(value) => Some(
+            serde_json::from_value::<EquipmentStatus>(value.clone())
+                .map_err(|e| KernelError::validation(format!("version status invalid: {e}")))?,
+        ),
+        None => None,
+    };
+
+    Ok(mnt_registry_application::UpdateEquipmentFields {
+        customer_name: None,
+        site_name: None,
+        status,
+        specification: map
+            .get("specification")
+            .and_then(|v| v.as_str())
+            .map(std::borrow::ToOwned::to_owned),
+        ton: map.get("ton_text").and_then(|v| v.as_str()).map(Ton::parse),
+        management_no: opt_string("management_no"),
+        power_label: opt_string("power_label"),
+        manager_name: opt_string("manager_name"),
+        placement_location: opt_string("placement_location"),
+        placement_no: opt_string("placement_no"),
+        operation_shift: opt_string("operation_shift"),
+        maker: opt_string("maker"),
+        model: opt_string("model"),
+        vin: opt_string("vin"),
+        year: None,
+        hours: None,
+        vehicle_registration_no: opt_string("vehicle_registration_no"),
+        insured: map.get("insured").map(serde_json::Value::as_bool),
+        insurer: opt_string("insurer"),
+        policy_holder: opt_string("policy_holder"),
+        insured_party: opt_string("insured_party"),
+        asset_owner: opt_string("asset_owner"),
+        asset_registered_on: None,
+        rental_started_on: None,
+        rental_fee: opt_i64("rental_fee").map(|v| v.map(MoneyWon::new)),
+        vehicle_value: opt_i64("vehicle_value").map(|v| v.map(MoneyWon::new)),
+        residual_value: opt_i64("residual_value").map(|v| v.map(MoneyWon::new)),
+        acquisition_cost_won: None,
+        acquisition_date: None,
+        note: opt_string("note"),
+    })
 }
 
 /// Merge a partial update onto the before-snapshot to produce the audit

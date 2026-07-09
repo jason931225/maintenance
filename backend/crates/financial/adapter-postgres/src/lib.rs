@@ -1232,6 +1232,16 @@ async fn append_cost_ledger_entry_tx(
     purchase_request_id: Option<PurchaseRequestId>,
     org_uuid: uuid::Uuid,
 ) -> Result<(CostLedgerEntrySummary, AuditEvent), PgFinancialError> {
+    // Freeze-window gate: EVERY accounting ledger write (manual admin entry and
+    // purchase execution both funnel through here) must land outside a locked
+    // accounting period. Fails closed with a 409-mapping conflict.
+    mnt_platform_db::assert_period_open(
+        tx,
+        mnt_platform_db::PeriodLockDomain::Accounting,
+        command.occurred_at.date(),
+    )
+    .await
+    .map_err(PgFinancialError::Domain)?;
     let locked = equipment_economics_tx(tx, command.equipment_id).await?;
     ensure_branch(locked.branch_id, command.branch_id)?;
     if let Some(work_order_id) = command.work_order_id {
