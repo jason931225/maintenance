@@ -201,7 +201,7 @@ async fn tamper_prelude(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) {
 }
 
 /// Tamper a single-`Uuid`-keyed row (`WHERE id = $1`) as the threat actor.
-async fn owner_tamper_uuid(owner_pool: &PgPool, sql: &str, id: Uuid) {
+async fn owner_tamper_uuid(owner_pool: &PgPool, sql: &'static str, id: Uuid) {
     let mut tx = owner_pool.begin().await.unwrap();
     tamper_prelude(&mut tx).await;
     sqlx::query(sql).bind(id).execute(&mut *tx).await.unwrap();
@@ -209,7 +209,7 @@ async fn owner_tamper_uuid(owner_pool: &PgPool, sql: &str, id: Uuid) {
 }
 
 /// Tamper an `(org_id, seq)`-keyed seal (`WHERE org_id = $1 AND seq = $2`).
-async fn owner_tamper_seal(owner_pool: &PgPool, sql: &str, org: Uuid, seq: i64) {
+async fn owner_tamper_seal(owner_pool: &PgPool, sql: &'static str, org: Uuid, seq: i64) {
     let mut tx = owner_pool.begin().await.unwrap();
     tamper_prelude(&mut tx).await;
     sqlx::query(sql)
@@ -654,15 +654,27 @@ async fn verify_detects_broken_continuity(owner_pool: PgPool) {
 
     // Two seals so seq stays contiguous (1,2) — MissingSeq must NOT mask this.
     write_events(&rt, org, user, branch, 2).await;
-    seal_org_once(&rt, OrgId::from_uuid(org), &signer, OffsetDateTime::now_utc(), &cfg)
-        .await
-        .unwrap()
-        .unwrap();
+    seal_org_once(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        OffsetDateTime::now_utc(),
+        &cfg,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     write_events(&rt, org, user, branch, 1).await;
-    let s2 = seal_org_once(&rt, OrgId::from_uuid(org), &signer, OffsetDateTime::now_utc(), &cfg)
-        .await
-        .unwrap()
-        .unwrap();
+    let s2 = seal_org_once(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        OffsetDateTime::now_utc(),
+        &cfg,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(s2.seq, 2);
 
     // Repoint seq 2's prev_seal_hash to garbage (seq column untouched): the chain
@@ -676,9 +688,15 @@ async fn verify_detects_broken_continuity(owner_pool: PgPool) {
     )
     .await;
 
-    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, OffsetDateTime::now_utc(), &cfg)
-        .await
-        .unwrap();
+    let report = verify_org_chain(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        OffsetDateTime::now_utc(),
+        &cfg,
+    )
+    .await
+    .unwrap();
     assert!(!report.ok);
     assert_eq!(report.kind, ChainReportKind::BrokenContinuity, "{report:?}");
     assert_eq!(report.first_bad_seq, Some(2));
@@ -694,13 +712,21 @@ async fn unsealed_tail_is_reported_but_ok_stays_true(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
 
-    // Seal the first batch immediately.
+    // Seal the first batch immediately. The seal clock must sit AFTER the
+    // rows' DB-side `created_at` (zero lag ⇒ watermark == seal clock), so
+    // nudge it forward instead of using a pre-write timestamp.
     let now1 = OffsetDateTime::now_utc();
     write_events(&rt, org, user, branch, 2).await;
-    seal_org_once(&rt, OrgId::from_uuid(org), &signer, now1, &immediate())
-        .await
-        .unwrap()
-        .unwrap();
+    seal_org_once(
+        &rt,
+        OrgId::from_uuid(org),
+        &signer,
+        now1 + Duration::seconds(30),
+        &immediate(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     // A new row past the head, left UNSEALED, that is older than the watermark
     // at verify time — the rolling window a healthy live tenant always carries.
@@ -715,7 +741,10 @@ async fn unsealed_tail_is_reported_but_ok_stays_true(owner_pool: PgPool) {
         .unwrap();
     assert!(report.ok, "behind-schedule is not tamper: {report:?}");
     assert_eq!(report.kind, ChainReportKind::Ok);
-    assert!(report.unsealed_tail, "the unsealed row is reported as a freshness signal");
+    assert!(
+        report.unsealed_tail,
+        "the unsealed row is reported as a freshness signal"
+    );
 }
 
 // ---------------------------------------------------------------------------
