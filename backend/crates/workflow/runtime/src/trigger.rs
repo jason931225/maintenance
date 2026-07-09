@@ -162,15 +162,16 @@ async fn resume_conflicted_run<P: WorkflowRuntimePort + ?Sized>(
                     Err(err)
                 };
             }
-            drive_existing_running(port, org, existing.id, graph, entry, context, audit).await
+            let _ = drive_existing_running(port, org, existing.id, graph, entry, context, audit)
+                .await?;
+            Ok(TriggeredStart::AlreadyStarted)
         }
         RunStatus::Running => {
-            drive_existing_running(port, org, existing.id, graph, entry, context, audit).await
+            let _ = drive_existing_running(port, org, existing.id, graph, entry, context, audit)
+                .await?;
+            Ok(TriggeredStart::AlreadyStarted)
         }
-        RunStatus::Waiting => Ok(TriggeredStart::Started {
-            run_id: existing.id,
-            run_status: RunStatus::Waiting,
-        }),
+        RunStatus::Waiting => Ok(TriggeredStart::AlreadyStarted),
         RunStatus::Succeeded
         | RunStatus::Failed
         | RunStatus::Cancelled
@@ -371,9 +372,8 @@ mod tests {
     }
 
     #[test]
-    fn conflicted_waiting_run_is_returned_without_redrive() {
+    fn conflicted_waiting_run_is_already_started_without_redrive() {
         let port = conflict_port(RunStatus::Waiting);
-        let run_id = port.existing.id;
 
         let result = block_on_ready(start_bound_run(
             &port,
@@ -383,13 +383,7 @@ mod tests {
         ))
         .unwrap();
 
-        assert_eq!(
-            result,
-            TriggeredStart::Started {
-                run_id,
-                run_status: RunStatus::Waiting
-            }
-        );
+        assert_eq!(result, TriggeredStart::AlreadyStarted);
         assert!(port.transitions.lock().unwrap().is_empty());
         assert!(port.commits.lock().unwrap().is_empty());
     }
@@ -397,7 +391,6 @@ mod tests {
     #[test]
     fn conflicted_starting_run_transitions_and_resumes_drive() {
         let port = conflict_port(RunStatus::Starting);
-        let run_id = port.existing.id;
 
         let result = block_on_ready(start_bound_run(
             &port,
@@ -407,13 +400,7 @@ mod tests {
         ))
         .unwrap();
 
-        assert_eq!(
-            result,
-            TriggeredStart::Started {
-                run_id,
-                run_status: RunStatus::Succeeded
-            }
-        );
+        assert_eq!(result, TriggeredStart::AlreadyStarted);
         let transitions = port.transitions.lock().unwrap();
         assert_eq!(transitions.len(), 1);
         assert_eq!(transitions[0].from, RunStatus::Starting);
