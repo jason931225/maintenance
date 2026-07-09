@@ -606,6 +606,100 @@ async fn start_gates_on_approved_version_only(owner_pool: PgPool) {
     );
 }
 
+/// Regression (round 2 review): the four-eyes gate must apply ONLY to a pinned
+/// version that is NOT the current active version. `active_version` is
+/// lifecycle-trusted (set only by publish/approve/rollback, all RoleManage +
+/// step-up gated) — a rolled-back definition's new active version carries
+/// `version_status = 'ROLLED_BACK'`, not `PUBLISHED`, and manual start must
+/// still resolve and run it without a pin (the default/unpinned path).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn rollback_then_manual_start_uses_rolled_back_active_version(owner_pool: PgPool) {
+    let keys = keys();
+    let svc = passkey_service();
+    let actor = UserId::new();
+    seed_super_admin(&owner_pool, actor, "rollback-actor").await;
+    let (mut auth, cred) = register_passkey(&owner_pool, &svc, actor, "rollback-actor").await;
+    let service = build_router(app_state(runtime_role_pool(&owner_pool).await, &keys));
+    let token = bearer(&keys, actor);
+
+    let id = create_and_activate(
+        &service,
+        &owner_pool,
+        &svc,
+        &token,
+        &mut auth,
+        &cred,
+        "four.eyes.rollback",
+    )
+    .await;
+    let v1 = start_run(&service, &token, &id, None, "rollback-before-start-01")
+        .await
+        .json["run"]["definition_version"]
+        .as_i64()
+        .unwrap();
+
+    // Stage + approve a second revision so there is a v1 to roll back to.
+    let (active_before, pending) =
+        edit_and_stage(&service, &owner_pool, &svc, &token, &mut auth, &cred, &id).await;
+    assert_eq!(active_before, v1);
+    let body = step_up(&owner_pool, &svc, &mut auth, &cred).await;
+    let approved = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/revisions/{pending}/approve"),
+        &token,
+        Some(body),
+    )
+    .await;
+    assert_eq!(approved.status, StatusCode::OK, "{:?}", approved.json);
+    let v2 = approved.json["active_version"].as_i64().unwrap();
+    assert!(v2 > v1);
+
+    // Roll back to v1: appends a NEW version (ROLLED_BACK status) and flips
+    // active_version to it — active is trusted even though not PUBLISHED.
+    let body = step_up(&owner_pool, &svc, &mut auth, &cred).await;
+    let mut rollback_body = json!({ "target_version": v1 });
+    rollback_body["step_up"] = body["step_up"].clone();
+    let rolled_back = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/rollback"),
+        &token,
+        Some(rollback_body),
+    )
+    .await;
+    assert_eq!(rolled_back.status, StatusCode::OK, "{:?}", rolled_back.json);
+    let v3 = rolled_back.json["active_version"].as_i64().unwrap();
+    assert!(v3 > v2, "rollback appends a new version and activates it");
+
+    // Manual (unpinned) start after rollback must succeed — NOT 422 — and bind
+    // to the rolled-back active version.
+    let after_rollback = start_run(&service, &token, &id, None, "rollback-after-start-01").await;
+    assert_eq!(
+        after_rollback.status,
+        StatusCode::OK,
+        "manual start must resolve the rollback-produced active version: {:?}",
+        after_rollback.json
+    );
+    assert_eq!(
+        after_rollback.json["run"]["definition_version"]
+            .as_i64()
+            .unwrap(),
+        v3
+    );
+
+    // A pin naming that same rolled-back active version also succeeds (it IS
+    // the active version, exempt from the PUBLISHED-only check).
+    let pinned_active =
+        start_run(&service, &token, &id, Some(v3), "rollback-pin-active-0001").await;
+    assert_eq!(
+        pinned_active.status,
+        StatusCode::OK,
+        "{:?}",
+        pinned_active.json
+    );
+}
+
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn withdraw_discards_staged_revision(owner_pool: PgPool) {
     let keys = keys();

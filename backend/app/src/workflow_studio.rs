@@ -1376,13 +1376,15 @@ fn parse_run_statuses(raw: Option<&str>) -> Result<Vec<RunStatus>, WorkflowStudi
 /// Load a definition's chosen version JSON, gating on ACTIVE status. Returns the
 /// resolved `(version, definition)` for the run to bind to.
 ///
-/// Security (four-eyes): a run may only start an APPROVED version. Approved
-/// versions carry `status = 'PUBLISHED'` (set at direct-publish and at
-/// four-eyes approve time); a staged/pending revision is an unapproved `DRAFT`
-/// version. A caller-pinned `definition_version` therefore selects among
-/// PUBLISHED (active or previously-active) versions ONLY — pinning a DRAFT/
-/// pending-staged version is rejected (422), so an initiator cannot execute a
-/// revision that never passed the second-actor approval.
+/// Security (four-eyes): a run may only start an APPROVED version. `active_version`
+/// is lifecycle-trusted — it is set ONLY by publish/approve/rollback, all of which
+/// require RoleManage + step-up, so the default (unpinned) path is always safe,
+/// whatever the resolved version's own status is (e.g. `ROLLED_BACK`). A
+/// caller-*pinned* `definition_version` that is NOT the current active version is
+/// the untrusted path: it must be an already-approved historical version
+/// (`status = 'PUBLISHED'`), never a staged/pending `DRAFT` — that pin is
+/// rejected (422), so an initiator cannot execute a revision that never passed
+/// the second-actor approval.
 async fn resolve_start_definition(
     pool: &PgPool,
     org: mnt_kernel_core::OrgId,
@@ -1391,12 +1393,19 @@ async fn resolve_start_definition(
 ) -> Result<(i32, Value), WorkflowStudioError> {
     let row = with_org_conn::<
         _,
-        Option<(String, Option<Value>, Option<i32>, Option<String>)>,
+        Option<(
+            String,
+            Option<Value>,
+            Option<i32>,
+            Option<String>,
+            Option<i32>,
+        )>,
         DbError,
     >(pool, org, move |tx| {
         Box::pin(async move {
             let row = sqlx::query(
-                "SELECT d.status, v.definition, v.version, v.status AS version_status \
+                "SELECT d.status, v.definition, v.version, v.status AS version_status, \
+                        d.active_version \
                      FROM workflow_definitions d \
                      LEFT JOIN workflow_definition_versions v \
                        ON v.definition_id = d.id AND v.org_id = d.org_id \
@@ -1415,13 +1424,14 @@ async fn resolve_start_definition(
                 row.try_get("definition")?,
                 row.try_get("version")?,
                 row.try_get("version_status")?,
+                row.try_get("active_version")?,
             )))
         })
     })
     .await
     .map_err(WorkflowStudioError::from)?;
 
-    let Some((status, definition, version, version_status)) = row else {
+    let Some((status, definition, version, version_status, active_version)) = row else {
         return Err(WorkflowStudioError::from(KernelError::not_found(
             "workflow definition not found",
         )));
@@ -1438,10 +1448,12 @@ async fn resolve_start_definition(
             "workflow definition has no published version to start",
         )));
     };
-    // Four-eyes gate: only APPROVED (PUBLISHED) versions are startable. A pinned
-    // DRAFT/pending-staged (or otherwise non-published) version never passed the
-    // second-actor approval, so refuse to execute it.
-    if version_status != "PUBLISHED" {
+    // Four-eyes gate: a PINNED version that is NOT the current active version
+    // must be an already-approved (PUBLISHED) historical version — never a
+    // staged/pending DRAFT. The active version itself is always trusted (only
+    // publish/approve/rollback set it), so this does not touch the default
+    // (unpinned) or rollback-produced-active path.
+    if Some(version) != active_version && version_status != "PUBLISHED" {
         return Err(WorkflowStudioError::validation(
             "workflow definition version is not an approved (published) version",
         ));
