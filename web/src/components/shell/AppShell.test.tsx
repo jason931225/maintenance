@@ -122,8 +122,8 @@ describe("AppShell navigation fabric", () => {
       pathname: "/equipment",
       state: {
         backStackSeed: {
-          href: "/work-hub",
-          pathname: "/work-hub",
+          href: "/overview",
+          pathname: "/overview",
           label: "forged label",
         },
       },
@@ -132,9 +132,9 @@ describe("AppShell navigation fabric", () => {
     expect(await screen.findByText("equipment page")).toBeVisible();
     const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
     expect(within(breadcrumbs).queryByText("forged label")).not.toBeInTheDocument();
-    expect(within(breadcrumbs).getByRole("link", { name: "업무 허브" })).toHaveAttribute(
+    expect(within(breadcrumbs).getByRole("link", { name: "통합 개요" })).toHaveAttribute(
       "href",
-      "/work-hub",
+      "/overview",
     );
     expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
       "aria-current",
@@ -147,16 +147,16 @@ describe("AppShell navigation fabric", () => {
       pathname: "/equipment",
       state: {
         backStackSeed: {
-          href: "https://example.invalid/work-hub",
-          pathname: "/work-hub",
-          label: "업무 허브",
+          href: "https://example.invalid/overview",
+          pathname: "/overview",
+          label: "통합 개요",
         },
       },
     });
 
     expect(await screen.findByText("equipment page")).toBeVisible();
     const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
-    expect(within(breadcrumbs).queryByRole("link", { name: "업무 허브" })).not.toBeInTheDocument();
+    expect(within(breadcrumbs).queryByRole("link", { name: "통합 개요" })).not.toBeInTheDocument();
     expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
       "aria-current",
       "page",

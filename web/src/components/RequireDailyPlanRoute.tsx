@@ -34,7 +34,7 @@ export function RequireDailyPlanRoute() {
     !hasAnyRole(session?.roles, DAILY_PLAN_ROLES) &&
     !hasAnyFeatureGrant(session?.feature_grants, DAILY_PLAN_FEATURES)
   ) {
-    return <Navigate to="/work-hub" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   return <Outlet />;

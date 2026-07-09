@@ -140,7 +140,7 @@ export function PlatformTenantsPage() {
       actingRole: result.acting_role,
     });
     setPendingViewAs(undefined);
-    void navigate("/work-hub");
+    void navigate("/overview");
   }
 
   async function startManageTenantSession(org: PlatformOrg): Promise<void> {

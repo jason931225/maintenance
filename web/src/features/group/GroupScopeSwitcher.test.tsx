@@ -165,7 +165,7 @@ describe("GroupScopeSwitcher", () => {
       });
     });
     expect(await screen.findByTestId("location")).toHaveTextContent(
-      "/work-hub",
+      "/overview",
     );
   });
 

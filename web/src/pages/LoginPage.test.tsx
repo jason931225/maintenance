@@ -355,7 +355,7 @@ describe("LoginPage sign-in", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "로그인", level: 2 }),

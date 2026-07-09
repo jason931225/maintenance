@@ -41,8 +41,8 @@ function renderGuardedRoutes(ctx: AuthContextValue, initialPath = "/dispatch") {
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route element={<RequireNavItemRoute itemKey="work-hub" />}>
-            <Route path="/work-hub" element={<div>work hub</div>} />
+          <Route element={<RequireNavItemRoute itemKey="overview" />}>
+            <Route path="/overview" element={<div>work hub</div>} />
           </Route>
           <Route path="/mail" element={<div>mail page</div>} />
           <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
@@ -84,10 +84,10 @@ describe("RequireNavItemRoute", () => {
     expect(screen.queryByText("dispatch page")).not.toBeInTheDocument();
   });
 
-  it("redirects a mail-only custom member away from a direct work-hub URL", () => {
+  it("redirects a mail-only custom member away from a direct overview URL", () => {
     renderGuardedRoutes(
       makeAuthContext([ROLES.MEMBER], [FEATURES.MAIL_USE]),
-      "/work-hub",
+      "/overview",
     );
 
     expect(screen.getByText("mail page")).toBeVisible();

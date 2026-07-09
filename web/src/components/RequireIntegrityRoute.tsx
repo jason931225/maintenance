@@ -32,7 +32,7 @@ export function RequireIntegrityRoute() {
     !hasAnyRole(session?.roles, INTEGRITY_ROLES) &&
     !hasAnyFeatureGrant(session?.feature_grants, INTEGRITY_FEATURES)
   ) {
-    return <Navigate to="/work-hub" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   return <Outlet />;

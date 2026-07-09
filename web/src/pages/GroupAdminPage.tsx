@@ -371,7 +371,7 @@ export function GroupAdminPage() {
                                             type="button"
                                             size="xs"
                                             variant={
-                                              module.key === "work-hub"
+                                              module.key === "overview"
                                                 ? "default"
                                                 : "secondary"
                                             }
@@ -391,7 +391,7 @@ export function GroupAdminPage() {
                                             />
                                             <span>
                                               {manageOrgId === member.id &&
-                                              module.key === "work-hub"
+                                              module.key === "overview"
                                                 ? ko.groupAdmin.managing
                                                 : module.label}
                                             </span>

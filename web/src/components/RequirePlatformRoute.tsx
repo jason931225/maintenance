@@ -13,7 +13,7 @@ export function RequirePlatformRoute() {
   const { session } = useAuth();
 
   if (!session?.isPlatform) {
-    return <Navigate to="/work-hub" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   return <Outlet />;

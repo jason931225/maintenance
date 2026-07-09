@@ -6,7 +6,7 @@ import type { Panel } from "./types";
 function validPanel(overrides: Partial<Panel> = {}): unknown {
   return {
     id: "ignored",
-    screen: "work-hub",
+    screen: "overview",
     area: "right",
     mode: "pinned",
     object: {
@@ -42,7 +42,7 @@ describe("sanitizeEnvelope", () => {
   it("keeps a valid panel and recomputes its id from screen + code", () => {
     const env = sanitizeEnvelope(wrap([validPanel()]));
     expect(env.panels).toHaveLength(1);
-    expect(env.panels[0].id).toBe("work-hub:workOrder:WO-1");
+    expect(env.panels[0].id).toBe("overview:workOrder:WO-1");
     expect(env.panels[0].object).toEqual({
       kind: "workOrder",
       code: "WO-1",
@@ -95,8 +95,8 @@ describe("sanitizeEnvelope", () => {
       ]),
     );
     expect(env.panels.map((panel) => panel.id)).toEqual([
-      "work-hub:workOrder:DUP-1",
-      "work-hub:support:DUP-1",
+      "overview:workOrder:DUP-1",
+      "overview:support:DUP-1",
     ]);
   });
 

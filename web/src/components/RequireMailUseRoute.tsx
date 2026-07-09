@@ -24,7 +24,7 @@ export function RequireMailUseRoute() {
     !hasAnyRole(session?.roles, MAIL_USE_ROLES) &&
     !hasAnyFeatureGrant(session?.feature_grants, MAIL_USE_FEATURES)
   ) {
-    return <Navigate to="/work-hub" replace />;
+    return <Navigate to="/overview" replace />;
   }
 
   return <Outlet />;

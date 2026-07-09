@@ -562,3 +562,12 @@ export type AttendanceImportApplyReport =
   components["schemas"]["AttendanceImportApplyReport"];
 export type AttendanceImportSummaryPage =
   components["schemas"]["AttendanceImportSummaryPage"];
+
+// UI-M3 Overview (통합 개요) — unified action inbox + todos.
+export type WorkflowTaskSummary =
+  components["schemas"]["WorkflowTaskSummary"];
+export type MyDispatchOffer = components["schemas"]["MyDispatchOffer"];
+export type AttendanceSummaryItem =
+  components["schemas"]["AttendanceSummaryItem"];
+export type TodoSummary = components["schemas"]["TodoSummary"];
+export type TodoRef = components["schemas"]["TodoRef"];

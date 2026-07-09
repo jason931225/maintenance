@@ -10,6 +10,12 @@ export interface ConsoleToastDetail {
 
 export type ConsoleToastState = ConsoleToastDetail;
 
+/** Fire a console toast from anywhere under ConsoleShell (which hosts the
+ * listener + renderer). `onUndo` renders the undo button. */
+export function emitConsoleToast(detail: ConsoleToastDetail): void {
+  window.dispatchEvent(new CustomEvent(CONSOLE_TOAST_EVENT, { detail }));
+}
+
 function isConsoleToastDetail(value: unknown): value is ConsoleToastDetail {
   return (
     typeof value === "object" &&

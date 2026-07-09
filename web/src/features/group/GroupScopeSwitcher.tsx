@@ -33,7 +33,7 @@ function flattenOrgOptions(groups: readonly GroupAdminGroup[]): GroupScopeOrgOpt
 
 function destinationAfterSelectingOrg(pathname: string, search: string): string {
   if (pathname === "/settings/group" || pathname.startsWith("/platform")) {
-    return "/work-hub";
+    return "/overview";
   }
   return `${pathname}${search}`;
 }

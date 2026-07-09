@@ -390,7 +390,7 @@ describe("ApprovalsPage", () => {
       `/approvals?source=work-order&focus=${focusedWorkOrder.source_id}`,
     ]);
 
-    expect(await screen.findByText("업무 허브에서 연결된 승인 건을 강조했습니다.")).toBeVisible();
+    expect(await screen.findByText("통합 개요에서 연결된 승인 건을 강조했습니다.")).toBeVisible();
     const focusedApproval = screen.getByLabelText(/20260612-002 연결된 승인 건/);
     expect(focusedApproval).toHaveAttribute(
       "id",
