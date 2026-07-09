@@ -872,17 +872,19 @@ pub async fn verify_org_chain(
                 }
 
                 // (c) signature over the stored seal_hash under the stored key_ref.
-                // A malformed/garbage key_ref (unparseable) can't verify a
-                // signature = BadSignature verdict, NOT a propagated Err.
-                if !signer
-                    .verify(&stored_seal, &seal.signature, &seal.key_ref)
-                    .unwrap_or(false)
-                {
-                    return Ok(ChainReport::tampered(
-                        org_id,
-                        Some(seal.seq),
-                        ChainReportKind::BadSignature,
-                    ));
+                // A malformed/garbage *stored* key_ref (unparseable) can't
+                // verify a signature = BadSignature verdict, NOT a propagated
+                // Err. Preserve genuine signer failures as infra errors.
+                match signer.verify(&stored_seal, &seal.signature, &seal.key_ref) {
+                    Ok(true) => {}
+                    Ok(false) | Err(SealSignError::KeyRef(_)) => {
+                        return Ok(ChainReport::tampered(
+                            org_id,
+                            Some(seal.seq),
+                            ChainReportKind::BadSignature,
+                        ));
+                    }
+                    Err(err) => return Err(AuditChainError::Signer(err)),
                 }
 
                 // (d) internal consistency: the seal_hash must equal the hash of

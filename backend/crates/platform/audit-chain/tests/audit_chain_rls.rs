@@ -14,7 +14,8 @@ use std::sync::Arc;
 
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_audit_chain::{
-    ChainReportKind, InMemoryEd25519Signer, SealConfig, SealSigner, seal_org_once, verify_org_chain,
+    AuditChainError, ChainReportKind, InMemoryEd25519Signer, SealConfig, SealSignError, SealSigner,
+    seal_org_once, verify_org_chain,
 };
 use mnt_platform_db::{DbError, with_audit};
 use sqlx::PgPool;
@@ -48,6 +49,27 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
 
 fn signer() -> Arc<dyn SealSigner> {
     Arc::new(InMemoryEd25519Signer::generate().unwrap())
+}
+
+struct InfraFailingVerifier;
+
+impl SealSigner for InfraFailingVerifier {
+    fn key_ref(&self) -> &str {
+        "test:infra-failing-verifier"
+    }
+
+    fn sign(&self, _message: &[u8]) -> Result<Vec<u8>, SealSignError> {
+        Err(SealSignError::KeyGen)
+    }
+
+    fn verify(
+        &self,
+        _message: &[u8],
+        _signature: &[u8],
+        _key_ref: &str,
+    ) -> Result<bool, SealSignError> {
+        Err(SealSignError::KeyGen)
+    }
 }
 
 /// Immediate-seal config: zero lag so freshly written rows are sealable at once
@@ -1001,6 +1023,32 @@ async fn verify_returns_bad_signature_verdict_for_garbage_key_ref(owner_pool: Pg
     assert!(!report.ok);
     assert_eq!(report.kind, ChainReportKind::BadSignature, "{report:?}");
     assert_eq!(report.first_bad_seq, Some(1));
+}
+
+/// A genuine signer failure remains an `Err`; only corrupt stored key material
+/// is downgraded to a tamper verdict.
+#[sqlx::test(migrations = "../db/migrations")]
+async fn verify_propagates_genuine_signer_failures(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let sealing_signer = signer();
+    let failing_verifier: Arc<dyn SealSigner> = Arc::new(InfraFailingVerifier);
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    write_events(&rt, org, user, branch, 2).await;
+    let now = OffsetDateTime::now_utc();
+    let cfg = immediate();
+    seal_org_once(&rt, OrgId::from_uuid(org), &sealing_signer, now, &cfg)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let err = verify_org_chain(&rt, OrgId::from_uuid(org), &failing_verifier, now, &cfg)
+        .await
+        .expect_err("a genuine signer failure must not be reported as tamper");
+    assert!(matches!(
+        err,
+        AuditChainError::Signer(SealSignError::KeyGen)
+    ));
 }
 
 /// A structurally-corrupt stored hash (<32 bytes) → `CorruptSeal` verdict.
