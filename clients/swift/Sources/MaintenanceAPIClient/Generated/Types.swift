@@ -856,6 +856,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/exports/work-diary`.
     /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)`.
     func getWorkDiaryExport(_ input: Operations.GetWorkDiaryExport.Input) async throws -> Operations.GetWorkDiaryExport.Output
+    /// Export the KPI rollup workbook
+    ///
+    /// Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/kpi`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)`.
+    func getKpiExport(_ input: Operations.GetKpiExport.Input) async throws -> Operations.GetKpiExport.Output
     /// Get or generate the editable work-diary draft for a date
     ///
     /// - Remark: HTTP `GET /api/v1/reporting/work-diary`.
@@ -3476,6 +3483,21 @@ extension APIProtocol {
         headers: Operations.GetWorkDiaryExport.Input.Headers = .init()
     ) async throws -> Operations.GetWorkDiaryExport.Output {
         try await getWorkDiaryExport(Operations.GetWorkDiaryExport.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Export the KPI rollup workbook
+    ///
+    /// Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/kpi`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)`.
+    public func getKpiExport(
+        query: Operations.GetKpiExport.Input.Query,
+        headers: Operations.GetKpiExport.Input.Headers = .init()
+    ) async throws -> Operations.GetKpiExport.Output {
+        try await getKpiExport(Operations.GetKpiExport.Input(
             query: query,
             headers: headers
         ))
@@ -51634,6 +51656,315 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.GetWorkDiaryExport.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                    self = .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet:
+                    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet,
+                    .json
+                ]
+            }
+        }
+    }
+    /// Export the KPI rollup workbook
+    ///
+    /// Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/kpi`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)`.
+    public enum GetKpiExport {
+        public static let id: Swift.String = "getKpiExport"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Inclusive start date and exclusive end date in UTC day boundaries.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/query/period`.
+                public var period: Swift.String
+                /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/query/scope`.
+                public var scope: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - period: Inclusive start date and exclusive end date in UTC day boundaries.
+                ///   - scope:
+                public init(
+                    period: Swift.String,
+                    scope: Swift.String? = nil
+                ) {
+                    self.period = period
+                    self.scope = scope
+                }
+            }
+            public var query: Operations.GetKpiExport.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetKpiExport.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetKpiExport.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetKpiExport.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetKpiExport.Input.Query,
+                headers: Operations.GetKpiExport.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Attachment filename for the generated workbook.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/responses/200/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - contentDisposition: Attachment filename for the generated workbook.
+                    public init(contentDisposition: Swift.String? = nil) {
+                        self.contentDisposition = contentDisposition
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.GetKpiExport.Output.Ok.Headers
+                /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/responses/200/content/application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+                    case applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet(OpenAPIRuntime.HTTPBody)
+                    /// The associated value of the enum case if `self` is `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    ///
+                    /// - Throws: An error if `self` is not `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    /// - SeeAlso: `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    public var applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet: OpenAPIRuntime.HTTPBody {
+                        get throws {
+                            switch self {
+                            case let .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetKpiExport.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                ///   - body: Received HTTP response body
+                public init(
+                    headers: Operations.GetKpiExport.Output.Ok.Headers = .init(),
+                    body: Operations.GetKpiExport.Output.Ok.Body
+                ) {
+                    self.headers = headers
+                    self.body = body
+                }
+            }
+            /// KPI rollup workbook.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetKpiExport.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetKpiExport.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/exports/kpi/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetKpiExport.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetKpiExport.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/kpi/get(getKpiExport)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetKpiExport.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetKpiExport.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

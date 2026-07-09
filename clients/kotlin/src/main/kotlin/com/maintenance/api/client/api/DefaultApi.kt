@@ -7694,6 +7694,88 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/exports/kpi
+     * Export the KPI rollup workbook
+     * Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
+     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
+     * @param scope  (optional, default to "company")
+     * @return java.io.File
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getKpiExport(period: kotlin.String, scope: kotlin.String? = "company") : java.io.File = withContext(Dispatchers.IO) {
+        val localVarResponse = getKpiExportWithHttpInfo(period = period, scope = scope)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as java.io.File
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/exports/kpi
+     * Export the KPI rollup workbook
+     * Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
+     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
+     * @param scope  (optional, default to "company")
+     * @return ApiResponse<java.io.File?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getKpiExportWithHttpInfo(period: kotlin.String, scope: kotlin.String?) : ApiResponse<java.io.File?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getKpiExportRequestConfig(period = period, scope = scope)
+
+        return@withContext request<Unit, java.io.File>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getKpiExport
+     *
+     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
+     * @param scope  (optional, default to "company")
+     * @return RequestConfig
+     */
+    fun getKpiExportRequestConfig(period: kotlin.String, scope: kotlin.String?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("period", listOf(period.toString()))
+                if (scope != null) {
+                    put("scope", listOf(scope.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/exports/kpi",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/kpi
      * Fetch branch-scoped KPI rollups for the seven standard metrics
      * Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in &#x60;unavailable_metrics&#x60; instead of fabricated values.

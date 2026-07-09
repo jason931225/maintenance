@@ -2716,6 +2716,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exports/kpi": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the KPI rollup workbook
+         * @description Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
+         */
+        get: operations["getKpiExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reporting/work-diary": {
         parameters: {
             query?: never;
@@ -11714,6 +11734,48 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Work diary workbook. */
+            200: {
+                headers: {
+                    /** @description Attachment filename for the generated workbook. */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getKpiExport: {
+        parameters: {
+            query: {
+                /**
+                 * @description Inclusive start date and exclusive end date in UTC day boundaries.
+                 * @example 2026-06-01..2026-07-01
+                 */
+                period: string;
+                scope?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description KPI rollup workbook. */
             200: {
                 headers: {
                     /** @description Attachment filename for the generated workbook. */
