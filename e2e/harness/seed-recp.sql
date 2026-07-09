@@ -17,11 +17,12 @@ SELECT set_config('app.current_org', '00000000-0000-0000-0000-0000000000a1', tru
 \set admin_id  '00000000-0000-0000-0000-0000000d0003'
 
 INSERT INTO messenger_threads (
-  id, kind, branch_id, title, created_by, org_id
+  id, kind, visibility, branch_id, title, created_by, org_id
 )
 VALUES (
   '00000000-0000-0000-0000-000000c00002',
   'group',
+  'channel',
   :'branch_id',
   'E2E 접수팀 대화',
   :'recp_id',

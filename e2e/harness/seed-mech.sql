@@ -239,11 +239,12 @@ ON CONFLICT (id) DO NOTHING;
 -- Messenger group thread with mechanic + admin for MECH-11
 -- ─────────────────────────────────────────────────────────────────────────────
 INSERT INTO messenger_threads (
-  id, kind, branch_id, title, created_by, org_id
+  id, kind, visibility, branch_id, title, created_by, org_id
 )
 VALUES (
   '00000000-0000-0000-0000-000000c00001',
   'group',
+  'channel',
   :'branch_id',
   'E2E 정비팀 대화',
   :'mech_id',
