@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { useState } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -13,10 +20,11 @@ import { OnboardingPage } from "./OnboardingPage";
 const server = setupServer();
 
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: "bypass" });
+  server.listen({ onUnhandledRequest: "error" });
 });
 
 afterEach(() => {
+  cleanup();
   server.resetHandlers();
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
@@ -62,7 +70,101 @@ function renderPage(path: string, ctx: AuthContextValue) {
   );
 }
 
-function usePrivacyConsentHandlers(initialAccepted = false) {
+function renderStatefulPage(
+  path: string,
+  initialSession: AuthSession,
+  observers: {
+    acceptTokens?: (tokens: Parameters<AuthContextValue["acceptTokens"]>[0]) => void;
+    clearPasskeySetup?: () => void;
+  } = {},
+) {
+  function StatefulAuthPage() {
+    const [session, setSession] = useState<AuthSession | undefined>(
+      initialSession,
+    );
+    return (
+      <AuthContext.Provider
+        value={makeAuthContext({
+          session,
+          acceptTokens: (tokens) => {
+            observers.acceptTokens?.(tokens);
+            setSession(
+              tokens
+                ? testSessionFromAccessToken(
+                    tokens.access_token,
+                    tokens.requires_passkey_setup,
+                  )
+                : undefined,
+            );
+          },
+          clearPasskeySetup: () => {
+            observers.clearPasskeySetup?.();
+            setSession((current) =>
+              current ? { ...current, requires_passkey_setup: false } : current,
+            );
+          },
+        })}
+      >
+        <MemoryRouter initialEntries={[path]}>
+          <OnboardingPage />
+          <LocationProbe />
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+  }
+
+  return render(<StatefulAuthPage />);
+}
+
+function makeAccessToken(claims: Record<string, unknown>): string {
+  return `${base64UrlJson({ alg: "none", typ: "JWT" })}.${base64UrlJson(
+    claims,
+  )}.sig`;
+}
+
+function base64UrlJson(value: Record<string, unknown>): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+
+function testSessionFromAccessToken(
+  accessToken: string,
+  requiresPasskeySetup?: boolean,
+): AuthSession {
+  const payload = accessToken.split(".")[1];
+  const claims = payload ? decodeTokenPayload(payload) : {};
+  return {
+    access_token: accessToken,
+    requires_passkey_setup: requiresPasskeySetup,
+    roles: stringArrayClaim(claims.roles),
+    group_roles: stringArrayClaim(claims.group_roles),
+    feature_grants: stringArrayClaim(claims.feature_grants),
+    isPlatform: claims.platform === true,
+  };
+}
+
+function decodeTokenPayload(payload: string): Record<string, unknown> {
+  const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    "=",
+  );
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+}
+
+function stringArrayClaim(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : undefined;
+}
+
+function mockPrivacyConsentHandlers(initialAccepted = false) {
   let accepted = initialAccepted;
   server.use(
     http.post("*/api/v1/auth/privacy-consent/status", () =>
@@ -83,7 +185,7 @@ function usePrivacyConsentHandlers(initialAccepted = false) {
   );
 }
 
-function useSuccessfulPlatformPasskeyHandlers() {
+function mockSuccessfulPlatformPasskeyHandlers() {
   class FakeAttestationResponse {
     attestationObject = Uint8Array.from([1]).buffer;
     clientDataJSON = Uint8Array.from([2]).buffer;
@@ -124,9 +226,30 @@ function useSuccessfulPlatformPasskeyHandlers() {
   );
 }
 
+function mockPhoneQrHandoffHandlers(accessToken: string) {
+  server.use(
+    http.post("*/api/v1/auth/passkey/enroll-handoff", () =>
+      HttpResponse.json({
+        enroll_url: "https://console.example/enroll/phone",
+        otp: "123456",
+        expires_at: "2026-06-14T00:00:00Z",
+        poll_token: "poll-token-1",
+      }),
+    ),
+    http.post("*/api/v1/auth/device-login/poll", async ({ request }) => {
+      const body = (await request.json()) as { poll_token?: string };
+      expect(body.poll_token).toBe("poll-token-1");
+      return HttpResponse.json({
+        status: "approved",
+        access_token: accessToken,
+      });
+    }),
+  );
+}
+
 describe("OnboardingPage object-first first login", () => {
   it("keeps onboarding Korean-first with actionable controls instead of explanatory captions", async () => {
-    usePrivacyConsentHandlers(false);
+    mockPrivacyConsentHandlers(false);
 
     renderPage(
       "/onboarding",
@@ -181,8 +304,8 @@ describe("OnboardingPage object-first first login", () => {
 
   it("routes no-grant first-login users to the pending object instead of a dead work-hub link", async () => {
     const clearPasskeySetup = vi.fn();
-    usePrivacyConsentHandlers(true);
-    useSuccessfulPlatformPasskeyHandlers();
+    mockPrivacyConsentHandlers(true);
+    mockSuccessfulPlatformPasskeyHandlers();
 
     renderPage(
       "/onboarding",
@@ -212,8 +335,8 @@ describe("OnboardingPage object-first first login", () => {
 
   it("routes feature-granted first-login users to their first visible console object", async () => {
     const clearPasskeySetup = vi.fn();
-    usePrivacyConsentHandlers(true);
-    useSuccessfulPlatformPasskeyHandlers();
+    mockPrivacyConsentHandlers(true);
+    mockSuccessfulPlatformPasskeyHandlers();
 
     renderPage(
       "/onboarding",
@@ -240,5 +363,48 @@ describe("OnboardingPage object-first first login", () => {
         "/approvals",
       );
     });
+  }, 15_000);
+
+  it("routes QR-completed handoffs using the handed-off access token grants", async () => {
+    const acceptTokens = vi.fn();
+    const clearPasskeySetup = vi.fn();
+    const qrAccessToken = makeAccessToken({
+      sub: "phone-user",
+      roles: ["MEMBER"],
+      feature_grants: ["completion_review"],
+    });
+    mockPrivacyConsentHandlers(true);
+    mockPhoneQrHandoffHandlers(qrAccessToken);
+
+    renderStatefulPage(
+      "/onboarding",
+      {
+        access_token: "desktop-token",
+        requires_passkey_setup: true,
+        roles: ["MEMBER"],
+      },
+      { acceptTokens, clearPasskeySetup },
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: ko.onboarding.methods.phoneQr.title,
+      }),
+    );
+
+    expect(await screen.findByText(ko.enrollHandoff.instruction)).toBeVisible();
+
+    await waitFor(() => {
+      expect(screen.getByText(ko.enrollHandoff.completed)).toBeVisible();
+      expect(acceptTokens).toHaveBeenCalledWith({
+        access_token: qrAccessToken,
+        requires_passkey_setup: false,
+      });
+      expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
+      expect(screen.getByLabelText("current location")).toHaveTextContent(
+        "/approvals",
+      );
+    });
+    cleanup();
   }, 15_000);
 });
