@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.54](https://github.com/jason931225/maintenance/compare/v0.1.53...v0.1.54) (2026-07-09)
+
+
+### Features
+
+* **deploy:** add dark production mox stack ([#426](https://github.com/jason931225/maintenance/issues/426)) ([3fd28dc](https://github.com/jason931225/maintenance/commit/3fd28dc5dbb5daf7c7cf6325fbacf2e25c651fc9))
+* **messenger:** Slack-parity — channels/DM, presence, ack, reply-quote, per-thread mute ([#261](https://github.com/jason931225/maintenance/issues/261)) ([804268c](https://github.com/jason931225/maintenance/commit/804268cc854e43f4680ba77ac218c42f87f7b1e8))
+
+
+### Bug Fixes
+
+* **web:** align electronic approval terminology ([#423](https://github.com/jason931225/maintenance/issues/423)) ([9a65619](https://github.com/jason931225/maintenance/commit/9a6561957538f99769de9c251cc68cf3a55d74e4))
+* **web:** patch c-ares in runtime image ([#427](https://github.com/jason931225/maintenance/issues/427)) ([c57785b](https://github.com/jason931225/maintenance/commit/c57785b2746f5e7ceb8b646bbe7ecd9f5e32794f))
+* **web:** stabilize route-menu CI tests ([#424](https://github.com/jason931225/maintenance/issues/424)) ([a1a281c](https://github.com/jason931225/maintenance/commit/a1a281c2090cc8de81bf7a6ad4229c972351980e))
+
 ## [0.1.53](https://github.com/jason931225/maintenance/compare/v0.1.52...v0.1.53) (2026-07-09)
 
 
