@@ -109,6 +109,8 @@ src/main/kotlin/com/maintenance/api/client/model/CreateListingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateListingResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateObjectLinkRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateOfficeSession200Response.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateOfficeSessionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOutsourceWorkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOwnershipTransferRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatePeriodLockRequest.kt
@@ -150,6 +152,7 @@ src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchResponseKind.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/DocumentVersion.kt
 src/main/kotlin/com/maintenance/api/client/model/Employee.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeAttendanceRecord.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeAttendanceRecordPage.kt
@@ -229,7 +232,16 @@ src/main/kotlin/com/maintenance/api/client/model/KpiScope.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalanceItem.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalancePage.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalanceSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveDecideRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeavePromotionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRefusalRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRequestPage.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRequestView.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRosterEntry.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRosterPage.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveStatutoryPushView.kt
 src/main/kotlin/com/maintenance/api/client/model/LinkTypeResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/ListOfficeDocumentVersions200Response.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingCondition.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingKind.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingMediaView.kt
@@ -287,6 +299,8 @@ src/main/kotlin/com/maintenance/api/client/model/ObjectLifecycleTransition.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectLinkResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectLinksListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectTypeResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/OfficeCallback200Response.kt
+src/main/kotlin/com/maintenance/api/client/model/OfficeCallbackRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsEquipmentStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsFunnel.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsMechanicLoad.kt
