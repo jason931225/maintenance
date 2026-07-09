@@ -6,15 +6,15 @@
 -- a 노무수령거부 notice to decline the labor.
 --
 -- The concrete legal delivery is the receipt-gated document placed in the
--- target's 개인 수신함 (inbox_docs, 0117): `inbox_doc_id` references it. Starting
+-- target's 개인 수신함 (inbox_docs, 0118): `inbox_doc_id` references it. Starting
 -- the engine AP- run is gated on the 연차촉진 submittable definition (gap #1);
 -- until it exists `ap_run_id` stays NULL and the push carries an honest
 -- `pending_engine_definition` status — a run is never fabricated.
 --
--- Depends on 0117_create_inbox_docs (the inbox vault) — this migration, and the
+-- Depends on 0118_create_inbox_docs (the inbox vault) — this migration, and the
 -- PR that ships it, must land AFTER the InboxDoc PR.
 --
--- Tenant isolation: RLS keyed on `app.current_org`, FORCE-enabled (0117 idiom).
+-- Tenant isolation: RLS keyed on `app.current_org`, FORCE-enabled (0118 idiom).
 
 -- mnt-gate: audited-table leave_promotions
 CREATE TABLE leave_promotions (
