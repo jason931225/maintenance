@@ -3561,8 +3561,9 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 #[cfg(test)]
 mod tests {
     use super::{
-        authorizable_target_branches, build_enroll_url, client_ip, has_group_admin_role_hint,
-        load_group_admin_groups, resolve_group_admin_target_org,
+        RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW, RateLimitEndpoint, authorizable_target_branches,
+        build_enroll_url, client_ip, has_group_admin_role_hint, load_group_admin_groups,
+        rate_limit, resolve_group_admin_target_org,
     };
     use axum::http::HeaderMap;
     use axum::http::StatusCode;
@@ -3570,6 +3571,7 @@ mod tests {
     use sqlx::PgPool;
     use sqlx::postgres::PgPoolOptions;
     use std::collections::BTreeSet;
+    use time::OffsetDateTime;
     use url::{Url, form_urlencoded};
     use uuid::Uuid;
 
@@ -3676,6 +3678,34 @@ mod tests {
     fn client_ip_none_without_header() {
         assert_eq!(client_ip(&HeaderMap::new(), 1), None);
         assert_eq!(client_ip(&headers_with_xff("  ,  "), 1), None);
+    }
+
+    /// `rate_limit` takes `now` as an explicit parameter (matching the
+    /// audit-chain `seal_org_once` precedent), so its window/cap/reset
+    /// behavior can be driven with a synthetic clock instead of racing real
+    /// wall-clock minute boundaries across a burst of DB round-trips — the
+    /// root cause of the flaky HTTP-level `otp_redeem_rate_limit_*` test.
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn rate_limit_trips_at_cap_and_resets_after_window(pool: PgPool) {
+        let headers = headers_with_xff("203.0.113.50");
+        let window1 = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+
+        for attempt in 0..RATE_LIMIT_PER_IP {
+            rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window1)
+                .await
+                .unwrap_or_else(|_| panic!("attempt {attempt} within the cap must not trip 429"));
+        }
+
+        let tripped = rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window1)
+            .await
+            .expect_err("the request past the cap in the same window must trip 429");
+        assert_eq!(tripped.status, StatusCode::TOO_MANY_REQUESTS);
+
+        // Advancing past the fixed window resets the bucket.
+        let window2 = window1 + RATE_LIMIT_WINDOW;
+        rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window2)
+            .await
+            .expect("a new window must reset the per-IP bucket");
     }
 
     const ORG_A: Uuid = Uuid::from_u128(0xA013_A013_A013_A013_A013_A013_A013_A013);
