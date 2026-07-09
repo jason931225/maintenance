@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.53](https://github.com/jason931225/maintenance/compare/v0.1.52...v0.1.53) (2026-07-09)
+
+
+### Features
+
+* **cedar:** enrollment wave 2 — engine decide + resolve shadow, parity report ([#257](https://github.com/jason931225/maintenance/issues/257)) ([8c43215](https://github.com/jason931225/maintenance/commit/8c4321574f7a423be60ec0bb906ba5024b47681c))
+* **console-cc:** P0.4 — config-driven generic module template ([#279](https://github.com/jason931225/maintenance/issues/279)) ([b1d2d3a](https://github.com/jason931225/maintenance/commit/b1d2d3ac34c612ec5f446c4a31ae108dad6f77e7))
+* **console-cc:** P0.5 — lifecycle card on the real lifecycle engine ([#280](https://github.com/jason931225/maintenance/issues/280)) ([25047ec](https://github.com/jason931225/maintenance/commit/25047ec9ec205bfb1cdc5d5d1c869e1edb35bf3e))
+* **console-cc:** P0.6 — 3-layer object card on the object substrate ([#357](https://github.com/jason931225/maintenance/issues/357)) ([684ac15](https://github.com/jason931225/maintenance/commit/684ac15506440a50684450267b023dcb38effdd7))
+* **console-cc:** PolicyGated primitive + RUM/CWV budgets ([#269](https://github.com/jason931225/maintenance/issues/269)) ([b3891a7](https://github.com/jason931225/maintenance/commit/b3891a70462a3591d8c19ff7a7127bf1bd6a6693))
+* **inbox:** InboxDoc domain — statutory notice vault + passkey receipt confirmation (carbon-copy P1) ([#256](https://github.com/jason931225/maintenance/issues/256)) ([e9b3025](https://github.com/jason931225/maintenance/commit/e9b3025dca16e92ce25d2d45fa912c1b0041766b))
+* **leave:** leave-request domain + §61 statutory push (carbon-copy P1) ([#266](https://github.com/jason931225/maintenance/issues/266)) ([52bdd04](https://github.com/jason931225/maintenance/commit/52bdd04f59da9ba613722690d5ddfd4498146f5b))
+* **mail:** mox integration slice 1 — dev-stack server, transport adapter, delivery webhooks ([#262](https://github.com/jason931225/maintenance/issues/262)) ([08d7898](https://github.com/jason931225/maintenance/commit/08d78981ebc76835ae554b2a0a223c624c2745d3))
+* **objects:** BE-OBJ slice 3 — type registry, SR- series, edge-type registry (ontology depth) ([#258](https://github.com/jason931225/maintenance/issues/258)) ([bd32528](https://github.com/jason931225/maintenance/commit/bd3252893c2cd77d19b2d26e5d8e22191f557b4c))
+* **office:** document sessions slice 0 — version domain, JWT embed config, callback pipeline, dev DocumentServer ([#260](https://github.com/jason931225/maintenance/issues/260)) ([25a04b8](https://github.com/jason931225/maintenance/commit/25a04b898594e14d7a83eebe40fe6c4ca31de3c9))
+* **workflow:** BE-AUTO slice 2 — object-bound dynamics, branch nodes, four-eyes publish ([#265](https://github.com/jason931225/maintenance/issues/265)) ([979914b](https://github.com/jason931225/maintenance/commit/979914b2cba7ed438579b90bc885b645d2e2ba09))
+
+
+### Bug Fixes
+
+* **db:** renumber merged migration versions ([#420](https://github.com/jason931225/maintenance/issues/420)) ([27e03e7](https://github.com/jason931225/maintenance/commit/27e03e71bbc9628b768bc459e534727131d978fa))
+* **db:** restore unique migration versions after workflow merge ([#422](https://github.com/jason931225/maintenance/issues/422)) ([3bb7a69](https://github.com/jason931225/maintenance/commit/3bb7a69466cae138a5610597b3dbf4a201c33bf9))
+* **objects:** link-endpoint visibility gate (B3) + bounded link scans ([#227](https://github.com/jason931225/maintenance/issues/227)) + person.view audit parity (B1) ([#268](https://github.com/jason931225/maintenance/issues/268)) ([33c0e8d](https://github.com/jason931225/maintenance/commit/33c0e8db84b0eb57fbf2ef11440cfabd3df7a4c5))
+
 ## [0.1.52](https://github.com/jason931225/maintenance/compare/v0.1.51...v0.1.52) (2026-07-09)
 
 
