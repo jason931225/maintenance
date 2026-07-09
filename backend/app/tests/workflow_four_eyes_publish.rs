@@ -337,6 +337,33 @@ async fn edit_and_stage(
     (active_before, pending)
 }
 
+/// Start a run over the real router. `version` pins `definition_version`; `None`
+/// resolves the definition's active version.
+async fn start_run(
+    service: &axum::Router,
+    token: &str,
+    definition_id: &str,
+    version: Option<i64>,
+    idempotency_key: &str,
+) -> JsonResponse {
+    let mut body = json!({
+        "definition_id": definition_id,
+        "trigger_type": "MANUAL",
+        "idempotency_key": idempotency_key,
+    });
+    if let Some(version) = version {
+        body["definition_version"] = json!(version);
+    }
+    send(
+        service.clone(),
+        "POST",
+        "/api/v1/workflow-runs",
+        token,
+        Some(body),
+    )
+    .await
+}
+
 async fn finding_count(owner_pool: &PgPool, definition_id: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT count(*) FROM governance_findings \
@@ -448,6 +475,134 @@ async fn exempt_self_approval_is_allowed_and_recorded(owner_pool: PgPool) {
         finding_count(&owner_pool, &id).await,
         1,
         "an exempt self-approval must record an anomaly.self_approval governance finding"
+    );
+}
+
+/// Security: the start path must resolve ONLY an approved (PUBLISHED) version.
+/// A staged pending revision is an unapproved DRAFT — an initiator who pins its
+/// version number must be denied (422), or the four-eyes control this PR adds is
+/// bypassed. The active version starts normally; the revision becomes startable
+/// only after a DISTINCT actor approves (which appends a new PUBLISHED version).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn start_gates_on_approved_version_only(owner_pool: PgPool) {
+    let keys = keys();
+    let svc = passkey_service();
+    let publisher = UserId::new();
+    let approver = UserId::new();
+    seed_super_admin(&owner_pool, publisher, "start-publisher").await;
+    seed_super_admin(&owner_pool, approver, "start-approver").await;
+    let (mut pub_auth, pub_cred) =
+        register_passkey(&owner_pool, &svc, publisher, "start-publisher").await;
+    let (mut app_auth, app_cred) =
+        register_passkey(&owner_pool, &svc, approver, "start-approver").await;
+    let service = build_router(app_state(runtime_role_pool(&owner_pool).await, &keys));
+    let pub_token = bearer(&keys, publisher);
+    let app_token = bearer(&keys, approver);
+
+    let id = create_and_activate(
+        &service,
+        &owner_pool,
+        &svc,
+        &pub_token,
+        &mut pub_auth,
+        &pub_cred,
+        "four.eyes.start",
+    )
+    .await;
+
+    // The active (PUBLISHED) version starts normally (no pin → active version).
+    let ok = start_run(&service, &pub_token, &id, None, "start-active-v1-000000").await;
+    assert_eq!(ok.status, StatusCode::OK, "{:?}", ok.json);
+    let active_version = ok.json["run"]["definition_version"].as_i64().unwrap();
+
+    // Stage a revision (pending DRAFT); the active version keeps serving.
+    let (active_before, pending) = edit_and_stage(
+        &service,
+        &owner_pool,
+        &svc,
+        &pub_token,
+        &mut pub_auth,
+        &pub_cred,
+        &id,
+    )
+    .await;
+    assert_eq!(
+        active_before, active_version,
+        "staging must not change the active version"
+    );
+    assert!(pending > active_before, "the staged revision is newer");
+
+    // The initiator pins the pending-staged (unapproved DRAFT) version → DENIED.
+    // This is the four-eyes bypass the review flagged; it must be a 422.
+    let denied = start_run(
+        &service,
+        &pub_token,
+        &id,
+        Some(pending),
+        "start-pending-denied-01",
+    )
+    .await;
+    assert_eq!(
+        denied.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "starting an unapproved staged revision must be denied: {:?}",
+        denied.json
+    );
+
+    // Pinning the active (PUBLISHED) version is still allowed (historical pin).
+    let pinned = start_run(
+        &service,
+        &pub_token,
+        &id,
+        Some(active_before),
+        "start-pin-active-v1-01",
+    )
+    .await;
+    assert_eq!(pinned.status, StatusCode::OK, "{:?}", pinned.json);
+    assert_eq!(
+        pinned.json["run"]["definition_version"].as_i64().unwrap(),
+        active_before
+    );
+
+    // A DISTINCT actor approves → a new PUBLISHED version becomes active.
+    let body = step_up(&owner_pool, &svc, &mut app_auth, &app_cred).await;
+    let approved = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/revisions/{pending}/approve"),
+        &app_token,
+        Some(body),
+    )
+    .await;
+    assert_eq!(approved.status, StatusCode::OK, "{:?}", approved.json);
+    let new_active = approved.json["active_version"].as_i64().unwrap();
+    assert!(
+        new_active > active_before,
+        "approval flips the active version to the applied revision"
+    );
+
+    // The approved revision now starts (default resolves to the new PUBLISHED version).
+    let after = start_run(&service, &pub_token, &id, None, "start-after-approve-0001").await;
+    assert_eq!(after.status, StatusCode::OK, "{:?}", after.json);
+    assert_eq!(
+        after.json["run"]["definition_version"].as_i64().unwrap(),
+        new_active
+    );
+
+    // The staged DRAFT version itself is never startable (append-only, stays DRAFT).
+    let still_denied = start_run(
+        &service,
+        &pub_token,
+        &id,
+        Some(pending),
+        "start-pending-denied-02",
+    )
+    .await;
+    assert_eq!(
+        still_denied.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "the unapproved DRAFT version is never startable: {:?}",
+        still_denied.json
     );
 }
 

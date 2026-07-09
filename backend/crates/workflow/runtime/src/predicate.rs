@@ -155,13 +155,25 @@ fn lookup<'a>(context: &'a Value, field: &str) -> Option<&'a Value> {
     Some(current)
 }
 
+/// Equality that normalizes numeric representation: `1000` (int) and `1000.0`
+/// (float) match. Everything else stays strict `serde_json::Value` equality.
+fn values_eq(a: &Value, b: &Value) -> bool {
+    // `as_f64` is `Some` only for JSON numbers, so a `(Some, Some)` match already
+    // means both sides are numeric — compare their f64 value, ignoring int/float
+    // representation. Anything else falls back to strict equality.
+    match (a.as_f64(), b.as_f64()) {
+        (Some(x), Some(y)) => x == y,
+        _ => a == b,
+    }
+}
+
 fn eval_cmp(op: CmpOp, actual: Option<&Value>, expected: &Value) -> bool {
     match op {
-        CmpOp::Eq => actual == Some(expected),
-        CmpOp::Ne => actual != Some(expected),
-        CmpOp::In => expected
-            .as_array()
-            .is_some_and(|items| actual.is_some_and(|a| items.iter().any(|item| item == a))),
+        CmpOp::Eq => actual.is_some_and(|a| values_eq(a, expected)),
+        CmpOp::Ne => actual.is_none_or(|a| !values_eq(a, expected)),
+        CmpOp::In => expected.as_array().is_some_and(|items| {
+            actual.is_some_and(|a| items.iter().any(|item| values_eq(item, a)))
+        }),
         CmpOp::Gt | CmpOp::Gte | CmpOp::Lt | CmpOp::Lte => {
             match (actual.and_then(Value::as_f64), expected.as_f64()) {
                 (Some(a), Some(b)) => match op {
@@ -242,6 +254,51 @@ mod tests {
         // Empty all is true, empty any is false.
         assert!(Predicate::parse(&json!({"all":[]})).unwrap().eval(&ctx));
         assert!(!Predicate::parse(&json!({"any":[]})).unwrap().eval(&ctx));
+    }
+
+    #[test]
+    fn eq_ne_in_normalize_int_float_cross_matching() {
+        // Context integer vs float predicate value (and vice versa) must match
+        // for eq/ne/in — 1000 == 1000.0.
+        let int_ctx = json!({ "amount": 1000 });
+        let float_ctx = json!({ "amount": 1000.0 });
+
+        for ctx in [&int_ctx, &float_ctx] {
+            assert!(
+                Predicate::parse(&json!({"field":"amount","op":"eq","value":1000.0}))
+                    .unwrap()
+                    .eval(ctx)
+            );
+            assert!(
+                Predicate::parse(&json!({"field":"amount","op":"eq","value":1000}))
+                    .unwrap()
+                    .eval(ctx)
+            );
+            assert!(
+                !Predicate::parse(&json!({"field":"amount","op":"ne","value":1000.0}))
+                    .unwrap()
+                    .eval(ctx)
+            );
+            assert!(
+                Predicate::parse(&json!({"field":"amount","op":"in","value":[999, 1000.0]}))
+                    .unwrap()
+                    .eval(ctx)
+            );
+        }
+
+        // Numeric normalization does NOT loosen non-numeric equality: a string
+        // "1000" never matches the number 1000, and true != 1.
+        let str_ctx = json!({ "amount": "1000", "flag": true });
+        assert!(
+            !Predicate::parse(&json!({"field":"amount","op":"eq","value":1000}))
+                .unwrap()
+                .eval(&str_ctx)
+        );
+        assert!(
+            !Predicate::parse(&json!({"field":"flag","op":"eq","value":1}))
+                .unwrap()
+                .eval(&str_ctx)
+        );
     }
 
     #[test]

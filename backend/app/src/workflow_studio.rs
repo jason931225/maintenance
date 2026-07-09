@@ -1375,44 +1375,53 @@ fn parse_run_statuses(raw: Option<&str>) -> Result<Vec<RunStatus>, WorkflowStudi
 
 /// Load a definition's chosen version JSON, gating on ACTIVE status. Returns the
 /// resolved `(version, definition)` for the run to bind to.
+///
+/// Security (four-eyes): a run may only start an APPROVED version. Approved
+/// versions carry `status = 'PUBLISHED'` (set at direct-publish and at
+/// four-eyes approve time); a staged/pending revision is an unapproved `DRAFT`
+/// version. A caller-pinned `definition_version` therefore selects among
+/// PUBLISHED (active or previously-active) versions ONLY — pinning a DRAFT/
+/// pending-staged version is rejected (422), so an initiator cannot execute a
+/// revision that never passed the second-actor approval.
 async fn resolve_start_definition(
     pool: &PgPool,
     org: mnt_kernel_core::OrgId,
     definition_id: Uuid,
     requested_version: Option<i32>,
 ) -> Result<(i32, Value), WorkflowStudioError> {
-    let row = with_org_conn::<_, Option<(String, Option<Value>, Option<i32>)>, DbError>(
-        pool,
-        org,
-        move |tx| {
-            Box::pin(async move {
-                let row = sqlx::query(
-                    "SELECT d.status, v.definition, v.version \
+    let row = with_org_conn::<
+        _,
+        Option<(String, Option<Value>, Option<i32>, Option<String>)>,
+        DbError,
+    >(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                "SELECT d.status, v.definition, v.version, v.status AS version_status \
                      FROM workflow_definitions d \
                      LEFT JOIN workflow_definition_versions v \
                        ON v.definition_id = d.id AND v.org_id = d.org_id \
                       AND v.version = COALESCE($2, d.active_version) \
                      WHERE d.id = $1",
-                )
-                .bind(definition_id)
-                .bind(requested_version)
-                .fetch_optional(tx.as_mut())
-                .await?;
-                let Some(row) = row else {
-                    return Ok(None);
-                };
-                Ok(Some((
-                    row.try_get("status")?,
-                    row.try_get("definition")?,
-                    row.try_get("version")?,
-                )))
-            })
-        },
-    )
+            )
+            .bind(definition_id)
+            .bind(requested_version)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            let Some(row) = row else {
+                return Ok(None);
+            };
+            Ok(Some((
+                row.try_get("status")?,
+                row.try_get("definition")?,
+                row.try_get("version")?,
+                row.try_get("version_status")?,
+            )))
+        })
+    })
     .await
     .map_err(WorkflowStudioError::from)?;
 
-    let Some((status, definition, version)) = row else {
+    let Some((status, definition, version, version_status)) = row else {
         return Err(WorkflowStudioError::from(KernelError::not_found(
             "workflow definition not found",
         )));
@@ -1422,11 +1431,21 @@ async fn resolve_start_definition(
             "workflow definition is not active",
         )));
     }
-    let (Some(definition), Some(version)) = (definition, version) else {
+    let (Some(definition), Some(version), Some(version_status)) =
+        (definition, version, version_status)
+    else {
         return Err(WorkflowStudioError::from(KernelError::conflict(
             "workflow definition has no published version to start",
         )));
     };
+    // Four-eyes gate: only APPROVED (PUBLISHED) versions are startable. A pinned
+    // DRAFT/pending-staged (or otherwise non-published) version never passed the
+    // second-actor approval, so refuse to execute it.
+    if version_status != "PUBLISHED" {
+        return Err(WorkflowStudioError::validation(
+            "workflow definition version is not an approved (published) version",
+        ));
+    }
     Ok((version, definition))
 }
 
