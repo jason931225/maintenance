@@ -1934,7 +1934,12 @@ fn audit_read_event(principal: &Principal) -> Result<AuditEvent, ApiError> {
         "query",
         current_trace_context(),
         time::OffsetDateTime::now_utc(),
-    );
+    )
+    // Arm `app.current_org` for the FORCE-RLS read: `with_audit` binds the GUC
+    // from `event.org_id`, so without this the `audit_events` SELECT runs with
+    // an unset GUC and RLS fails closed (zero rows) as the `mnt_rt` role. Also
+    // stamps the `audit.read` row with the caller's org instead of NULL.
+    .with_org(principal.org_id);
     Ok(match audit_event_branch(&principal.branch_scope) {
         Some(branch_id) => event.with_branch(branch_id),
         None => event,
