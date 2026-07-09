@@ -52,6 +52,7 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
                 branch_scope: BranchScope::single(branch_id),
                 branch_id,
                 kind: ThreadKind::Team,
+                visibility: None,
                 title: Some("정비팀".to_owned()),
                 work_order_id: None,
                 member_ids: vec![sender, recipient],

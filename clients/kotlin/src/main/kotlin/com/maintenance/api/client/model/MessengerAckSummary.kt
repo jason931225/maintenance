@@ -31,23 +31,27 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param body
- * @param attachmentEvidenceIds
- * @param quotedMessageId Optional reply-quote target; must be a message in the same thread.
+ * @param messageId
+ * @param threadId
+ * @param acked Whether the caller's ack is present after the toggle.
+ * @param ackCount
  */
 @Serializable
 
-data class SendMessengerMessageRequest (
+data class MessengerAckSummary (
 
-    @SerialName(value = "body")
-    val body: kotlin.String,
+    @Contextual @SerialName(value = "message_id")
+    val messageId: java.util.UUID,
 
-    @SerialName(value = "attachment_evidence_ids")
-    val attachmentEvidenceIds: kotlin.collections.List<@Contextual java.util.UUID>? = null,
+    @Contextual @SerialName(value = "thread_id")
+    val threadId: java.util.UUID,
 
-    /* Optional reply-quote target; must be a message in the same thread. */
-    @Contextual @SerialName(value = "quoted_message_id")
-    val quotedMessageId: java.util.UUID? = null
+    /* Whether the caller's ack is present after the toggle. */
+    @SerialName(value = "acked")
+    val acked: kotlin.Boolean,
+
+    @SerialName(value = "ack_count")
+    val ackCount: kotlin.Long
 
 ) {
 

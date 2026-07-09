@@ -31,23 +31,18 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param body
- * @param attachmentEvidenceIds
- * @param quotedMessageId Optional reply-quote target; must be a message in the same thread.
+ * @param threadId
+ * @param muted
  */
 @Serializable
 
-data class SendMessengerMessageRequest (
+data class MessengerThreadMuteSummary (
 
-    @SerialName(value = "body")
-    val body: kotlin.String,
+    @Contextual @SerialName(value = "thread_id")
+    val threadId: java.util.UUID,
 
-    @SerialName(value = "attachment_evidence_ids")
-    val attachmentEvidenceIds: kotlin.collections.List<@Contextual java.util.UUID>? = null,
-
-    /* Optional reply-quote target; must be a message in the same thread. */
-    @Contextual @SerialName(value = "quoted_message_id")
-    val quotedMessageId: java.util.UUID? = null
+    @SerialName(value = "muted")
+    val muted: kotlin.Boolean
 
 ) {
 

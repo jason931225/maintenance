@@ -691,6 +691,46 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /api/messenger/threads/{threadId}/read-receipt`.
     /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)`.
     func markMessengerThreadRead(_ input: Operations.MarkMessengerThreadRead.Input) async throws -> Operations.MarkMessengerThreadRead.Output
+    /// Discover joinable channels in the caller's branch scope
+    ///
+    /// Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels are never returned.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/channels`.
+    /// - Remark: Generated from `#/paths//api/messenger/channels/get(listMessengerChannels)`.
+    func listMessengerChannels(_ input: Operations.ListMessengerChannels.Input) async throws -> Operations.ListMessengerChannels.Output
+    /// Join a channel thread the caller can see in scope
+    ///
+    /// Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct thread is not joinable and returns 403; a thread outside the caller's branch scope returns 404 (deny-by-omission).
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads/{threadId}/join`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/join/post(joinMessengerChannel)`.
+    func joinMessengerChannel(_ input: Operations.JoinMessengerChannel.Input) async throws -> Operations.JoinMessengerChannel.Output
+    /// Set the caller's personal mute for a thread
+    ///
+    /// Direct-save personal setting. A muted thread still records every message; it only suppresses the caller's mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+    ///
+    ///
+    /// - Remark: HTTP `PUT /api/messenger/threads/{threadId}/mute`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/mute/put(setMessengerThreadMute)`.
+    func setMessengerThreadMute(_ input: Operations.SetMessengerThreadMute.Input) async throws -> Operations.SetMessengerThreadMute.Output
+    /// Activity-derived presence for members of a thread
+    ///
+    /// Returns online/away/offline per thread member, derived from the age of each member's last real action (message/read/ack) — not a live socket, so "online" means "acted within the freshness window". The caller must be a thread member; a non-member gets 403 and sees no presence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads/{threadId}/presence`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/presence/get(getMessengerThreadPresence)`.
+    func getMessengerThreadPresence(_ input: Operations.GetMessengerThreadPresence.Input) async throws -> Operations.GetMessengerThreadPresence.Output
+    /// Toggle the caller's ack on a message
+    ///
+    /// Idempotent toggle: if the caller's ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message's thread; a non-member gets 403.
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/messenger/messages/{messageId}/ack`.
+    /// - Remark: Generated from `#/paths//api/messenger/messages/{messageId}/ack/post(toggleMessengerMessageAck)`.
+    func toggleMessengerMessageAck(_ input: Operations.ToggleMessengerMessageAck.Input) async throws -> Operations.ToggleMessengerMessageAck.Output
     /// Search branch-scoped messenger messages visible to the authenticated member
     ///
     /// - Remark: HTTP `GET /api/messenger/search`.
@@ -3188,6 +3228,88 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// Discover joinable channels in the caller's branch scope
+    ///
+    /// Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels are never returned.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/channels`.
+    /// - Remark: Generated from `#/paths//api/messenger/channels/get(listMessengerChannels)`.
+    public func listMessengerChannels(
+        query: Operations.ListMessengerChannels.Input.Query = .init(),
+        headers: Operations.ListMessengerChannels.Input.Headers = .init()
+    ) async throws -> Operations.ListMessengerChannels.Output {
+        try await listMessengerChannels(Operations.ListMessengerChannels.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Join a channel thread the caller can see in scope
+    ///
+    /// Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct thread is not joinable and returns 403; a thread outside the caller's branch scope returns 404 (deny-by-omission).
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads/{threadId}/join`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/join/post(joinMessengerChannel)`.
+    public func joinMessengerChannel(
+        path: Operations.JoinMessengerChannel.Input.Path,
+        headers: Operations.JoinMessengerChannel.Input.Headers = .init()
+    ) async throws -> Operations.JoinMessengerChannel.Output {
+        try await joinMessengerChannel(Operations.JoinMessengerChannel.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Set the caller's personal mute for a thread
+    ///
+    /// Direct-save personal setting. A muted thread still records every message; it only suppresses the caller's mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+    ///
+    ///
+    /// - Remark: HTTP `PUT /api/messenger/threads/{threadId}/mute`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/mute/put(setMessengerThreadMute)`.
+    public func setMessengerThreadMute(
+        path: Operations.SetMessengerThreadMute.Input.Path,
+        headers: Operations.SetMessengerThreadMute.Input.Headers = .init(),
+        body: Operations.SetMessengerThreadMute.Input.Body
+    ) async throws -> Operations.SetMessengerThreadMute.Output {
+        try await setMessengerThreadMute(Operations.SetMessengerThreadMute.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Activity-derived presence for members of a thread
+    ///
+    /// Returns online/away/offline per thread member, derived from the age of each member's last real action (message/read/ack) — not a live socket, so "online" means "acted within the freshness window". The caller must be a thread member; a non-member gets 403 and sees no presence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads/{threadId}/presence`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/presence/get(getMessengerThreadPresence)`.
+    public func getMessengerThreadPresence(
+        path: Operations.GetMessengerThreadPresence.Input.Path,
+        headers: Operations.GetMessengerThreadPresence.Input.Headers = .init()
+    ) async throws -> Operations.GetMessengerThreadPresence.Output {
+        try await getMessengerThreadPresence(Operations.GetMessengerThreadPresence.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Toggle the caller's ack on a message
+    ///
+    /// Idempotent toggle: if the caller's ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message's thread; a non-member gets 403.
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/messenger/messages/{messageId}/ack`.
+    /// - Remark: Generated from `#/paths//api/messenger/messages/{messageId}/ack/post(toggleMessengerMessageAck)`.
+    public func toggleMessengerMessageAck(
+        path: Operations.ToggleMessengerMessageAck.Input.Path,
+        headers: Operations.ToggleMessengerMessageAck.Input.Headers = .init()
+    ) async throws -> Operations.ToggleMessengerMessageAck.Output {
+        try await toggleMessengerMessageAck(Operations.ToggleMessengerMessageAck.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Search branch-scoped messenger messages visible to the authenticated member
@@ -16441,6 +16563,21 @@ public enum Components {
             case dm = "dm"
             case group = "group"
         }
+        /// channel = a named, branch-scoped room any active branch member may join; direct = a fixed member set (DMs, work-order threads, groups).
+        ///
+        /// - Remark: Generated from `#/components/schemas/MessengerThreadVisibility`.
+        @frozen public enum MessengerThreadVisibility: String, Codable, Hashable, Sendable, CaseIterable {
+            case channel = "channel"
+            case direct = "direct"
+        }
+        /// Activity-derived presence — online within the freshness window of the member's last action, else away, else offline (or never seen).
+        ///
+        /// - Remark: Generated from `#/components/schemas/MessengerPresenceStatus`.
+        @frozen public enum MessengerPresenceStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case online = "online"
+            case away = "away"
+            case offline = "offline"
+        }
         /// - Remark: Generated from `#/components/schemas/MessengerMemberSummary`.
         public struct MessengerMemberSummary: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/MessengerMemberSummary/id`.
@@ -16532,21 +16669,29 @@ public enum Components {
             public var body: Swift.String
             /// - Remark: Generated from `#/components/schemas/SendMessengerMessageRequest/attachment_evidence_ids`.
             public var attachmentEvidenceIds: [Components.Schemas.Uuid]?
+            /// Optional reply-quote target; must be a message in the same thread.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SendMessengerMessageRequest/quoted_message_id`.
+            public var quotedMessageId: Swift.String?
             /// Creates a new `SendMessengerMessageRequest`.
             ///
             /// - Parameters:
             ///   - body:
             ///   - attachmentEvidenceIds:
+            ///   - quotedMessageId: Optional reply-quote target; must be a message in the same thread.
             public init(
                 body: Swift.String,
-                attachmentEvidenceIds: [Components.Schemas.Uuid]? = nil
+                attachmentEvidenceIds: [Components.Schemas.Uuid]? = nil,
+                quotedMessageId: Swift.String? = nil
             ) {
                 self.body = body
                 self.attachmentEvidenceIds = attachmentEvidenceIds
+                self.quotedMessageId = quotedMessageId
             }
             public enum CodingKeys: String, CodingKey {
                 case body
                 case attachmentEvidenceIds = "attachment_evidence_ids"
+                case quotedMessageId = "quoted_message_id"
             }
         }
         /// - Remark: Generated from `#/components/schemas/MarkMessengerThreadReadRequest`.
@@ -16570,6 +16715,12 @@ public enum Components {
             public var id: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/kind`.
             public var kind: Components.Schemas.MessengerThreadKind
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/visibility`.
+            public var visibility: Components.Schemas.MessengerThreadVisibility
+            /// Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed).
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/muted`.
+            public var muted: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/branch_id`.
             public var branchId: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/title`.
@@ -16595,6 +16746,8 @@ public enum Components {
             /// - Parameters:
             ///   - id:
             ///   - kind:
+            ///   - visibility:
+            ///   - muted: Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed).
             ///   - branchId:
             ///   - title:
             ///   - workOrderId:
@@ -16607,6 +16760,8 @@ public enum Components {
             public init(
                 id: Components.Schemas.Uuid,
                 kind: Components.Schemas.MessengerThreadKind,
+                visibility: Components.Schemas.MessengerThreadVisibility,
+                muted: Swift.Bool,
                 branchId: Components.Schemas.Uuid,
                 title: Swift.String? = nil,
                 workOrderId: Swift.String? = nil,
@@ -16619,6 +16774,8 @@ public enum Components {
             ) {
                 self.id = id
                 self.kind = kind
+                self.visibility = visibility
+                self.muted = muted
                 self.branchId = branchId
                 self.title = title
                 self.workOrderId = workOrderId
@@ -16632,6 +16789,8 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case id
                 case kind
+                case visibility
+                case muted
                 case branchId = "branch_id"
                 case title
                 case workOrderId = "work_order_id"
@@ -16684,6 +16843,24 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/read_target_count`.
             public var readTargetCount: Swift.Int64
+            /// Members who have acked ("확인") this message.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/ack_count`.
+            public var ackCount: Swift.Int64
+            /// Whether the reading caller has acked this message. Always false on a realtime message-posted event.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/acked_by_me`.
+            public var ackedByMe: Swift.Bool
+            /// Reply-quote target, when this message quotes an earlier one in the thread.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/quoted_message_id`.
+            public var quotedMessageId: Swift.String?
+            /// Short preview of the quoted message; null when nothing is quoted or the quote was deleted.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/quoted_body`.
+            public var quotedBody: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/quoted_sender_name`.
+            public var quotedSenderName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/sent_at`.
             public var sentAt: Components.Schemas.Timestamp
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/created_at`.
@@ -16700,6 +16877,11 @@ public enum Components {
             ///   - attachmentEvidenceIds:
             ///   - readCount: Non-sender thread members whose read receipt has reached this message.
             ///   - readTargetCount: Non-sender thread members expected to read this message.
+            ///   - ackCount: Members who have acked ("확인") this message.
+            ///   - ackedByMe: Whether the reading caller has acked this message. Always false on a realtime message-posted event.
+            ///   - quotedMessageId: Reply-quote target, when this message quotes an earlier one in the thread.
+            ///   - quotedBody: Short preview of the quoted message; null when nothing is quoted or the quote was deleted.
+            ///   - quotedSenderName:
             ///   - sentAt:
             ///   - createdAt:
             public init(
@@ -16712,6 +16894,11 @@ public enum Components {
                 attachmentEvidenceIds: [Components.Schemas.Uuid],
                 readCount: Swift.Int64,
                 readTargetCount: Swift.Int64,
+                ackCount: Swift.Int64,
+                ackedByMe: Swift.Bool,
+                quotedMessageId: Swift.String? = nil,
+                quotedBody: Swift.String? = nil,
+                quotedSenderName: Swift.String? = nil,
                 sentAt: Components.Schemas.Timestamp,
                 createdAt: Components.Schemas.Timestamp
             ) {
@@ -16724,6 +16911,11 @@ public enum Components {
                 self.attachmentEvidenceIds = attachmentEvidenceIds
                 self.readCount = readCount
                 self.readTargetCount = readTargetCount
+                self.ackCount = ackCount
+                self.ackedByMe = ackedByMe
+                self.quotedMessageId = quotedMessageId
+                self.quotedBody = quotedBody
+                self.quotedSenderName = quotedSenderName
                 self.sentAt = sentAt
                 self.createdAt = createdAt
             }
@@ -16737,6 +16929,11 @@ public enum Components {
                 case attachmentEvidenceIds = "attachment_evidence_ids"
                 case readCount = "read_count"
                 case readTargetCount = "read_target_count"
+                case ackCount = "ack_count"
+                case ackedByMe = "acked_by_me"
+                case quotedMessageId = "quoted_message_id"
+                case quotedBody = "quoted_body"
+                case quotedSenderName = "quoted_sender_name"
                 case sentAt = "sent_at"
                 case createdAt = "created_at"
             }
@@ -16818,6 +17015,131 @@ public enum Components {
                 case lastReadMessageId = "last_read_message_id"
                 case readAt = "read_at"
                 case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerAckSummary`.
+        public struct MessengerAckSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerAckSummary/message_id`.
+            public var messageId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerAckSummary/thread_id`.
+            public var threadId: Components.Schemas.Uuid
+            /// Whether the caller's ack is present after the toggle.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerAckSummary/acked`.
+            public var acked: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/MessengerAckSummary/ack_count`.
+            public var ackCount: Swift.Int64
+            /// Creates a new `MessengerAckSummary`.
+            ///
+            /// - Parameters:
+            ///   - messageId:
+            ///   - threadId:
+            ///   - acked: Whether the caller's ack is present after the toggle.
+            ///   - ackCount:
+            public init(
+                messageId: Components.Schemas.Uuid,
+                threadId: Components.Schemas.Uuid,
+                acked: Swift.Bool,
+                ackCount: Swift.Int64
+            ) {
+                self.messageId = messageId
+                self.threadId = threadId
+                self.acked = acked
+                self.ackCount = ackCount
+            }
+            public enum CodingKeys: String, CodingKey {
+                case messageId = "message_id"
+                case threadId = "thread_id"
+                case acked
+                case ackCount = "ack_count"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SetMessengerThreadMuteRequest`.
+        public struct SetMessengerThreadMuteRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SetMessengerThreadMuteRequest/muted`.
+            public var muted: Swift.Bool
+            /// Creates a new `SetMessengerThreadMuteRequest`.
+            ///
+            /// - Parameters:
+            ///   - muted:
+            public init(muted: Swift.Bool) {
+                self.muted = muted
+            }
+            public enum CodingKeys: String, CodingKey {
+                case muted
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerThreadMuteSummary`.
+        public struct MessengerThreadMuteSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadMuteSummary/thread_id`.
+            public var threadId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadMuteSummary/muted`.
+            public var muted: Swift.Bool
+            /// Creates a new `MessengerThreadMuteSummary`.
+            ///
+            /// - Parameters:
+            ///   - threadId:
+            ///   - muted:
+            public init(
+                threadId: Components.Schemas.Uuid,
+                muted: Swift.Bool
+            ) {
+                self.threadId = threadId
+                self.muted = muted
+            }
+            public enum CodingKeys: String, CodingKey {
+                case threadId = "thread_id"
+                case muted
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerMemberPresence`.
+        public struct MessengerMemberPresence: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberPresence/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberPresence/display_name`.
+            public var displayName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberPresence/last_activity_at`.
+            public var lastActivityAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberPresence/status`.
+            public var status: Components.Schemas.MessengerPresenceStatus
+            /// Creates a new `MessengerMemberPresence`.
+            ///
+            /// - Parameters:
+            ///   - userId:
+            ///   - displayName:
+            ///   - lastActivityAt:
+            ///   - status:
+            public init(
+                userId: Components.Schemas.Uuid,
+                displayName: Swift.String? = nil,
+                lastActivityAt: Foundation.Date? = nil,
+                status: Components.Schemas.MessengerPresenceStatus
+            ) {
+                self.userId = userId
+                self.displayName = displayName
+                self.lastActivityAt = lastActivityAt
+                self.status = status
+            }
+            public enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case displayName = "display_name"
+                case lastActivityAt = "last_activity_at"
+                case status
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerMemberPresenceListResponse`.
+        public struct MessengerMemberPresenceListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberPresenceListResponse/items`.
+            public var items: [Components.Schemas.MessengerMemberPresence]
+            /// Creates a new `MessengerMemberPresenceListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.MessengerMemberPresence]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
             }
         }
         /// Deep-link target — an object reference (kind + id) or a bare app screen.
@@ -46716,6 +47038,992 @@ public enum Operations {
             /// Resource was not found in branch scope.
             ///
             /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Discover joinable channels in the caller's branch scope
+    ///
+    /// Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels are never returned.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/channels`.
+    /// - Remark: Generated from `#/paths//api/messenger/channels/get(listMessengerChannels)`.
+    public enum ListMessengerChannels {
+        public static let id: Swift.String = "listMessengerChannels"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/channels/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/channels/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                public init(limit: Swift.Int64? = nil) {
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMessengerChannels.Input.Query
+            /// - Remark: Generated from `#/paths/api/messenger/channels/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerChannels.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerChannels.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMessengerChannels.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMessengerChannels.Input.Query = .init(),
+                headers: Operations.ListMessengerChannels.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/channels/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/channels/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerThreadListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerThreadListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMessengerChannels.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMessengerChannels.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Joinable channels visible to the caller.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/channels/get(listMessengerChannels)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMessengerChannels.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMessengerChannels.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/channels/get(listMessengerChannels)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/channels/get(listMessengerChannels)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Join a channel thread the caller can see in scope
+    ///
+    /// Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct thread is not joinable and returns 403; a thread outside the caller's branch scope returns 404 (deny-by-omission).
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads/{threadId}/join`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/join/post(joinMessengerChannel)`.
+    public enum JoinMessengerChannel {
+        public static let id: Swift.String = "joinMessengerChannel"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/join/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/join/POST/path/threadId`.
+                public var threadId: Components.Parameters.ThreadId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - threadId:
+                public init(threadId: Components.Parameters.ThreadId) {
+                    self.threadId = threadId
+                }
+            }
+            public var path: Operations.JoinMessengerChannel.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/join/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.JoinMessengerChannel.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.JoinMessengerChannel.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.JoinMessengerChannel.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.JoinMessengerChannel.Input.Path,
+                headers: Operations.JoinMessengerChannel.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/join/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/join/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerThreadSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerThreadSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.JoinMessengerChannel.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.JoinMessengerChannel.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The thread the caller joined.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/join/post(joinMessengerChannel)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.JoinMessengerChannel.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.JoinMessengerChannel.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/join/post(joinMessengerChannel)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/join/post(joinMessengerChannel)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/join/post(joinMessengerChannel)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Set the caller's personal mute for a thread
+    ///
+    /// Direct-save personal setting. A muted thread still records every message; it only suppresses the caller's mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+    ///
+    ///
+    /// - Remark: HTTP `PUT /api/messenger/threads/{threadId}/mute`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/mute/put(setMessengerThreadMute)`.
+    public enum SetMessengerThreadMute {
+        public static let id: Swift.String = "setMessengerThreadMute"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/mute/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/mute/PUT/path/threadId`.
+                public var threadId: Components.Parameters.ThreadId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - threadId:
+                public init(threadId: Components.Parameters.ThreadId) {
+                    self.threadId = threadId
+                }
+            }
+            public var path: Operations.SetMessengerThreadMute.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/mute/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetMessengerThreadMute.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetMessengerThreadMute.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SetMessengerThreadMute.Input.Headers
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/mute/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/mute/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.SetMessengerThreadMuteRequest)
+            }
+            public var body: Operations.SetMessengerThreadMute.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.SetMessengerThreadMute.Input.Path,
+                headers: Operations.SetMessengerThreadMute.Input.Headers = .init(),
+                body: Operations.SetMessengerThreadMute.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/mute/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/mute/PUT/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerThreadMuteSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerThreadMuteSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SetMessengerThreadMute.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SetMessengerThreadMute.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The thread's post-toggle mute state for the caller.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/mute/put(setMessengerThreadMute)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SetMessengerThreadMute.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SetMessengerThreadMute.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/mute/put(setMessengerThreadMute)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/mute/put(setMessengerThreadMute)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/mute/put(setMessengerThreadMute)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Activity-derived presence for members of a thread
+    ///
+    /// Returns online/away/offline per thread member, derived from the age of each member's last real action (message/read/ack) — not a live socket, so "online" means "acted within the freshness window". The caller must be a thread member; a non-member gets 403 and sees no presence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads/{threadId}/presence`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/presence/get(getMessengerThreadPresence)`.
+    public enum GetMessengerThreadPresence {
+        public static let id: Swift.String = "getMessengerThreadPresence"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/presence/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/presence/GET/path/threadId`.
+                public var threadId: Components.Parameters.ThreadId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - threadId:
+                public init(threadId: Components.Parameters.ThreadId) {
+                    self.threadId = threadId
+                }
+            }
+            public var path: Operations.GetMessengerThreadPresence.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/presence/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMessengerThreadPresence.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMessengerThreadPresence.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetMessengerThreadPresence.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetMessengerThreadPresence.Input.Path,
+                headers: Operations.GetMessengerThreadPresence.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/presence/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/presence/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerMemberPresenceListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerMemberPresenceListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMessengerThreadPresence.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMessengerThreadPresence.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Presence of every member of the thread.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/presence/get(getMessengerThreadPresence)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetMessengerThreadPresence.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetMessengerThreadPresence.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/presence/get(getMessengerThreadPresence)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/presence/get(getMessengerThreadPresence)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/presence/get(getMessengerThreadPresence)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Toggle the caller's ack on a message
+    ///
+    /// Idempotent toggle: if the caller's ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message's thread; a non-member gets 403.
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/messenger/messages/{messageId}/ack`.
+    /// - Remark: Generated from `#/paths//api/messenger/messages/{messageId}/ack/post(toggleMessengerMessageAck)`.
+    public enum ToggleMessengerMessageAck {
+        public static let id: Swift.String = "toggleMessengerMessageAck"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/messages/{messageId}/ack/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/messages/{messageId}/ack/POST/path/messageId`.
+                public var messageId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - messageId:
+                public init(messageId: Components.Schemas.Uuid) {
+                    self.messageId = messageId
+                }
+            }
+            public var path: Operations.ToggleMessengerMessageAck.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/messages/{messageId}/ack/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ToggleMessengerMessageAck.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ToggleMessengerMessageAck.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ToggleMessengerMessageAck.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ToggleMessengerMessageAck.Input.Path,
+                headers: Operations.ToggleMessengerMessageAck.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/messages/{messageId}/ack/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/messages/{messageId}/ack/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerAckSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerAckSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ToggleMessengerMessageAck.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ToggleMessengerMessageAck.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The message's post-toggle ack state.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/messages/{messageId}/ack/post(toggleMessengerMessageAck)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ToggleMessengerMessageAck.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ToggleMessengerMessageAck.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/messages/{messageId}/ack/post(toggleMessengerMessageAck)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/messages/{messageId}/ack/post(toggleMessengerMessageAck)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/messages/{messageId}/ack/post(toggleMessengerMessageAck)/responses/404`.
             ///
             /// HTTP response code: `404 notFound`.
             case notFound(Components.Responses.NotFound)

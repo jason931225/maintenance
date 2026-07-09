@@ -18,7 +18,8 @@ use mnt_kernel_core::{
     BranchId, BranchScope, ErrorKind, MessageId, NotificationId, OrgId, ThreadId, UserId,
 };
 use mnt_messenger_application::{
-    MessageNotifier, MessageNotifyFuture, MessagePostedNotification, MessageSummary,
+    MessageAckNotification, MessageNotifier, MessageNotifyFuture, MessagePostedNotification,
+    MessageSummary,
 };
 use mnt_notifications_application::{
     NotificationCreatedNotification, NotificationNotifier, NotificationNotifyFuture,
@@ -34,6 +35,7 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use tokio::sync::{Mutex, mpsc, watch};
 
 pub const MESSAGE_POSTED_CHANNEL: &str = "message_posted";
+pub const MESSAGE_ACK_CHANNEL: &str = "message_ack";
 pub const NOTIFICATION_CREATED_CHANNEL: &str = "notification_created";
 pub const NOTIFY_PAYLOAD_LIMIT_BYTES: usize = 8000;
 pub const DEFAULT_CONNECTION_BUFFER: usize = 64;
@@ -154,11 +156,67 @@ impl PostgresMessageNotifier {
     }
 }
 
+impl PostgresMessageNotifier {
+    pub async fn notify_message_ack(
+        &self,
+        notification: MessageAckNotification,
+    ) -> Result<(), NotifyPayloadError> {
+        let org = current_org()?;
+        let payload = MessageAckNotifyPayload {
+            message_id: notification.message_id,
+            thread_id: notification.thread_id,
+            org_id: org,
+        }
+        .to_json_bytes()?;
+        let payload = String::from_utf8(payload).map_err(|err| {
+            serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+        })?;
+        sqlx::query("SELECT pg_notify($1, $2)")
+            .bind(MESSAGE_ACK_CHANNEL)
+            .bind(payload)
+            // rls-arming: ok pg_notify is not a tenant-table read
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+}
+
+/// LISTEN/NOTIFY payload for an ack-count change — IDs + org only, matching
+/// [`MessageNotifyPayload`]; the listener re-reads the live count before fan-out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageAckNotifyPayload {
+    pub message_id: MessageId,
+    pub thread_id: ThreadId,
+    pub org_id: OrgId,
+}
+
+impl MessageAckNotifyPayload {
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>, NotifyPayloadError> {
+        let bytes = serde_json::to_vec(self)?;
+        validate_payload_size(&bytes)?;
+        Ok(bytes)
+    }
+
+    pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, NotifyPayloadError> {
+        validate_payload_size(bytes)?;
+        Ok(serde_json::from_slice(bytes)?)
+    }
+}
+
 impl MessageNotifier for PostgresMessageNotifier {
     fn message_posted(&self, notification: MessagePostedNotification) -> MessageNotifyFuture<'_> {
         Box::pin(async move {
             if let Err(err) = self.notify_message_posted(notification).await {
                 tracing::error!(error = %err, "failed to publish messenger realtime notification");
+            }
+        })
+    }
+
+    fn message_ack_toggled(&self, notification: MessageAckNotification) -> MessageNotifyFuture<'_> {
+        Box::pin(async move {
+            if let Err(err) = self.notify_message_ack(notification).await {
+                tracing::error!(error = %err, "failed to publish messenger ack realtime event");
             }
         })
     }
@@ -261,6 +319,16 @@ pub enum RealtimeEvent {
     MessagePosted {
         message: MessageSummary,
     },
+    /// A message's ack count changed. Fanned out by branch scope + thread
+    /// membership like `MessagePosted`, but carries only the ids + live count
+    /// (no message body re-delivery). `branch_id`/`thread_id` drive fan-out;
+    /// the client updates the count chip and never participates in replay.
+    MessageAcked {
+        message_id: MessageId,
+        thread_id: ThreadId,
+        branch_id: BranchId,
+        ack_count: i64,
+    },
     /// A notification created for a single recipient. Fanned out by recipient
     /// user id, not thread membership, and never participates in messenger
     /// replay — hence the messenger-only helpers below return `None` for it.
@@ -273,7 +341,7 @@ impl RealtimeEvent {
     fn message_id(&self) -> Option<MessageId> {
         match self {
             Self::MessagePosted { message } => Some(message.id),
-            Self::NotificationCreated { .. } => None,
+            Self::MessageAcked { .. } | Self::NotificationCreated { .. } => None,
         }
     }
 
@@ -283,13 +351,14 @@ impl RealtimeEvent {
                 sent_at: message.sent_at,
                 id: message.id,
             }),
-            Self::NotificationCreated { .. } => None,
+            Self::MessageAcked { .. } | Self::NotificationCreated { .. } => None,
         }
     }
 
     fn branch_id(&self) -> Option<BranchId> {
         match self {
             Self::MessagePosted { message } => Some(message.branch_id),
+            Self::MessageAcked { branch_id, .. } => Some(*branch_id),
             Self::NotificationCreated { .. } => None,
         }
     }
@@ -297,6 +366,7 @@ impl RealtimeEvent {
     fn thread_id(&self) -> Option<ThreadId> {
         match self {
             Self::MessagePosted { message } => Some(message.thread_id),
+            Self::MessageAcked { thread_id, .. } => Some(*thread_id),
             Self::NotificationCreated { .. } => None,
         }
     }
@@ -504,6 +574,7 @@ impl PgRealtimeHub {
         // One hub, one WS connection per user, both event streams: the same
         // listener carries messenger posts and notification-center events.
         listener.listen(MESSAGE_POSTED_CHANNEL).await?;
+        listener.listen(MESSAGE_ACK_CHANNEL).await?;
         listener.listen(NOTIFICATION_CREATED_CHANNEL).await?;
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let hub = Arc::clone(&self);
@@ -522,6 +593,9 @@ impl PgRealtimeHub {
                                 let result = match notification.channel() {
                                     MESSAGE_POSTED_CHANNEL => {
                                         hub.handle_notify_payload(notification.payload()).await
+                                    }
+                                    MESSAGE_ACK_CHANNEL => {
+                                        hub.handle_ack_payload(notification.payload()).await
                                     }
                                     NOTIFICATION_CREATED_CHANNEL => {
                                         hub.handle_notification_payload(notification.payload()).await
@@ -555,6 +629,27 @@ impl PgRealtimeHub {
             .await?;
         self.dispatch_event(org, RealtimeEvent::MessagePosted { message }, None)
             .await
+    }
+
+    async fn handle_ack_payload(&self, payload: &str) -> Result<(), RealtimeError> {
+        let payload = MessageAckNotifyPayload::from_json_bytes(payload.as_bytes())?;
+        let org = payload.org_id;
+        // Re-read the message under the publishing tenant to get the live
+        // ack_count and its branch, then fan the count out by thread membership.
+        let message = self
+            .fetch_message(org, payload.message_id, payload.thread_id)
+            .await?;
+        self.dispatch_event(
+            org,
+            RealtimeEvent::MessageAcked {
+                message_id: message.id,
+                thread_id: message.thread_id,
+                branch_id: message.branch_id,
+                ack_count: message.ack_count,
+            },
+            None,
+        )
+        .await
     }
 
     async fn handle_notification_payload(&self, payload: &str) -> Result<(), RealtimeError> {
@@ -647,7 +742,8 @@ impl PgRealtimeHub {
                     builder.push_bind(cursor_id);
                     builder.push(")");
                     push_scope_filter(&mut builder, "m.branch_id", &branch_scope);
-                    builder.push(" GROUP BY m.id, sender.display_name ORDER BY m.sent_at ASC, m.id ASC LIMIT ");
+                    builder.push(REALTIME_MESSAGE_GROUP_BY);
+                    builder.push(" ORDER BY m.sent_at ASC, m.id ASC LIMIT ");
                     builder.push_bind(REPLAY_PAGE_SIZE);
                     Ok(builder.build().fetch_all(tx.as_mut()).await?)
                 })
@@ -698,7 +794,7 @@ impl PgRealtimeHub {
                 builder.push_bind(message_uuid);
                 builder.push(" AND m.thread_id = ");
                 builder.push_bind(thread_uuid);
-                builder.push(" GROUP BY m.id, sender.display_name");
+                builder.push(REALTIME_MESSAGE_GROUP_BY);
                 let row = builder.build().fetch_one(tx.as_mut()).await?;
                 message_summary_from_row(&row).map_err(|err| RealtimeError::Db(DbError::Sqlx(err)))
             })
@@ -1315,6 +1411,9 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
     QueryBuilder::<Postgres>::new(
         r#"
         SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
+               m.quoted_message_id,
+               quoted.body AS quoted_body,
+               quoted_sender.display_name AS quoted_sender_name,
                m.sent_at, m.created_at, sender.display_name AS sender_name,
                COALESCE(
                    array_agg(a.evidence_id ORDER BY a.sort_order)
@@ -1325,9 +1424,11 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                COUNT(DISTINCT tm_read_target.user_id) FILTER (
                    WHERE read_receipt_message.id IS NOT NULL
                      AND (read_receipt_message.sent_at, read_receipt_message.id) >= (m.sent_at, m.id)
-               )::BIGINT AS read_count
+               )::BIGINT AS read_count,
+               COUNT(DISTINCT ack.user_id)::BIGINT AS ack_count
         FROM messenger_messages m
         LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        LEFT JOIN messenger_message_acks ack ON ack.message_id = m.id
         LEFT JOIN messenger_thread_members tm_read_target
           ON tm_read_target.thread_id = m.thread_id
          AND tm_read_target.user_id <> m.sender_id
@@ -1336,12 +1437,17 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
          AND read_receipt.user_id = tm_read_target.user_id
         LEFT JOIN messenger_messages read_receipt_message
           ON read_receipt_message.id = read_receipt.last_read_message_id
+        LEFT JOIN messenger_messages quoted ON quoted.id = m.quoted_message_id
+        LEFT JOIN users quoted_sender ON quoted_sender.id = quoted.sender_id
         -- Same-org JOIN: `users` is RLS-scoped to app.current_org like the
         -- messages, so a sender only resolves within the caller's tenant.
         LEFT JOIN users sender ON sender.id = m.sender_id
         "#,
     )
 }
+
+const REALTIME_MESSAGE_GROUP_BY: &str =
+    " GROUP BY m.id, sender.display_name, quoted.body, quoted_sender.display_name";
 
 fn message_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<MessageSummary, sqlx::Error> {
     let attachment_ids: Vec<uuid::Uuid> = row.try_get("attachment_evidence_ids")?;
@@ -1354,6 +1460,16 @@ fn message_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<MessageSummar
         body: row.try_get("body")?,
         read_count: row.try_get("read_count")?,
         read_target_count: row.try_get("read_target_count")?,
+        ack_count: row.try_get("ack_count")?,
+        // A realtime read has no single "me": the acting user learns their own
+        // ack state from the toggle response, so this per-viewer flag is false
+        // on the wire (and a freshly-posted message has no acks anyway).
+        acked_by_me: false,
+        quoted_message_id: row
+            .try_get::<Option<uuid::Uuid>, _>("quoted_message_id")?
+            .map(MessageId::from_uuid),
+        quoted_body: row.try_get("quoted_body")?,
+        quoted_sender_name: row.try_get("quoted_sender_name")?,
         attachment_evidence_ids: attachment_ids
             .into_iter()
             .map(mnt_kernel_core::EvidenceId::from_uuid)

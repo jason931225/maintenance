@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.MessengerPresenceStatus
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -31,23 +32,26 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param body
- * @param attachmentEvidenceIds
- * @param quotedMessageId Optional reply-quote target; must be a message in the same thread.
+ * @param userId
+ * @param displayName
+ * @param lastActivityAt
+ * @param status
  */
 @Serializable
 
-data class SendMessengerMessageRequest (
+data class MessengerMemberPresence (
 
-    @SerialName(value = "body")
-    val body: kotlin.String,
+    @Contextual @SerialName(value = "user_id")
+    val userId: java.util.UUID,
 
-    @SerialName(value = "attachment_evidence_ids")
-    val attachmentEvidenceIds: kotlin.collections.List<@Contextual java.util.UUID>? = null,
+    @SerialName(value = "display_name")
+    val displayName: kotlin.String?,
 
-    /* Optional reply-quote target; must be a message in the same thread. */
-    @Contextual @SerialName(value = "quoted_message_id")
-    val quotedMessageId: java.util.UUID? = null
+    @Contextual @SerialName(value = "last_activity_at")
+    val lastActivityAt: java.time.OffsetDateTime?,
+
+    @Contextual @SerialName(value = "status")
+    val status: MessengerPresenceStatus
 
 ) {
 

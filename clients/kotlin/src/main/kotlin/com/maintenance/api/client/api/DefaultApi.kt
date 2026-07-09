@@ -163,13 +163,16 @@ import com.maintenance.api.client.model.MailThreadReadStateRequest
 import com.maintenance.api.client.model.MailThreadView
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MeAuthzResponse
+import com.maintenance.api.client.model.MessengerAckSummary
 import com.maintenance.api.client.model.MessengerMemberListResponse
+import com.maintenance.api.client.model.MessengerMemberPresenceListResponse
 import com.maintenance.api.client.model.MessengerMemberSummary
 import com.maintenance.api.client.model.MessengerMessageListResponse
 import com.maintenance.api.client.model.MessengerMessagePage
 import com.maintenance.api.client.model.MessengerMessageSummary
 import com.maintenance.api.client.model.MessengerReadReceiptSummary
 import com.maintenance.api.client.model.MessengerThreadListResponse
+import com.maintenance.api.client.model.MessengerThreadMuteSummary
 import com.maintenance.api.client.model.MessengerThreadSummary
 import com.maintenance.api.client.model.MyDispatchOfferPage
 import com.maintenance.api.client.model.NotificationPage
@@ -245,6 +248,7 @@ import com.maintenance.api.client.model.SendMailRequest
 import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.SetLifecycleHoldRequest
+import com.maintenance.api.client.model.SetMessengerThreadMuteRequest
 import com.maintenance.api.client.model.SetTodoDoneRequest
 import com.maintenance.api.client.model.SignupRequest
 import com.maintenance.api.client.model.SignupResponse
@@ -8609,6 +8613,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/messenger/threads/{threadId}/presence
+     * Activity-derived presence for members of a thread
+     * Returns online/away/offline per thread member, derived from the age of each member&#39;s last real action (message/read/ack) — not a live socket, so \&quot;online\&quot; means \&quot;acted within the freshness window\&quot;. The caller must be a thread member; a non-member gets 403 and sees no presence.
+     * @param threadId
+     * @return MessengerMemberPresenceListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMessengerThreadPresence(threadId: java.util.UUID) : MessengerMemberPresenceListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getMessengerThreadPresenceWithHttpInfo(threadId = threadId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerMemberPresenceListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/threads/{threadId}/presence
+     * Activity-derived presence for members of a thread
+     * Returns online/away/offline per thread member, derived from the age of each member&#39;s last real action (message/read/ack) — not a live socket, so \&quot;online\&quot; means \&quot;acted within the freshness window\&quot;. The caller must be a thread member; a non-member gets 403 and sees no presence.
+     * @param threadId
+     * @return ApiResponse<MessengerMemberPresenceListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMessengerThreadPresenceWithHttpInfo(threadId: java.util.UUID) : ApiResponse<MessengerMemberPresenceListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMessengerThreadPresenceRequestConfig(threadId = threadId)
+
+        return@withContext request<Unit, MessengerMemberPresenceListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMessengerThreadPresence
+     *
+     * @param threadId
+     * @return RequestConfig
+     */
+    fun getMessengerThreadPresenceRequestConfig(threadId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/threads/{threadId}/presence".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/me/notifications/unread-count
      * Count the authenticated user&#39;s unread notifications
      *
@@ -10162,6 +10239,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/equipment/import",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/messenger/threads/{threadId}/join
+     * Join a channel thread the caller can see in scope
+     * Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct thread is not joinable and returns 403; a thread outside the caller&#39;s branch scope returns 404 (deny-by-omission).
+     * @param threadId
+     * @return MessengerThreadSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun joinMessengerChannel(threadId: java.util.UUID) : MessengerThreadSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = joinMessengerChannelWithHttpInfo(threadId = threadId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerThreadSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/messenger/threads/{threadId}/join
+     * Join a channel thread the caller can see in scope
+     * Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct thread is not joinable and returns 403; a thread outside the caller&#39;s branch scope returns 404 (deny-by-omission).
+     * @param threadId
+     * @return ApiResponse<MessengerThreadSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun joinMessengerChannelWithHttpInfo(threadId: java.util.UUID) : ApiResponse<MessengerThreadSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = joinMessengerChannelRequestConfig(threadId = threadId)
+
+        return@withContext request<Unit, MessengerThreadSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation joinMessengerChannel
+     *
+     * @param threadId
+     * @return RequestConfig
+     */
+    fun joinMessengerChannelRequestConfig(threadId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/messenger/threads/{threadId}/join".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -12269,6 +12419,84 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/mail/threads",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/messenger/channels
+     * Discover joinable channels in the caller&#39;s branch scope
+     * Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels are never returned.
+     * @param limit  (optional, default to 50L)
+     * @return MessengerThreadListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMessengerChannels(limit: kotlin.Long? = 50L) : MessengerThreadListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listMessengerChannelsWithHttpInfo(limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerThreadListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/channels
+     * Discover joinable channels in the caller&#39;s branch scope
+     * Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels are never returned.
+     * @param limit  (optional, default to 50L)
+     * @return ApiResponse<MessengerThreadListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMessengerChannelsWithHttpInfo(limit: kotlin.Long?) : ApiResponse<MessengerThreadListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMessengerChannelsRequestConfig(limit = limit)
+
+        return@withContext request<Unit, MessengerThreadListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMessengerChannels
+     *
+     * @param limit  (optional, default to 50L)
+     * @return RequestConfig
+     */
+    fun listMessengerChannelsRequestConfig(limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/channels",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -17677,6 +17905,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * PUT /api/messenger/threads/{threadId}/mute
+     * Set the caller&#39;s personal mute for a thread
+     * Direct-save personal setting. A muted thread still records every message; it only suppresses the caller&#39;s mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+     * @param threadId
+     * @param setMessengerThreadMuteRequest
+     * @return MessengerThreadMuteSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun setMessengerThreadMute(threadId: java.util.UUID, setMessengerThreadMuteRequest: SetMessengerThreadMuteRequest) : MessengerThreadMuteSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = setMessengerThreadMuteWithHttpInfo(threadId = threadId, setMessengerThreadMuteRequest = setMessengerThreadMuteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerThreadMuteSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/messenger/threads/{threadId}/mute
+     * Set the caller&#39;s personal mute for a thread
+     * Direct-save personal setting. A muted thread still records every message; it only suppresses the caller&#39;s mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+     * @param threadId
+     * @param setMessengerThreadMuteRequest
+     * @return ApiResponse<MessengerThreadMuteSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun setMessengerThreadMuteWithHttpInfo(threadId: java.util.UUID, setMessengerThreadMuteRequest: SetMessengerThreadMuteRequest) : ApiResponse<MessengerThreadMuteSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = setMessengerThreadMuteRequestConfig(threadId = threadId, setMessengerThreadMuteRequest = setMessengerThreadMuteRequest)
+
+        return@withContext request<SetMessengerThreadMuteRequest, MessengerThreadMuteSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation setMessengerThreadMute
+     *
+     * @param threadId
+     * @param setMessengerThreadMuteRequest
+     * @return RequestConfig
+     */
+    fun setMessengerThreadMuteRequestConfig(threadId: java.util.UUID, setMessengerThreadMuteRequest: SetMessengerThreadMuteRequest) : RequestConfig<SetMessengerThreadMuteRequest> {
+        val localVariableBody = setMessengerThreadMuteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/messenger/threads/{threadId}/mute".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/me/todos/{todoId}/done
      * Mark one of the authenticated user&#39;s todos done or undone
      * Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user&#39;s row. Audited as todo.done / todo.undone.
@@ -18890,6 +19195,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/mail/account/test",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/messenger/messages/{messageId}/ack
+     * Toggle the caller&#39;s ack on a message
+     * Idempotent toggle: if the caller&#39;s ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message&#39;s thread; a non-member gets 403.
+     * @param messageId
+     * @return MessengerAckSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun toggleMessengerMessageAck(messageId: java.util.UUID) : MessengerAckSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = toggleMessengerMessageAckWithHttpInfo(messageId = messageId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerAckSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/messenger/messages/{messageId}/ack
+     * Toggle the caller&#39;s ack on a message
+     * Idempotent toggle: if the caller&#39;s ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message&#39;s thread; a non-member gets 403.
+     * @param messageId
+     * @return ApiResponse<MessengerAckSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun toggleMessengerMessageAckWithHttpInfo(messageId: java.util.UUID) : ApiResponse<MessengerAckSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = toggleMessengerMessageAckRequestConfig(messageId = messageId)
+
+        return@withContext request<Unit, MessengerAckSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation toggleMessengerMessageAck
+     *
+     * @param messageId
+     * @return RequestConfig
+     */
+    fun toggleMessengerMessageAckRequestConfig(messageId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/messenger/messages/{messageId}/ack".replace("{"+"messageId"+"}", encodeURIComponent(messageId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

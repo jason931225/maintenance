@@ -107,6 +107,76 @@ pub enum ThreadKind {
     Group,
 }
 
+/// How a thread is offered in the sidebar (Slack/Teams taxonomy):
+/// `Channel` = a named, branch-scoped room any active branch member may join;
+/// `Direct` = a fixed member set (DMs, work-order auto-threads, ad-hoc groups).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadVisibility {
+    Channel,
+    Direct,
+}
+
+impl ThreadVisibility {
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Channel => "channel",
+            Self::Direct => "direct",
+        }
+    }
+
+    pub fn from_db_str(value: &str) -> Result<Self, KernelError> {
+        match value {
+            "channel" => Ok(Self::Channel),
+            "direct" => Ok(Self::Direct),
+            other => Err(KernelError::validation(format!(
+                "unknown messenger thread visibility {other:?}"
+            ))),
+        }
+    }
+
+    /// The visibility a thread of `kind` defaults to when the caller does not
+    /// specify one: a named team thread is a channel; everything else is direct.
+    #[must_use]
+    pub const fn default_for(kind: ThreadKind, has_title: bool) -> Self {
+        match kind {
+            ThreadKind::Team if has_title => Self::Channel,
+            _ => Self::Direct,
+        }
+    }
+}
+
+/// Activity-derived presence, honest about staleness: it reflects the age of a
+/// user's last real action (message/read/ack), never a live socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PresenceStatus {
+    Online,
+    Away,
+    Offline,
+}
+
+/// A user counts as online for 5 minutes after their last action, away for the
+/// next 25, and offline (or never-seen) after that. Tuned as a coarse presence
+/// dot, not an SLA — the thresholds live here so the boundary is one testable
+/// place rather than scattered SQL.
+pub const PRESENCE_ONLINE_SECONDS: i64 = 5 * 60;
+pub const PRESENCE_AWAY_SECONDS: i64 = 30 * 60;
+
+/// Derive presence from the seconds elapsed since a user's last activity.
+/// `None` (never active) is [`PresenceStatus::Offline`]. A negative age (clock
+/// skew, activity stamped slightly in the future) is treated as online.
+#[must_use]
+pub fn presence_status_for_age(age_seconds: Option<i64>) -> PresenceStatus {
+    match age_seconds {
+        None => PresenceStatus::Offline,
+        Some(age) if age < PRESENCE_ONLINE_SECONDS => PresenceStatus::Online,
+        Some(age) if age < PRESENCE_AWAY_SECONDS => PresenceStatus::Away,
+        Some(_) => PresenceStatus::Offline,
+    }
+}
+
 impl ThreadKind {
     #[must_use]
     pub const fn as_db_str(self) -> &'static str {

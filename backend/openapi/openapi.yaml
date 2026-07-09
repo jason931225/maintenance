@@ -3310,6 +3310,149 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/messenger/channels:
+    get:
+      operationId: listMessengerChannels
+      summary: Discover joinable channels in the caller's branch scope
+      description: 'Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is
+        already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels
+        are never returned.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Joinable channels visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/messenger/threads/{threadId}/join:
+    post:
+      operationId: joinMessengerChannel
+      summary: Join a channel thread the caller can see in scope
+      description: 'Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct
+        thread is not joinable and returns 403; a thread outside the caller''s branch scope returns 404 (deny-by-omission).
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      responses:
+        '200':
+          description: The thread the caller joined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/threads/{threadId}/mute:
+    put:
+      operationId: setMessengerThreadMute
+      summary: Set the caller's personal mute for a thread
+      description: 'Direct-save personal setting. A muted thread still records every message; it only suppresses the caller''s
+        mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMessengerThreadMuteRequest'
+      responses:
+        '200':
+          description: The thread's post-toggle mute state for the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadMuteSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/threads/{threadId}/presence:
+    get:
+      operationId: getMessengerThreadPresence
+      summary: Activity-derived presence for members of a thread
+      description: 'Returns online/away/offline per thread member, derived from the age of each member''s last real action
+        (message/read/ack) — not a live socket, so "online" means "acted within the freshness window". The caller must be
+        a thread member; a non-member gets 403 and sees no presence.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      responses:
+        '200':
+          description: Presence of every member of the thread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerMemberPresenceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/messages/{messageId}/ack:
+    post:
+      operationId: toggleMessengerMessageAck
+      summary: Toggle the caller's ack on a message
+      description: 'Idempotent toggle: if the caller''s ack is present it is removed, else added. Returns the post-toggle
+        state and live count. The caller must be a member of the message''s thread; a non-member gets 403.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The message's post-toggle ack state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerAckSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/messenger/search:
     get:
       operationId: searchMessengerMessages
@@ -13804,6 +13947,21 @@ components:
       - team
       - dm
       - group
+    MessengerThreadVisibility:
+      type: string
+      description: 'channel = a named, branch-scoped room any active branch member may join; direct = a fixed member set
+        (DMs, work-order threads, groups).'
+      enum:
+      - channel
+      - direct
+    MessengerPresenceStatus:
+      type: string
+      description: Activity-derived presence — online within the freshness window of the member's last action, else away,
+        else offline (or never seen).
+      enum:
+      - online
+      - away
+      - offline
     MessengerMemberSummary:
       type: object
       required:
@@ -13839,6 +13997,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         kind:
           $ref: '#/components/schemas/MessengerThreadKind'
+        visibility:
+          description: 'Optional taxonomy override; when omitted the server derives it from kind/title (a named team thread
+            defaults to a channel, everything else to direct). A channel requires a title; DM and work-order threads are
+            always direct.'
+          oneOf:
+          - $ref: '#/components/schemas/MessengerThreadVisibility'
+          - type: 'null'
         title:
           type:
           - string
@@ -13865,6 +14030,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Uuid'
+        quoted_message_id:
+          description: Optional reply-quote target; must be a message in the same thread.
+          type:
+          - string
+          - 'null'
+          format: uuid
     MarkMessengerThreadReadRequest:
       type: object
       required:
@@ -13877,6 +14048,8 @@ components:
       required:
       - id
       - kind
+      - visibility
+      - muted
       - branch_id
       - title
       - work_order_id
@@ -13891,6 +14064,11 @@ components:
           $ref: '#/components/schemas/Uuid'
         kind:
           $ref: '#/components/schemas/MessengerThreadKind'
+        visibility:
+          $ref: '#/components/schemas/MessengerThreadVisibility'
+        muted:
+          type: boolean
+          description: Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed).
         branch_id:
           $ref: '#/components/schemas/Uuid'
         title:
@@ -13944,6 +14122,11 @@ components:
       - attachment_evidence_ids
       - read_count
       - read_target_count
+      - ack_count
+      - acked_by_me
+      - quoted_message_id
+      - quoted_body
+      - quoted_sender_name
       - sent_at
       - created_at
       properties:
@@ -13975,6 +14158,28 @@ components:
           type: integer
           format: int64
           description: Non-sender thread members expected to read this message.
+        ack_count:
+          type: integer
+          format: int64
+          description: Members who have acked ("확인") this message.
+        acked_by_me:
+          type: boolean
+          description: Whether the reading caller has acked this message. Always false on a realtime message-posted event.
+        quoted_message_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: Reply-quote target, when this message quotes an earlier one in the thread.
+        quoted_body:
+          type:
+          - string
+          - 'null'
+          description: Short preview of the quoted message; null when nothing is quoted or the quote was deleted.
+        quoted_sender_name:
+          type:
+          - string
+          - 'null'
         sent_at:
           $ref: '#/components/schemas/Timestamp'
         created_at:
@@ -14022,6 +14227,71 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    MessengerAckSummary:
+      type: object
+      required:
+      - message_id
+      - thread_id
+      - acked
+      - ack_count
+      properties:
+        message_id:
+          $ref: '#/components/schemas/Uuid'
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        acked:
+          type: boolean
+          description: Whether the caller's ack is present after the toggle.
+        ack_count:
+          type: integer
+          format: int64
+    SetMessengerThreadMuteRequest:
+      type: object
+      required:
+      - muted
+      properties:
+        muted:
+          type: boolean
+    MessengerThreadMuteSummary:
+      type: object
+      required:
+      - thread_id
+      - muted
+      properties:
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        muted:
+          type: boolean
+    MessengerMemberPresence:
+      type: object
+      required:
+      - user_id
+      - display_name
+      - last_activity_at
+      - status
+      properties:
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type:
+          - string
+          - 'null'
+        last_activity_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        status:
+          $ref: '#/components/schemas/MessengerPresenceStatus'
+    MessengerMemberPresenceListResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessengerMemberPresence'
     NotificationLink:
       description: Deep-link target — an object reference (kind + id) or a bare app screen.
       oneOf:

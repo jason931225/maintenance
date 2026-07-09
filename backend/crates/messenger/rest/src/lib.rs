@@ -4,7 +4,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use mnt_kernel_core::{
     BranchId, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, TraceContext, UserId,
@@ -12,10 +12,11 @@ use mnt_kernel_core::{
 };
 use mnt_messenger_adapter_postgres::{PgMessengerError, PgMessengerStore};
 use mnt_messenger_application::{
-    CreateThreadCommand, ListMembersQuery, ListThreadsQuery, MarkThreadReadCommand,
-    MemberProfileQuery, MessagePageQuery, SearchMessagesQuery, SendMessageCommand,
+    CreateThreadCommand, JoinThreadCommand, ListChannelsQuery, ListMembersQuery, ListThreadsQuery,
+    MarkThreadReadCommand, MemberProfileQuery, MessagePageQuery, SearchMessagesQuery,
+    SendMessageCommand, SetThreadMuteCommand, ThreadPresenceQuery, ToggleAckCommand,
 };
-use mnt_messenger_domain::ThreadKind;
+use mnt_messenger_domain::{ThreadKind, ThreadVisibility};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::Principal;
 use serde::{Deserialize, Serialize};
@@ -23,9 +24,14 @@ use serde::{Deserialize, Serialize};
 pub const MESSENGER_ROUTE_PATHS: &[&str] = &[
     "/api/messenger/members",
     "/api/messenger/members/{userId}",
+    "/api/messenger/channels",
     "/api/messenger/threads",
     "/api/messenger/threads/{threadId}/messages",
     "/api/messenger/threads/{threadId}/read-receipt",
+    "/api/messenger/threads/{threadId}/join",
+    "/api/messenger/threads/{threadId}/mute",
+    "/api/messenger/threads/{threadId}/presence",
+    "/api/messenger/messages/{messageId}/ack",
     "/api/messenger/search",
 ];
 
@@ -51,6 +57,7 @@ pub fn router(state: MessengerRestState) -> Router {
     let router = Router::new()
         .route("/api/messenger/members", get(list_members))
         .route("/api/messenger/members/{user_id}", get(get_member))
+        .route("/api/messenger/channels", get(list_channels))
         .route(
             "/api/messenger/threads",
             get(list_threads).post(create_thread),
@@ -63,6 +70,13 @@ pub fn router(state: MessengerRestState) -> Router {
             "/api/messenger/threads/{thread_id}/read-receipt",
             put(mark_thread_read),
         )
+        .route("/api/messenger/threads/{thread_id}/join", post(join_thread))
+        .route("/api/messenger/threads/{thread_id}/mute", put(set_mute))
+        .route(
+            "/api/messenger/threads/{thread_id}/presence",
+            get(thread_presence),
+        )
+        .route("/api/messenger/messages/{message_id}/ack", post(toggle_ack))
         .route("/api/messenger/search", get(search_messages))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
@@ -72,6 +86,8 @@ pub fn router(state: MessengerRestState) -> Router {
 struct CreateThreadRequest {
     branch_id: BranchId,
     kind: ThreadKind,
+    #[serde(default)]
+    visibility: Option<ThreadVisibility>,
     title: Option<String>,
     work_order_id: Option<WorkOrderId>,
     member_ids: Vec<UserId>,
@@ -82,6 +98,13 @@ struct SendMessageRequest {
     body: String,
     #[serde(default)]
     attachment_evidence_ids: Vec<EvidenceId>,
+    #[serde(default)]
+    quoted_message_id: Option<MessageId>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SetMuteRequest {
+    muted: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,6 +164,7 @@ async fn create_thread(
             branch_scope: principal.branch_scope,
             branch_id: body.branch_id,
             kind: body.kind,
+            visibility: body.visibility,
             title: body.title,
             work_order_id: body.work_order_id,
             member_ids: body.member_ids,
@@ -226,6 +250,7 @@ async fn send_message(
             thread_id,
             body: body.body,
             attachment_evidence_ids: body.attachment_evidence_ids,
+            quoted_message_id: body.quoted_message_id,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
         })
@@ -275,6 +300,104 @@ async fn mark_thread_read(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(receipt).into_response())
+}
+
+async fn list_channels(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Query(query): Query<LimitQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let items = state
+        .store
+        .list_channels(ListChannelsQuery {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            limit: query.limit.unwrap_or(50),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(Items { items }).into_response())
+}
+
+async fn join_thread(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Path(thread_id): Path<ThreadId>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let summary = state
+        .store
+        .join_thread(JoinThreadCommand {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            thread_id,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary).into_response())
+}
+
+async fn set_mute(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Path(thread_id): Path<ThreadId>,
+    Json(body): Json<SetMuteRequest>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let summary = state
+        .store
+        .set_thread_mute(SetThreadMuteCommand {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            thread_id,
+            muted: body.muted,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary).into_response())
+}
+
+async fn thread_presence(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Path(thread_id): Path<ThreadId>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let items = state
+        .store
+        .thread_presence(ThreadPresenceQuery {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            thread_id,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(Items { items }).into_response())
+}
+
+async fn toggle_ack(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Path(message_id): Path<MessageId>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let summary = state
+        .store
+        .toggle_ack(ToggleAckCommand {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            message_id,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary).into_response())
 }
 
 async fn search_messages(
