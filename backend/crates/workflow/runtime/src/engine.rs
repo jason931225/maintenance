@@ -45,6 +45,9 @@ pub struct StartRunRequest {
     pub input_payload: Value,
     pub context_payload: Value,
     pub initiated_by: Option<UserId>,
+    /// The `workflow_schedules` row that fired this run (schedule-poller starts
+    /// only); `None` for manual/API/event-triggered runs.
+    pub schedule_id: Option<Uuid>,
 }
 
 /// Inputs to process one node atomically.
@@ -105,6 +108,7 @@ pub async fn start_run<P: WorkflowRuntimePort + ?Sized>(
         input_payload: request.input_payload,
         context_payload: request.context_payload,
         initiated_by: request.initiated_by,
+        schedule_id: request.schedule_id,
     };
 
     let insert_audit = run_audit_event(

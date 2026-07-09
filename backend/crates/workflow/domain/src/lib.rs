@@ -148,6 +148,37 @@ spine_enum! {
     }
 }
 
+impl TriggerType {
+    /// Whether this trigger type may be bound in `workflow_trigger_bindings`
+    /// (0100). MANUAL/API starts go through `POST /api/v1/workflow-runs` and
+    /// SCHEDULE through `workflow_schedules` — none of them are event bindings,
+    /// so authoring a binding with one of those is a validation error (and the
+    /// 0100 CHECK rejects it at the DB as well).
+    #[must_use]
+    pub const fn is_event_binding(self) -> bool {
+        matches!(
+            self,
+            Self::ObjectEvent
+                | Self::ImportEvent
+                | Self::MailEvent
+                | Self::MessengerEvent
+                | Self::CalendarEvent
+                | Self::PollEvent
+        )
+    }
+}
+
+/// The domain-event vocabulary `workflow_trigger_bindings.event_key` may bind
+/// to. Every entry has a REAL producer: a dispatcher call at that mutation's
+/// audited commit point. Authoring a binding for an unregistered key is
+/// rejected (it would be a rule that can never fire). Grows as more domain
+/// commit points publish events.
+pub const REGISTERED_EVENT_KEYS: &[&str] = &[
+    // Published after the legacy work-order completion (executive approval →
+    // FINAL_COMPLETED) commits, from the workorder REST commit point.
+    "work_order.completed",
+];
+
 // ---------------------------------------------------------------------------
 // Terminal-timestamp mapping — which column a terminal transition must stamp.
 // ---------------------------------------------------------------------------
@@ -303,6 +334,9 @@ pub struct NewRun {
     pub input_payload: serde_json::Value,
     pub context_payload: serde_json::Value,
     pub initiated_by: Option<UserId>,
+    /// The `workflow_schedules` row that fired this run (`TriggerType::Schedule`
+    /// provenance for the per-schedule run-history surface); `None` otherwise.
+    pub schedule_id: Option<uuid::Uuid>,
 }
 
 /// The subset of `workflow_runs` the engine needs to make advance decisions.

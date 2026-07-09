@@ -275,6 +275,7 @@ pub async fn drive_completion_tail(
             input_payload: json!({ "work_order_id": work_order_uuid }),
             context_payload: json!({}),
             initiated_by: actor,
+            schedule_id: None,
         },
         &audit,
     )

@@ -25,6 +25,9 @@ dev-auth = ["mnt-platform-auth-rest/dev-auth"]
 [dependencies]
 axum = { workspace = true }
 calamine = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+croner = { workspace = true }
 http = { workspace = true }
 hex = { workspace = true }
 mnt-comms-adapter-imap = { workspace = true }

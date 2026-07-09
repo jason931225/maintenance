@@ -11,6 +11,19 @@
 //! Linear approval lines (submit → review → approve → finalize → receipt) are the
 //! only shape the builder emits today, so the walk follows a single outgoing edge
 //! per node. Branching/parallel graphs are a later charter.
+//!
+//! ## Condition node kind — deferred to BE-AUTO slice 2 (deliberate)
+//! A `condition` node is only meaningful with ≥2 outgoing edges selected by a
+//! predicate — but this walker's invariants are single-outgoing-edge
+//! ([`ExecGraph::next_node_key`] returns THE successor) and terminal-node =
+//! no-successor (run → SUCCEEDED). Admitting a `condition` node_type without
+//! the branching walk would create a kind that parses but cannot branch — a
+//! facade, worse than absence. Branching additionally needs the run's
+//! input/context payload threaded through [`drive_from`] (predicates evaluate
+//! against it; today each node gets an empty input) and a SKIPPED-marking pass
+//! for the untaken branch so the FSM's node bookkeeping stays complete. That
+//! is the slice-2 unit of work; the trigger/schedule substrate (slice 1) does
+//! not depend on it.
 
 use mnt_kernel_core::{AuditEvent, KernelError, OrgId};
 use mnt_workflow_domain::{RunStatus, WorkflowRuntimePort};
