@@ -1345,6 +1345,7 @@ where
         trace: TraceContext,
         occurred_at: Timestamp,
     ) -> Result<EvidenceMedia, StorageError> {
+        let org = current_org().map_err(KernelError::from)?;
         let media = evidence_media_by_id(&self.pool, media_id).await?;
         let branch_id = branch_for_work_order(&self.pool, media.work_order_id).await?;
         let event = evidence_audit_event(
@@ -1354,7 +1355,8 @@ where
             media_id,
             trace,
             occurred_at,
-        )?;
+        )?
+        .with_org(org);
         with_audit::<_, EvidenceMedia, StorageError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 sqlx::query(
@@ -1479,6 +1481,7 @@ where
         trace: TraceContext,
         occurred_at: Timestamp,
     ) -> Result<EvidenceMedia, StorageError> {
+        let org = current_org().map_err(KernelError::from)?;
         let branch_id = branch_for_work_order(&self.pool, media.work_order_id).await?;
         let event = evidence_audit_event(
             "evidence.verify",
@@ -1487,7 +1490,8 @@ where
             media.id,
             trace,
             occurred_at,
-        )?;
+        )?
+        .with_org(org);
         with_audit::<_, EvidenceMedia, StorageError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 sqlx::query(
@@ -1518,6 +1522,7 @@ where
         trace: TraceContext,
         occurred_at: Timestamp,
     ) -> Result<ReplicationOutcome, StorageError> {
+        let org = current_org().map_err(KernelError::from)?;
         let branch_id = branch_for_work_order(&self.pool, media.work_order_id).await?;
         let next_retry_count = media.retry_count + 1;
         let next_status = if next_retry_count >= self.replication.max_retries {
@@ -1545,7 +1550,8 @@ where
             media.id,
             trace,
             occurred_at,
-        )?;
+        )?
+        .with_org(org);
         with_audit::<_, (), StorageError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 sqlx::query(

@@ -2936,6 +2936,7 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-request-context",
  "mnt-platform-storage",
+ "mnt-platform-test-support",
  "p256",
  "secrecy",
  "serde",
@@ -3239,6 +3240,7 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "p256",
  "serde",
  "serde_json",
@@ -3395,6 +3397,7 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "p256",
  "serde",
  "serde_json",
@@ -3456,6 +3459,7 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "p256",
  "serde",
  "serde_json",
@@ -3744,6 +3748,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-platform-test-support"
+version = "0.1.0"
+dependencies = [
+ "sqlx 0.9.0",
+]
+
+[[package]]
 name = "mnt-registry-adapter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -3794,6 +3805,7 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-registry-adapter-postgres",
  "mnt-registry-application",
  "mnt-registry-domain",
@@ -3816,6 +3828,7 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-excel",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-reporting-application",
  "mnt-reporting-domain",
  "serde_json",
@@ -3974,6 +3987,7 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-push",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-support-adapter-postgres",
  "mnt-support-application",
  "mnt-support-domain",
@@ -4090,6 +4104,7 @@ dependencies = [
  "mnt-platform-jobs",
  "mnt-platform-request-context",
  "mnt-platform-storage",
+ "mnt-platform-test-support",
  "mnt-workflow-domain",
  "mnt-workflow-runtime",
  "mnt-workflow-runtime-adapter-postgres",

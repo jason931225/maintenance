@@ -845,7 +845,8 @@ impl PgFinancialStore {
                     command.purchase_request_id,
                     command.trace.clone(),
                     command.occurred_at,
-                )?;
+                )?
+                .with_org(org);
 
                 if let Some(equipment_id) = row.equipment_id {
                     let ledger_command = AppendCostLedgerEntryCommand {
@@ -1302,7 +1303,8 @@ async fn append_cost_ledger_entry_tx(
         command.trace,
         command.occurred_at,
     )?
-    .with_snapshots(Some(before), Some(after));
+    .with_snapshots(Some(before), Some(after))
+    .with_org(OrgId::from_uuid(org_uuid));
     let entry = cost_ledger_entry_by_id_tx(tx, entry_id).await?;
     Ok((entry, event))
 }
@@ -2049,6 +2051,7 @@ async fn insert_expense_ledger_tx(
         TraceContext::generate(),
         input.occurred_at,
     )
+    .map(|event| event.with_org(OrgId::from_uuid(input.org_uuid)))
     .map_err(PgFinancialError::from)
 }
 

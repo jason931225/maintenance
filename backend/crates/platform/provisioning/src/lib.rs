@@ -565,6 +565,7 @@ impl BootstrapCredentialStore {
             TraceContext::generate(),
             now,
         )
+        .with_org(OrgId::from_uuid(org_uuid))
         .with_snapshots(
             None,
             Some(serde_json::json!({

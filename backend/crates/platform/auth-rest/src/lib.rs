@@ -970,6 +970,7 @@ async fn finish_login(
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
+        outcome.org_id,
         outcome.user_id,
         "auth.login",
         serde_json::json!({
@@ -1113,6 +1114,7 @@ async fn redeem_otp(
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
+        redemption.org_id,
         redemption.user_id,
         "auth.otp.signin",
         serde_json::json!({
@@ -1739,6 +1741,7 @@ async fn poll_device_login(
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
+        org_id,
         user_id,
         "auth.device_login.consume",
         serde_json::json!({
@@ -1833,6 +1836,7 @@ async fn approve_device_login(
 
     record_auth_audit(
         &state.pool,
+        outcome.org_id,
         outcome.user_id,
         "auth.device_login.approve",
         serde_json::json!({
@@ -1912,6 +1916,7 @@ async fn approve_device_login_session(
 
     record_auth_audit(
         &state.pool,
+        org_id,
         user_id,
         "auth.device_login.approve_session",
         serde_json::json!({
@@ -2418,6 +2423,7 @@ async fn dev_auth_session(
     );
     record_auth_audit(
         &state.pool,
+        org_id,
         *user.user_id.as_uuid(),
         "dev_auth.session.mint",
         serde_json::json!({
@@ -2925,6 +2931,7 @@ fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
 
 async fn record_auth_audit(
     pool: &PgPool,
+    org_id: OrgId,
     user_id: Uuid,
     action: &str,
     after: serde_json::Value,
@@ -2937,6 +2944,7 @@ async fn record_auth_audit(
         TraceContext::generate(),
         OffsetDateTime::now_utc(),
     )
+    .with_org(org_id)
     .with_snapshots(None, Some(after));
 
     with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await

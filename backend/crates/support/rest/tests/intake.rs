@@ -5,15 +5,20 @@
 use axum::Router;
 use axum::body::Body;
 use http::{Request, StatusCode};
+use mnt_platform_test_support::runtime_role_pool;
 use mnt_support_adapter_postgres::{MAX_BODY_CHARS, PgSupportStore};
 use mnt_support_rest::{SupportRestState, router};
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-fn build(pool: PgPool) -> Router {
+async fn build(owner_pool: &PgPool) -> Router {
     // No JWT verifier and no push notifier: the intake endpoint is
     // unauthenticated, and notifications degrade gracefully.
-    router(SupportRestState::new(PgSupportStore::new(pool), None, None))
+    router(SupportRestState::new(
+        PgSupportStore::new(runtime_role_pool(owner_pool).await),
+        None,
+        None,
+    ))
 }
 
 fn intake_request(ip: &str) -> Request<Body> {
@@ -38,7 +43,7 @@ fn intake_request(ip: &str) -> Request<Body> {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_succeeds_then_rate_limits_past_cap(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
-        let app = build(pool.clone());
+        let app = build(&pool).await;
         let ip = "203.0.113.42";
         // Per-IP cap is 5; the 6th request in the window must be 429.
         let cap = 5;
@@ -69,7 +74,7 @@ async fn intake_succeeds_then_rate_limits_past_cap(pool: PgPool) {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_rejects_missing_fields_generically(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
-        let app = build(pool);
+        let app = build(&pool).await;
         let body = serde_json::json!({
             "category": "OTHER",
             "priority": "LOW",
@@ -95,7 +100,7 @@ async fn intake_rejects_missing_fields_generically(pool: PgPool) {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_rejects_over_length_fields_generically(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
-        let app = build(pool);
+        let app = build(&pool).await;
         // One scalar past the store-side body bound: must be rejected at the edge
         // with a generic 400, before any persistence.
         let body = serde_json::json!({

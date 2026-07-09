@@ -357,6 +357,7 @@ impl PasskeyService {
             TraceContext::generate(),
             now,
         )
+        .with_org(org)
         .with_snapshots(
             None,
             Some(serde_json::json!({

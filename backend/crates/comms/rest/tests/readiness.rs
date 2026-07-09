@@ -9,6 +9,7 @@ use mnt_comms_rest::{
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_test_support::runtime_role_pool;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -50,7 +51,7 @@ async fn missing_mail_master_key_keeps_read_paths_clean_and_send_unavailable(poo
         )
         .unwrap();
         let service = router(CommsRestState::new(
-            PgMailStore::new(pool.clone()),
+            PgMailStore::new(runtime_role_pool(&pool).await),
             None,
             Some(verifier),
         ));

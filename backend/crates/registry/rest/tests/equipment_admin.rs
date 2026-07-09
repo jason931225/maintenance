@@ -12,6 +12,7 @@ use http::{Request, StatusCode, header};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_test_support::runtime_role_pool;
 use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::{RegistryRestState, router};
 use p256::ecdsa::SigningKey;
@@ -720,7 +721,7 @@ impl Harness {
         )
         .unwrap();
         let service = router(RegistryRestState::new(
-            PgRegistryStore::new(pool.clone()),
+            PgRegistryStore::new(runtime_role_pool(pool).await),
             Some(verifier),
         ));
         Self { service, token }

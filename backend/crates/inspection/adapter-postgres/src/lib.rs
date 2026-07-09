@@ -222,7 +222,8 @@ impl PgInspectionStore {
                         "outcome": command.outcome.as_db_str(),
                         "completed_at": command.completed_at.to_string(),
                     })),
-                );
+                )
+                .with_org(org);
                 let schedule_event = inspection_audit_event(
                     "inspection.schedule.complete",
                     command.actor,
@@ -239,7 +240,8 @@ impl PgInspectionStore {
                         "completed_at": command.completed_at.to_string(),
                         "completed_by": command.actor.to_string(),
                     })),
-                );
+                )
+                .with_org(org);
                 Ok((round, vec![round_event, schedule_event]))
             })
         })

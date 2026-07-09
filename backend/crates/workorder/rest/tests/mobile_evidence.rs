@@ -13,6 +13,7 @@ use mnt_platform_storage::{
     CopyObjectRequest, EvidenceService, ObjectHead, PresignGetRequest, PresignPutRequest,
     PresignedUpload, RetentionInfo, S3ObjectStore, StorageError, StorageFuture,
 };
+use mnt_platform_test_support::runtime_role_pool;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, mobile_router};
 use p256::ecdsa::SigningKey;
@@ -153,15 +154,16 @@ async fn evidence_presign_confirm_flow_is_authorized_and_audited(pool: PgPool) {
             public_key_pem.as_bytes(),
         )
         .unwrap();
+        let rt_pool = runtime_role_pool(&pool).await;
         let evidence = EvidenceService::new(
-            pool.clone(),
+            rt_pool.clone(),
             StaticObjectStore,
             "primary".to_owned(),
             "replica".to_owned(),
         );
         let service = mobile_router(MobileRestState::new(
-            pool.clone(),
-            PgWorkOrderStore::new(pool.clone()),
+            rt_pool.clone(),
+            PgWorkOrderStore::new(rt_pool),
             Some(verifier),
             Some(evidence),
         ));
@@ -193,17 +195,28 @@ async fn evidence_presign_confirm_flow_is_authorized_and_audited(pool: PgPool) {
         assert_eq!(confirm.status, StatusCode::OK, "{:?}", confirm.json);
         assert_eq!(confirm.json["worm_replica_status"], "VERIFIED");
 
-        let actions: Vec<String> = sqlx::query_scalar(
-            "SELECT action FROM audit_events WHERE target_id = $1 ORDER BY occurred_at, created_at",
+        let audit_rows: Vec<(String, Option<uuid::Uuid>)> = sqlx::query_as(
+            "SELECT action, org_id FROM audit_events WHERE target_id = $1 ORDER BY occurred_at, created_at",
         )
         .bind(evidence_id)
         .fetch_all(&pool)
         .await
         .unwrap();
+        let actions: Vec<String> = audit_rows.iter().map(|(action, _)| action.clone()).collect();
         assert!(actions.contains(&"evidence.upload".to_owned()));
         assert!(actions.contains(&"evidence.presign".to_owned()));
         assert!(actions.contains(&"evidence.confirm".to_owned()));
         assert!(actions.contains(&"evidence.verify".to_owned()));
+        // Every evidence audit row must be tenant-scoped, never the NULL
+        // platform tier — regression guard for the missing `.with_org(org)`
+        // that let evidence.confirm/evidence.verify leak into org_id IS NULL.
+        for (action, org_id) in &audit_rows {
+            assert_eq!(
+                *org_id,
+                Some(*OrgId::knl().as_uuid()),
+                "audit row for {action} must carry the tenant org_id, not NULL"
+            );
+        }
 
         let confirmed_at: Option<OffsetDateTime> =
             sqlx::query_scalar("SELECT upload_confirmed_at FROM evidence_media WHERE id = $1")
@@ -259,15 +272,16 @@ async fn presign_after_evidence_rejected_on_final_completed_work_order(pool: PgP
             public_key_pem.as_bytes(),
         )
         .unwrap();
+        let rt_pool = runtime_role_pool(&pool).await;
         let evidence = EvidenceService::new(
-            pool.clone(),
+            rt_pool.clone(),
             StaticObjectStore,
             "primary".to_owned(),
             "replica".to_owned(),
         );
         let service = mobile_router(MobileRestState::new(
-            pool.clone(),
-            PgWorkOrderStore::new(pool.clone()),
+            rt_pool.clone(),
+            PgWorkOrderStore::new(rt_pool),
             Some(verifier),
             Some(evidence),
         ));
@@ -453,8 +467,9 @@ async fn evidence_staging_presign_creates_processing_row_and_enqueues_transcode(
             public_key_pem.as_bytes(),
         )
         .unwrap();
+        let rt_pool = runtime_role_pool(&pool).await;
         let evidence = EvidenceService::new(
-            pool.clone(),
+            rt_pool.clone(),
             StaticObjectStore,
             "primary".to_owned(),
             "replica".to_owned(),
@@ -462,8 +477,8 @@ async fn evidence_staging_presign_creates_processing_row_and_enqueues_transcode(
         let queue = RecordingQueue::default();
         let service = mobile_router(
             MobileRestState::new(
-                pool.clone(),
-                PgWorkOrderStore::new(pool.clone()),
+                rt_pool.clone(),
+                PgWorkOrderStore::new(rt_pool),
                 Some(verifier),
                 Some(evidence),
             )

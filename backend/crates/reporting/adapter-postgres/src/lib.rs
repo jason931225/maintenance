@@ -566,6 +566,7 @@ impl PgKpiRepository {
         &self,
         command: WorkDiaryUpdateCommand,
     ) -> Result<WorkDiaryDraft, PgReportingError> {
+        let org = current_org().map_err(KernelError::from)?;
         let scope_key = scope_key(&command.branch_scope);
         let existing = self
             .fetch_work_diary(command.date, &scope_key)
@@ -584,7 +585,8 @@ impl PgKpiRepository {
             single_branch(&command.branch_scope),
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         let actor = *command.actor.as_uuid();
         let date = command.date;
@@ -629,6 +631,7 @@ impl PgKpiRepository {
         &self,
         command: WorkDiaryConfirmCommand,
     ) -> Result<WorkDiaryDraft, PgReportingError> {
+        let org = current_org().map_err(KernelError::from)?;
         let scope_key = scope_key(&command.branch_scope);
         let existing = self
             .fetch_work_diary(command.date, &scope_key)
@@ -646,7 +649,8 @@ impl PgKpiRepository {
             single_branch(&command.branch_scope),
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         let actor = *command.actor.as_uuid();
         let date = command.date;

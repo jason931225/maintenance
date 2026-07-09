@@ -23,6 +23,7 @@ tracing = { workspace = true }
 http = { workspace = true }
 mnt-notifications-domain = { workspace = true }
 mnt-platform-db = { workspace = true }
+mnt-platform-test-support = { workspace = true }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }

@@ -27,6 +27,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 mnt-platform-db = { workspace = true }
+mnt-platform-test-support = { workspace = true }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

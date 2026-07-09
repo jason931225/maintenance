@@ -14,6 +14,7 @@ use mnt_notifications_domain::NotificationLink;
 use mnt_notifications_rest::{NotificationRestState, router};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_test_support::runtime_role_pool;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -60,7 +61,10 @@ async fn notifications_rest_is_recipient_scoped(pool: PgPool) {
             public_key_pem.as_bytes(),
         )
         .unwrap();
-        let service = router(NotificationRestState::new(store, Some(verifier)));
+        let service = router(NotificationRestState::new(
+            PgNotificationStore::new(runtime_role_pool(&pool).await),
+            Some(verifier),
+        ));
         let token_a = issue_token(private_pem.as_bytes(), public_key_pem.as_bytes(), user_a);
         let token_b = issue_token(private_pem.as_bytes(), public_key_pem.as_bytes(), user_b);
 
