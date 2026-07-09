@@ -657,6 +657,7 @@ pub fn spawn(pool: PgPool, signer: Arc<dyn SealSigner>) -> AuditChainHandle {
 /// discovery `workflow_drain` also uses.
 async fn run_tick(pool: &PgPool, signer: &Arc<dyn SealSigner>, config: &SealConfig) {
     let orgs: Vec<Uuid> = match sqlx::query_scalar("SELECT id FROM platform_list_organizations()")
+        // rls-arming: ok platform_list_organizations() is the SECURITY DEFINER id-only tenant discovery (same read as workflow_drain); every per-org seal below runs under with_org_conn
         .fetch_all(pool)
         .await
     {
