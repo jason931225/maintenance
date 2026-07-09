@@ -203,6 +203,10 @@ src/main/kotlin/com/maintenance/api/client/model/HrOrgChartEmployee.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartPosition.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartUnit.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocConfirmReceiptRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocDetail.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocPage.kt
+src/main/kotlin/com/maintenance/api/client/model/InboxDocSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/IncidentLocation.kt
 src/main/kotlin/com/maintenance/api/client/model/InquiryAck.kt
 src/main/kotlin/com/maintenance/api/client/model/InquiryStatus.kt

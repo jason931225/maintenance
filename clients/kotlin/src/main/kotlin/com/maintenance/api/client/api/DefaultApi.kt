@@ -140,6 +140,10 @@ import com.maintenance.api.client.model.FindingStatus
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
 import com.maintenance.api.client.model.GovernanceFinding
 import com.maintenance.api.client.model.HrOrgChartResponse
+import com.maintenance.api.client.model.InboxDocConfirmReceiptRequest
+import com.maintenance.api.client.model.InboxDocDetail
+import com.maintenance.api.client.model.InboxDocPage
+import com.maintenance.api.client.model.InboxDocSummary
 import com.maintenance.api.client.model.InquiryAck
 import com.maintenance.api.client.model.InquiryStatus
 import com.maintenance.api.client.model.InspectionRoundSummary
@@ -3113,6 +3117,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/evidence/{evidenceId}/confirm".replace("{"+"evidenceId"+"}", encodeURIComponent(evidenceId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/me/inbox-docs/{id}/confirm-receipt
+     * Confirm receipt of a legal notice (the legal receipt evidence)
+     * Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 &#x3D; 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user&#39;s / unknown document is 404.
+     * @param id
+     * @param inboxDocConfirmReceiptRequest
+     * @return InboxDocSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun confirmMyInboxDocReceipt(id: java.util.UUID, inboxDocConfirmReceiptRequest: InboxDocConfirmReceiptRequest) : InboxDocSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = confirmMyInboxDocReceiptWithHttpInfo(id = id, inboxDocConfirmReceiptRequest = inboxDocConfirmReceiptRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InboxDocSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/me/inbox-docs/{id}/confirm-receipt
+     * Confirm receipt of a legal notice (the legal receipt evidence)
+     * Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 &#x3D; 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user&#39;s / unknown document is 404.
+     * @param id
+     * @param inboxDocConfirmReceiptRequest
+     * @return ApiResponse<InboxDocSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun confirmMyInboxDocReceiptWithHttpInfo(id: java.util.UUID, inboxDocConfirmReceiptRequest: InboxDocConfirmReceiptRequest) : ApiResponse<InboxDocSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = confirmMyInboxDocReceiptRequestConfig(id = id, inboxDocConfirmReceiptRequest = inboxDocConfirmReceiptRequest)
+
+        return@withContext request<InboxDocConfirmReceiptRequest, InboxDocSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation confirmMyInboxDocReceipt
+     *
+     * @param id
+     * @param inboxDocConfirmReceiptRequest
+     * @return RequestConfig
+     */
+    fun confirmMyInboxDocReceiptRequestConfig(id: java.util.UUID, inboxDocConfirmReceiptRequest: InboxDocConfirmReceiptRequest) : RequestConfig<InboxDocConfirmReceiptRequest> {
+        val localVariableBody = inboxDocConfirmReceiptRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/me/inbox-docs/{id}/confirm-receipt".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -8612,6 +8693,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/me/inbox-docs/{id}
+     * Read one of the authenticated user&#39;s inbox documents
+     * Reading a LOCKED legal notice returns its metadata with &#x60;payload&#x60; omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its &#x60;payload&#x60;.
+     * @param id
+     * @return InboxDocDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMyInboxDoc(id: java.util.UUID) : InboxDocDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = getMyInboxDocWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InboxDocDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/inbox-docs/{id}
+     * Read one of the authenticated user&#39;s inbox documents
+     * Reading a LOCKED legal notice returns its metadata with &#x60;payload&#x60; omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its &#x60;payload&#x60;.
+     * @param id
+     * @return ApiResponse<InboxDocDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMyInboxDocWithHttpInfo(id: java.util.UUID) : ApiResponse<InboxDocDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMyInboxDocRequestConfig(id = id)
+
+        return@withContext request<Unit, InboxDocDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMyInboxDoc
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getMyInboxDocRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/inbox-docs/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/me/notifications/unread-count
      * Count the authenticated user&#39;s unread notifications
      *
@@ -12743,6 +12897,115 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/hr/attendance-records/me",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * enum for parameter filter
+     */
+     enum class FilterListMyInboxDocs(val value: kotlin.String) {
+         @SerialName(value = "action") ACTION("action"),
+         @SerialName(value = "pay") PAY("pay"),
+         @SerialName(value = "done") DONE("done"),
+         @SerialName(value = "all") ALL("all");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /api/v1/me/inbox-docs
+     * List the authenticated user&#39;s statutory-notice vault (개인 수신함)
+     * Metadata only — a locked legal notice&#39;s body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+     * @param filter 확인 필요 (&#x60;action&#x60;) &#x3D; legal notices awaiting receipt; 급여명세 (&#x60;pay&#x60;) &#x3D; payslips; 완료 (&#x60;done&#x60;) &#x3D; confirmed; 전체 (&#x60;all&#x60;, default). (optional)
+     * @param before Keyset cursor; return documents strictly older than this id. (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 50). (optional)
+     * @return InboxDocPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMyInboxDocs(filter: FilterListMyInboxDocs? = null, before: java.util.UUID? = null, limit: kotlin.Long? = null) : InboxDocPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listMyInboxDocsWithHttpInfo(filter = filter, before = before, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InboxDocPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/inbox-docs
+     * List the authenticated user&#39;s statutory-notice vault (개인 수신함)
+     * Metadata only — a locked legal notice&#39;s body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+     * @param filter 확인 필요 (&#x60;action&#x60;) &#x3D; legal notices awaiting receipt; 급여명세 (&#x60;pay&#x60;) &#x3D; payslips; 완료 (&#x60;done&#x60;) &#x3D; confirmed; 전체 (&#x60;all&#x60;, default). (optional)
+     * @param before Keyset cursor; return documents strictly older than this id. (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 50). (optional)
+     * @return ApiResponse<InboxDocPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMyInboxDocsWithHttpInfo(filter: FilterListMyInboxDocs?, before: java.util.UUID?, limit: kotlin.Long?) : ApiResponse<InboxDocPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMyInboxDocsRequestConfig(filter = filter, before = before, limit = limit)
+
+        return@withContext request<Unit, InboxDocPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMyInboxDocs
+     *
+     * @param filter 확인 필요 (&#x60;action&#x60;) &#x3D; legal notices awaiting receipt; 급여명세 (&#x60;pay&#x60;) &#x3D; payslips; 완료 (&#x60;done&#x60;) &#x3D; confirmed; 전체 (&#x60;all&#x60;, default). (optional)
+     * @param before Keyset cursor; return documents strictly older than this id. (optional)
+     * @param limit Page size (clamped server-side to 1..&#x3D;200; default 50). (optional)
+     * @return RequestConfig
+     */
+    fun listMyInboxDocsRequestConfig(filter: FilterListMyInboxDocs?, before: java.util.UUID?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (filter != null) {
+                    put("filter", listOf(filter.value))
+                }
+                if (before != null) {
+                    put("before", listOf(before.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/inbox-docs",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
