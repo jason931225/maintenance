@@ -127,6 +127,7 @@ pub async fn observe_parity(
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct RuntimeFlagCacheKey {
+    database: String,
     org: String,
     flag: &'static str,
 }
@@ -136,11 +137,20 @@ static RUNTIME_FLAG_CACHE: OnceLock<Mutex<BTreeMap<RuntimeFlagCacheKey, (bool, I
 const RUNTIME_FLAG_CACHE_TTL: Duration = Duration::from_secs(30);
 
 async fn runtime_flag_enabled_cached(
+    pool: &PgPool,
     store: &PgOrgStore,
     org: OrgId,
     flag_key: &'static str,
 ) -> Result<bool, String> {
     let key = RuntimeFlagCacheKey {
+        // Stable across cloned pools/State instances that point at the same DB,
+        // but distinct for isolated sqlx::test databases with the same org ids.
+        database: pool
+            .connect_options()
+            .as_ref()
+            .get_database()
+            .unwrap_or("")
+            .to_owned(),
         org: org.as_uuid().to_string(),
         flag: flag_key,
     };
@@ -185,7 +195,7 @@ async fn try_observe_parity(
     // DARK switch: absent/false flag ⇒ do nothing. Cache the short-lived
     // per-process result so hot paths do not pay a DB flag read on every request
     // while preserving per-tenant DB control once the cache expires.
-    if !runtime_flag_enabled_cached(&store, org, flag_key).await? {
+    if !runtime_flag_enabled_cached(pool, &store, org, flag_key).await? {
         return Ok(());
     }
 
