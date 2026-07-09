@@ -1749,18 +1749,18 @@ async fn audit_log(
 /// charter §5.3) and returns the verdict — never mutates. Unlike `/api/audit`,
 /// which can safely branch-filter rows for a branch-scoped ADMIN, this endpoint
 /// verifies the whole tenant chain. Require org-wide `AuditLogRead` so the
-/// attestation surface cannot widen branch-scoped audit visibility. Built-in
-/// org-wide authority is deliberately limited to SUPER_ADMIN/EXECUTIVE; a
+/// attestation surface cannot widen branch-scoped audit visibility. For
+/// `AuditLogRead` today, built-in org-wide authority is SUPER_ADMIN; a
 /// branch-scoped or branch-omitted ADMIN token must not pass this gate.
 ///
 /// Cost note: `verify_org_chain` re-derives every seal's batch from its full
 /// `audit_events` range — a FULL-CHAIN re-verify, not an incremental one, so
 /// wall time scales with the org's total sealed audit history. Bounded today
-/// by (a) org-wide built-in callers (SUPER_ADMIN/EXECUTIVE), so callers are
-/// trusted and infrequent, (b) the app-wide request timeout, and (c) mnt_rt's
-/// 30s `statement_timeout` (migration 0112) capping any single DB pass. A
-/// head-N-seals or cached-verdict endpoint variant for orgs with a long history
-/// is a PR-3 item (charter F1 anchor), not built here.
+/// by (a) org-wide built-in callers (SUPER_ADMIN for `AuditLogRead`), so
+/// callers are trusted and infrequent, (b) the app-wide request timeout, and
+/// (c) mnt_rt's 30s `statement_timeout` (migration 0112) capping any single DB
+/// pass. A head-N-seals or cached-verdict endpoint variant for orgs with a long
+/// history is a PR-3 item (charter F1 anchor), not built here.
 async fn audit_attestation(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1875,9 +1875,11 @@ fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {
 fn authorize_audit_attestation(principal: &Principal) -> Result<(), ApiError> {
     // Whole-tenant attestation is intentionally stricter than branch-filtered
     // `/api/audit`: built-in ADMIN is operational/branch authority, not an
-    // org-wide evidentiary attestation authority. `authorize_org_wide` limits
-    // built-in org-wide access to SUPER_ADMIN/EXECUTIVE while still preserving
-    // the custom-grant path for future policy-managed org-wide AuditLogRead.
+    // org-wide evidentiary attestation authority. `authorize_org_wide` first
+    // requires all-branch scope, then applies the feature matrix; for
+    // `AuditLogRead` that means built-in SUPER_ADMIN today, while still
+    // preserving the custom-grant path for future policy-managed org-wide
+    // AuditLogRead.
     authorize_org_wide(principal, Action::new(Feature::AuditLogRead)).map_err(ApiError::from_kernel)
 }
 
@@ -2671,7 +2673,7 @@ mod audit_attestation_auth_tests {
     }
 
     #[test]
-    fn audit_attestation_builtin_gate_is_org_wide_super_admin_or_executive_only() {
+    fn audit_attestation_builtin_gate_allows_only_super_admin_for_audit_read() {
         assert!(
             authorize_audit_attestation(&principal(Role::Admin, BranchScope::All)).is_err(),
             "built-in ADMIN is not org-wide attestation authority even with all-branch scope"
@@ -2687,7 +2689,10 @@ mod audit_attestation_auth_tests {
         assert!(
             authorize_audit_attestation(&principal(Role::SuperAdmin, BranchScope::All)).is_ok()
         );
-        assert!(authorize_audit_attestation(&principal(Role::Executive, BranchScope::All)).is_ok());
+        assert!(
+            authorize_audit_attestation(&principal(Role::Executive, BranchScope::All)).is_err(),
+            "EXECUTIVE has org-wide scope semantics, but not AuditLogRead matrix permission"
+        );
     }
 }
 
