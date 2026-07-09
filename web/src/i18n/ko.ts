@@ -9,6 +9,62 @@ import {
   uncertifiedSettlementDraftLabel,
 } from "./hrWorkflows";
 
+const workOrderStatusLabels = {
+  RECEIVED: "접수",
+  UNASSIGNED: "미배정",
+  ASSIGNED: "배정",
+  IN_PROGRESS: "진행",
+  REPORT_SUBMITTED: "보고 제출",
+  ADMIN_REVIEW: "관리자 검토",
+  FINAL_COMPLETED: "최종 완료",
+  REJECTED: "반려",
+  ON_HOLD: "보류",
+  DELAYED: "지연",
+  TEMPORARY_ACTION: "임시 조치",
+  PART_WAITING: "부품 대기",
+  EQUIPMENT_IN_USE: "장비 사용 중",
+  REVISIT_REQUIRED: "재방문 필요",
+  ARCHIVED: "보관",
+  CANCELLED: "취소",
+} as const;
+
+const workOrderPriorityLabels = {
+  P1: "긴급",
+  P2: "높음",
+  P3: "보통",
+  OUTSOURCE: "외주",
+  UNSET: "미분류",
+} as const;
+
+const supportTicketStatusLabels = {
+  OPEN: "접수",
+  IN_PROGRESS: "처리 중",
+  ON_HOLD: "보류",
+  RESOLVED: "해결",
+  CLOSED: "종료",
+} as const;
+
+const supportTicketPriorityLabels = {
+  LOW: "낮음",
+  MEDIUM: "보통",
+  HIGH: "높음",
+  URGENT: "긴급",
+} as const;
+
+const supportTicketCategoryLabels = {
+  SYSTEM_BUG: "시스템 오류",
+  ACCESS_REQUEST: "권한 요청",
+  OPERATIONAL: "운영 문의",
+  EQUIPMENT_INQUIRY: "장비 문의",
+  COMPLAINT: "불만 접수",
+  OTHER: "기타",
+} as const;
+
+const supportTicketOriginLabels = {
+  INTERNAL: "사내",
+  CUSTOMER: "고객",
+} as const;
+
 export const ko = {
   console: {
     search: {
@@ -255,6 +311,97 @@ export const ko = {
         notif: "알림",
         board: "게시판·공지",
         directory: "주소록",
+      },
+    },
+    // P0.4 generic module template (console/module/ModuleScreen.tsx).
+    module: {
+      list: {
+        label: "목록",
+        empty: "항목이 없습니다",
+        loading: "불러오는 중…",
+        error: "목록을 불러오지 못했습니다",
+        columnResize: "드래그하여 열 너비 조절 · 더블클릭 시 기본값",
+        retry: "다시 시도",
+      },
+      detail: {
+        close: "닫기",
+        links: "연결",
+        empty: "행을 선택하세요",
+      },
+      board: {
+        label: "보드",
+      },
+      prog: {
+        label: "진행",
+      },
+      action: {
+        failed: "처리하지 못했습니다",
+      },
+      workOrder: {
+        title: "정비/배차",
+        compose: "정비 접수",
+        col: {
+          code: "코드",
+          customer: "고객사",
+          equipment: "장비",
+          status: "상태",
+          priority: "우선순위",
+        },
+        kv: {
+          requestNo: "접수 번호",
+          customer: "고객사",
+          site: "사업장",
+          equipment: "장비",
+          status: "상태",
+          priority: "우선순위",
+          result: "결과",
+        },
+        reject: "반려",
+        rejectMemo: "콘솔에서 반려 처리",
+        stat: {
+          total: "전체",
+          inProgress: "진행",
+          unassigned: "미배정",
+          p1: "P1",
+        },
+        lane: {
+          unassigned: "미배정",
+          active: "진행",
+          review: "검토·완료",
+        },
+        status: workOrderStatusLabels,
+        priority: workOrderPriorityLabels,
+      },
+      support: {
+        title: "회신",
+        compose: "회신 등록",
+        col: {
+          title: "건명",
+          requester: "요청자",
+          category: "분류",
+          status: "상태",
+          priority: "우선순위",
+        },
+        kv: {
+          title: "건명",
+          requester: "요청자",
+          assignee: "담당자",
+          category: "분류",
+          origin: "출처",
+          status: "상태",
+          priority: "우선순위",
+        },
+        resolve: "해결 처리",
+        stat: {
+          total: "전체",
+          open: "접수",
+          inProgress: "진행",
+          urgent: "긴급",
+        },
+        status: supportTicketStatusLabels,
+        priority: supportTicketPriorityLabels,
+        category: supportTicketCategoryLabels,
+        origin: supportTicketOriginLabels,
       },
     },
   },
@@ -4097,57 +4244,13 @@ export const ko = {
       phoneFallback: SALES_PHONE_DISPLAY,
       phoneFallbackHref: SALES_PHONE_HREF,
     },
-    ticketStatus: {
-      OPEN: "접수",
-      IN_PROGRESS: "처리 중",
-      ON_HOLD: "보류",
-      RESOLVED: "해결",
-      CLOSED: "종료",
-    },
-    ticketPriority: {
-      LOW: "낮음",
-      MEDIUM: "보통",
-      HIGH: "높음",
-      URGENT: "긴급",
-    },
-    ticketCategory: {
-      SYSTEM_BUG: "시스템 오류",
-      ACCESS_REQUEST: "권한 요청",
-      OPERATIONAL: "운영 문의",
-      EQUIPMENT_INQUIRY: "장비 문의",
-      COMPLAINT: "불만 접수",
-      OTHER: "기타",
-    },
-    ticketOrigin: {
-      INTERNAL: "사내",
-      CUSTOMER: "고객",
-    },
+    ticketStatus: supportTicketStatusLabels,
+    ticketPriority: supportTicketPriorityLabels,
+    ticketCategory: supportTicketCategoryLabels,
+    ticketOrigin: supportTicketOriginLabels,
   },
-  status: {
-    RECEIVED: "접수",
-    UNASSIGNED: "미배정",
-    ASSIGNED: "배정",
-    IN_PROGRESS: "진행",
-    REPORT_SUBMITTED: "보고 제출",
-    ADMIN_REVIEW: "관리자 검토",
-    FINAL_COMPLETED: "최종 완료",
-    REJECTED: "반려",
-    ON_HOLD: "보류",
-    DELAYED: "지연",
-    TEMPORARY_ACTION: "임시 조치",
-    PART_WAITING: "부품 대기",
-    EQUIPMENT_IN_USE: "장비 사용 중",
-    REVISIT_REQUIRED: "재방문 필요",
-    ARCHIVED: "보관",
-    CANCELLED: "취소",
-  },
-  priority: {
-    P1: "긴급",
-    P2: "높음",
-    P3: "보통",
-    OUTSOURCE: "외주",
-    UNSET: "미분류",
-  },
+  status: workOrderStatusLabels,
+  priority: workOrderPriorityLabels,
   financial: {
     title: "구매·정산",
     description:

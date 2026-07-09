@@ -23,7 +23,7 @@
 import { type CSSProperties, useState } from "react";
 
 import { TONE, type Tone } from "../composer/objectKinds";
-import { PolicyGated } from "../policy";
+import { ActionPolicyGated as PolicyGated } from "../policy";
 import { ko } from "../../i18n/ko";
 import {
   type LifecycleChain,
