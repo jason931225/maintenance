@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useAuth, type AuthSession } from "../../context/auth";
@@ -54,6 +54,7 @@ export function ModuleHarness() {
   const [rows, setRows] = useState<never[]>([]);
   const [loadState, setLoadState] = useState<ModuleLoadState>("loading");
   const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -78,9 +79,18 @@ export function ModuleHarness() {
 
   const decide = useMemo(() => sessionDecider(session), [session]);
   const onRetry = useCallback(() => { setReloadKey((k) => k + 1); }, []);
+
+  useEffect(() => () => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+  }, []);
+
   const onToast = useCallback((message: string) => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     setToast(message);
-    window.setTimeout(() => { setToast(null); }, 3000);
+    toastTimer.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimer.current = null;
+    }, 3000);
   }, []);
 
   return (

@@ -179,7 +179,7 @@ export const supportTicketModuleConfig: ModuleConfig<Ticket> = {
     { key: "inProgress", label: SP.stat.inProgress, value: String(rows.filter((r) => r.status === "IN_PROGRESS").length), tone: "accent" },
     { key: "urgent", label: SP.stat.urgent, value: String(rows.filter((r) => r.priority === "URGENT").length), tone: "danger" },
   ],
-  search: (r) => [r.title, r.requester_name ?? "", SP.category[r.category], SP.status[r.status]].map((v) => v.toLowerCase()).join("\n"),
+  search: (r) => [r.title, r.requester_name, SP.category[r.category], SP.status[r.status]].map((v) => v?.toLowerCase() ?? "").join("\n"),
   detail: {
     kv: (r) => [
       { key: "title", label: SP.kv.title, value: safeLabel(r.title) },

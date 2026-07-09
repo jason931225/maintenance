@@ -78,6 +78,12 @@ describe("supportTicketModuleConfig — live binding", () => {
   it("support has no link chips (UUID-keyed, no issued code)", () => {
     expect(supportTicketModuleConfig.detail.links(demoTickets[0])).toEqual([]);
   });
+
+  it("search is null-safe for optional requester names", () => {
+    const row: Ticket = { ...demoTickets[0], requester_name: null as Ticket["requester_name"] };
+    expect(() => supportTicketModuleConfig.search(row)).not.toThrow();
+    expect(supportTicketModuleConfig.search(row)).toContain(demoTickets[0].title.toLowerCase());
+  });
 });
 
 describe("list cells — DESIGN §4.7-1 예외만 칩 (chips for exceptions only)", () => {

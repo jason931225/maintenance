@@ -1,6 +1,8 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
@@ -232,9 +234,12 @@ function useColumnWidths<Row>(config: ModuleConfig<Row>) {
   // change remounts and re-seeds these defaults (no reset effect needed).
   const [widths, setWidths] = useState(defaults);
 
-  // ponytail: move/up listeners live for one drag and detach on mouseup; a
-  // mid-drag unmount (rare) would leak them — add a ref-tracked teardown only
-  // if that ever bites.
+  const dragCleanup = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => {
+    dragCleanup.current?.();
+  }, []);
+
   const startDrag = (key: string, min: number) => (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -246,10 +251,14 @@ function useColumnWidths<Row>(config: ModuleConfig<Row>) {
       const snapped = Math.round((startW + (ev.clientX - startX)) / COLUMN_TICK) * COLUMN_TICK;
       setWidths((prev) => ({ ...prev, [key]: Math.max(min, snapped) }));
     };
-    const onUp = () => {
+    const cleanup = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      if (dragCleanup.current === cleanup) dragCleanup.current = null;
     };
+    const onUp = () => { cleanup(); };
+    dragCleanup.current?.();
+    dragCleanup.current = cleanup;
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };
@@ -452,8 +461,9 @@ function DetailPanel<Row>({ config, row, api, onClose, onOpenObject, onToast }: 
       try {
         const message = await action.run(row, api);
         onToast?.(message);
-      } catch {
-        onToast?.(ko.console.module.action.failed);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message.trim() : "";
+        onToast?.(detail ? `${ko.console.module.action.failed}: ${detail}` : ko.console.module.action.failed);
       } finally {
         setBusy(null);
       }

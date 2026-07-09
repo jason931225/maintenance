@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
 import { demoTickets, demoWorkOrders } from "../../test/module-fixtures";
 import { PolicyGateProvider } from "../policy/PolicyGated";
@@ -183,5 +184,51 @@ describe("ModuleScreen — load states", () => {
     );
     fireEvent.click(screen.getByText(ko.console.module.list.retry));
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ModuleScreen — action and drag cleanup", () => {
+  it("includes the mutation error detail in the failure toast", async () => {
+    const onToast = vi.fn();
+    const api = {
+      POST: vi.fn(() => Promise.resolve({ error: { code: "boom" }, response: { ok: false } })),
+    } as unknown as ConsoleApiClient;
+
+    render(
+      <PolicyGateProvider decide={() => true}>
+        <ModuleScreen
+          config={supportTicketModuleConfig}
+          rows={demoTickets}
+          loadState="idle"
+          api={api}
+          initialOpenId={demoTickets[0].id}
+          onToast={onToast}
+        />
+      </PolicyGateProvider>,
+    );
+
+    fireEvent.click(screen.getByText(SP.resolve));
+    await waitFor(() => {
+      expect(onToast).toHaveBeenCalledWith(expect.stringContaining("transition failed"));
+    });
+  });
+
+  it("removes active column drag listeners on unmount", () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    const { container, unmount } = renderSupport();
+    const handle = container.querySelector('[title="' + ko.console.module.list.columnResize + '"]');
+    if (!handle) throw new Error("resize handle not found");
+
+    fireEvent.mouseDown(handle, { clientX: 100 });
+    expect(add).toHaveBeenCalledWith("mousemove", expect.any(Function));
+    expect(add).toHaveBeenCalledWith("mouseup", expect.any(Function));
+
+    unmount();
+    expect(remove).toHaveBeenCalledWith("mousemove", expect.any(Function));
+    expect(remove).toHaveBeenCalledWith("mouseup", expect.any(Function));
+
+    add.mockRestore();
+    remove.mockRestore();
   });
 });
