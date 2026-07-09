@@ -230,12 +230,21 @@ export async function loadNotifications(api: ConsoleApiClient): Promise<void> {
       params: { query: { limit: 30 } },
     });
     if (!page.data) return;
+
     const items = page.data.items;
     const listUnread = items.filter((n) => n.unread).length;
-    const count = await api.GET("/api/v1/me/notifications/unread-count");
-    useCommsStore.getState().setNotifications(items, count.data?.unread ?? listUnread);
+    let unread = listUnread;
+
+    try {
+      const count = await api.GET("/api/v1/me/notifications/unread-count");
+      unread = count.data?.unread ?? listUnread;
+    } catch {
+      // Count is advisory; a good page still updates the feed.
+    }
+
+    useCommsStore.getState().setNotifications(items, unread);
   } catch {
-    // best-effort; the feed keeps its last value on any transport failure
+    // best-effort; the feed keeps its last value when the page fetch fails
   }
 }
 

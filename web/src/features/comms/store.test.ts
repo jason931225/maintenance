@@ -193,6 +193,27 @@ describe("loadNotifications", () => {
     expect(useCommsStore.getState().notificationUnread).toBe(1);
   });
 
+  it("keeps a successful page when unread-count has a transport failure", async () => {
+    server.use(
+      http.get("*/api/v1/me/notifications", () =>
+        HttpResponse.json({
+          items: [
+            notification({ id: "a", unread: true }),
+            notification({ id: "b", unread: false }),
+          ],
+          next_cursor: null,
+        }),
+      ),
+      http.get("*/api/v1/me/notifications/unread-count", () => HttpResponse.error()),
+    );
+
+    await loadNotifications(createConsoleApiClient(TOKEN_V1));
+
+    const state = useCommsStore.getState();
+    expect(state.notifications.map((n) => n.id)).toEqual(["a", "b"]);
+    expect(state.notificationUnread).toBe(1);
+  });
+
   it("never throws on a transport failure", async () => {
     server.use(http.get("*/api/v1/me/notifications", () => HttpResponse.error()));
     await expect(
@@ -226,13 +247,13 @@ describe("mark-read thunks", () => {
     const bearers: string[] = [];
     let attempts = 0;
     server.use(
-      http.post("*/api/v1/me/notifications/:id/read", ({ request }) => {
+      http.post("*/api/v1/me/notifications/:id/read", ({ request, params }) => {
         attempts += 1;
         bearers.push(request.headers.get("Authorization") ?? "");
         if (attempts === 1) {
           return HttpResponse.json({ error: "unauthorized" }, { status: 401 });
         }
-        return HttpResponse.json(notification({ id: "a", unread: false }));
+        return HttpResponse.json(notification({ id: String(params.id), unread: false }));
       }),
     );
     useCommsStore.getState().setNotifications([notification({ id: "a" })], 1);
@@ -242,6 +263,45 @@ describe("mark-read thunks", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(attempts).toBe(2);
     expect(bearers).toEqual([`Bearer ${TOKEN_V1}`, `Bearer ${TOKEN_V2}`]);
+  });
+
+  it("shares one refresh across concurrent mark-read 401 retries", async () => {
+    const refresh = vi.fn(
+      () =>
+        new Promise<{ access_token: string }>((resolve) => {
+          setTimeout(() => {
+            resolve({ access_token: TOKEN_V2 });
+          }, 10);
+        }),
+    );
+    setRefreshCallbacks(refresh, () => {});
+
+    const firstWaveIds: string[] = [];
+    const retriedIds: string[] = [];
+    server.use(
+      http.post("*/api/v1/me/notifications/:id/read", ({ request, params }) => {
+        const id = String(params.id);
+        const bearer = request.headers.get("Authorization") ?? "";
+        if (bearer === `Bearer ${TOKEN_V1}`) {
+          firstWaveIds.push(id);
+          return HttpResponse.json({ error: "unauthorized" }, { status: 401 });
+        }
+        retriedIds.push(id);
+        return HttpResponse.json(notification({ id, unread: false }));
+      }),
+    );
+    useCommsStore.getState().setNotifications(
+      [notification({ id: "a" }), notification({ id: "b" })],
+      2,
+    );
+    const api = createConsoleApiClient(TOKEN_V1);
+
+    await Promise.all([markNotificationRead(api, "a"), markNotificationRead(api, "b")]);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(firstWaveIds.sort()).toEqual(["a", "b"]);
+    expect(retriedIds.sort()).toEqual(["a", "b"]);
+    expect(useCommsStore.getState().notificationUnread).toBe(0);
   });
 
   it("markAllNotificationsRead zeroes locally then POSTs read-all via the typed client", async () => {

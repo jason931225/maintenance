@@ -71,7 +71,14 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
   // Mark-all persistence — the seeded unread guarantees this always runs.
   const markAll = rail.getByRole("button", { name: RAIL.markAllRead });
   await expect(markAll).toBeVisible({ timeout: 5_000 });
+  const readAllAck = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().includes("/api/v1/me/notifications/read-all"),
+  );
   await markAll.click();
+  const readAllResponse = await readAllAck;
+  expect(readAllResponse.ok()).toBe(true);
   await expect(markAll).toBeHidden({ timeout: 5_000 });
   await page.reload();
   await page
