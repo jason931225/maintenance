@@ -11,7 +11,7 @@
   /* Ink / text */
   --ink: #141a21;      /* primary text */
   --steel: #566475;    /* secondary text */
-  --faint: #8b98a7;    /* tertiary / placeholder */
+  --faint: #5f6d7e;    /* tertiary / placeholder */
 
   /* Brand */
   --signal: #f6b521;      /* primary brand (amber) */
@@ -36,7 +36,7 @@
 
 [data-theme="dark"], .t-dark {
   --canvas: #0e1319; --surface: #161c24; --muted: #1f2731; --border: #2b3542; --border-soft: #232c37;
-  --ink: #e8edf4; --steel: #9cabbc; --faint: #61707f;
+  --ink: #e8edf4; --steel: #9cabbc; --faint: #8492a3;
   --signal: #f6b521; --signal-deep: #ffc93d; --teal: #2dd4bf;
   --danger-bg: #3a1214; --danger-bd: #7f2b2b; --danger-tx: #fda4a4; --danger-solid: #f87171;
   --warn-bg: #3a2606; --warn-bd: #92610a; --warn-tx: #fcd34d; --warn-solid: #fbbf24;

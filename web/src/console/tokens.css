@@ -10,7 +10,7 @@
  *
  * The source token files declare everything on `:root`; the prototype
  * (`Oyatie Console.dc.html`) scopes the identical values under `.console`,
- * `.console.t-dark`, and `@media (prefers-color-scheme: dark) .console:not(.t-light)`.
+ * `.console[data-console-theme="dark"]`, and `@media (prefers-color-scheme: dark) .console:not([data-console-theme="light"])`.
  * This file mirrors the prototype's `.console` scoping exactly so the tokens
  * live only inside the console and never leak into (or inherit from) the legacy
  * AppShell theme. Every `var(--*)` name and value below matches the source
@@ -35,7 +35,7 @@
   /* -- colors.css :root (Ink / text) -- */
   --ink: #141a21;      /* primary text */
   --steel: #566475;    /* secondary text */
-  --faint: #8b98a7;    /* tertiary / placeholder */
+  --faint: #5f6d7e;    /* tertiary / placeholder */
 
   /* -- colors.css :root (Brand) -- */
   --signal: #f6b521;      /* primary brand (amber) */
@@ -87,10 +87,11 @@
   --border-hairline: 1px solid var(--border);
 
   /* Dark token value source of truth. Theme-selection rules below only map
-   * these shared values onto the public token names, so explicit `.t-dark` and
-   * automatic prefers-color-scheme dark cannot drift apart. */
+   * these shared values onto the public token names, so explicit
+   * data-console-theme dark and automatic prefers-color-scheme dark cannot
+   * drift apart. */
   --console-dark-canvas: #0e1319; --console-dark-surface: #161c24; --console-dark-muted: #1f2731; --console-dark-border: #2b3542; --console-dark-border-soft: #232c37;
-  --console-dark-ink: #e8edf4; --console-dark-steel: #9cabbc; --console-dark-faint: #61707f;
+  --console-dark-ink: #e8edf4; --console-dark-steel: #9cabbc; --console-dark-faint: #8492a3;
   --console-dark-signal: #f6b521; --console-dark-signal-deep: #ffc93d; --console-dark-teal: #2dd4bf;
   --console-dark-danger-bg: #3a1214; --console-dark-danger-bd: #7f2b2b; --console-dark-danger-tx: #fda4a4; --console-dark-danger-solid: #f87171;
   --console-dark-warn-bg: #3a2606; --console-dark-warn-bd: #92610a; --console-dark-warn-tx: #fcd34d; --console-dark-warn-solid: #fbbf24;
@@ -104,7 +105,7 @@
   color-scheme: light;
 }
 
-.console.t-dark {
+.console[data-console-theme="dark"] {
   /* -- colors.css [data-theme="dark"] -- */
   --canvas: var(--console-dark-canvas); --surface: var(--console-dark-surface); --muted: var(--console-dark-muted); --border: var(--console-dark-border); --border-soft: var(--console-dark-border-soft);
   --ink: var(--console-dark-ink); --steel: var(--console-dark-steel); --faint: var(--console-dark-faint);
@@ -124,7 +125,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .console:not(.t-light) {
+  .console:not([data-console-theme="light"]) {
     /* -- colors.css [data-theme="dark"] -- */
     --canvas: var(--console-dark-canvas); --surface: var(--console-dark-surface); --muted: var(--console-dark-muted); --border: var(--console-dark-border); --border-soft: var(--console-dark-border-soft);
     --ink: var(--console-dark-ink); --steel: var(--console-dark-steel); --faint: var(--console-dark-faint);
@@ -141,5 +142,68 @@
     --shadow-pop: var(--console-dark-shadow-pop);
 
     color-scheme: dark;
+  }
+}
+
+/* ConsoleShell chrome — hover/focus states (P0.1).
+ *
+ * Inline styles carry the fidelity-exact layout/colors (carbon-copied from the
+ * prototype); this file only holds the interactive states the prototype
+ * expressed via `style-hover`, plus keyboard focus rings for WCAG AA. Every
+ * value resolves through console/tokens.css var(--*). No Tailwind directives.
+ * Class names are `cshell-`-prefixed so they never collide with the token
+ * utility shapes the purity guard rejects.
+ */
+
+.cshell-hoverable {
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.cshell-hoverable:hover {
+  background: var(--muted);
+  color: var(--ink);
+}
+
+.cshell-search:hover {
+  border-color: var(--steel);
+  color: var(--steel);
+}
+
+.cshell-scope:hover {
+  background: var(--muted);
+}
+
+/* Keyboard focus ring (mouse clicks stay ring-free via :focus-visible). */
+.cshell-focusable:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+  border-radius: 8px;
+}
+
+/* Popover entrance, carbon-copied from the prototype's `pop-in`. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.cshell-pop {
+  animation: pop-in 0.14s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cshell-hoverable,
+  .cshell-search,
+  .cshell-scope {
+    transition: none;
+  }
+  .cshell-pop {
+    animation: none;
+  }
+  [data-cshell-sidebar] {
+    transition: none !important;
   }
 }
