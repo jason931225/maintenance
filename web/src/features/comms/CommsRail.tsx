@@ -37,7 +37,7 @@ import {
 } from "../../components/shell/nav";
 import { useMailSummary } from "../mail/useMailSummary";
 import { notificationRoute } from "./notificationLink";
-import type { NotificationSummary } from "./notificationsApi";
+import type { NotificationSummary } from "../../api/types";
 import {
   markAllNotificationsRead,
   markNotificationRead,
@@ -45,10 +45,6 @@ import {
   type RailSection,
 } from "./store";
 import { useCommsRuntime } from "./useCommsRuntime";
-
-const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ??
-  (typeof window !== "undefined" ? window.location.origin : "");
 
 // Stable empty reference so the thread selector returns an identity-equal value
 // while a thread's messages are still loading (no spurious re-render).
@@ -447,8 +443,7 @@ function MailSection({ open }: { open: boolean }) {
 }
 
 function NotificationsSection({ open }: { open: boolean }) {
-  const { session } = useAuth();
-  const token = session?.access_token ?? "";
+  const { api } = useAuth();
   const navigate = useNavigate();
   const notifications = useCommsStore((s) => s.notifications);
   const unread = useCommsStore((s) => s.notificationUnread);
@@ -456,7 +451,7 @@ function NotificationsSection({ open }: { open: boolean }) {
 
   const onNotificationClick = (notification: NotificationSummary) => {
     if (notification.unread) {
-      void markNotificationRead(apiBaseUrl, token, notification.id);
+      void markNotificationRead(api, notification.id);
     }
     setSubview({ kind: "home" });
     void navigate(notificationRoute(notification.link));
@@ -474,7 +469,7 @@ function NotificationsSection({ open }: { open: boolean }) {
             <button
               type="button"
               onClick={() => {
-                void markAllNotificationsRead(apiBaseUrl, token);
+                void markAllNotificationsRead(api);
               }}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-console-steel hover:bg-console-muted hover:text-console-ink focus-visible:outline-2 focus-visible:outline-console-ink"
             >

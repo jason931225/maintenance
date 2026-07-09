@@ -181,6 +181,9 @@ export type MessengerReadReceiptSummary =
   components["schemas"]["MessengerReadReceiptSummary"];
 export type SendMessengerMessageRequest =
   components["schemas"]["SendMessengerMessageRequest"];
+export type NotificationSummary = components["schemas"]["NotificationSummary"];
+export type NotificationPage = components["schemas"]["NotificationPage"];
+export type NotificationLink = components["schemas"]["NotificationLink"];
 export type EvidencePresignRequest =
   components["schemas"]["EvidencePresignRequest"];
 export type EvidencePresignResponse =

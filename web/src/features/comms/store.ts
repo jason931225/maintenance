@@ -13,13 +13,7 @@ import {
   type MessengerAction,
   type MessengerState,
 } from "../messenger/messenger-state";
-import {
-  fetchNotifications,
-  fetchUnreadCount,
-  postNotificationRead,
-  postNotificationsReadAll,
-  type NotificationSummary,
-} from "./notificationsApi";
+import type { NotificationSummary } from "../../api/types";
 
 export interface CommsCounts {
   approvals: number;
@@ -230,31 +224,33 @@ export async function loadMessengerThreads(api: ConsoleApiClient): Promise<void>
   }
 }
 
-export async function loadNotifications(
-  baseUrl: string,
-  accessToken: string,
-): Promise<void> {
-  const page = await fetchNotifications(baseUrl, accessToken, 30);
-  if (!page) return;
-  const listUnread = page.items.filter((n) => n.unread).length;
-  const exact = await fetchUnreadCount(baseUrl, accessToken);
-  useCommsStore.getState().setNotifications(page.items, exact ?? listUnread);
+export async function loadNotifications(api: ConsoleApiClient): Promise<void> {
+  try {
+    const page = await api.GET("/api/v1/me/notifications", {
+      params: { query: { limit: 30 } },
+    });
+    if (!page.data) return;
+    const items = page.data.items;
+    const listUnread = items.filter((n) => n.unread).length;
+    const count = await api.GET("/api/v1/me/notifications/unread-count");
+    useCommsStore.getState().setNotifications(items, count.data?.unread ?? listUnread);
+  } catch {
+    // best-effort; the feed keeps its last value on any transport failure
+  }
 }
 
 export async function markNotificationRead(
-  baseUrl: string,
-  accessToken: string,
+  api: ConsoleApiClient,
   id: string,
 ): Promise<void> {
   useCommsStore.getState().markNotificationReadLocal(id);
   // Mark-read is idempotent; a failed ack self-corrects on the next reload.
-  await postNotificationRead(baseUrl, accessToken, id).catch(() => undefined);
+  await api
+    .POST("/api/v1/me/notifications/{id}/read", { params: { path: { id } } })
+    .catch(() => undefined);
 }
 
-export async function markAllNotificationsRead(
-  baseUrl: string,
-  accessToken: string,
-): Promise<void> {
+export async function markAllNotificationsRead(api: ConsoleApiClient): Promise<void> {
   useCommsStore.getState().markAllNotificationsReadLocal();
-  await postNotificationsReadAll(baseUrl, accessToken).catch(() => undefined);
+  await api.POST("/api/v1/me/notifications/read-all", {}).catch(() => undefined);
 }
