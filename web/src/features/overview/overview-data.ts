@@ -160,7 +160,7 @@ export function buildSupportItems(
         detail: ko.overview.rows.supportDetail
           .replace(
             "{status}",
-            ko.support.ticketStatus[ticket.status] ?? ticket.status,
+            ko.support.ticketStatus[ticket.status],
           )
           .replace("{requester}", safeLabel(ticket.requester_name)),
         dueLabel: dueLabelFor(ticket.due_at),
