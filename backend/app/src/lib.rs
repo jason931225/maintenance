@@ -101,6 +101,7 @@ use url::Url;
 mod collaboration;
 mod hr;
 mod mail_sync;
+pub mod objects;
 mod workflow_drain;
 mod workflow_studio;
 
@@ -1388,6 +1389,10 @@ pub fn build_router(state: AppState) -> Router {
                         state.jwt_verifier.clone(),
                     ),
                 ))
+                .merge(objects::router(objects::ObjectState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_sales_rest::router({
                     let mut sales_state =
                         SalesRestState::new(sales_store, state.jwt_verifier.clone())

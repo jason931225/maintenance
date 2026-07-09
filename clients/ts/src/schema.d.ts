@@ -4061,6 +4061,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/object-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the generic links touching one object, in both directions
+         * @description Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller's org are visible.
+         */
+        get: operations["listObjectLinks"];
+        put?: never;
+        /**
+         * Create a generic, audited link between two objects
+         * @description Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+         */
+        post: operations["createObjectLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an object link (audited)
+         * @description Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
+         */
+        delete: operations["deleteObjectLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/purchase-requests/preferences": {
         parameters: {
             query?: never;
@@ -4134,6 +4178,36 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Request to create a directed link between two known objects. */
+        CreateObjectLinkRequest: {
+            /** @description Source object kind slug (must be a known object type). */
+            src_kind: string;
+            /** @description Source object id/reference (≤200 chars). */
+            src_id: string;
+            /** @description Destination object kind slug (must be a known object type). */
+            dst_kind: string;
+            /** @description Destination object id/reference (≤200 chars). */
+            dst_id: string;
+            /** @description Relationship label slug (e.g. authorized_by, relates_to, blocks). */
+            link_type: string;
+        };
+        ObjectLinkResponse: {
+            id: components["schemas"]["Uuid"];
+            src_kind: string;
+            src_id: string;
+            dst_kind: string;
+            dst_id: string;
+            link_type: string;
+            created_by?: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description Links touching one object, split by direction. */
+        ObjectLinksListResponse: {
+            /** @description Links where the queried object is the source. */
+            outgoing: components["schemas"]["ObjectLinkResponse"][];
+            /** @description Links where the queried object is the destination. */
+            incoming: components["schemas"]["ObjectLinkResponse"][];
+        };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
         /** @enum {string} */
@@ -14066,6 +14140,85 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listObjectLinks: {
+        parameters: {
+            query: {
+                /** @description Object kind slug (must be a known object type). */
+                kind: string;
+                /** @description Object id/reference (a UUID or issued code, ≤200 chars). */
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Links touching the object, split into outgoing and incoming. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLinksListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createObjectLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateObjectLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The created link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLinkResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteObjectLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link was removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getPurchaseRequestPreferences: {

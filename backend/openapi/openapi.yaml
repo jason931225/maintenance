@@ -6932,6 +6932,91 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/object-links:
+    get:
+      operationId: listObjectLinks
+      summary: List the generic links touching one object, in both directions
+      description: Returns every object_link where the given (kind, id) is the source (outgoing) or the destination
+        (incoming). Tenant-scoped by forced RLS; only links in the caller's org are visible.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: query
+        required: true
+        description: Object kind slug (must be a known object type).
+        schema:
+          type: string
+      - name: id
+        in: query
+        required: true
+        description: Object id/reference (a UUID or issued code, ≤200 chars).
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Links touching the object, split into outgoing and incoming.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectLinksListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      operationId: createObjectLink
+      summary: Create a generic, audited link between two objects
+      description: Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds
+        must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateObjectLinkRequest'
+      responses:
+        '200':
+          description: The created link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectLinkResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/object-links/{id}:
+    delete:
+      operationId: deleteObjectLink
+      summary: Remove an object link (audited)
+      description: Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a
+        link owned by another tenant both return 404 (deny-by-omission).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: The link was removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/financial/purchase-requests/preferences:
     get:
       operationId: getPurchaseRequestPreferences
@@ -7212,6 +7297,76 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    CreateObjectLinkRequest:
+      type: object
+      description: Request to create a directed link between two known objects.
+      required:
+      - src_kind
+      - src_id
+      - dst_kind
+      - dst_id
+      - link_type
+      properties:
+        src_kind:
+          type: string
+          description: Source object kind slug (must be a known object type).
+        src_id:
+          type: string
+          description: Source object id/reference (≤200 chars).
+        dst_kind:
+          type: string
+          description: Destination object kind slug (must be a known object type).
+        dst_id:
+          type: string
+          description: Destination object id/reference (≤200 chars).
+        link_type:
+          type: string
+          description: Relationship label slug (e.g. authorized_by, relates_to, blocks).
+    ObjectLinkResponse:
+      type: object
+      required:
+      - id
+      - src_kind
+      - src_id
+      - dst_kind
+      - dst_id
+      - link_type
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        src_kind:
+          type: string
+        src_id:
+          type: string
+        dst_kind:
+          type: string
+        dst_id:
+          type: string
+        link_type:
+          type: string
+        created_by:
+          $ref: '#/components/schemas/Uuid'
+          nullable: true
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    ObjectLinksListResponse:
+      type: object
+      description: Links touching one object, split by direction.
+      required:
+      - outgoing
+      - incoming
+      properties:
+        outgoing:
+          type: array
+          description: Links where the queried object is the source.
+          items:
+            $ref: '#/components/schemas/ObjectLinkResponse'
+        incoming:
+          type: array
+          description: Links where the queried object is the destination.
+          items:
+            $ref: '#/components/schemas/ObjectLinkResponse'
     CollaborationScopeType:
       type: string
       enum:

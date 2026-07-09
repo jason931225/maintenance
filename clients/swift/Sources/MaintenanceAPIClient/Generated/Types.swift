@@ -1410,6 +1410,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/collaboration/polls/{id}/vote`.
     /// - Remark: Generated from `#/paths//api/v1/collaboration/polls/{id}/vote/post(voteCollaborationPoll)`.
     func voteCollaborationPoll(_ input: Operations.VoteCollaborationPoll.Input) async throws -> Operations.VoteCollaborationPoll.Output
+    /// List the generic links touching one object, in both directions
+    ///
+    /// Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller's org are visible.
+    ///
+    /// - Remark: HTTP `GET /api/v1/object-links`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/get(listObjectLinks)`.
+    func listObjectLinks(_ input: Operations.ListObjectLinks.Input) async throws -> Operations.ListObjectLinks.Output
+    /// Create a generic, audited link between two objects
+    ///
+    /// Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+    ///
+    /// - Remark: HTTP `POST /api/v1/object-links`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)`.
+    func createObjectLink(_ input: Operations.CreateObjectLink.Input) async throws -> Operations.CreateObjectLink.Output
+    /// Remove an object link (audited)
+    ///
+    /// Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/object-links/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)`.
+    func deleteObjectLink(_ input: Operations.DeleteObjectLink.Input) async throws -> Operations.DeleteObjectLink.Output
     /// Fetch the current user's purchase request workspace preferences
     ///
     /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/preferences`.
@@ -4598,6 +4619,51 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// List the generic links touching one object, in both directions
+    ///
+    /// Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller's org are visible.
+    ///
+    /// - Remark: HTTP `GET /api/v1/object-links`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/get(listObjectLinks)`.
+    public func listObjectLinks(
+        query: Operations.ListObjectLinks.Input.Query,
+        headers: Operations.ListObjectLinks.Input.Headers = .init()
+    ) async throws -> Operations.ListObjectLinks.Output {
+        try await listObjectLinks(Operations.ListObjectLinks.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Create a generic, audited link between two objects
+    ///
+    /// Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+    ///
+    /// - Remark: HTTP `POST /api/v1/object-links`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)`.
+    public func createObjectLink(
+        headers: Operations.CreateObjectLink.Input.Headers = .init(),
+        body: Operations.CreateObjectLink.Input.Body
+    ) async throws -> Operations.CreateObjectLink.Output {
+        try await createObjectLink(Operations.CreateObjectLink.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Remove an object link (audited)
+    ///
+    /// Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/object-links/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)`.
+    public func deleteObjectLink(
+        path: Operations.DeleteObjectLink.Input.Path,
+        headers: Operations.DeleteObjectLink.Input.Headers = .init()
+    ) async throws -> Operations.DeleteObjectLink.Output {
+        try await deleteObjectLink(Operations.DeleteObjectLink.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// Fetch the current user's purchase request workspace preferences
     ///
     /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/preferences`.
@@ -4666,6 +4732,147 @@ public enum Servers {}
 public enum Components {
     /// Types generated from the `#/components/schemas` section of the OpenAPI document.
     public enum Schemas {
+        /// Request to create a directed link between two known objects.
+        ///
+        /// - Remark: Generated from `#/components/schemas/CreateObjectLinkRequest`.
+        public struct CreateObjectLinkRequest: Codable, Hashable, Sendable {
+            /// Source object kind slug (must be a known object type).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateObjectLinkRequest/src_kind`.
+            public var srcKind: Swift.String
+            /// Source object id/reference (≤200 chars).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateObjectLinkRequest/src_id`.
+            public var srcId: Swift.String
+            /// Destination object kind slug (must be a known object type).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateObjectLinkRequest/dst_kind`.
+            public var dstKind: Swift.String
+            /// Destination object id/reference (≤200 chars).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateObjectLinkRequest/dst_id`.
+            public var dstId: Swift.String
+            /// Relationship label slug (e.g. authorized_by, relates_to, blocks).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateObjectLinkRequest/link_type`.
+            public var linkType: Swift.String
+            /// Creates a new `CreateObjectLinkRequest`.
+            ///
+            /// - Parameters:
+            ///   - srcKind: Source object kind slug (must be a known object type).
+            ///   - srcId: Source object id/reference (≤200 chars).
+            ///   - dstKind: Destination object kind slug (must be a known object type).
+            ///   - dstId: Destination object id/reference (≤200 chars).
+            ///   - linkType: Relationship label slug (e.g. authorized_by, relates_to, blocks).
+            public init(
+                srcKind: Swift.String,
+                srcId: Swift.String,
+                dstKind: Swift.String,
+                dstId: Swift.String,
+                linkType: Swift.String
+            ) {
+                self.srcKind = srcKind
+                self.srcId = srcId
+                self.dstKind = dstKind
+                self.dstId = dstId
+                self.linkType = linkType
+            }
+            public enum CodingKeys: String, CodingKey {
+                case srcKind = "src_kind"
+                case srcId = "src_id"
+                case dstKind = "dst_kind"
+                case dstId = "dst_id"
+                case linkType = "link_type"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse`.
+        public struct ObjectLinkResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/src_kind`.
+            public var srcKind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/src_id`.
+            public var srcId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/dst_kind`.
+            public var dstKind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/dst_id`.
+            public var dstId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/link_type`.
+            public var linkType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/created_by`.
+            public var createdBy: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/ObjectLinkResponse/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `ObjectLinkResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - srcKind:
+            ///   - srcId:
+            ///   - dstKind:
+            ///   - dstId:
+            ///   - linkType:
+            ///   - createdBy:
+            ///   - createdAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                srcKind: Swift.String,
+                srcId: Swift.String,
+                dstKind: Swift.String,
+                dstId: Swift.String,
+                linkType: Swift.String,
+                createdBy: Components.Schemas.Uuid? = nil,
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.srcKind = srcKind
+                self.srcId = srcId
+                self.dstKind = dstKind
+                self.dstId = dstId
+                self.linkType = linkType
+                self.createdBy = createdBy
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case srcKind = "src_kind"
+                case srcId = "src_id"
+                case dstKind = "dst_kind"
+                case dstId = "dst_id"
+                case linkType = "link_type"
+                case createdBy = "created_by"
+                case createdAt = "created_at"
+            }
+        }
+        /// Links touching one object, split by direction.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ObjectLinksListResponse`.
+        public struct ObjectLinksListResponse: Codable, Hashable, Sendable {
+            /// Links where the queried object is the source.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectLinksListResponse/outgoing`.
+            public var outgoing: [Components.Schemas.ObjectLinkResponse]
+            /// Links where the queried object is the destination.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectLinksListResponse/incoming`.
+            public var incoming: [Components.Schemas.ObjectLinkResponse]
+            /// Creates a new `ObjectLinksListResponse`.
+            ///
+            /// - Parameters:
+            ///   - outgoing: Links where the queried object is the source.
+            ///   - incoming: Links where the queried object is the destination.
+            public init(
+                outgoing: [Components.Schemas.ObjectLinkResponse],
+                incoming: [Components.Schemas.ObjectLinkResponse]
+            ) {
+                self.outgoing = outgoing
+                self.incoming = incoming
+            }
+            public enum CodingKeys: String, CodingKey {
+                case outgoing
+                case incoming
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CollaborationScopeType`.
         @frozen public enum CollaborationScopeType: String, Codable, Hashable, Sendable, CaseIterable {
             case tenant = "TENANT"
@@ -70375,6 +70582,614 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the generic links touching one object, in both directions
+    ///
+    /// Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller's org are visible.
+    ///
+    /// - Remark: HTTP `GET /api/v1/object-links`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/get(listObjectLinks)`.
+    public enum ListObjectLinks {
+        public static let id: Swift.String = "listObjectLinks"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/object-links/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Object kind slug (must be a known object type).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/object-links/GET/query/kind`.
+                public var kind: Swift.String
+                /// Object id/reference (a UUID or issued code, ≤200 chars).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/object-links/GET/query/id`.
+                public var id: Swift.String
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - kind: Object kind slug (must be a known object type).
+                ///   - id: Object id/reference (a UUID or issued code, ≤200 chars).
+                public init(
+                    kind: Swift.String,
+                    id: Swift.String
+                ) {
+                    self.kind = kind
+                    self.id = id
+                }
+            }
+            public var query: Operations.ListObjectLinks.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/object-links/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListObjectLinks.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListObjectLinks.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListObjectLinks.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListObjectLinks.Input.Query,
+                headers: Operations.ListObjectLinks.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-links/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/object-links/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectLinksListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectLinksListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListObjectLinks.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListObjectLinks.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Links touching the object, split into outgoing and incoming.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/get(listObjectLinks)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListObjectLinks.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListObjectLinks.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/get(listObjectLinks)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/get(listObjectLinks)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/get(listObjectLinks)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a generic, audited link between two objects
+    ///
+    /// Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+    ///
+    /// - Remark: HTTP `POST /api/v1/object-links`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)`.
+    public enum CreateObjectLink {
+        public static let id: Swift.String = "createObjectLink"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/object-links/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateObjectLink.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateObjectLink.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateObjectLink.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/object-links/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-links/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateObjectLinkRequest)
+            }
+            public var body: Operations.CreateObjectLink.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateObjectLink.Input.Headers = .init(),
+                body: Operations.CreateObjectLink.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-links/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/object-links/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectLinkResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectLinkResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateObjectLink.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateObjectLink.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The created link.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.CreateObjectLink.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.CreateObjectLink.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/post(createObjectLink)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Remove an object link (audited)
+    ///
+    /// Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/object-links/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)`.
+    public enum DeleteObjectLink {
+        public static let id: Swift.String = "deleteObjectLink"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/object-links/{id}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-links/{id}/DELETE/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.DeleteObjectLink.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/object-links/{id}/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteObjectLink.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteObjectLink.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DeleteObjectLink.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.DeleteObjectLink.Input.Path,
+                headers: Operations.DeleteObjectLink.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// The link was removed.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.DeleteObjectLink.Output.NoContent)
+            /// The link was removed.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.DeleteObjectLink.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }
