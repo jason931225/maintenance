@@ -27,7 +27,9 @@ use mnt_platform_authz::{
     Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
     resolve_effective_feature_grants_in_org,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_db::{
+    DbError, read_subject_authz_freshness, with_audit, with_audits, with_org_conn,
+};
 use mnt_platform_email::{EmailSender, StubEmailSender};
 use mnt_platform_group::GroupMemberOrg;
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
@@ -2174,6 +2176,16 @@ async fn start_group_admin_tenant_context(
     let (group_id, target) =
         resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
 
+    // Source REAL subject freshness for the token's OWN (target subsidiary org,
+    // actor) so a promoted Cedar guard — which re-reads exactly that (org, user)
+    // at guard time — does not falsely deny this delegated token as stale/missing.
+    // The read arms the target org's RLS GUC internally; the actor typically has
+    // no `users` row in the subsidiary, so subject/session read as the absent 0
+    // baseline while the subsidiary's `policy_version` is real.
+    let freshness = read_subject_authz_freshness(&state.pool, target.org_id, actor)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+
     let now = OffsetDateTime::now_utc();
     let expires_at = now + GROUP_ADMIN_TENANT_CONTEXT_TTL;
     let access_token = services
@@ -2189,12 +2201,12 @@ async fn start_group_admin_tenant_context(
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
-                // Deferred (SLICE-2): the short-lived group-admin tenant-context
-                // token does not source freshness yet. Safe 0 baseline; not
-                // consulted by any decision on the still-unreachable Cedar path.
-                authz_subject_version: 0,
-                authz_policy_version: 0,
-                session_generation: 0,
+                // Real subject freshness for (target subsidiary, actor): a promoted
+                // Cedar guard re-reads the same (org, user), so a fresh token is not
+                // falsely denied as stale/missing.
+                authz_subject_version: freshness.subject_version,
+                authz_policy_version: freshness.policy_version,
+                session_generation: freshness.session_generation,
                 issued_at: now,
             },
             group_id,
