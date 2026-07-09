@@ -47,7 +47,7 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
   // authenticated landing route, so it drives the ceremony via
   // loginAsLanding directly (same pattern as admin-21/22/23/24).
   await loginAsLanding(page, "ADMIN");
-  await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/overview/, { timeout: 15_000 });
 
   const rail = page.getByRole("complementary", { name: RAIL.label });
   await expect(rail).toBeVisible({ timeout: 10_000 });
