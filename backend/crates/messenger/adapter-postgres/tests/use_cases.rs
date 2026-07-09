@@ -186,7 +186,8 @@ async fn object_code_ref_persisted_on_write_and_hashtag_noise_dropped(pool: PgPo
 
         // CS- (support_ticket) is a seeded code_prefix; WO- deliberately is
         // NOT (work_order keeps its own date-based request_no scheme, not
-        // this issuance table — see migration 0110's LOW-fix rationale).
+        // this issuance table — see the object_code_counters migration's
+        // LOW-fix rationale).
         let message = send_at(
             &store,
             &seeded,
