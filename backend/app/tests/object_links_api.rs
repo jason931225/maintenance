@@ -213,6 +213,88 @@ async fn rls_cross_org_isolation_as_runtime_role(owner_pool: PgPool) {
     assert_eq!(seen_by_owner, 1, "org A sees its own link");
 }
 
+/// B2: a link is an audited edge, so deletion is restricted to its creator or a
+/// UserManage-tier admin — NOT open to every Login member the way create/list
+/// are. A non-creator, non-manager member gets 403; the creator can still
+/// delete (proving the guard denies the outsider, not the owner).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn delete_link_denied_for_non_creator_non_manager(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    // Creator (ADMIN, holds UserManage) plants a link; created_by = creator.
+    let creator = UserId::new();
+    seed_user(&pool, creator, "ADMIN").await;
+    let creator_token = issue_token(private_pem.as_bytes(), public_key_pem.as_bytes(), creator);
+    let created = request(
+        &pool,
+        &public_key_pem,
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/object-links")
+            .header(header::AUTHORIZATION, format!("Bearer {creator_token}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "src_kind": "work_order", "src_id": "wo-1",
+                    "dst_kind": "equipment", "dst_id": "eq-1",
+                    "link_type": "uses"
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(created.0, StatusCode::OK, "create body: {}", created.1);
+    let link_id = created.1["id"].as_str().unwrap().to_owned();
+
+    // A different MEMBER: holds Login (can create/list) but not UserManage, and
+    // is not the creator -> delete is 403, not a silent success.
+    let outsider = UserId::new();
+    seed_user(&pool, outsider, "MEMBER").await;
+    let outsider_token = issue_token_with_roles(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        outsider,
+        vec!["MEMBER".to_owned()],
+    );
+    let denied = request(
+        &pool,
+        &public_key_pem,
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/v1/object-links/{link_id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {outsider_token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        denied.0,
+        StatusCode::FORBIDDEN,
+        "non-creator non-manager must be denied delete: {}",
+        denied.1
+    );
+
+    // The link still exists: its creator can delete it -> 204.
+    let by_creator = request(
+        &pool,
+        &public_key_pem,
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/v1/object-links/{link_id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {creator_token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(by_creator.0, StatusCode::NO_CONTENT);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
@@ -300,6 +382,20 @@ async fn seed_user(pool: &PgPool, user_id: UserId, role: &str) {
 }
 
 fn issue_token(private_key_pem: &[u8], public_key_pem: &[u8], user_id: UserId) -> String {
+    issue_token_with_roles(
+        private_key_pem,
+        public_key_pem,
+        user_id,
+        vec!["ADMIN".to_owned()],
+    )
+}
+
+fn issue_token_with_roles(
+    private_key_pem: &[u8],
+    public_key_pem: &[u8],
+    user_id: UserId,
+    roles: Vec<String>,
+) -> String {
     let issuer = JwtIssuer::from_es256_pem(
         JwtSettings {
             issuer: TEST_ISSUER.to_owned(),
@@ -314,7 +410,7 @@ fn issue_token(private_key_pem: &[u8], public_key_pem: &[u8], user_id: UserId) -
         .issue_access_token(AccessTokenInput {
             subject: user_id,
             org_id: OrgId::knl(),
-            roles: vec!["ADMIN".to_owned()],
+            roles,
             branches: Vec::new(),
             platform: false,
             view_as: false,

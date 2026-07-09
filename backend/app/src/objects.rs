@@ -52,20 +52,80 @@ pub const OBJECT_ROUTE_PATHS: &[&str] = &[
 const GRAPH_MAX_DEPTH: i64 = 5;
 const GRAPH_MAX_NODES: usize = 200;
 
-/// Object kinds the resolve endpoint can dereference today (single-table
-/// lookups reusing the domain's tenant + branch scoping). Other seeded kinds
-/// resolve as unknown (404) until their resolver ships.
-const RESOLVABLE_KINDS: &[&str] = &[
-    "work_order",
-    "equipment",
-    "support_ticket",
-    "org_unit",
-    "person",
-    "approval_run",
-    "account",
-    "passkey",
-    "consent",
+/// The authorization a resolvable kind requires, DECLARED per kind rather than
+/// hand-checked at each call site. `Feature(f)` = the caller must hold feature
+/// `f` (parity with the domain read endpoint the head aggregates);
+/// `MembershipOnly` = any authenticated tenant member (the base
+/// `authorize_object_member` gate already applied — no extra feature);
+/// `SelfScoped` = the resolver itself filters to the caller's own rows
+/// (passkey/consent), so membership is enough at this layer.
+#[derive(Debug, Clone, Copy)]
+enum RequiredAuth {
+    Feature(Feature),
+    MembershipOnly,
+    SelfScoped,
+}
+
+/// SINGLE SOURCE OF TRUTH for the resolve layer: every kind it can dereference,
+/// paired with the auth that kind requires. A kind absent from this table is
+/// unresolvable — a direct resolve is 404, a graph node is omitted — and there
+/// is no fall-through-to-Login default, so a NEW resolvable kind cannot ship
+/// without an explicit auth decision here. (That fall-through was the recurring
+/// bug: #220 work_order+equipment and #239 account each shipped gated only at
+/// Login until caught, because the guard was a hand-maintained special case,
+/// not a declared property of the kind.) Both the 404-for-unknown-kind check
+/// and the per-call feature gates derive from this table.
+const RESOLVABLE_KIND_AUTH: &[(&str, RequiredAuth)] = &[
+    (
+        "work_order",
+        RequiredAuth::Feature(Feature::WorkOrderReadAll),
+    ),
+    (
+        "equipment",
+        RequiredAuth::Feature(Feature::WorkOrderReadAll),
+    ),
+    ("account", RequiredAuth::Feature(Feature::UserManage)),
+    ("support_ticket", RequiredAuth::MembershipOnly),
+    ("org_unit", RequiredAuth::MembershipOnly),
+    ("person", RequiredAuth::MembershipOnly),
+    ("approval_run", RequiredAuth::MembershipOnly),
+    ("passkey", RequiredAuth::SelfScoped),
+    ("consent", RequiredAuth::SelfScoped),
 ];
+
+/// The declared auth for `kind`, or `None` if the kind is not resolvable at all.
+fn required_auth_for_kind(kind: &str) -> Option<RequiredAuth> {
+    RESOLVABLE_KIND_AUTH
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, auth)| *auth)
+}
+
+/// Whether the caller satisfies a kind's declared auth. `MembershipOnly` and
+/// `SelfScoped` are satisfied by any member (the base gate / the resolver's own
+/// caller filter carry them); a `Feature` requirement is satisfied only when the
+/// caller holds that feature (precomputed in `satisfied_features`).
+fn auth_satisfied(auth: RequiredAuth, satisfied_features: &[Feature]) -> bool {
+    match auth {
+        RequiredAuth::Feature(feature) => satisfied_features.contains(&feature),
+        RequiredAuth::MembershipOnly | RequiredAuth::SelfScoped => true,
+    }
+}
+
+/// The subset of features named in `RESOLVABLE_KIND_AUTH` that this caller
+/// actually holds, computed ONCE per request and threaded into every
+/// `resolve_head` call so each kind's declared `Feature` gate is a set lookup,
+/// not a repeated permission scan.
+fn satisfied_features(principal: &Principal) -> Vec<Feature> {
+    RESOLVABLE_KIND_AUTH
+        .iter()
+        .filter_map(|(_, auth)| match auth {
+            RequiredAuth::Feature(feature) => Some(*feature),
+            RequiredAuth::MembershipOnly | RequiredAuth::SelfScoped => None,
+        })
+        .filter(|feature| authorize_object_feature(principal, *feature).is_ok())
+        .collect()
+}
 
 const ID_MAX: usize = 200;
 
@@ -224,6 +284,11 @@ async fn delete_object_link(
     Path(link_id): Path<Uuid>,
 ) -> Result<StatusCode, ObjectError> {
     authorize_object_member(&principal)?;
+    // A link is an audited (often governance) edge, so deletion is NOT open to
+    // every member the way create/list are: only the edge's own creator, or a
+    // UserManage-tier admin, may remove it. `created_by` is the stored author
+    // (NULL for system-planted rows -> only an admin can delete those).
+    let can_manage = authorize_object_feature(&principal, Feature::UserManage).is_ok();
     let org = principal.org_id;
     let actor = principal.user_id;
     let now = OffsetDateTime::now_utc();
@@ -249,6 +314,16 @@ async fn delete_object_link(
                 return Err(ObjectError::not_found("object link not found"));
             };
             let before = object_link_from_row(&row)?;
+            // Authorize deletion against the loaded row. The row is already
+            // org-RLS-scoped, so a cross-org id was 404 above — this 403 only
+            // fires for an in-org link the caller can already see via list, so
+            // it reveals no existence the list did not.
+            let is_creator = before.created_by == Some(*actor.as_uuid());
+            if !is_creator && !can_manage {
+                return Err(ObjectError::from_kernel(KernelError::forbidden(
+                    "only the link's creator or a user-manager may delete it",
+                )));
+            }
             sqlx::query("DELETE FROM object_links WHERE id = $1")
                 .bind(link_id)
                 .execute(tx.as_mut())
@@ -384,31 +459,23 @@ async fn resolve_object(
     Path((kind, id)): Path<(String, String)>,
 ) -> Result<Json<ObjectHead>, ObjectError> {
     authorize_object_member(&principal)?;
-    // A malformed slug is a client error; a well-formed unknown kind is 404.
+    // A malformed slug is a client error; a well-formed unregistered kind is 404.
     let kind = normalize_kind(&kind, "kind")?;
-    if !RESOLVABLE_KINDS.contains(&kind.as_str()) {
+    let Some(required) = required_auth_for_kind(&kind) else {
         return Err(ObjectError::not_found("unknown object kind"));
-    }
-    // Feature parity with the domain read endpoints: work_order and equipment
-    // GETs require WorkOrderReadAll (workorder/rest get_work_order, registry/rest
-    // authorize_read_access); account GETs require UserManage (identity/rest
-    // get_user/list_users/deactivate_user), so the generic head must too —
-    // otherwise a MEMBER (Login-only) could read heads its role is denied
-    // (an account head leaks display_name + active/inactive lifecycle status).
-    // The deny is kind-level, independent of the id, so it cannot become an
-    // existence oracle. This is the LOUD form (403) for a directly-requested
-    // top-level kind; resolve_head (shared with object_graph) carries the quiet
-    // per-node form of the same guard (omit, not error) for kinds discovered
-    // mid-walk.
-    let can_read_work_order =
-        authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
-    let can_manage_users = authorize_object_feature(&principal, Feature::UserManage).is_ok();
-    if matches!(kind.as_str(), "work_order" | "equipment") && !can_read_work_order {
-        return Err(ObjectError::from_kernel(KernelError::forbidden(
-            "insufficient permission for this object kind",
-        )));
-    }
-    if kind.as_str() == "account" && !can_manage_users {
+    };
+    // Feature parity with the domain read endpoints, DECLARED per kind in
+    // RESOLVABLE_KIND_AUTH (e.g. work_order/equipment -> WorkOrderReadAll like
+    // workorder/registry rest, account -> UserManage like identity rest) instead
+    // of hand-maintained special cases — otherwise a MEMBER (Login-only) could
+    // read heads its role is denied (an account head leaks display_name +
+    // active/inactive lifecycle status). The deny is kind-level, independent of
+    // the id, so it cannot become an existence oracle. This is the LOUD form
+    // (403) for a directly-requested top-level kind; resolve_head (shared with
+    // object_graph) carries the quiet per-node form of the same declared gate
+    // (omit, not error) for kinds discovered mid-walk.
+    let satisfied = satisfied_features(&principal);
+    if !auth_satisfied(required, &satisfied) {
         return Err(ObjectError::from_kernel(KernelError::forbidden(
             "insufficient permission for this object kind",
         )));
@@ -433,17 +500,7 @@ async fn resolve_object(
         let id = id.clone();
         move |tx| {
             Box::pin(async move {
-                resolve_head(
-                    tx,
-                    &scope,
-                    caller,
-                    &held_role_keys,
-                    can_read_work_order,
-                    can_manage_users,
-                    &kind,
-                    &id,
-                )
-                .await
+                resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id).await
             })
         }
     })
@@ -455,40 +512,48 @@ async fn resolve_object(
 /// Dispatch a single (kind, id) to its per-kind resolver. Shared by
 /// `resolve_object` (one object, 404/403 up front) and `object_graph` (many
 /// nodes; an unregistered/unresolvable/insufficiently-privileged kind is just
-/// omitted, never an error) — the SAME visibility guards (the WorkOrderReadAll
-/// feature gate `can_read_work_order` for work_order/equipment, and the
-/// UserManage gate `can_manage_users` for account), so a node in the graph can
-/// never be more visible than a direct resolve of that node would be.
-#[allow(clippy::too_many_arguments)] // per-kind guard inputs, threaded not bundled
+/// omitted, never an error). The kind's DECLARED auth (`RESOLVABLE_KIND_AUTH`)
+/// is the single visibility gate here, applied identically to both callers, so
+/// a node in the graph can never be more visible than a direct resolve of that
+/// node would be. `resolve_object` raises the same unmet `Feature` as a LOUD
+/// 403; this shared path stays quiet (omit) for kinds discovered mid-walk.
 async fn resolve_head(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     scope: &BranchScope,
     caller: Uuid,
     held_role_keys: &[String],
-    can_read_work_order: bool,
-    can_manage_users: bool,
+    satisfied_features: &[Feature],
     kind: &str,
     id: &str,
 ) -> Result<Option<ResolvedHead>, ObjectError> {
+    // An unmapped kind, or one whose declared Feature the caller lacks, is
+    // invisible: Ok(None) is byte-identical to "not found"/"not visible", so no
+    // existence oracle. Membership-only and self-scoped kinds pass this gate
+    // (their scoping lives inside the resolver / the base member check).
+    let Some(required) = required_auth_for_kind(kind) else {
+        return Ok(None);
+    };
+    if !auth_satisfied(required, satisfied_features) {
+        return Ok(None);
+    }
     match kind {
-        "work_order" if can_read_work_order => resolve_work_order(tx, scope, id).await,
-        "equipment" if can_read_work_order => resolve_equipment(tx, scope, id).await,
+        "work_order" => resolve_work_order(tx, scope, id).await,
+        "equipment" => resolve_equipment(tx, scope, id).await,
         "support_ticket" => resolve_support_ticket(tx, scope, id).await,
         "org_unit" => resolve_org_unit(tx, scope, id).await,
         "person" => resolve_person(tx, scope, id).await,
         "approval_run" => resolve_approval_run(tx, caller, held_role_keys, id).await,
         // Identity kinds (Identity Console UI-M13 / charter G-b). account =
         // person's branch-membership visibility (lifecycle object, so it shows
-        // deactivated in-scope accounts + status), gated on UserManage to match
-        // the identity domain endpoints; passkey/consent are self-owned (only
-        // the caller resolves their own credential/consent).
-        "account" if can_manage_users => resolve_account(tx, scope, id).await,
+        // deactivated in-scope accounts + status); passkey/consent are self-owned
+        // (only the caller resolves their own credential/consent). Their auth is
+        // declared in RESOLVABLE_KIND_AUTH and already checked above.
+        "account" => resolve_account(tx, scope, id).await,
         "passkey" => resolve_passkey(tx, caller, id).await,
         "consent" => resolve_consent(tx, caller, id).await,
-        // work_order/equipment without WorkOrderReadAll, account without
-        // UserManage, any other kind (including ones not in RESOLVABLE_KINDS):
-        // no resolver applies -> treated identically to "not found"/"not
-        // visible".
+        // A kind declared in RESOLVABLE_KIND_AUTH but with no arm here (or vice
+        // versa) resolves as invisible — deny by default. The tests assert the
+        // two stay in sync.
         _ => Ok(None),
     }
 }
@@ -534,13 +599,11 @@ async fn object_graph(
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
     let caller = *principal.user_id.as_uuid();
-    // Same feature gates resolve_object enforces loudly (403) for a directly-
-    // requested work_order/equipment (WorkOrderReadAll) or account (UserManage)
-    // kind; here they are quiet (a node the caller lacks the gating feature for
-    // is simply omitted from the walk, never a 403 for the whole graph request).
-    let can_read_work_order =
-        authorize_object_feature(&principal, Feature::WorkOrderReadAll).is_ok();
-    let can_manage_users = authorize_object_feature(&principal, Feature::UserManage).is_ok();
+    // Same declared per-kind gates resolve_object enforces loudly (403) for a
+    // directly-requested kind; here they are quiet (a node the caller lacks the
+    // required feature for is simply omitted from the walk, never a 403 for the
+    // whole graph request).
+    let satisfied = satisfied_features(&principal);
     let held_role_keys = crate::workflow_studio::held_authority_role_keys(
         &principal,
         org,
@@ -570,17 +633,9 @@ async fn object_graph(
                 let mut edges_by_id: HashMap<Uuid, ObjectLinkResponse> = HashMap::new();
                 let mut truncated = false;
 
-                let root_resolved = resolve_head(
-                    tx,
-                    &scope,
-                    caller,
-                    &held_role_keys,
-                    can_read_work_order,
-                    can_manage_users,
-                    &kind,
-                    &id,
-                )
-                .await?;
+                let root_resolved =
+                    resolve_head(tx, &scope, caller, &held_role_keys, &satisfied, &kind, &id)
+                        .await?;
                 let Some(root_fields) = root_resolved else {
                     // The root itself is invisible/absent: an empty graph,
                     // never a stub — matches resolve_object's own
@@ -654,8 +709,7 @@ async fn object_graph(
                             &scope,
                             caller,
                             &held_role_keys,
-                            can_read_work_order,
-                            can_manage_users,
+                            &satisfied,
                             &node_kind,
                             &node_id,
                         )
@@ -1269,5 +1323,40 @@ mod tests {
         assert!(normalize_kind("1bad", "src_kind").is_err());
         assert!(normalize_kind("work_order", "src_kind").is_ok());
         assert!(normalize_object_id("  ", "id").is_err());
+    }
+
+    /// Every kind `resolve_head` can dispatch MUST have a declared auth in
+    /// `RESOLVABLE_KIND_AUTH`, and every declared kind must be dispatchable —
+    /// the two cannot drift. This is the structural guarantee that a new
+    /// resolvable kind cannot ship gated only at Login by a default fall-through
+    /// (the #220 / #239 bug class): visibility now requires a declared auth
+    /// decision, and this test fails loudly if a resolver arm is added without
+    /// one (or a declaration is added without a resolver).
+    #[test]
+    fn resolvable_kinds_and_declared_auth_stay_in_sync() {
+        // Mirror of resolve_head's dispatch arms.
+        const DISPATCHED_KINDS: &[&str] = &[
+            "work_order",
+            "equipment",
+            "support_ticket",
+            "org_unit",
+            "person",
+            "approval_run",
+            "account",
+            "passkey",
+            "consent",
+        ];
+        for kind in DISPATCHED_KINDS {
+            assert!(
+                required_auth_for_kind(kind).is_some(),
+                "dispatchable kind `{kind}` has no RESOLVABLE_KIND_AUTH entry"
+            );
+        }
+        for (kind, _) in RESOLVABLE_KIND_AUTH {
+            assert!(
+                DISPATCHED_KINDS.contains(kind),
+                "RESOLVABLE_KIND_AUTH declares `{kind}` but resolve_head has no arm"
+            );
+        }
     }
 }
