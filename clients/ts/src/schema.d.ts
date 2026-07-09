@@ -3510,8 +3510,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a sales listing (#6)
-         * @description Admin-gated (SalesManage). Removes a listing from the catalog.
+         * Archive a sales listing (#6)
+         * @description Admin-gated (SalesManage). Soft-archives the listing (status -> WITHDRAWN) and removes it from the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
          */
         delete: operations["deleteListing"];
         options?: never;
@@ -4445,10 +4445,30 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Resolve any object to a compact head (code, title, status, route hint)
-         * @description Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+         * Resolve any object to a compact head (code, title, status)
+         * @description Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry's responsibility; this endpoint never returns a route/URL.
          */
         get: operations["resolveObject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/objects/{kind}/{id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Walk the bounded object-link neighborhood of an object
+         * @description Bounded level-by-level walk over object_links up to `depth` hops (clamped 1-5), org-scoped under RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. `truncated` is true when the response was cut short by the node cap before `depth` was exhausted.
+         */
+        get: operations["getObjectGraph"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4634,7 +4654,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design). */
+        /** @description Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design). Carries no route/URL — objectRegistry (frontend) is the sole kind->URL authority. */
         ObjectHead: {
             kind: string;
             id: string;
@@ -4644,8 +4664,6 @@ export interface components {
             title?: string | null;
             /** @description Domain status string if available. */
             status?: string | null;
-            /** @description Frontend route hint for navigating to the object. */
-            url_path: string;
             exists: boolean;
         };
         /** @description Request to create a directed link between two known objects. */
@@ -4677,6 +4695,15 @@ export interface components {
             outgoing: components["schemas"]["ObjectLinkResponse"][];
             /** @description Links where the queried object is the destination. */
             incoming: components["schemas"]["ObjectLinkResponse"][];
+        };
+        /** @description The bounded, caller-visible neighborhood of an object, walked over object_links. Unresolvable nodes are omitted entirely (never returned as stubs), and edges touching an omitted node are omitted too. */
+        ObjectGraphResponse: {
+            /** @description Every object the caller can resolve, each passed through the same visibility guard as resolveObject. */
+            nodes: components["schemas"]["ObjectHead"][];
+            /** @description Links between resolved nodes (the induced subgraph over the visible node set). */
+            edges: components["schemas"]["ObjectLinkResponse"][];
+            /** @description True if the node cap was hit before the walk exhausted the requested depth. */
+            truncated: boolean;
         };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
@@ -14033,7 +14060,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The listing was deleted. */
+            /** @description The listing was archived (status set to WITHDRAWN). */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -15651,6 +15678,37 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getObjectGraph: {
+        parameters: {
+            query?: {
+                /** @description Walk depth in hops, clamped to 1-5 (default 1). */
+                depth?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Root object kind slug. */
+                kind: string;
+                /** @description Root object id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bounded neighborhood of the root object (empty if the root itself does not resolve). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectGraphResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getPurchaseRequestPreferences: {

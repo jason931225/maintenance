@@ -994,6 +994,10 @@ impl RestError {
                 tracing::error!(error = %err, "serialization error");
                 Self::internal("internal server error")
             }
+            DbError::CodeIssuance(err) => {
+                tracing::error!(error = %err, "object-code issuance error");
+                Self::internal("internal server error")
+            }
         }
     }
 

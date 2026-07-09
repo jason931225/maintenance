@@ -172,6 +172,47 @@ async fn notification_count(pool: &PgPool, recipient: UserId) -> i64 {
         .unwrap()
 }
 
+// BE-OBJ slice 2, item 2: `#`-object-code tokens persist as message_refs on
+// write (parse-on-write), feeding the object's inbound reference chain / graph
+// traversal. Only a token whose prefix matches a seeded object_types
+// code_prefix is stored — `#hashtag` noise with no known prefix is dropped.
+// `#`-refs never notify (DESIGN §4.7-7), unlike `@`-mentions.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn object_code_ref_persisted_on_write_and_hashtag_noise_dropped(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+
+        // CS- (support_ticket) is a seeded code_prefix; WO- deliberately is
+        // NOT (work_order keeps its own date-based request_no scheme, not
+        // this issuance table — see migration 0110's LOW-fix rationale).
+        let message = send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "#CS-3121 관련 자료 첨부, #hashtag 는 코드가 아닙니다, #WO-20260612-001 도 아닙니다",
+            OffsetDateTime::now_utc(),
+        )
+        .await;
+
+        let refs: Vec<(String, String)> = sqlx::query_as(
+            "SELECT ref_kind, ref_code FROM message_refs WHERE message_id = $1 ORDER BY ref_code",
+        )
+        .bind(*message.id.as_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            refs,
+            vec![("support_ticket".to_owned(), "CS-3121".to_owned())],
+            "only the known-prefix code is persisted; #hashtag noise and the \
+             unregistered WO- prefix are both dropped"
+        );
+    })
+    .await;
+}
+
 // AC (UI-M2a): opening a person chip pins a summary from a real branch-scoped
 // API and records a `person.view` audit for a non-self view (DESIGN §4.7 "열람
 // — 기록 남음"); a self-view records none; a target outside the branch yields

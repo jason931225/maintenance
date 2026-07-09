@@ -25,6 +25,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod audit_tx;
+pub mod code_issuance;
 pub mod error;
 pub mod governance_finding;
 pub mod lifecycle;
@@ -35,6 +36,7 @@ pub use audit_tx::{
     SubjectAuthzFreshness, insert_audit_event, read_subject_authz_freshness, with_audit,
     with_audits, with_org_conn,
 };
+pub use code_issuance::issue_code;
 pub use error::DbError;
 pub use governance_finding::{OpenFinding, upsert_open_finding_tx};
 pub use period_lock::{PeriodLockDomain, assert_period_open, assert_period_open_range};

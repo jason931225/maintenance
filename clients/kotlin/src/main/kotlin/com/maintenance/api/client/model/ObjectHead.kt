@@ -29,11 +29,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design).
+ * Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design). Carries no route/URL — objectRegistry (frontend) is the sole kind->URL authority.
  *
  * @param kind
  * @param id
- * @param urlPath Frontend route hint for navigating to the object.
  * @param exists
  * @param code Canonical issued code if the kind has one (e.g. work-order request_no); absent otherwise.
  * @param title Human display label if available.
@@ -48,10 +47,6 @@ data class ObjectHead (
 
     @SerialName(value = "id")
     val id: kotlin.String,
-
-    /* Frontend route hint for navigating to the object. */
-    @SerialName(value = "url_path")
-    val urlPath: kotlin.String,
 
     @SerialName(value = "exists")
     val exists: kotlin.Boolean,

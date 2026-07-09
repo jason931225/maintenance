@@ -1,6 +1,7 @@
 //! Postgres messenger adapter.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use mnt_kernel_core::{
@@ -13,7 +14,9 @@ use mnt_messenger_application::{
     MessagePageQuery, MessagePostedNotification, MessageSummary, ReadReceiptSummary,
     SearchMessagesQuery, SendMessageCommand, ThreadSummary, messenger_audit_event,
 };
-use mnt_messenger_domain::{MessageBody, ThreadKind, extract_mention_user_ids};
+use mnt_messenger_domain::{
+    MessageBody, ThreadKind, extract_mention_user_ids, extract_object_code_refs,
+};
 use mnt_notifications_application::{EmitNotificationCommand, NotificationSink};
 use mnt_notifications_domain::NotificationLink;
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
@@ -291,6 +294,14 @@ impl PgMessengerStore {
                     .bind(command.occurred_at)
                     .execute(tx.as_mut())
                     .await?;
+
+                // Parse-on-write: persist `#`-object-code refs so the object's
+                // inbound "referenced by" chain / graph traversal has a real
+                // edge. Only tokens whose prefix is a known object_types code
+                // prefix are stored (drops `#hashtag` noise); the target is
+                // resolved under policy at read time. `#`-refs never notify
+                // (DESIGN §4.7-7). Written in-tx so refs commit with the message.
+                persist_message_refs(tx, org_uuid, message_id, body.as_str()).await?;
 
                 fetch_message_summary_tx(tx, message_id).await
             })
@@ -920,6 +931,65 @@ async fn resolve_mention_recipients(
         // excluded `actor` above — so membership alone enforces no self-notify.
         .filter(|id| member_uuids.contains(id.as_uuid()))
         .collect())
+}
+
+/// Persist the `#`-object-code references written in a message body. Runs
+/// inside the send transaction. Each parsed code (already capped at
+/// `MAX_OBJECT_CODE_REFS` by the parser) is kept only if its prefix matches a
+/// seeded `object_types.code_prefix` (so the ref always names a known kind and
+/// `#hashtag` noise is dropped) -- checked with ONE batched lookup rather than
+/// one SELECT per token. `ON CONFLICT DO NOTHING` makes a re-sent identical
+/// body idempotent alongside the parse's own dedup.
+async fn persist_message_refs(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    message_id: MessageId,
+    body: &str,
+) -> Result<(), PgMessengerError> {
+    let codes = extract_object_code_refs(body);
+    if codes.is_empty() {
+        return Ok(());
+    }
+    // is_code_shaped guarantees every code has a '-'; the prefix is up to and
+    // including it. Duplicate prefixes in the batch are harmless for ANY($1).
+    let prefixes: Vec<&str> = codes
+        .iter()
+        .filter_map(|code| code.find('-').map(|dash| &code[..=dash]))
+        .collect();
+    let known: HashMap<String, String> =
+        sqlx::query("SELECT code_prefix, kind FROM object_types WHERE code_prefix = ANY($1)")
+            .bind(&prefixes)
+            .fetch_all(tx.as_mut())
+            .await?
+            .iter()
+            .map(|row| {
+                Ok::<_, PgMessengerError>((
+                    row.try_get::<String, _>("code_prefix")?,
+                    row.try_get::<String, _>("kind")?,
+                ))
+            })
+            .collect::<Result<_, _>>()?;
+
+    for code in codes {
+        let Some(dash) = code.find('-') else { continue };
+        let Some(kind) = known.get(&code[..=dash]) else {
+            continue;
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO message_refs (org_id, message_id, ref_kind, ref_code)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (org_id, message_id, ref_code) DO NOTHING
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(*message_id.as_uuid())
+        .bind(kind)
+        .bind(&code)
+        .execute(tx.as_mut())
+        .await?;
+    }
+    Ok(())
 }
 
 async fn fetch_branch_member_tx(
