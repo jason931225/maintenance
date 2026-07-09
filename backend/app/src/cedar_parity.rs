@@ -26,6 +26,8 @@
 
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use futures::FutureExt;
 use mnt_identity_adapter_postgres::PgOrgStore;
@@ -94,7 +96,6 @@ pub async fn observe_parity(
     flag_key: &'static str,
     legacy_allowed: bool,
 ) {
-    let actor = principal.user_id;
     // Panic-isolate the ENTIRE lane on the current task (task-local CURRENT_ORG
     // preserved for the store reads). AssertUnwindSafe is sound: the lane holds no
     // locks and its only mutation is an audit txn that rolls back on panic.
@@ -115,15 +116,59 @@ pub async fn observe_parity(
         Ok(Err(err)) => tracing::warn!(
             event = "cedar_pbac_parity_error",
             error = %err,
-            actor_user_id = %actor,
             "cedar/pbac parity shadow failed (audit-only; live decision unaffected)"
         ),
         Err(_panic) => tracing::warn!(
             event = "cedar_pbac_parity_error",
-            actor_user_id = %actor,
             "cedar/pbac parity shadow panicked (audit-only; live decision unaffected)"
         ),
     }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct RuntimeFlagCacheKey {
+    pool: usize,
+    org: String,
+    flag: &'static str,
+}
+
+static RUNTIME_FLAG_CACHE: OnceLock<Mutex<BTreeMap<RuntimeFlagCacheKey, (bool, Instant)>>> =
+    OnceLock::new();
+const RUNTIME_FLAG_CACHE_TTL: Duration = Duration::from_secs(30);
+
+async fn runtime_flag_enabled_cached(
+    pool: &PgPool,
+    store: &PgOrgStore,
+    org: OrgId,
+    flag_key: &'static str,
+) -> Result<bool, String> {
+    let key = RuntimeFlagCacheKey {
+        pool: pool as *const PgPool as usize,
+        org: org.as_uuid().to_string(),
+        flag: flag_key,
+    };
+    let now = Instant::now();
+    if let Some((enabled, cached_at)) = RUNTIME_FLAG_CACHE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .expect("runtime flag cache mutex poisoned")
+        .get(&key)
+        .copied()
+        .filter(|(_, cached_at)| now.duration_since(*cached_at) < RUNTIME_FLAG_CACHE_TTL)
+    {
+        return Ok(enabled);
+    }
+
+    let enabled = store
+        .org_runtime_flag_enabled(flag_key)
+        .await
+        .map_err(|err| format!("flag read failed: {err:?}"))?;
+    RUNTIME_FLAG_CACHE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .expect("runtime flag cache mutex poisoned")
+        .insert(key, (enabled, now));
+    Ok(enabled)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -138,12 +183,10 @@ async fn try_observe_parity(
     legacy_allowed: bool,
 ) -> Result<(), String> {
     let store = PgOrgStore::new(pool.clone());
-    // DARK switch: absent/false flag ⇒ do nothing beyond this one read.
-    if !store
-        .org_runtime_flag_enabled(flag_key)
-        .await
-        .map_err(|err| format!("flag read failed: {err:?}"))?
-    {
+    // DARK switch: absent/false flag ⇒ do nothing. Cache the short-lived
+    // per-process result so hot paths do not pay a DB flag read on every request
+    // while preserving per-tenant DB control once the cache expires.
+    if !runtime_flag_enabled_cached(pool, &store, org, flag_key).await? {
         return Ok(());
     }
 
@@ -270,6 +313,7 @@ async fn persist(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Divergence {
+    pub domain: String,
     pub action: String,
     pub resource_kind: String,
     pub principal_roles: Vec<String>,
@@ -325,7 +369,8 @@ pub fn aggregate(rows: impl IntoIterator<Item = (String, ParityObservation)>) ->
             report.disagree += 1;
             site_entry.disagree += 1;
             let key = format!(
-                "{}|{}|{}|{:?}|{:?}|{}",
+                "{}|{}|{}|{}|{:?}|{:?}|{}",
+                obs.domain,
                 obs.action,
                 obs.resource_kind,
                 obs.principal_roles.join(","),
@@ -338,6 +383,7 @@ pub fn aggregate(rows: impl IntoIterator<Item = (String, ParityObservation)>) ->
                 .entry(key)
                 .and_modify(|d| d.count += 1)
                 .or_insert(Divergence {
+                    domain: obs.domain,
                     action: obs.action,
                     resource_kind: obs.resource_kind,
                     principal_roles: obs.principal_roles,
@@ -412,6 +458,7 @@ mod tests {
         assert_eq!(a.divergences.len(), 1, "one distinct divergent case");
         let d = &a.divergences[0];
         assert_eq!(d.count, 1);
+        assert_eq!(d.domain, WORKFLOW_DECIDE_DOMAIN);
         assert_eq!(d.action, "completion_review");
         assert_eq!(d.resource_kind, "work_order");
         assert_eq!(d.legacy_effect, DecisionEffect::Allow);
@@ -434,5 +481,28 @@ mod tests {
         assert_eq!(s.disagree, 2);
         assert_eq!(s.divergences.len(), 1);
         assert_eq!(s.divergences[0].count, 2);
+    }
+
+    #[test]
+    fn divergences_from_different_domains_remain_distinct() {
+        let mut object = obs(true, &["MECHANIC"]);
+        object.domain = OBJECT_RESOLVE_DOMAIN.to_owned();
+        let report = aggregate(vec![
+            ("s".to_owned(), obs(true, &["MECHANIC"])),
+            ("s".to_owned(), object),
+        ]);
+        let s = &report.per_site["s"];
+        assert_eq!(s.disagree, 2);
+        assert_eq!(s.divergences.len(), 2);
+        assert!(
+            s.divergences
+                .iter()
+                .any(|d| d.domain == WORKFLOW_DECIDE_DOMAIN)
+        );
+        assert!(
+            s.divergences
+                .iter()
+                .any(|d| d.domain == OBJECT_RESOLVE_DOMAIN)
+        );
     }
 }

@@ -42,31 +42,9 @@ pub const CEDAR_LANGUAGE_VERSION: &str = "4.5";
 /// schema shapes.
 pub const ROLE_MANAGE_SCHEMA_VERSION: &str = "2026-07-role-manage-v1";
 
-/// Cedar schema (human-readable `.cedarschema` format) for the RoleManage pilot.
-///
-/// Entities and context carry only SERVER-derived material: a UI/JWT projection
-/// can never fabricate the `roles`/`subject_version` a permit depends on. The
-/// action id is [`Feature::as_str`] (`role_manage`) so the generated policy and
-/// the evaluated request address the same Cedar action.
-pub const SUBJECT_SCHEMA: &str = r#"entity Subject = {
-  "org": String,
-  "roles": Set<String>,
-  "subject_version": Long
-};"#;
-
-pub const RESOURCE_SCHEMA: &str = r#"entity Resource = {
-  "org": String,
-  "resource_type": String,
-  "branch"?: String
-};"#;
-
-const CONTEXT_SCHEMA: &str = r#"context: {
-  "purpose"?: String,
-  "channel"?: String,
-  "step_up"?: Bool
-}"#;
-
-pub const ROLE_MANAGE_SCHEMA: &str = r#"entity Subject = {
+macro_rules! shared_entity_schema {
+    () => {
+        r#"entity Subject = {
   "org": String,
   "roles": Set<String>,
   "subject_version": Long
@@ -76,9 +54,29 @@ entity Resource = {
   "org": String,
   "resource_type": String,
   "branch"?: String
-};
+};"#
+    };
+}
 
-action role_manage appliesTo {
+/// Shared server-derived entity definitions used by every enrolled Cedar schema.
+pub const SHARED_ENTITY_SCHEMA: &str = shared_entity_schema!();
+
+const CONTEXT_SCHEMA: &str = r#"context: {
+  "purpose"?: String,
+  "channel"?: String,
+  "step_up"?: Bool
+}"#;
+
+/// Cedar schema (human-readable `.cedarschema` format) for the RoleManage pilot.
+///
+/// Entities and context carry only SERVER-derived material: a UI/JWT projection
+/// can never fabricate the `roles`/`subject_version` a permit depends on. The
+/// action id is [`Feature::as_str`] (`role_manage`) so the generated policy and
+/// the evaluated request address the same Cedar action.
+pub const ROLE_MANAGE_SCHEMA: &str = concat!(
+    shared_entity_schema!(),
+    "\n\n",
+    r#"action role_manage appliesTo {
   principal: [Subject],
   resource: [Resource],
   context: {
@@ -87,7 +85,8 @@ action role_manage appliesTo {
     "step_up"?: Bool
   }
 };
-"#;
+"#,
+);
 
 /// Parsed + strict-validated Cedar bundle material for one enrolled action.
 ///
@@ -152,7 +151,7 @@ pub fn compile_bundle(org_id: OrgId, policy_version: u64) -> Result<CompiledBund
 #[must_use]
 pub fn feature_schema(feature: Feature) -> String {
     format!(
-        "{SUBJECT_SCHEMA}\n\n{RESOURCE_SCHEMA}\n\naction \"{action}\" appliesTo {{\n  principal: [Subject],\n  resource: [Resource],\n  {CONTEXT_SCHEMA}\n}};\n",
+        "{SHARED_ENTITY_SCHEMA}\n\naction \"{action}\" appliesTo {{\n  principal: [Subject],\n  resource: [Resource],\n  {CONTEXT_SCHEMA}\n}};\n",
         action = feature.as_str()
     )
 }
