@@ -75,18 +75,28 @@ impl ExecGraph {
                     .filter_map(|edge| {
                         let from = edge.get("from").and_then(Value::as_str)?;
                         let to = edge.get("to").and_then(Value::as_str)?;
-                        let when = edge
-                            .get("when")
-                            .and_then(Value::as_str)
-                            .map(ToOwned::to_owned);
-                        Some(Edge {
+                        let when = match edge.get("when") {
+                            Some(Value::String(value))
+                                if matches!(value.as_str(), "true" | "false") =>
+                            {
+                                Some(value.clone())
+                            }
+                            Some(_) => {
+                                return Some(Err(KernelError::validation(
+                                    "workflow edge 'when' must be the string \"true\" or \"false\"",
+                                )));
+                            }
+                            None => None,
+                        };
+                        Some(Ok(Edge {
                             from: from.to_owned(),
                             to: to.to_owned(),
                             when,
-                        })
+                        }))
                     })
-                    .collect()
+                    .collect::<Result<Vec<_>, KernelError>>()
             })
+            .transpose()?
             .unwrap_or_default();
 
         Ok(Self { nodes, edges })
@@ -443,6 +453,14 @@ mod tests {
         }
         assert_eq!(graph.next_branch("decide", true), Some("escalate.exec"));
         assert_eq!(graph.next_branch("decide", false), Some("auto.approve"));
+    }
+
+    #[test]
+    fn condition_edge_with_invalid_when_label_fails_at_parse() {
+        let mut def = branching_graph();
+        def["edges"][1]["when"] = json!("True");
+
+        assert!(ExecGraph::parse(&def).is_err());
     }
 
     #[test]

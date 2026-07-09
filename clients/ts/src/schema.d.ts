@@ -7199,7 +7199,7 @@ export interface components {
         };
         /** @description The fresh passkey assertion proving present possession of an authenticator. Its absence yields 428 (precondition required). */
         InboxDocConfirmReceiptRequest: {
-            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
         };
         /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
         TodoRef: {
