@@ -9,6 +9,7 @@ import { createConsoleApiClient } from "../../api/client";
 import { PinPanel } from "../../components/shell/workspace/PinPanel";
 import { ko } from "../../i18n/ko";
 import { branchId, workOrderListItems } from "../../test/fixtures";
+import { candidateToPin } from "./adapters";
 import type { PinnedObject } from "./types";
 
 const server = setupServer();
@@ -86,6 +87,24 @@ describe("PinPanel live detail (usePinDetail, #21 wiring)", () => {
     renderPanel(woPin(workOrderListItems[0].id), true);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(ko.page.loadFailed);
+  });
+
+  it("a person pin (from a palette candidate) fetches members/{id} on mount — the view-audit trigger", async () => {
+    const personId = "22222222-2222-4222-8222-222222222222";
+    let hit = "";
+    server.use(
+      http.get("*/api/messenger/members/:userId", ({ params }) => {
+        hit = String(params.userId);
+        return HttpResponse.json({ id: personId, display_name: "홍길동", team: "MAINTENANCE" });
+      }),
+    );
+    // The exact PinnedObject the ⌘K palette pins for a person candidate.
+    const personPin = candidateToPin({ kind: "person", code: personId, label: "홍길동" });
+    if (!personPin) throw new Error("person candidate must be pinnable");
+    renderPanel(personPin, true);
+
+    expect(await screen.findByText("홍길동")).toBeInTheDocument();
+    expect(hit).toBe(personId); // GET /api/messenger/members/{id} issued → server records person.view
   });
 
   it("renders the snapshot without fetching when there is no auth provider", () => {
