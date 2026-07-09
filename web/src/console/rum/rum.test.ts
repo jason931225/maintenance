@@ -28,10 +28,35 @@ describe("initConsoleRum", () => {
   it("captures window errors and flushes on pagehide", () => {
     const captured: RumMetric[] = [];
     cleanup = initConsoleRum((metrics) => captured.push(...metrics));
-    window.dispatchEvent(new ErrorEvent("error", { message: "boom" }));
+    window.dispatchEvent(new ErrorEvent("error", { message: "secret customer text" }));
+    window.dispatchEvent(new PromiseRejectionEvent("unhandledrejection", { promise: Promise.resolve(), reason: "secret rejection" }));
     window.dispatchEvent(new Event("pagehide"));
-    const error = captured.find((m) => m.name === "error");
-    expect(error?.detail).toBe("boom");
+    const details = captured.filter((m) => m.name === "error").map((m) => m.detail);
+    expect(details).toEqual(["window_error", "unhandled_rejection"]);
+    expect(JSON.stringify(captured)).not.toContain("secret");
+  });
+
+  it("flushes pending metrics on cleanup", () => {
+    const captured: RumMetric[] = [];
+    cleanup = initConsoleRum((metrics) => captured.push(...metrics));
+    window.dispatchEvent(new ErrorEvent("error", { message: "x" }));
+    cleanup();
+    cleanup = undefined;
+    expect(captured.find((m) => m.name === "error")?.detail).toBe("window_error");
+  });
+
+  it("resets route state for each init", () => {
+    const first: RumMetric[] = [];
+    cleanup = initConsoleRum((metrics) => first.push(...metrics));
+    markConsoleRoute("overview");
+    cleanup();
+    cleanup = undefined;
+
+    const second: RumMetric[] = [];
+    cleanup = initConsoleRum((metrics) => second.push(...metrics));
+    markConsoleRoute("audit");
+    window.dispatchEvent(new Event("pagehide"));
+    expect(second.find((m) => m.name === "route")).toBeUndefined();
   });
 
   it("tags metrics with the active console screen", () => {

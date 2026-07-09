@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   gateAllows,
+  fetchAuthzProjection,
   jwtFloorProjection,
   parseAuthzResponse,
   type AuthzProjection,
@@ -102,5 +103,84 @@ describe("jwtFloorProjection (fail-closed fallback)", () => {
   it("an empty/undefined session grants nothing", () => {
     expect(jwtFloorProjection(undefined).capabilities).toEqual([]);
     expect(gateAllows(jwtFloorProjection({}), { feature: "anything" })).toBe(false);
+  });
+});
+
+
+describe("fetchAuthzProjection", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function mockFetch(...responses: unknown[]) {
+    const fetch = vi.fn();
+    for (const response of responses) {
+      if (response instanceof Error) fetch.mockRejectedValueOnce(response);
+      else fetch.mockResolvedValueOnce(response);
+    }
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+
+  function okJson(body: unknown) {
+    return {
+      ok: true,
+      json: () => Promise.resolve(body),
+    } as Response;
+  }
+
+  it("returns a parsed authoritative projection on success", async () => {
+    const fetch = mockFetch(okJson({
+      roles: ["ADMIN"],
+      branch_scope: { kind: "all" },
+      capabilities: [
+        { feature: "role_manage", permission: "allow", branch_scope: { kind: "all" } },
+      ],
+    }));
+    const result = await fetchAuthzProjection("token", new AbortController().signal, {
+      attempts: 1,
+      timeoutMs: 100,
+      backoffMs: 0,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(result?.source).toBe("authz");
+    expect(result?.capabilities[0]?.feature).toBe("role_manage");
+  });
+
+  it("retries transient failures before returning the projection", async () => {
+    const fetch = mockFetch(new Error("temporary"), okJson({ capabilities: [] }));
+    const result = await fetchAuthzProjection(undefined, new AbortController().signal, {
+      attempts: 2,
+      timeoutMs: 100,
+      backoffMs: 0,
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result?.source).toBe("authz");
+  });
+
+  it("resolves undefined for non-ok responses, thrown errors, and aborted requests", async () => {
+    mockFetch({ ok: false });
+    await expect(fetchAuthzProjection(undefined, new AbortController().signal, {
+      attempts: 1,
+      timeoutMs: 100,
+      backoffMs: 0,
+    })).resolves.toBeUndefined();
+
+    mockFetch(new Error("network"));
+    await expect(fetchAuthzProjection(undefined, new AbortController().signal, {
+      attempts: 1,
+      timeoutMs: 100,
+      backoffMs: 0,
+    })).resolves.toBeUndefined();
+
+    const controller = new AbortController();
+    controller.abort();
+    const fetch = mockFetch(okJson({ capabilities: [] }));
+    await expect(fetchAuthzProjection(undefined, controller.signal, {
+      attempts: 1,
+      timeoutMs: 100,
+      backoffMs: 0,
+    })).resolves.toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

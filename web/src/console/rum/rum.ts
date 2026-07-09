@@ -59,6 +59,10 @@ let active: ActiveBuffer | undefined;
 let activeScreen: string | undefined;
 let lastRouteAt = 0;
 
+function sanitizeErrorDetail(kind: "error" | "rejection"): string {
+  return kind === "error" ? "window_error" : "unhandled_rejection";
+}
+
 /** Record a console screen transition. Emits the dwell-to-render delta for the
  * screen being left, then arms the next. Safe to call before init (no-op). */
 export function markConsoleRoute(screen: string): void {
@@ -70,14 +74,18 @@ export function markConsoleRoute(screen: string): void {
   lastRouteAt = now;
 }
 
-function observe(type: string, cb: (entries: PerformanceEntryList) => void): PerformanceObserver | undefined {
+function observe(
+  type: string,
+  cb: (entries: PerformanceEntryList) => void,
+  options: Omit<PerformanceObserverInit, "type"> = {},
+): PerformanceObserver | undefined {
   if (typeof PerformanceObserver === "undefined") return undefined;
   try {
     const obs = new PerformanceObserver((list) => {
       cb(list.getEntries());
     });
     // `buffered` replays entries emitted before this observer attached.
-    obs.observe({ type, buffered: true });
+    obs.observe({ type, buffered: true, ...options });
     return obs;
   } catch {
     return undefined; // unsupported entry type in this browser
@@ -92,6 +100,8 @@ function observe(type: string, cb: (entries: PerformanceEntryList) => void): Per
 export function initConsoleRum(reporter: RumReporter = defaultReporter): () => void {
   const buffer = createRumBuffer(reporter);
   active = buffer;
+  activeScreen = undefined;
+  lastRouteAt = 0;
   const observers: PerformanceObserver[] = [];
 
   const lcp = observe("largest-contentful-paint", (entries) => {
@@ -117,18 +127,18 @@ export function initConsoleRum(reporter: RumReporter = defaultReporter): () => v
     for (const e of entries as (PerformanceEntry & { duration: number })[]) {
       if (e.duration > inp) inp = e.duration;
     }
-  });
+  }, { durationThreshold: 0 } as Omit<PerformanceObserverInit, "type">);
   if (inpObs) observers.push(inpObs);
 
-  const onError = (event: ErrorEvent) => {
-    buffer.record({ name: "error", value: 1, screen: activeScreen, detail: event.message });
+  const onError = () => {
+    buffer.record({ name: "error", value: 1, screen: activeScreen, detail: sanitizeErrorDetail("error") });
   };
-  const onRejection = (event: PromiseRejectionEvent) => {
+  const onRejection = () => {
     buffer.record({
       name: "error",
       value: 1,
       screen: activeScreen,
-      detail: String(event.reason),
+      detail: sanitizeErrorDetail("rejection"),
     });
   };
 
@@ -155,6 +165,7 @@ export function initConsoleRum(reporter: RumReporter = defaultReporter): () => v
   }
 
   return () => {
+    flush();
     for (const o of observers) o.disconnect();
     if (typeof window !== "undefined") {
       window.removeEventListener("error", onError);
@@ -162,6 +173,10 @@ export function initConsoleRum(reporter: RumReporter = defaultReporter): () => v
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onHidden);
     }
-    if (active === buffer) active = undefined;
+    if (active === buffer) {
+      active = undefined;
+      activeScreen = undefined;
+      lastRouteAt = 0;
+    }
   };
 }

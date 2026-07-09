@@ -199,8 +199,55 @@ export function jwtFloorProjection(session: SessionFloorInput | undefined): Auth
 
 // ---- fetch -----------------------------------------------------------------
 
+const AUTHZ_FETCH_ATTEMPTS = 3;
+const AUTHZ_FETCH_TIMEOUT_MS = 4_000;
+const AUTHZ_FETCH_BACKOFF_MS = 150;
+
 function apiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
+}
+
+function abortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(resolve, ms);
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      reject(abortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  outerSignal: AbortSignal,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const abort = () => {
+    controller.abort();
+  };
+  outerSignal.addEventListener("abort", abort, { once: true });
+  const timeout = window.setTimeout(abort, timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+    outerSignal.removeEventListener("abort", abort);
+  }
+}
+
+interface FetchAuthzProjectionOptions {
+  attempts?: number;
+  timeoutMs?: number;
+  backoffMs?: number;
 }
 
 /**
@@ -214,22 +261,41 @@ function apiBaseUrl(): string {
 export async function fetchAuthzProjection(
   bearer: string | undefined,
   signal: AbortSignal,
+  options: FetchAuthzProjectionOptions = {},
 ): Promise<AuthzProjection | undefined> {
-  try {
-    const headers = new Headers({ Accept: "application/json" });
-    if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
-    headers.set("X-Auth-Transport", "cookie");
-    const deviceId = getDeviceId();
-    if (deviceId) headers.set("X-Device-Id", deviceId);
-    const res = await fetch(`${apiBaseUrl()}/api/v1/me/authz`, {
-      method: "GET",
-      headers,
-      credentials: "include",
-      signal,
-    });
-    if (!res.ok) return undefined;
-    return parseAuthzResponse(await res.json());
-  } catch {
-    return undefined;
+  const attempts = options.attempts ?? AUTHZ_FETCH_ATTEMPTS;
+  const timeoutMs = options.timeoutMs ?? AUTHZ_FETCH_TIMEOUT_MS;
+  const backoffMs = options.backoffMs ?? AUTHZ_FETCH_BACKOFF_MS;
+  const headers = new Headers({ Accept: "application/json" });
+  if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
+  headers.set("X-Auth-Transport", "cookie");
+  const deviceId = getDeviceId();
+  if (deviceId) headers.set("X-Device-Id", deviceId);
+  const request: RequestInit = {
+    method: "GET",
+    headers,
+    credentials: "include",
+  };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (signal.aborted) return undefined;
+    try {
+      const res = await fetchWithTimeout(
+        `${apiBaseUrl()}/api/v1/me/authz`,
+        request,
+        signal,
+        timeoutMs,
+      );
+      if (res.ok) return parseAuthzResponse(await res.json());
+    } catch {
+      // Retry transient network/timeout/abort failures until the bounded budget is exhausted.
+    }
+    if (attempt < attempts - 1) {
+      try {
+        await sleep(backoffMs * (attempt + 1), signal);
+      } catch {
+        return undefined;
+      }
+    }
   }
+  return undefined;
 }

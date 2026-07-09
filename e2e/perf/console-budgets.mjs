@@ -106,9 +106,9 @@ async function waitForUrl(url, timeoutMs) {
 function collectCwvInPage() {
   return new Promise((resolvePage) => {
     const state = { lcp: 0, cls: 0, inp: 0 };
-    const push = (type, fn) => {
+    const push = (type, fn, options = {}) => {
       try {
-        new PerformanceObserver((l) => l.getEntries().forEach(fn)).observe({ type, buffered: true });
+        new PerformanceObserver((l) => l.getEntries().forEach(fn)).observe({ type, buffered: true, ...options });
       } catch {
         /* unsupported */
       }
@@ -121,7 +121,7 @@ function collectCwvInPage() {
     });
     push("event", (e) => {
       if (e.duration > state.inp) state.inp = e.duration;
-    });
+    }, { durationThreshold: 0 });
     setTimeout(() => {
       resolvePage({ lcp: state.lcp, cls: Math.round(state.cls * 1000) / 1000, inp: Math.round(state.inp) });
     }, 2500);
@@ -136,7 +136,7 @@ async function main() {
     preview = spawn(
       "npm",
       ["--prefix", "web", "run", "preview", "--", "--host", "localhost", "--port", String(port), "--strictPort"],
-      { cwd: repoRoot, stdio: "inherit" },
+      { cwd: repoRoot, stdio: "inherit", detached: true },
     );
     await waitForUrl(baseUrl, 60_000);
   }
@@ -159,7 +159,10 @@ async function main() {
       );
       await page.goto(`${baseUrl}${budget.route}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
       await page.waitForSelector("[data-console-root]", { timeout: 60_000 });
-      const measured = await page.evaluate(collectCwvInPage);
+      const cwv = page.evaluate(collectCwvInPage);
+      const interactionTarget = page.getByRole("button", { name: /감사 로그|통합 개요/ }).first();
+      await interactionTarget.click({ timeout: 10_000 });
+      const measured = await cwv;
       const breaches = checkBudget(screen, budget, measured);
       console.log(`  ${screen} (${budget.route}): lcp=${measured.lcp}ms cls=${measured.cls} inp=${measured.inp}ms`);
       allBreaches.push(...breaches);
@@ -167,7 +170,13 @@ async function main() {
     }
   } finally {
     await browser.close();
-    if (preview) preview.kill();
+    if (preview?.pid) {
+      try {
+        process.kill(-preview.pid, "SIGTERM");
+      } catch {
+        preview.kill();
+      }
+    }
   }
 
   if (allBreaches.length > 0) {
