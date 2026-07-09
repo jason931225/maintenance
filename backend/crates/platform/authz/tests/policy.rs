@@ -23,19 +23,20 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 50] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 52] {
     use Feature::{
         AiAssist, ApprovalFinalize, AssigneeManage, AuditLogRead, BranchManage, CompletionReview,
         DailyPlanRequest, DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage,
         EmployeeDirectoryRead, EquipmentCostLedgerRead, EquipmentCostLedgerWrite, EquipmentManage,
         EvidenceAttach, ExcelDownload, ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport,
         ExitSettlementManage, InspectionRoundComplete, InspectionScheduleManage,
-        IntegrityFindingTriage, IntegrityFindingsRead, KpiExclusionManage, KpiRead, Login,
-        MailAccountManage, MailUse, MasterListImport, OpsDashboardRead, OrgWideQueueTriage,
-        PriorityManage, PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove,
-        PurchaseRequestCreate, PurchaseRequestRead, RegionManage, RentalQuoteManage, RoleManage,
-        SalesManage, SubordinateUserCreate, TargetManage, UserManage, WorkOrderCreate,
-        WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
+        IntegrityFindingTriage, IntegrityFindingsRead, KpiExclusionManage, KpiRead,
+        LifecycleManage, Login, MailAccountManage, MailUse, MasterListImport, OpsDashboardRead,
+        OrgWideQueueTriage, PeriodLockManage, PriorityManage, PurchaseExecute,
+        PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
+        RegionManage, RentalQuoteManage, RoleManage, SalesManage, SubordinateUserCreate,
+        TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
+        WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -107,6 +108,10 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 50] {
         (ExitCaseHrConfirm, [D, D, D, A, D, A]),
         (ExitCaseHqConfirm, [D, D, D, D, A, A]),
         (ExitSettlementManage, [D, D, D, A, D, A]),
+        // BE-LC: period close authority (ADMIN + EXECUTIVE + SUPER_ADMIN) and
+        // lifecycle/records management (ADMIN + SUPER_ADMIN).
+        (PeriodLockManage, [D, D, D, A, A, A]),
+        (LifecycleManage, [D, D, D, A, D, A]),
     ]
 }
 
