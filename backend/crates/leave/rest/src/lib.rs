@@ -370,6 +370,32 @@ async fn principal_from_headers(
         .map_err(rest_error_from_request_context)
 }
 
+fn rest_error_from_request_context(err: RequestContextError) -> RestError {
+    match err {
+        RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for the leave API")
+        }
+        RequestContextError::WrongTokenTier => RestError::from_kernel(KernelError::forbidden(
+            "token tier is not valid for this route",
+        )),
+        RequestContextError::AccessScope(error) => RestError::from_kernel(error),
+        RequestContextError::BranchScope(message)
+        | RequestContextError::EffectivePolicy(message) => {
+            RestError::from_kernel(KernelError::internal(message))
+        }
+        RequestContextError::MissingOrg => RestError::from_kernel(KernelError::internal(
+            "no tenant context is bound to the current request",
+        )),
+        RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        RequestContextError::InvalidToken => RestError::unauthorized("invalid bearer token"),
+        RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,31 +446,5 @@ mod tests {
             .is_err(),
             "an out-of-scope branch_id must be rejected"
         );
-    }
-}
-
-fn rest_error_from_request_context(err: RequestContextError) -> RestError {
-    match err {
-        RequestContextError::VerifierUnavailable => {
-            RestError::unavailable("JWT verification is not configured for the leave API")
-        }
-        RequestContextError::WrongTokenTier => RestError::from_kernel(KernelError::forbidden(
-            "token tier is not valid for this route",
-        )),
-        RequestContextError::AccessScope(error) => RestError::from_kernel(error),
-        RequestContextError::BranchScope(message)
-        | RequestContextError::EffectivePolicy(message) => {
-            RestError::from_kernel(KernelError::internal(message))
-        }
-        RequestContextError::MissingOrg => RestError::from_kernel(KernelError::internal(
-            "no tenant context is bound to the current request",
-        )),
-        RequestContextError::MissingBearer => {
-            RestError::unauthorized("missing or malformed bearer token")
-        }
-        RequestContextError::InvalidToken => RestError::unauthorized("invalid bearer token"),
-        RequestContextError::InvalidClaim(message) => {
-            RestError::unauthorized(format!("token claim is invalid: {message}"))
-        }
     }
 }
