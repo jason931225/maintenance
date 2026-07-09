@@ -3761,7 +3761,9 @@ dependencies = [
 name = "mnt-platform-test-support"
 version = "0.1.0"
 dependencies = [
+ "mnt-kernel-core",
  "sqlx 0.9.0",
+ "uuid",
 ]
 
 [[package]]
