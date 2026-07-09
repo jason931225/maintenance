@@ -13,13 +13,7 @@ import {
   type MessengerAction,
   type MessengerState,
 } from "../messenger/messenger-state";
-import {
-  fetchNotifications,
-  fetchUnreadCount,
-  postNotificationRead,
-  postNotificationsReadAll,
-  type NotificationSummary,
-} from "./notificationsApi";
+import type { NotificationSummary } from "../../api/types";
 
 export interface CommsCounts {
   approvals: number;
@@ -230,31 +224,66 @@ export async function loadMessengerThreads(api: ConsoleApiClient): Promise<void>
   }
 }
 
-export async function loadNotifications(
-  baseUrl: string,
-  accessToken: string,
-): Promise<void> {
-  const page = await fetchNotifications(baseUrl, accessToken, 30);
-  if (!page) return;
-  const listUnread = page.items.filter((n) => n.unread).length;
-  const exact = await fetchUnreadCount(baseUrl, accessToken);
-  useCommsStore.getState().setNotifications(page.items, exact ?? listUnread);
+// A read/write here is fired optimistically and never awaited before the caller
+// may reload or navigate. It must not throw an unhandled rejection — but a real
+// failure must not vanish either (issue #219 is exactly a silent-no-op defect),
+// so log it instead of swallowing.
+function logNotificationFailure(action: string, detail: unknown): void {
+  console.warn(`notifications: ${action} failed`, detail);
+}
+
+export async function loadNotifications(api: ConsoleApiClient): Promise<void> {
+  try {
+    const page = await api.GET("/api/v1/me/notifications", {
+      params: { query: { limit: 30 } },
+    });
+    if (!page.data) return;
+
+    const items = page.data.items;
+    const listUnread = items.filter((n) => n.unread).length;
+    let unread = listUnread;
+
+    try {
+      const count = await api.GET("/api/v1/me/notifications/unread-count");
+      unread = count.data?.unread ?? listUnread;
+    } catch {
+      // Count is advisory; a good page still updates the feed.
+    }
+
+    useCommsStore.getState().setNotifications(items, unread);
+  } catch (err) {
+    // best-effort: the feed keeps its last value, but don't hide the reason.
+    logNotificationFailure("feed load", err);
+  }
 }
 
 export async function markNotificationRead(
-  baseUrl: string,
-  accessToken: string,
+  api: ConsoleApiClient,
   id: string,
 ): Promise<void> {
   useCommsStore.getState().markNotificationReadLocal(id);
-  // Mark-read is idempotent; a failed ack self-corrects on the next reload.
-  await postNotificationRead(baseUrl, accessToken, id).catch(() => undefined);
+  // keepalive: the store hides the unread state synchronously and never awaits
+  // this before the caller may reload/navigate; without it the browser aborts
+  // the in-flight POST on unload and the read never persists (stale state comes
+  // right back). Idempotent, so a real failure self-corrects on the next reload.
+  try {
+    const res = await api.POST("/api/v1/me/notifications/{id}/read", {
+      params: { path: { id } },
+      keepalive: true,
+    });
+    if (res.error) logNotificationFailure("mark-read", res.error);
+  } catch (err) {
+    logNotificationFailure("mark-read", err);
+  }
 }
 
-export async function markAllNotificationsRead(
-  baseUrl: string,
-  accessToken: string,
-): Promise<void> {
+export async function markAllNotificationsRead(api: ConsoleApiClient): Promise<void> {
   useCommsStore.getState().markAllNotificationsReadLocal();
-  await postNotificationsReadAll(baseUrl, accessToken).catch(() => undefined);
+  // keepalive: see markNotificationRead — same fire-and-forget-then-reload path.
+  try {
+    const res = await api.POST("/api/v1/me/notifications/read-all", { keepalive: true });
+    if (res.error) logNotificationFailure("mark-all-read", res.error);
+  } catch (err) {
+    logNotificationFailure("mark-all-read", err);
+  }
 }

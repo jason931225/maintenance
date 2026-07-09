@@ -1,6 +1,5 @@
-import type { MessengerMessageSummary } from "../../api/types";
+import type { MessengerMessageSummary, NotificationSummary } from "../../api/types";
 import { buildMessengerWebSocketUrl } from "../messenger/realtime";
-import type { NotificationSummary } from "./notificationsApi";
 
 // The one realtime channel (`GET /api/v1/ws`) carries both messenger traffic and
 // personal notifications. Widen the event union past messenger-only so the comms

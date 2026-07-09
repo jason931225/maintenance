@@ -1,5 +1,5 @@
 import { objectRegistry, type ObjectKind } from "../../lib/objectRegistry";
-import type { NotificationLink } from "./notificationsApi";
+import type { NotificationLink } from "../../api/types";
 
 // A notification either points at a domain object (kind + id → the object's
 // route, via the M2a object registry) or at a bare app screen. Screen names map

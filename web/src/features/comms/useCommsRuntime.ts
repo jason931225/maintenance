@@ -59,7 +59,6 @@ export function useCommsRuntime(
 
   useEffect(() => {
     if (!token) return undefined;
-    const accessToken = token;
 
     function loadBadges() {
       void loadCounts(api, gates);
@@ -67,7 +66,7 @@ export function useCommsRuntime(
     }
     function loadAll() {
       loadBadges();
-      void loadNotifications(apiBaseUrl, accessToken);
+      void loadNotifications(api);
     }
 
     loadAll();
