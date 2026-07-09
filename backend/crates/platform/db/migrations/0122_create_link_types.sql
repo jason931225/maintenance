@@ -65,8 +65,13 @@ WHERE NOT EXISTS (
 );
 
 -- ---------------------------------------------------------------------------
--- Constrain: now that every existing value is registered, add the FK.
+-- Constrain: now that every existing value is registered, add the FK metadata
+-- without validating in this migration transaction. PostgreSQL's validation scan
+-- can take a write-blocking lock on object_links; a follow-up migration performs
+-- VALIDATE CONSTRAINT separately so deploy tooling can schedule/retry it without
+-- coupling table creation/backfill to the scan.
 -- ---------------------------------------------------------------------------
 ALTER TABLE object_links
     ADD CONSTRAINT object_links_link_type_fkey
-        FOREIGN KEY (link_type) REFERENCES link_types (link_type) ON DELETE RESTRICT;
+        FOREIGN KEY (link_type) REFERENCES link_types (link_type) ON DELETE RESTRICT
+        NOT VALID;

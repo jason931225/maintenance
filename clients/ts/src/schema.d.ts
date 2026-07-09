@@ -5286,8 +5286,6 @@ export interface components {
         SeriesByInstanceResponse: {
             series: components["schemas"]["SeriesHead"] | null;
         };
-
-        };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
         /** @enum {string} */

@@ -39,7 +39,7 @@ import kotlinx.serialization.Contextual
 data class SeriesByInstanceResponse (
 
     @SerialName(value = "series")
-    val series: SeriesHead? = null
+    val series: SeriesHead?
 
 ) {
 
