@@ -45,6 +45,7 @@ use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
 use mnt_notifications_adapter_postgres::PgNotificationStore;
 use mnt_notifications_rest::NotificationRestState;
+use mnt_platform_audit_chain::{ChainReport, InMemoryEd25519Signer, SealConfig, verify_org_chain};
 use mnt_platform_auth::{
     AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
     JwtVerifier, PasskeyService, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH,
@@ -238,6 +239,16 @@ pub struct AppConfig {
     /// (`MNT_MAIL_MASTER_KEY`) and object storage are both configured — it is a
     /// no-op otherwise, so a misconfiguration never crashes the app.
     pub mail_enabled: bool,
+    /// Whether the L20 tamper-evident audit-chain seal worker runs
+    /// (`MNT_AUDIT_CHAIN_SEAL_ENABLED`, default false). Post-merge review F3:
+    /// the PR-1 in-crate `InMemoryEd25519Signer` generates a FRESH keypair on
+    /// every worker restart and writes real seals under `key_ref =
+    /// test:ed25519:<hex>` — dev/test-grade, not yet the OCI Vault signer
+    /// (PR-3) that makes the chain's evidentiary guarantee real. Default OFF in
+    /// production so it does not write throwaway-keyed seals every tick until
+    /// the real signer lands; the attestation REST endpoint (PR-2) reads
+    /// whatever the worker has sealed regardless of this flag.
+    pub audit_chain_seal_enabled: bool,
     /// The tenant that owns the PUBLIC sales storefront (`STOREFRONT_ORG_ID`).
     /// `None` defaults to KNL's org in the sales router. Set it to the storefront
     /// tenant's real `organizations.id` when that tenant was re-minted via the
@@ -416,6 +427,12 @@ impl AppConfig {
                 .map_err(|err| AppError::Config(format!("invalid MNT_MAIL_ENABLED: {err}")))?,
             None => false,
         };
+        let audit_chain_seal_enabled = match vars.get("MNT_AUDIT_CHAIN_SEAL_ENABLED") {
+            Some(raw) => raw.parse::<bool>().map_err(|err| {
+                AppError::Config(format!("invalid MNT_AUDIT_CHAIN_SEAL_ENABLED: {err}"))
+            })?,
+            None => false,
+        };
         let storefront_org = match non_empty(vars.get("STOREFRONT_ORG_ID")) {
             Some(raw) => Some(
                 OrgId::from_str(&raw)
@@ -447,6 +464,7 @@ impl AppConfig {
             trusted_proxy_count,
             app_links,
             mail_enabled,
+            audit_chain_seal_enabled,
             storefront_org,
         })
     }
@@ -1329,10 +1347,13 @@ pub fn build_router(state: AppState) -> Router {
             // `router()` self-applies the per-request org middleware (so the
             // behavior is testable per crate), arming `app.current_org` for every
             // route. `/api/audit` is an app-level route, so it gets the same
-            // middleware applied directly here.
+            // middleware applied directly here. L20 audit-chain PR-2: the
+            // read-only attestation endpoint joins the SAME router (no new
+            // `.merge()`), the established pattern for app-level audit REST.
             let audit_router = mnt_platform_request_context::with_request_context(
                 Router::new()
                     .route("/api/audit", get(audit_log))
+                    .route("/api/v1/audit/attestation", get(audit_attestation))
                     .with_state(state.clone()),
                 state.jwt_verifier.clone(),
                 pool.clone(),
@@ -1709,6 +1730,62 @@ async fn audit_log(
         limit,
         offset,
     }))
+}
+
+/// L20 audit-chain PR-2: read-only attestation for the caller's tenant.
+/// Recomputes and compares the org's sealed hash chain (`verify_org_chain`,
+/// charter §5.3) and returns the verdict — never mutates. Authorized the same
+/// as `/api/audit` (`Feature::AuditLogRead`, ADMIN/SUPER_ADMIN): this is a
+/// strictly MORE sensitive audit surface (chain tamper evidence), so it must
+/// never be open to a wider audience than the raw audit log it attests.
+async fn audit_attestation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ChainReport>, ApiError> {
+    let pool = match &state.database {
+        DatabaseDependency::Postgres(pool) => pool,
+        DatabaseDependency::NotConfigured => {
+            return Err(ApiError::service_unavailable(
+                "database is not configured for audit access",
+            ));
+        }
+    };
+    let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
+        ApiError::service_unavailable("JWT verification is not configured for audit access")
+    })?;
+    let token = bearer_token(&headers)?;
+    let claims = verifier
+        .verify_access_token(token)
+        .map_err(|_| ApiError::unauthorized("invalid bearer token"))?;
+    let principal = principal_from_claims(claims)?;
+    authorize_audit_read(&principal)?;
+
+    // A throwaway signer is correct here: `InMemoryEd25519Signer::verify`
+    // reconstructs the public key from each seal's OWN stored `key_ref`, never
+    // from its own keypair (crate lib.rs `public_key_from_ref`), so which
+    // instance calls `verify` is immaterial — same dark-signer shape the PR-1
+    // worker already uses (`run_dispatch_worker`). PR-3's `OciVaultSigner`
+    // will verify the same way (key material keyed off the stored `key_ref`).
+    let signer: Arc<dyn mnt_platform_audit_chain::SealSigner> =
+        Arc::new(InMemoryEd25519Signer::generate().map_err(|err| {
+            tracing::error!(error = %err, "audit-chain attestation signer init failed");
+            ApiError::internal("attestation signer initialization failed")
+        })?);
+
+    let report = verify_org_chain(
+        pool,
+        principal.org_id,
+        &signer,
+        time::OffsetDateTime::now_utc(),
+        &SealConfig::default(),
+    )
+    .await
+    .map_err(|err| {
+        tracing::error!(error = %err, "audit-chain attestation verify failed");
+        ApiError::internal("attestation verification failed")
+    })?;
+
+    Ok(Json(report))
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
@@ -2275,18 +2352,30 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     // audit_events into the append-only audit_chain_seals hash chain on the same
     // `mnt_rt` pool, re-arming `app.current_org` per tenant each tick. Dev/test
     // uses an in-process Ed25519 signer; production swaps in an OCI Vault signer
-    // (PR-3) so the DB owner never holds the private key. Lands dark for the read
-    // path: no attestation REST surface is mounted yet (PR-2). Signer init only
-    // fails on a broken system CSPRNG; log and continue rather than panic.
-    let audit_chain_handle = match mnt_platform_audit_chain::InMemoryEd25519Signer::generate() {
-        Ok(signer) => Some(mnt_platform_audit_chain::spawn(
-            pool.clone(),
-            Arc::new(signer),
-        )),
-        Err(err) => {
-            tracing::error!(error = %err, "audit-chain signer init failed; seal worker not started");
-            None
+    // (PR-3) so the DB owner never holds the private key. The attestation REST
+    // endpoint (PR-2, `/api/v1/audit/attestation`) reads whatever is sealed
+    // regardless of this gate. F3 (post-merge review): default OFF in
+    // production — until the real signer lands, an always-on worker writes real
+    // seals every tick under a fresh `key_ref = test:ed25519:<hex>` keypair
+    // generated on every restart, which is not yet the evidentiary guarantee the
+    // chain is meant to provide. `MNT_AUDIT_CHAIN_SEAL_ENABLED=true` opts a
+    // deployment in (dev/staging) ahead of PR-3.
+    let audit_chain_handle = if config.audit_chain_seal_enabled {
+        match mnt_platform_audit_chain::InMemoryEd25519Signer::generate() {
+            Ok(signer) => Some(mnt_platform_audit_chain::spawn(
+                pool.clone(),
+                Arc::new(signer),
+            )),
+            Err(err) => {
+                tracing::error!(error = %err, "audit-chain signer init failed; seal worker not started");
+                None
+            }
         }
+    } else {
+        tracing::info!(
+            "MNT_AUDIT_CHAIN_SEAL_ENABLED is not set; the audit-chain seal worker is OFF"
+        );
+        None
     };
     // Workflow cron-schedule poller (BE-AUTO slice 1). Same worker-role,
     // per-tenant re-armed loop shape as the drainer. Dark-safe: no shipped

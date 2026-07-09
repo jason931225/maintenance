@@ -418,6 +418,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit/attestation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * L20 tamper-evident audit-chain attestation for the caller's tenant
+         * @description Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Authorized the same as GET /api/audit (SUPER_ADMIN / ADMIN) since this is a strictly more sensitive audit surface. Never mutates.
+         */
+        get: operations["getAuditChainAttestation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/work-orders": {
         parameters: {
             query?: never;
@@ -4901,6 +4921,24 @@ export interface components {
             /** Format: int32 */
             open_support_tickets: number;
         };
+        AuditChainAttestation: {
+            /** Format: uuid */
+            org_id: string;
+            /** @description No tamper detected. Independent of unsealed_tail. */
+            ok: boolean;
+            /**
+             * Format: int64
+             * @description The first offending seal's seq, when the failure localizes to one seal.
+             */
+            first_bad_seq?: number | null;
+            /**
+             * @description Tamper classification. `ok` means every seal recomputes, chains, verifies, and covers its range with no gap.
+             * @enum {string}
+             */
+            kind: "ok" | "seal_hash_mismatch" | "batch_hash_mismatch" | "broken_continuity" | "bad_signature" | "missing_seq" | "coverage_gap" | "corrupt_seal";
+            /** @description Freshness signal — committed rows older than the seal watermark exist beyond the head seal's cursor (the worker fell behind or is stopped). Never forces ok=false on a healthy live chain. */
+            unsealed_tail: boolean;
+        };
         UnavailableMetric: {
             metric: components["schemas"]["KpiMetric"];
             source_domain: string;
@@ -9105,6 +9143,37 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getAuditChainAttestation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The org's audit-chain integrity verdict. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditChainAttestation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured, or the database is not configured. */
             503: {
                 headers: {
                     [name: string]: unknown;
