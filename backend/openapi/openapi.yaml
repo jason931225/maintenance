@@ -5213,6 +5213,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/authz:
+    get:
+      operationId: getCurrentUserAuthz
+      summary: Get the authenticated caller's authorization projection
+      description: >-
+        The caller's authorization projection: org, branch scope,
+        roles-as-principal-attributes, and the legacy-matrix capability grants
+        the console needs for deny-by-omission rendering. NON-AUTHORITATIVE
+        (`authority = "advisory_ui_only"`) — the server remains the sole
+        enforcer; this is a rendering hint that lets the frontend gate on grants
+        instead of hardcoded role lists. `source = "legacy_matrix"` today; the
+        Cedar enforce-flip later flips `source` to `"cedar"` with this shape
+        unchanged. Capabilities are deny-by-omission: a feature the caller cannot
+        use is omitted (never emitted at `deny`).
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The caller's authorization projection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeAuthzResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/{id}:
     get:
       operationId: getUser
@@ -16751,6 +16782,98 @@ components:
           description: Opaque, frontend-owned console layout object to store verbatim.
       required:
       - layout
+    MeAuthzResponse:
+      type: object
+      description: >-
+        NON-AUTHORITATIVE authorization projection for the caller. A rendering
+        hint only — the backend matrix is the sole enforcer.
+      properties:
+        authority:
+          type: string
+          description: Always `advisory_ui_only`; never an authorization decision.
+          enum:
+          - advisory_ui_only
+        source:
+          type: string
+          description: >-
+            Grant source. `legacy_matrix` today; flips to `cedar` on the
+            enforce-promotion with this shape unchanged.
+          enum:
+          - legacy_matrix
+          - cedar
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        org_id:
+          $ref: '#/components/schemas/Uuid'
+        roles:
+          type: array
+          description: Canonical role keys carried as principal attributes.
+          items:
+            type: string
+        branch_scope:
+          $ref: '#/components/schemas/BranchScope'
+        capabilities:
+          type: array
+          description: >-
+            Capability grants the caller holds (deny-by-omission — a feature the
+            caller cannot use is omitted, never present at `deny`).
+          items:
+            $ref: '#/components/schemas/MeAuthzCapability'
+      required:
+      - authority
+      - source
+      - user_id
+      - org_id
+      - roles
+      - branch_scope
+      - capabilities
+    MeAuthzCapability:
+      type: object
+      properties:
+        feature:
+          type: string
+          description: Feature key, matching `/api/v1/policy/features`.
+        permission:
+          type: string
+          description: Effective permission level (`deny` is never emitted).
+          enum:
+          - request_only
+          - limited
+          - allow
+        branch_scope:
+          allOf:
+          - $ref: '#/components/schemas/BranchScope'
+          description: >-
+            The branch subset this `permission` level actually holds over —
+            not necessarily the caller's full `branch_scope`. A
+            branch-narrowed custom grant only elevates the capability within
+            its own branches; the caller must intersect this with the target
+            branch before offering the affordance (otherwise the UI can offer
+            an action the server's `authorize` call would then reject outside
+            this scope).
+      required:
+      - feature
+      - permission
+      - branch_scope
+    BranchScope:
+      type: object
+      description: >-
+        The set of branches a principal may act within. `all` (SUPER_ADMIN /
+        EXECUTIVE rollup) carries no `branches`; `branches` carries the explicit
+        set.
+      properties:
+        kind:
+          type: string
+          enum:
+          - all
+          - branches
+        branches:
+          type: array
+          description: Present only when `kind = branches`.
+          items:
+            $ref: '#/components/schemas/Uuid'
+      required:
+      - kind
     CreateRegionRequest:
       type: object
       required:

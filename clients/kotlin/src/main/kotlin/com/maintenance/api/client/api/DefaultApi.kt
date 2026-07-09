@@ -162,6 +162,7 @@ import com.maintenance.api.client.model.MailThreadDetail
 import com.maintenance.api.client.model.MailThreadReadStateRequest
 import com.maintenance.api.client.model.MailThreadView
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
+import com.maintenance.api.client.model.MeAuthzResponse
 import com.maintenance.api.client.model.MessengerMemberListResponse
 import com.maintenance.api.client.model.MessengerMemberSummary
 import com.maintenance.api.client.model.MessengerMessageListResponse
@@ -7412,6 +7413,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/users/me",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/me/authz
+     * Get the authenticated caller&#39;s authorization projection
+     * The caller&#39;s authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (&#x60;authority &#x3D; \&quot;advisory_ui_only\&quot;&#x60;) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. &#x60;source &#x3D; \&quot;legacy_matrix\&quot;&#x60; today; the Cedar enforce-flip later flips &#x60;source&#x60; to &#x60;\&quot;cedar\&quot;&#x60; with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at &#x60;deny&#x60;).
+     * @return MeAuthzResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getCurrentUserAuthz() : MeAuthzResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getCurrentUserAuthzWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MeAuthzResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/authz
+     * Get the authenticated caller&#39;s authorization projection
+     * The caller&#39;s authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (&#x60;authority &#x3D; \&quot;advisory_ui_only\&quot;&#x60;) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. &#x60;source &#x3D; \&quot;legacy_matrix\&quot;&#x60; today; the Cedar enforce-flip later flips &#x60;source&#x60; to &#x60;\&quot;cedar\&quot;&#x60; with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at &#x60;deny&#x60;).
+     * @return ApiResponse<MeAuthzResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getCurrentUserAuthzWithHttpInfo() : ApiResponse<MeAuthzResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getCurrentUserAuthzRequestConfig()
+
+        return@withContext request<Unit, MeAuthzResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getCurrentUserAuthz
+     *
+     * @return RequestConfig
+     */
+    fun getCurrentUserAuthzRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/authz",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
