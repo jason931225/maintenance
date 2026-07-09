@@ -590,7 +590,7 @@ impl PgMessengerStore {
             return Err(KernelError::not_found("messenger thread was not found").into());
         }
         if visibility != ThreadVisibility::Channel {
-            return Err(KernelError::not_found("messenger thread was not found").into());
+            return Err(KernelError::forbidden("messenger thread is not joinable").into());
         }
         let actor = command.actor;
         let org = current_org().map_err(KernelError::from)?;
