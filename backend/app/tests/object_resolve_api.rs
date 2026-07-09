@@ -439,6 +439,47 @@ async fn resolves_identity_kinds_and_denies_by_omission(pool: PgPool) {
         acct_cross.1
     );
 
+    // SUPER_ADMIN resolves to BranchScope::All, so the account lifecycle
+    // resolver must cover both active and deactivated accounts without relying
+    // on branch membership narrowing.
+    let all_scope_caller = UserId::new();
+    seed_user_in_branch(&pool, all_scope_caller, "SUPER_ADMIN", branch_y).await;
+    let all_scope_token = issue_token_with_roles(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        all_scope_caller,
+        vec![],
+        vec!["SUPER_ADMIN".to_owned()],
+    );
+    let acct_all_active = resolve(
+        &pool,
+        &public_key_pem,
+        &all_scope_token,
+        "account",
+        &subject.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        acct_all_active.1["exists"], true,
+        "All-scope account resolves active users: {}",
+        acct_all_active.1
+    );
+    assert_eq!(acct_all_active.1["status"], "active");
+    let acct_all_inactive = resolve(
+        &pool,
+        &public_key_pem,
+        &all_scope_token,
+        "account",
+        &deactivated.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        acct_all_inactive.1["exists"], true,
+        "All-scope account resolves deactivated users: {}",
+        acct_all_inactive.1
+    );
+    assert_eq!(acct_all_inactive.1["status"], "inactive");
+
     // passkey (self-owned): the caller's own passkey resolves.
     let my_passkey = seed_passkey(&pool, caller).await;
     let pk_mine = resolve(

@@ -2269,6 +2269,7 @@ async fn me_authz_projects_roles_scope_and_capabilities(pool: PgPool) {
     assert_eq!(body["authority"], "advisory_ui_only");
     assert_eq!(body["source"], "legacy_matrix");
     assert_eq!(body["user_id"], admin.as_uuid().to_string());
+    assert_eq!(body["org_id"], OrgId::knl().as_uuid().to_string());
 
     // Roles carried as principal attributes.
     let roles = body["roles"].as_array().unwrap();

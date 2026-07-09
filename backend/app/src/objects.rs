@@ -783,6 +783,57 @@ async fn resolve_org_unit(
     }))
 }
 
+struct ScopedUserRow {
+    display_name: String,
+    is_active: bool,
+}
+
+async fn resolve_user_by_branch_scope(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
+    user_id: Uuid,
+    active_only: bool,
+) -> Result<Option<ScopedUserRow>, ObjectError> {
+    let row = match scope {
+        BranchScope::All => {
+            sqlx::query(
+                r#"
+                SELECT display_name, is_active
+                FROM users
+                WHERE id = $1 AND ($2 = false OR is_active = true)
+                "#,
+            )
+            .bind(user_id)
+            .bind(active_only)
+            .fetch_optional(tx.as_mut())
+            .await?
+        }
+        BranchScope::Branches(set) => {
+            let branches: Vec<Uuid> = set.iter().map(|b| *b.as_uuid()).collect();
+            sqlx::query(
+                r#"
+                SELECT u.display_name, u.is_active
+                FROM users u
+                JOIN user_branches ub ON ub.user_id = u.id AND ub.branch_id = ANY($2)
+                WHERE u.id = $1 AND ($3 = false OR u.is_active = true)
+                LIMIT 1
+                "#,
+            )
+            .bind(user_id)
+            .bind(branches)
+            .bind(active_only)
+            .fetch_optional(tx.as_mut())
+            .await?
+        }
+    };
+
+    let Some(row) = row else { return Ok(None) };
+    Ok(Some(ScopedUserRow {
+        display_name: row.try_get("display_name")?,
+        is_active: row.try_get("is_active")?,
+    }))
+}
+
 async fn resolve_person(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     scope: &BranchScope,
@@ -795,34 +846,12 @@ async fn resolve_person(
     // is_active = true AND the user shares a branch with the caller's scope.
     // Out-of-scope OR inactive -> no row -> exists:false, byte-identical to a
     // missing id (no cross-branch existence/deactivation oracle).
-    let row = match scope {
-        BranchScope::All => {
-            sqlx::query("SELECT display_name FROM users WHERE id = $1 AND is_active = true")
-                .bind(uuid)
-                .fetch_optional(tx.as_mut())
-                .await?
-        }
-        BranchScope::Branches(set) => {
-            let branches: Vec<Uuid> = set.iter().map(|b| *b.as_uuid()).collect();
-            sqlx::query(
-                r#"
-                SELECT u.display_name
-                FROM users u
-                JOIN user_branches ub ON ub.user_id = u.id AND ub.branch_id = ANY($2)
-                WHERE u.id = $1 AND u.is_active = true
-                LIMIT 1
-                "#,
-            )
-            .bind(uuid)
-            .bind(branches)
-            .fetch_optional(tx.as_mut())
-            .await?
-        }
+    let Some(row) = resolve_user_by_branch_scope(tx, scope, uuid, true).await? else {
+        return Ok(None);
     };
-    let Some(row) = row else { return Ok(None) };
     Ok(Some(ResolvedHead {
         code: None,
-        title: Some(row.try_get("display_name")?),
+        title: Some(row.display_name),
         status: None,
     }))
 }
@@ -842,36 +871,13 @@ async fn resolve_account(
     let Some(uuid) = parse_uuid(id) else {
         return Ok(None);
     };
-    let row = match scope {
-        BranchScope::All => {
-            sqlx::query("SELECT display_name, is_active FROM users WHERE id = $1")
-                .bind(uuid)
-                .fetch_optional(tx.as_mut())
-                .await?
-        }
-        BranchScope::Branches(set) => {
-            let branches: Vec<Uuid> = set.iter().map(|b| *b.as_uuid()).collect();
-            sqlx::query(
-                r#"
-                SELECT u.display_name, u.is_active
-                FROM users u
-                JOIN user_branches ub ON ub.user_id = u.id AND ub.branch_id = ANY($2)
-                WHERE u.id = $1
-                LIMIT 1
-                "#,
-            )
-            .bind(uuid)
-            .bind(branches)
-            .fetch_optional(tx.as_mut())
-            .await?
-        }
+    let Some(row) = resolve_user_by_branch_scope(tx, scope, uuid, false).await? else {
+        return Ok(None);
     };
-    let Some(row) = row else { return Ok(None) };
-    let is_active: bool = row.try_get("is_active")?;
     Ok(Some(ResolvedHead {
         code: None,
-        title: Some(row.try_get("display_name")?),
-        status: Some(if is_active { "active" } else { "inactive" }.to_owned()),
+        title: Some(row.display_name),
+        status: Some(if row.is_active { "active" } else { "inactive" }.to_owned()),
     }))
 }
 
