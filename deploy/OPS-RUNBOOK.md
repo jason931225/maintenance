@@ -105,8 +105,10 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   service-local and protected by NetworkPolicy; do not switch it to HTTPS unless
   the backend reqwest rustls feature/test path is updated in the same PR.
 - Initial mox config: on first boot the pod copies `mnt-mox-bootstrap` into the
-  PVC and renders `domains.conf` with the webhook Authorization value. Later mox
-  config/admin changes live on the PVC; validate edits with:
+  PVC and renders `domains.conf` with the webhook Authorization value. On later
+  pod starts it refreshes only that `Authorization: Bearer ...` line from
+  `mnt-secrets`, so secret rotation propagates without overwriting other mox
+  config/admin changes on the PVC; validate edits with:
 
   ```sh
   kubectl exec -n maintenance statefulset/mnt-mox -- /bin/mox -config /mox-data/config/mox.conf config test
@@ -164,9 +166,69 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   # upload with the operator's OCI/S3 client credentials; never store secrets in git
   ```
 
-  Restore drill: create a fresh PVC/workload or scale mox down, restore the
-  tarball into `/mox-data`, start mox, verify `/webapi/v0/`, run the dark smoke,
-  and compare app mail read-model consistency before deleting the old volume.
+  Restore drill: prove this on a fresh PVC/workload when possible; for an
+  in-place restore, scale mox down first and do **not** delete the old PVC or
+  backup tarball until every validation below passes.
+
+  ```sh
+  BACKUP=./mox-backup-YYYYMMDDTHHMMSSZ.tgz
+  kubectl -n maintenance scale statefulset/mnt-mox --replicas=0
+  kubectl -n maintenance wait --for=delete pod/mnt-mox-0 --timeout=180s
+  ```
+
+  Mount the restore target PVC with a one-shot root pod. For a fresh-PVC drill,
+  create the PVC first and replace `claimName: mox-data-mnt-mox-0` below with
+  that claim instead of the production claim.
+
+  ```sh
+  cat >/tmp/mnt-mox-restore-pod.yaml <<'YAML'
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: mnt-mox-restore
+    namespace: maintenance
+  spec:
+    restartPolicy: Never
+    securityContext: { runAsUser: 0, fsGroup: 10001 }
+    containers:
+      - name: restore
+        image: r.xmox.nl/mox@sha256:47497222e83679f95049329f12c5d8c4bfd3b809e62d4ffcfd508907e66b06a5
+        command: ["/bin/sh", "-ceu", "sleep 3600"]
+        volumeMounts:
+          - { name: mox-data, mountPath: /mox-data }
+    volumes:
+      - name: mox-data
+        persistentVolumeClaim: { claimName: mox-data-mnt-mox-0 }
+  YAML
+  kubectl apply -f /tmp/mnt-mox-restore-pod.yaml
+  kubectl -n maintenance wait --for=condition=Ready pod/mnt-mox-restore --timeout=120s
+  kubectl -n maintenance cp "$BACKUP" mnt-mox-restore:/tmp/mox-restore.tgz
+  kubectl -n maintenance exec mnt-mox-restore -- /bin/sh -ceu '
+    rm -rf /mox-data/* /mox-data/.[!.]* /mox-data/..?*
+    tar -C /mox-data -xzf /tmp/mox-restore.tgz
+    chown -R 10001:10001 /mox-data
+    chmod 700 /mox-data /mox-data/config /mox-data/data
+    test -s /mox-data/config/mox.conf
+    test -s /mox-data/config/domains.conf
+    /bin/mox -config /mox-data/config/mox.conf config test
+  '
+  kubectl -n maintenance delete pod/mnt-mox-restore
+  ```
+
+  Start mox only after the restored files/config validate, then prove the live
+  webapi and dark smoke before removing the old PVC/export copy.
+
+  ```sh
+  kubectl -n maintenance scale statefulset/mnt-mox --replicas=1
+  kubectl -n maintenance rollout status statefulset/mnt-mox --timeout=300s
+  kubectl -n maintenance exec statefulset/mnt-mox -- \
+    /bin/mox -config /mox-data/config/mox.conf config test
+  kubectl -n maintenance port-forward svc/mnt-mox 1080:1080
+  curl -fsS http://127.0.0.1:1080/webapi/v0/ >/dev/null
+  # In a second terminal, port-forward svc/mnt-app 8090:8080 and run the dark smoke:
+  # node scripts/mox-e2e.mjs with MNT_MOX_* and MNT_MAIL_MOX_WEBHOOK_SECRET from Vault/mnt-secrets.
+  ```
+
 - Observability: enable `deploy/apps/maintenance/components/monitoring` only when
   Prometheus Operator CRDs exist. Scrape `svc/mnt-mox:8010/metrics` and alert on
   `MntMoxDown`, `MntMoxWebhookFailures`, `MntMoxQueueBacklog`, and

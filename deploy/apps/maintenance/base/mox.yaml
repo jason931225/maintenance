@@ -34,11 +34,13 @@ data:
     Postmaster:
     >Account: postmaster
     >Mailbox: Postmaster
-  # Initial mox dynamic config. The webhook Authorization value is rendered from
-  # mnt-secrets/MNT_MAIL_MOX_WEBHOOK_SECRET on first boot; use `mox config test`
-  # inside the pod before making later operator edits. The account password is
-  # intentionally not committed here; set it from the OCI Vault value after the
-  # pod is running (`mox setaccountpassword postmaster`).
+  # Initial mox dynamic config. The webhook Authorization value comes from
+  # mnt-secrets/MNT_MAIL_MOX_WEBHOOK_SECRET. The StatefulSet creates
+  # domains.conf on first boot, then refreshes only that Authorization line on
+  # later starts so secret rotation does not require manual PVC edits while other
+  # operator/admin config changes survive. The account password is intentionally
+  # not committed here; set it from the OCI Vault value after the pod is running
+  # (`mox setaccountpassword postmaster`).
   domains.conf.tpl: |
     Domains:
     >knllogistic.com:
@@ -88,13 +90,36 @@ spec:
               render_moxconf() {
                 sed -e 's/^>>>/\t\t\t/' -e 's/^>>/\t\t/' -e 's/^>/\t/' "$1"
               }
+              render_domainsconf() {
+                render_moxconf /mox-bootstrap/domains.conf.tpl | awk '
+                  /^[[:space:]]*Authorization: Bearer __MNT_MAIL_MOX_WEBHOOK_SECRET__/ {
+                    match($0, /^[[:space:]]*/)
+                    $0 = substr($0, RSTART, RLENGTH) "Authorization: Bearer " ENVIRON["MNT_MAIL_MOX_WEBHOOK_SECRET"]
+                  }
+                  { print }
+                '
+              }
+              refresh_domainsconf_webhook_secret() {
+                tmp="$(mktemp /tmp/mox/domains.conf.XXXXXX)"
+                awk '
+                  /^[[:space:]]*Authorization: Bearer / {
+                    match($0, /^[[:space:]]*/)
+                    $0 = substr($0, RSTART, RLENGTH) "Authorization: Bearer " ENVIRON["MNT_MAIL_MOX_WEBHOOK_SECRET"]
+                  }
+                  { print }
+                ' /mox-data/config/domains.conf > "$tmp"
+                if ! cmp -s "$tmp" /mox-data/config/domains.conf; then
+                  cat "$tmp" > /mox-data/config/domains.conf
+                fi
+                rm -f "$tmp"
+              }
               if [ ! -f /mox-data/config/mox.conf ]; then
                 render_moxconf /mox-bootstrap/mox.conf.tpl > /mox-data/config/mox.conf
               fi
               if [ ! -f /mox-data/config/domains.conf ]; then
-                render_moxconf /mox-bootstrap/domains.conf.tpl | \
-                  awk -v authz="${MNT_MAIL_MOX_WEBHOOK_SECRET}" '{gsub("__MNT_MAIL_MOX_WEBHOOK_SECRET__", authz); print}' \
-                  > /mox-data/config/domains.conf
+                render_domainsconf > /mox-data/config/domains.conf
+              else
+                refresh_domainsconf_webhook_secret
               fi
               /bin/mox -config /mox-data/config/mox.conf config test
               exec /bin/mox -config /mox-data/config/mox.conf serve
