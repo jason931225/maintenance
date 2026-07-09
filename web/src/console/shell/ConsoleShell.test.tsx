@@ -57,8 +57,9 @@ describe("ConsoleShell chrome", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "메뉴 접기" }));
     expect(sidebar).toHaveAttribute("data-collapsed", "true");
-    // collapsed hides group headers + labels
+    // collapsed hides group headers + labels, but still keeps the theme switch reachable.
     expect(screen.queryByText("개요")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "밝은 테마" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "메뉴 펼치기" }));
     expect(sidebar).toHaveAttribute("data-collapsed", "false");
@@ -71,8 +72,20 @@ describe("ConsoleShell chrome", () => {
     const options = within(listbox).getAllByRole("option");
     // With no live entities resolved, the switcher shows the union only — never
     // a literal all-orgs entry.
+    expect(options).toHaveLength(1);
     expect(options[0]).toHaveTextContent("그룹 전체");
     expect(options[0]).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("dismisses the scope switcher when clicking outside", async () => {
+    renderConsole(ADMIN);
+    fireEvent.click(screen.getByRole("button", { name: "범위 선택" }));
+    await screen.findByRole("listbox", { name: "운영 범위" });
+
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => {
+      expect(screen.queryByRole("listbox", { name: "운영 범위" })).not.toBeInTheDocument();
+    });
   });
 
   it("⌘K opens an empty palette surface; Esc closes it", async () => {
@@ -99,6 +112,7 @@ describe("Sidebar badges", () => {
   const groups = [
     {
       labelKey: "console.shell.nav.groups.overview",
+      labelId: "overview",
       items: [{ screen: "overview", labelKey: "console.shell.nav.overview", icon: "overview" as const }],
     },
   ];

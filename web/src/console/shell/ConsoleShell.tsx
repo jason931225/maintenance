@@ -73,6 +73,9 @@ export function ConsoleShell({
       : defaultScreen(grants);
 
   const [scopeOpen, setScopeOpen] = useState(false);
+  const closeScope = useCallback(() => {
+    setScopeOpen(false);
+  }, []);
   const [selectedScopeId, setSelectedScopeId] = useState(UNION_SCOPE_ID);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const paletteInputRef = useRef<HTMLInputElement>(null);
@@ -166,6 +169,7 @@ export function ConsoleShell({
           onScopeToggle={() => {
             setScopeOpen((v) => !v);
           }}
+          onScopeClose={closeScope}
           onScopeSelect={(id) => {
             setSelectedScopeId(id);
             setScopeOpen(false);

@@ -111,7 +111,7 @@ export const ko = {
     // P0.1 ConsoleShell chrome (console/shell/**).
     shell: {
       brand: {
-        name: "Acme Group",
+        name: "KnL",
         wordmark: "그룹 통합 운영 콘솔",
       },
       theme: {

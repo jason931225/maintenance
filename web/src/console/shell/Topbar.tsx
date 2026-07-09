@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { ko } from "../../i18n/ko";
 import { Icon } from "./icons";
 import type { ScopeOption } from "./authz";
@@ -12,6 +14,7 @@ export function Topbar({
   selectedScopeId,
   scopeOpen,
   onScopeToggle,
+  onScopeClose,
   onScopeSelect,
   userName,
   userInitial,
@@ -24,11 +27,29 @@ export function Topbar({
   selectedScopeId: string;
   scopeOpen: boolean;
   onScopeToggle: () => void;
+  onScopeClose: () => void;
   onScopeSelect: (id: string) => void;
   userName: string;
   userInitial: string;
   userRoleLabel: string;
 }) {
+  const scopeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!scopeOpen) return undefined;
+
+    function onMouseDown(event: MouseEvent) {
+      const target = event.target;
+      if (target instanceof Node && scopeRef.current?.contains(target)) return;
+      onScopeClose();
+    }
+
+    document.addEventListener("mousedown", onMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [onScopeClose, scopeOpen]);
+
   return (
     <header
       style={{
@@ -95,7 +116,7 @@ export function Topbar({
       </button>
 
       {/* scope switcher */}
-      <div style={{ position: "relative", flex: "none" }}>
+      <div ref={scopeRef} style={{ position: "relative", flex: "none" }}>
         <button
           type="button"
           onClick={onScopeToggle}

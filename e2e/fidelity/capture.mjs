@@ -52,11 +52,12 @@ const SHELL_STATES = {
   },
 };
 const state = argVal("state", "");
-const stateSetup = state ? SHELL_STATES[state] : null;
-if (state && !(state in SHELL_STATES)) {
+const normalizedState = state === "expanded" ? "" : state;
+const stateSetup = normalizedState ? SHELL_STATES[normalizedState] : null;
+if (normalizedState && !(normalizedState in SHELL_STATES)) {
   throw new Error(`unknown --state "${state}" (known: ${Object.keys(SHELL_STATES).join(", ")})`);
 }
-const outKey = state ? `${screen}-${state}` : screen;
+const outKey = normalizedState ? `${screen}-${normalizedState}` : screen;
 const width = Number(argVal("viewport", "1440"));
 const height = Number(argVal("height", "900"));
 const serve = !args.includes("--no-serve");

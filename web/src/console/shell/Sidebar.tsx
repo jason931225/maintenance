@@ -13,7 +13,11 @@ const S = ko.console.shell;
 
 function get(obj: Record<string, unknown>, key: string): string {
   const v = obj[key];
-  return typeof v === "string" ? v : key;
+  if (typeof v === "string") return v;
+  if (import.meta.env.DEV) {
+    console.warn(`[console-shell] missing i18n key: ${key}`);
+  }
+  return key;
 }
 
 function ThemeButton({ theme, onCycle }: { theme: ThemeMode; onCycle: () => void }) {
@@ -115,33 +119,31 @@ export function Sidebar({
           A
         </span>
         {!collapsed && (
-          <>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div
-                style={{
-                  fontSize: 14.5,
-                  fontWeight: 800,
-                  letterSpacing: "-0.2px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {S.brand.name}
-              </div>
-              <div
-                style={{
-                  fontSize: 9.5,
-                  fontWeight: 700,
-                  color: "var(--faint)",
-                  letterSpacing: "0.6px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {S.brand.wordmark}
-              </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              style={{
+                fontSize: 14.5,
+                fontWeight: 800,
+                letterSpacing: "-0.2px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {S.brand.name}
             </div>
-            <ThemeButton theme={theme} onCycle={onCycleTheme} />
-          </>
+            <div
+              style={{
+                fontSize: 9.5,
+                fontWeight: 700,
+                color: "var(--faint)",
+                letterSpacing: "0.6px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {S.brand.wordmark}
+            </div>
+          </div>
         )}
+        <ThemeButton theme={theme} onCycle={onCycleTheme} />
       </div>
 
       {/* nav groups */}
@@ -160,7 +162,7 @@ export function Sidebar({
       >
         {groups.map((group) => (
           <div
-            key={group.labelKey}
+            key={group.labelId}
             style={{ display: "flex", flexDirection: "column", gap: 2 }}
           >
             {!collapsed && (
@@ -175,7 +177,7 @@ export function Sidebar({
                   whiteSpace: "nowrap",
                 }}
               >
-                {get(S.nav.groups, group.labelKey.split(".").pop() ?? "")}
+                {get(S.nav.groups, group.labelId)}
               </p>
             )}
             {group.items.map((item) => {

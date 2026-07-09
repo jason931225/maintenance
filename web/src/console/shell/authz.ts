@@ -86,21 +86,26 @@ function grantsFromSession(session: ReturnType<typeof useAuth>["session"]): Cons
 
 export function useConsoleAuthz(): { grants: ConsoleGrants; source: "authz" | "jwt" } {
   const { session } = useAuth();
+  const token = session?.access_token;
   const baseline = useMemo(() => grantsFromSession(session), [session]);
-  const [authoritative, setAuthoritative] = useState<ConsoleGrants | undefined>();
+  const [authoritative, setAuthoritative] = useState<
+    { token: string | undefined; grants: ConsoleGrants } | undefined
+  >();
+  const currentAuthoritative =
+    authoritative && authoritative.token === token ? authoritative.grants : undefined;
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchAuthz(session?.access_token, controller.signal).then((grants) => {
-      if (!controller.signal.aborted && grants) setAuthoritative(grants);
+    void fetchAuthz(token, controller.signal).then((grants) => {
+      if (!controller.signal.aborted && grants) setAuthoritative({ token, grants });
     });
     return () => {
       controller.abort();
     };
-  }, [session?.access_token]);
+  }, [token]);
 
-  return authoritative
-    ? { grants: authoritative, source: "authz" }
+  return currentAuthoritative
+    ? { grants: currentAuthoritative, source: "authz" }
     : { grants: baseline, source: "jwt" };
 }
 

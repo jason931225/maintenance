@@ -72,6 +72,7 @@ export interface ConsoleNavItem {
 
 export interface ConsoleNavGroup {
   labelKey: string;
+  labelId: string;
   items: readonly ConsoleNavItem[];
 }
 
@@ -83,6 +84,7 @@ const g = (roles?: readonly string[], features?: readonly string[]): NavGate => 
 export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   {
     labelKey: "console.shell.nav.groups.overview",
+    labelId: "overview",
     items: [
       { screen: "overview", labelKey: "console.shell.nav.overview", icon: "overview" },
       { screen: "mywork", labelKey: "console.shell.nav.mywork", icon: "inbox" },
@@ -91,6 +93,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.hr",
+    labelId: "hr",
     items: [
       {
         screen: "hr",
@@ -120,6 +123,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.payroll",
+    labelId: "payroll",
     items: [
       {
         screen: "payroll",
@@ -134,6 +138,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.erp",
+    labelId: "erp",
     items: [
       { screen: "finance", labelKey: "console.shell.nav.finance", icon: "receipt", gate: g(MANAGEMENT_ROLES) },
       { screen: "purchase", labelKey: "console.shell.nav.purchase", icon: "cart", gate: g(MANAGEMENT_ROLES) },
@@ -143,6 +148,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.fieldOps",
+    labelId: "fieldOps",
     items: [
       {
         screen: "dispatch",
@@ -166,6 +172,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.governance",
+    labelId: "governance",
     items: [
       { screen: "appr", labelKey: "console.shell.nav.appr", icon: "checkSq" },
       { screen: "docs", labelKey: "console.shell.nav.docs", icon: "folder" },
@@ -191,6 +198,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.analytics",
+    labelId: "analytics",
     items: [
       { screen: "dashboard", labelKey: "console.shell.nav.dashboard", icon: "chart", gate: g(MANAGEMENT_ROLES, [FEATURES.KPI_READ]) },
       { screen: "laborcost", labelKey: "console.shell.nav.laborcost", icon: "trend", gate: g(MANAGEMENT_ROLES, [FEATURES.KPI_READ]) },
@@ -200,6 +208,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.automation",
+    labelId: "automation",
     items: [
       { screen: "workflow", labelKey: "console.shell.nav.workflow", icon: "workflow", gate: g(ROLE_MANAGE_ROLES) },
       { screen: "scheduled", labelKey: "console.shell.nav.scheduled", icon: "repeat", gate: g(ROLE_MANAGE_ROLES) },
@@ -207,6 +216,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
   },
   {
     labelKey: "console.shell.nav.groups.comms",
+    labelId: "comms",
     items: [
       { screen: "messenger", labelKey: "console.shell.nav.messenger", icon: "msg" },
       { screen: "mail", labelKey: "console.shell.nav.mail", icon: "mail" },
@@ -239,6 +249,7 @@ export function isNavItemVisible(gate: NavGate | undefined, grants: ConsoleGrant
 
 export interface VisibleNavGroup {
   labelKey: string;
+  labelId: string;
   items: ConsoleNavItem[];
 }
 
@@ -246,6 +257,7 @@ export interface VisibleNavGroup {
 export function visibleConsoleNav(grants: ConsoleGrants): VisibleNavGroup[] {
   return NAV_GROUPS.map((group) => ({
     labelKey: group.labelKey,
+    labelId: group.labelId,
     items: group.items.filter((item) => isNavItemVisible(item.gate, grants)),
   })).filter((group) => group.items.length > 0);
 }
