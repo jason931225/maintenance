@@ -145,7 +145,7 @@ test("ADMIN-19 admin approves a target due-date change request from the review q
   await loginAs("ADMIN");
   await page.goto("/approvals");
   await expect(
-    page.getByRole("heading", { name: /전자결제 대기/, level: 1 }),
+    page.getByRole("heading", { name: /전자결재시스템 대기/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
   // Confirm the page's initial protected read succeeded by waiting for a seeded
   // approval-queue work order (request_no …-071). The first on-load read can race

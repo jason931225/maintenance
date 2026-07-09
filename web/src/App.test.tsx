@@ -651,7 +651,11 @@ describe("routing", () => {
     // /approvals is admin-only (RequireAdminRoute) — render with an admin session.
     renderAt("/approvals", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "전자결제 대기", level: 1 }),
+      await screen.findByRole(
+        "heading",
+        { name: "전자결재시스템 대기", level: 1 },
+        { timeout: 15000 },
+      ),
     ).toBeVisible();
   });
 

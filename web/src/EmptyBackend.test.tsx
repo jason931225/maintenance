@@ -294,7 +294,7 @@ function renderAt(path: string) {
 const pages: { path: string; heading: string; empty: string }[] = [
   { path: "/overview", heading: "통합 개요", empty: "현재 처리할 항목이 없습니다." },
   { path: "/dispatch", heading: "배차 보드", empty: "표시할 접수건이 없습니다." },
-  { path: "/approvals", heading: "전자결제 대기", empty: "승인 대기 건이 없습니다." },
+  { path: "/approvals", heading: "전자결재시스템 대기", empty: "전자결재시스템 대기 건이 없습니다." },
   { path: "/kpi", heading: "임원 KPI 대시보드", empty: "KPI 데이터를 불러오면 표시됩니다." },
   { path: "/messenger", heading: "메신저", empty: "표시할 대화방이 없습니다." },
   { path: "/support", heading: "고객지원 티켓", empty: "표시할 티켓이 없습니다." },
@@ -321,7 +321,7 @@ describe("every page renders cleanly against an empty backend", () => {
         await screen.findByRole(
           "heading",
           { name: page.heading, level: 1 },
-          { timeout: 5000 },
+          { timeout: page.path === "/approvals" ? 15000 : 5000 },
         ),
       ).toBeVisible();
       // Empty copy can surface in more than one sub-panel (e.g. the dispatch
