@@ -96,7 +96,10 @@ for (const securityNeedle of [
 for (const releaseNeedle of [
   "docs/specs/**",
   "Wait for CI success",
-  "Trivy scan (fail on HIGH/CRITICAL)",
+  "Trivy scan both arches (fail on HIGH/CRITICAL)",
+  "target: linux/amd64",
+  "target: linux/arm64",
+  "docker buildx imagetools create",
   "cosign sign --yes",
   "attest-build-provenance",
   "auto-bump",

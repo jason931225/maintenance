@@ -57,12 +57,14 @@ requireIncludes(".github/workflows/ci.yml", "npm run check:production-hardening"
 requireIncludes(".github/workflows/security.yml", "npm run check:production-hardening", "Security workflow runs production-hardening contract");
 for (const needle of [
   "Wait for CI success",
-  "Trivy scan (fail on HIGH/CRITICAL)",
+  "Trivy scan both arches (fail on HIGH/CRITICAL)",
+  "docker buildx imagetools create",
   "cosign sign --yes",
   "attest-build-provenance",
   "bump-prod-digests",
   "ubuntu-24.04-arm",
-  "platforms: linux/arm64",
+  "target: linux/amd64",
+  "target: linux/arm64",
 ]) {
   requireIncludes(".github/workflows/image-release.yml", needle, `image-release gate: ${needle}`);
 }
