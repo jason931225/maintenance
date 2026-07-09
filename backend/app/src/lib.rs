@@ -2231,6 +2231,23 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     // `app.current_org` per tenant each tick. Lands dark: no tenant is enrolled in
     // a shipped migration/seed, so it finds no work in production.
     let workflow_drain_handle = workflow_drain::spawn(pool.clone());
+    // L20 tamper-evident audit-chain seal worker (charter §5.1). Seals batches of
+    // audit_events into the append-only audit_chain_seals hash chain on the same
+    // `mnt_rt` pool, re-arming `app.current_org` per tenant each tick. Dev/test
+    // uses an in-process Ed25519 signer; production swaps in an OCI Vault signer
+    // (PR-3) so the DB owner never holds the private key. Lands dark for the read
+    // path: no attestation REST surface is mounted yet (PR-2). Signer init only
+    // fails on a broken system CSPRNG; log and continue rather than panic.
+    let audit_chain_handle = match mnt_platform_audit_chain::InMemoryEd25519Signer::generate() {
+        Ok(signer) => Some(mnt_platform_audit_chain::spawn(
+            pool.clone(),
+            Arc::new(signer),
+        )),
+        Err(err) => {
+            tracing::error!(error = %err, "audit-chain signer init failed; seal worker not started");
+            None
+        }
+    };
     let alimtalk_policy = if config.solapi.is_some() {
         AlimtalkEscalationPolicy::enabled()
     } else {
@@ -2295,6 +2312,9 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     .map_err(|err| AppError::Worker(err.to_string()));
 
     workflow_drain_handle.shutdown();
+    if let Some(handle) = audit_chain_handle {
+        handle.shutdown();
+    }
     health_server.abort();
     result
 }
