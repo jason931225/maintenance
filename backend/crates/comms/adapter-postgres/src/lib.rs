@@ -573,7 +573,7 @@ impl PgMailStore {
         &self,
         address: &str,
     ) -> Result<AddressLookup, PgMailError> {
-        // Cross-tenant id-only lookup via the 0130 SECURITY DEFINER function. Runs
+        // Cross-tenant id-only lookup via 0122_comms_account_by_address.sql. Runs
         // on the raw pool (NO org armed) — the function REVOKEs PUBLIC and only
         // mnt_rt may EXECUTE it; it returns ONLY the (org_id, account_id) pairs of
         // every ACTIVE account matching this recipient address. `email_accounts`
