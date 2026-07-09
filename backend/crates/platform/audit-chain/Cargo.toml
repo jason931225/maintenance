@@ -10,6 +10,12 @@ publish.workspace = true
 [dependencies]
 mnt-kernel-core = { workspace = true }
 mnt-platform-db = { workspace = true }
+# `catch_unwind` panic-isolation for the per-org seal in the worker tick, mirroring
+# the cedar shadow lane. Already resolved in-tree (workspace dep, Cargo.lock 0.3.32).
+futures = { workspace = true }
+# ChainReport/ChainReportKind derive Serialize so PR-2's attestation REST
+# handler returns them directly with no parallel app-level DTO.
+serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }

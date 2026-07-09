@@ -151,6 +151,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/ops/summary`.
     /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)`.
     func getOpsSummary(_ input: Operations.GetOpsSummary.Input) async throws -> Operations.GetOpsSummary.Output
+    /// L20 tamper-evident audit-chain attestation for the caller's tenant
+    ///
+    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority. Never mutates.
+    ///
+    /// - Remark: HTTP `GET /api/v1/audit/attestation`.
+    /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)`.
+    func getAuditChainAttestation(_ input: Operations.GetAuditChainAttestation.Input) async throws -> Operations.GetAuditChainAttestation.Output
     /// List branch-scoped work orders
     ///
     /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
@@ -1960,6 +1967,15 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)`.
     public func getOpsSummary(headers: Operations.GetOpsSummary.Input.Headers = .init()) async throws -> Operations.GetOpsSummary.Output {
         try await getOpsSummary(Operations.GetOpsSummary.Input(headers: headers))
+    }
+    /// L20 tamper-evident audit-chain attestation for the caller's tenant
+    ///
+    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority. Never mutates.
+    ///
+    /// - Remark: HTTP `GET /api/v1/audit/attestation`.
+    /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)`.
+    public func getAuditChainAttestation(headers: Operations.GetAuditChainAttestation.Input.Headers = .init()) async throws -> Operations.GetAuditChainAttestation.Output {
+        try await getAuditChainAttestation(Operations.GetAuditChainAttestation.Input(headers: headers))
     }
     /// List branch-scoped work orders
     ///
@@ -6520,6 +6536,68 @@ public enum Components {
                 case activeSubstitutions = "active_substitutions"
                 case pendingApprovals = "pending_approvals"
                 case openSupportTickets = "open_support_tickets"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AuditChainAttestation`.
+        public struct AuditChainAttestation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AuditChainAttestation/org_id`.
+            public var orgId: Swift.String
+            /// No tamper detected. Independent of unsealed_tail.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AuditChainAttestation/ok`.
+            public var ok: Swift.Bool
+            /// The first offending seal's seq, when the failure localizes to one seal.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AuditChainAttestation/first_bad_seq`.
+            public var firstBadSeq: Swift.Int64?
+            /// Tamper classification. `ok` means every seal recomputes, chains, verifies, and covers its range with no gap.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AuditChainAttestation/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case ok = "ok"
+                case sealHashMismatch = "seal_hash_mismatch"
+                case batchHashMismatch = "batch_hash_mismatch"
+                case brokenContinuity = "broken_continuity"
+                case badSignature = "bad_signature"
+                case missingSeq = "missing_seq"
+                case coverageGap = "coverage_gap"
+                case corruptSeal = "corrupt_seal"
+            }
+            /// Tamper classification. `ok` means every seal recomputes, chains, verifies, and covers its range with no gap.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AuditChainAttestation/kind`.
+            public var kind: Components.Schemas.AuditChainAttestation.KindPayload
+            /// Freshness signal — committed rows older than the seal watermark exist beyond the head seal's cursor (the worker fell behind or is stopped). Never forces ok=false on a healthy live chain.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AuditChainAttestation/unsealed_tail`.
+            public var unsealedTail: Swift.Bool
+            /// Creates a new `AuditChainAttestation`.
+            ///
+            /// - Parameters:
+            ///   - orgId:
+            ///   - ok: No tamper detected. Independent of unsealed_tail.
+            ///   - firstBadSeq: The first offending seal's seq, when the failure localizes to one seal.
+            ///   - kind: Tamper classification. `ok` means every seal recomputes, chains, verifies, and covers its range with no gap.
+            ///   - unsealedTail: Freshness signal — committed rows older than the seal watermark exist beyond the head seal's cursor (the worker fell behind or is stopped). Never forces ok=false on a healthy live chain.
+            public init(
+                orgId: Swift.String,
+                ok: Swift.Bool,
+                firstBadSeq: Swift.Int64? = nil,
+                kind: Components.Schemas.AuditChainAttestation.KindPayload,
+                unsealedTail: Swift.Bool
+            ) {
+                self.orgId = orgId
+                self.ok = ok
+                self.firstBadSeq = firstBadSeq
+                self.kind = kind
+                self.unsealedTail = unsealedTail
+            }
+            public enum CodingKeys: String, CodingKey {
+                case orgId = "org_id"
+                case ok
+                case firstBadSeq = "first_bad_seq"
+                case kind
+                case unsealedTail = "unsealed_tail"
             }
         }
         /// - Remark: Generated from `#/components/schemas/UnavailableMetric`.
@@ -27810,6 +27888,266 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.GetOpsSummary.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// L20 tamper-evident audit-chain attestation for the caller's tenant
+    ///
+    /// Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority. Never mutates.
+    ///
+    /// - Remark: HTTP `GET /api/v1/audit/attestation`.
+    /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)`.
+    public enum GetAuditChainAttestation {
+        public static let id: Swift.String = "getAuditChainAttestation"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/audit/attestation/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetAuditChainAttestation.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetAuditChainAttestation.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetAuditChainAttestation.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.GetAuditChainAttestation.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/audit/attestation/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/audit/attestation/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AuditChainAttestation)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AuditChainAttestation {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetAuditChainAttestation.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetAuditChainAttestation.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The org's audit-chain integrity verdict.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetAuditChainAttestation.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetAuditChainAttestation.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct InternalServerError: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/audit/attestation/GET/responses/500/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/audit/attestation/GET/responses/500/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetAuditChainAttestation.Output.InternalServerError.Body
+                /// Creates a new `InternalServerError`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetAuditChainAttestation.Output.InternalServerError.Body) {
+                    self.body = body
+                }
+            }
+            /// The attestation signer failed to initialize, or verify_org_chain hit a genuine DB/infra error while recomputing the chain (never on a tamper finding, which is a 200 with ok=false).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)/responses/500`.
+            ///
+            /// HTTP response code: `500 internalServerError`.
+            case internalServerError(Operations.GetAuditChainAttestation.Output.InternalServerError)
+            /// The associated value of the enum case if `self` is `.internalServerError`.
+            ///
+            /// - Throws: An error if `self` is not `.internalServerError`.
+            /// - SeeAlso: `.internalServerError`.
+            public var internalServerError: Operations.GetAuditChainAttestation.Output.InternalServerError {
+                get throws {
+                    switch self {
+                    case let .internalServerError(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/audit/attestation/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/audit/attestation/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetAuditChainAttestation.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetAuditChainAttestation.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured, or the database is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/audit/attestation/get(getAuditChainAttestation)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetAuditChainAttestation.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetAuditChainAttestation.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

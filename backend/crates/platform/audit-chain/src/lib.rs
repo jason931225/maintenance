@@ -47,9 +47,11 @@
 //! this crate ships no `.sqlx` offline cache and CI runs `SQLX_OFFLINE=true`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use futures::FutureExt;
 use mnt_kernel_core::OrgId;
 use mnt_platform_db::{DbError, with_org_conn};
 use sha2::{Digest, Sha256};
@@ -87,12 +89,17 @@ const TS_FORMAT: &[time::format_description::BorrowedFormatItem<'_>] = time::mac
 pub struct SealConfig {
     /// A row is sealed only once `created_at <= now - seal_lag`, so its
     /// transaction has certainly committed (commit order ≠ `now()` order). The
-    /// invariant `seal_lag > max audited-txn duration` ⟹ no gaps holds by
-    /// construction: the app bounds txn duration well under 60s via statement
-    /// timeouts.
-    // ponytail: time-lag watermark. Correct while max txn duration < seal_lag
-    // (enforced by the statement timeout). If a long-running audited txn is ever
-    // introduced, upgrade to an xmin-snapshot watermark
+    /// invariant `seal_lag > max audited-txn duration` ⟹ no gaps is now
+    /// ENFORCED, not merely assumed: migration `0112_mnt_rt_statement_timeout`
+    /// pins `statement_timeout` and `idle_in_transaction_session_timeout` at 30s
+    /// on the `mnt_rt` login role, so no background writer transaction can
+    /// outlive the default 60s `seal_lag`. (Before 0112 `mnt_rt` had no such
+    /// bound — post-merge review F2 — and a >60s txn could commit a row below an
+    /// advanced cursor and trip a false-positive `CoverageGap`.)
+    // ponytail: time-lag watermark. Correct while max txn duration < seal_lag,
+    // enforced by the mnt_rt statement timeout (0112, 30s < 60s). If a
+    // long-running audited txn is ever genuinely needed, raise BOTH the timeout
+    // and seal_lag together, or upgrade to an xmin-snapshot watermark
     // (pg_snapshot_xmin(pg_current_snapshot())).
     pub seal_lag: Duration,
     /// Max rows sealed in one pass (bounds one transaction). A backlog drains
@@ -668,18 +675,35 @@ async fn run_tick(pool: &PgPool, signer: &Arc<dyn SealSigner>, config: &SealConf
     let now = OffsetDateTime::now_utc();
     for org_uuid in orgs {
         let org = OrgId::from_uuid(org_uuid);
-        match seal_org_once(pool, org, signer, now, config).await {
-            Ok(None) => {}
-            Ok(Some(summary)) => tracing::info!(
+        // Panic-isolate the per-org seal (mirrors the cedar shadow-lane
+        // precedent, identity/rest run_role_manage_cedar_shadow). `catch_unwind`
+        // turns any panic — signer, sqlx, canonicalizer — into an `Err` instead
+        // of unwinding out of the tick and killing the whole seal loop, so one
+        // bad org cannot starve every other tenant's chain. `AssertUnwindSafe`
+        // is sound: seal_org_once holds no cross-await locks and its only
+        // mutation is a seal INSERT that rolls back on a panic, so a caught panic
+        // leaves no observable broken state. It runs on the SAME task; per-org
+        // isolation via `with_org_conn` arms `app.current_org` on its own
+        // connection, so there is no task-local to preserve.
+        let outcome = AssertUnwindSafe(seal_org_once(pool, org, signer, now, config))
+            .catch_unwind()
+            .await;
+        match outcome {
+            Ok(Ok(None)) => {}
+            Ok(Ok(Some(summary))) => tracing::info!(
                 org = %org_uuid,
                 seq = summary.seq,
                 row_count = summary.row_count,
                 "audit-chain: sealed a batch"
             ),
-            Err(err) => tracing::warn!(
+            Ok(Err(err)) => tracing::warn!(
                 org = %org_uuid,
                 error = %err,
                 "audit-chain: seal pass failed"
+            ),
+            Err(_panic) => tracing::error!(
+                org = %org_uuid,
+                "audit-chain: seal pass PANICKED (isolated; other tenants continue)"
             ),
         }
     }
@@ -691,7 +715,12 @@ async fn run_tick(pool: &PgPool, signer: &Arc<dyn SealSigner>, config: &SealConf
 
 /// The TAMPER classification of a chain. Distinct from the behind-schedule
 /// freshness signal (`ChainReport::unsealed_tail`), which is NOT tamper.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// `Serialize` (snake_case, matching the app's `AppRole` precedent) so the
+/// PR-2 attestation REST handler returns this type directly — no parallel
+/// app-level DTO duplicating the crate's own verdict shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ChainReportKind {
     /// Every seal recomputes, chains, verifies, and covers its range with no gap.
     Ok,
@@ -728,7 +757,7 @@ pub enum ChainReportKind {
 /// carries a rolling unsealed window (up to `seal_lag + tick`), so conflating
 /// behind-schedule with tamper would false-alarm every healthy chain. Tamper
 /// (act now) and behind-schedule (a freshness/ops signal) are kept distinct.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ChainReport {
     pub org_id: Uuid,
     /// No tamper detected. Independent of `unsealed_tail`.

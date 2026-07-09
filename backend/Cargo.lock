@@ -3484,11 +3484,13 @@ dependencies = [
 name = "mnt-platform-audit-chain"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "hex",
  "mnt-kernel-core",
  "mnt-platform-db",
  "mnt-platform-request-context",
  "ring",
+ "serde",
  "serde_json",
  "sha2 0.11.0",
  "sqlx 0.9.0",

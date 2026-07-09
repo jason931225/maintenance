@@ -172,6 +172,25 @@ async fn write_events(
     ids
 }
 
+/// The DB server's own wall clock. Tests use this — NEVER the host's
+/// `OffsetDateTime::now_utc()` — as the `now` passed to `seal_org_once` /
+/// `verify_org_chain`, because `created_at` is stamped by Postgres's `now()`
+/// (transaction start time), not by the test process. This dev Postgres is
+/// reached over a forwarded connection whose clock can transiently skew from
+/// the test host's clock by tens of milliseconds (VM/network jitter); a
+/// host-clock `now` captured strictly after `write_events(..).await` returns
+/// can still read EARLIER than a row's DB-stamped `created_at`, silently
+/// dropping it from a zero-lag watermark batch — a false negative that has
+/// nothing to do with the code under test. Anchoring `now` to the DB's own
+/// clock makes every watermark comparison self-consistent regardless of host
+/// skew.
+async fn db_now(pool: &PgPool) -> OffsetDateTime {
+    sqlx::query_scalar("SELECT now()")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 /// Count seals for `org` as the owner (bypassing RLS), for cross-checks.
 async fn owner_seal_count(owner_pool: &PgPool, org: Uuid) -> i64 {
     let mut tx = owner_pool.begin().await.unwrap();
@@ -286,7 +305,7 @@ async fn seal_then_verify_happy_path(owner_pool: PgPool) {
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
 
     let ids = write_events(&rt, org, user, branch, 3).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
 
     let summary = seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
@@ -316,7 +335,7 @@ async fn verify_detects_sealed_row_edit(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     let ids = write_events(&rt, org, user, branch, 3).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
         .await
@@ -349,7 +368,7 @@ async fn verify_detects_sealed_row_delete(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     let ids = write_events(&rt, org, user, branch, 3).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
         .await
@@ -382,7 +401,7 @@ async fn verify_detects_seal_scalar_and_hash_tamper(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     write_events(&rt, org, user, branch, 2).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
         .await
@@ -432,14 +451,14 @@ async fn verify_detects_missing_seq(owner_pool: PgPool) {
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
 
     write_events(&rt, org, user, branch, 2).await;
-    let now1 = OffsetDateTime::now_utc();
+    let now1 = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now1, &cfg)
         .await
         .unwrap()
         .unwrap();
     write_events(&rt, org, user, branch, 1).await;
-    let now2 = OffsetDateTime::now_utc();
+    let now2 = db_now(&owner_pool).await;
     let s2 = seal_org_once(&rt, OrgId::from_uuid(org), &signer, now2, &cfg)
         .await
         .unwrap()
@@ -473,12 +492,12 @@ async fn seals_isolate_tenants_as_runtime_role(owner_pool: PgPool) {
     let org_b = ORG_B;
     let (branch_a, user_a) = seed_tenant(&owner_pool, org_a, "A").await;
     let (branch_b, user_b) = seed_tenant(&owner_pool, org_b, "B").await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
 
     write_events(&rt, org_a, user_a, branch_a, 2).await;
     write_events(&rt, org_b, user_b, branch_b, 2).await;
-    let now = OffsetDateTime::now_utc().max(now);
+    let now = db_now(&owner_pool).await.max(now);
     seal_org_once(&rt, OrgId::from_uuid(org_a), &signer, now, &cfg)
         .await
         .unwrap()
@@ -550,7 +569,7 @@ async fn seals_are_immutable_to_runtime_role(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     write_events(&rt, org, user, branch, 1).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &immediate())
         .await
         .unwrap()
@@ -603,7 +622,7 @@ async fn seal_org_id_is_immutable_to_owner_updates(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &immediate(),
     )
     .await
@@ -649,7 +668,7 @@ async fn seal_is_idempotent_and_chains(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -662,7 +681,7 @@ async fn seal_is_idempotent_and_chains(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -679,7 +698,7 @@ async fn seal_is_idempotent_and_chains(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -693,6 +712,60 @@ async fn seal_is_idempotent_and_chains(owner_pool: PgPool) {
         seal1_hash,
         "seq 2 must chain to seq 1's seal_hash"
     );
+}
+
+// ---------------------------------------------------------------------------
+// F4 concurrency: two concurrent seal_org_once for one org — exactly one seal
+// wins, no fork. Exercises the advisory-xact-lock + PK(org,seq) / UNIQUE(org,
+// prev_seal_hash) double-seal defenses that PR-1 argued only in comments.
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn concurrent_seal_of_one_org_produces_exactly_one_seal(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let signer = signer();
+    let org = *OrgId::knl().as_uuid();
+    let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
+    let cfg = immediate();
+
+    // A batch of rows both racers would seal as the genesis (seq 1) seal.
+    write_events(&rt, org, user, branch, 4).await;
+    let now = db_now(&owner_pool).await;
+
+    // Fire two seal passes concurrently on the SAME org. Each takes its own
+    // connection; the per-org `pg_advisory_xact_lock` serializes them at the DB,
+    // so the loser sees the head already advanced and finds nothing to seal. A
+    // racer that somehow slipped past the lock would still hit PK(org,seq=1) /
+    // UNIQUE(org, prev_seal_hash=[0;32]) and abort — either way, no fork.
+    let (r1, r2) = tokio::join!(
+        seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg),
+        seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg),
+    );
+    let r1 = r1.unwrap();
+    let r2 = r2.unwrap();
+
+    let winners = [&r1, &r2].into_iter().filter(|r| r.is_some()).count();
+    assert_eq!(
+        winners, 1,
+        "exactly one concurrent seal must win: {r1:?} / {r2:?}"
+    );
+    assert_eq!(
+        owner_seal_count(&owner_pool, org).await,
+        1,
+        "no fork: exactly one seal row exists after the race"
+    );
+
+    let winner = r1.or(r2).expect("one racer sealed");
+    assert_eq!(winner.seq, 1, "the surviving seal is genesis seq 1");
+    assert_eq!(winner.prev_seal_hash, [0u8; 32], "genesis links to zero");
+
+    let report = verify_org_chain(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
+        .await
+        .unwrap();
+    assert!(
+        report.ok,
+        "the chain verifies after the concurrent race: {report:?}"
+    );
+    assert_eq!(report.kind, ChainReportKind::Ok);
 }
 
 // ---------------------------------------------------------------------------
@@ -710,7 +783,7 @@ async fn watermark_defers_fresh_rows_then_seals_without_gap(owner_pool: PgPool) 
     };
 
     write_events(&rt, org, user, branch, 1).await;
-    let real_now = OffsetDateTime::now_utc();
+    let real_now = db_now(&owner_pool).await;
 
     // At the real clock the row is younger than the 60s lag → not yet sealable.
     let too_fresh = seal_org_once(&rt, OrgId::from_uuid(org), &signer, real_now, &cfg)
@@ -753,7 +826,7 @@ async fn verify_detects_broken_continuity(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -764,7 +837,7 @@ async fn verify_detects_broken_continuity(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -787,7 +860,7 @@ async fn verify_detects_broken_continuity(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -810,7 +883,7 @@ async fn unsealed_tail_is_reported_but_ok_stays_true(owner_pool: PgPool) {
     // Seal the first batch immediately. The seal clock must sit AFTER the
     // rows' DB-side `created_at` (zero lag ⇒ watermark == seal clock), so
     // nudge it forward instead of using a pre-write timestamp.
-    let now1 = OffsetDateTime::now_utc();
+    let now1 = db_now(&owner_pool).await;
     write_events(&rt, org, user, branch, 2).await;
     seal_org_once(
         &rt,
@@ -852,7 +925,7 @@ async fn verify_detects_row_reorder(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     let ids = write_events(&rt, org, user, branch, 3).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
         .await
@@ -901,7 +974,7 @@ async fn verify_detects_coverage_gap_before_genesis(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     let ids = write_events(&rt, org, user, branch, 3).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
         .await
@@ -940,14 +1013,14 @@ async fn verify_detects_coverage_gap_between_seals(owner_pool: PgPool) {
     // Anchor rows in the past with explicit, well-spaced created_at so the
     // inter-seal gap is unambiguously wide (µs-spacing from real writes could be
     // narrower than the timestamp resolution). Two batches → two seals.
-    let base = OffsetDateTime::now_utc() - Duration::seconds(600);
+    let base = db_now(&owner_pool).await - Duration::seconds(600);
     owner_insert_event(&owner_pool, org, branch, user, base).await;
     owner_insert_event(&owner_pool, org, branch, user, base + Duration::seconds(10)).await;
     let s1 = seal_org_once(
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -961,7 +1034,7 @@ async fn verify_detects_coverage_gap_between_seals(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -977,7 +1050,7 @@ async fn verify_detects_coverage_gap_between_seals(owner_pool: PgPool) {
         &rt,
         OrgId::from_uuid(org),
         &signer,
-        OffsetDateTime::now_utc(),
+        db_now(&owner_pool).await,
         &cfg,
     )
     .await
@@ -1002,7 +1075,7 @@ async fn verify_returns_bad_signature_verdict_for_garbage_key_ref(owner_pool: Pg
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     write_events(&rt, org, user, branch, 2).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
         .await
@@ -1035,7 +1108,7 @@ async fn verify_propagates_genuine_signer_failures(owner_pool: PgPool) {
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     write_events(&rt, org, user, branch, 2).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &sealing_signer, now, &cfg)
         .await
@@ -1059,7 +1132,7 @@ async fn verify_returns_corrupt_seal_verdict_for_truncated_hash(owner_pool: PgPo
     let org = *OrgId::knl().as_uuid();
     let (branch, user) = seed_tenant(&owner_pool, org, "A").await;
     write_events(&rt, org, user, branch, 2).await;
-    let now = OffsetDateTime::now_utc();
+    let now = db_now(&owner_pool).await;
     let cfg = immediate();
     seal_org_once(&rt, OrgId::from_uuid(org), &signer, now, &cfg)
         .await

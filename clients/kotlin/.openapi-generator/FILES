@@ -71,6 +71,7 @@ src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceRecordKind.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryPage.kt
+src/main/kotlin/com/maintenance/api/client/model/AuditChainAttestation.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CalendarEventResponse.kt
