@@ -29,7 +29,10 @@ services:
     restart: unless-stopped
 
   # DEV-ONLY: ONLYOFFICE DocumentServer for the in-console office editor
-  # (HANDOFF §12). The OFFICIAL, UNMODIFIED community image, consumed purely
+  # (HANDOFF §12). OPT-IN: dev-up.mjs only lists this service in the `up -d`
+  # call (and only injects the MNT_OFFICE_* backend env) when MNT_DEV_OFFICE=1
+  # is set — the image is ~2GB and most dev-up sessions never touch the office
+  # editor. The OFFICIAL, UNMODIFIED community image, consumed purely
   # through its editor + callback API — no fork, so no AGPL source-publication
   # obligation is triggered yet (the heavy-fork epic will; flagged for
   # compliance review). JWT is enabled with the same shared secret the host

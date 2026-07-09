@@ -44,13 +44,13 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, ErrorKind, KernelError, OrgId, TraceContext, UserId,
 };
 use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_storage::{PresignGetRequest, S3ObjectStore, SeaweedS3Storage};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -73,6 +73,12 @@ const PRESIGN_TTL: StdDuration = StdDuration::from_secs(60 * 60);
 /// Callback-token lifetime: the editing session may stay open a while, and
 /// DocumentServer force-saves ~10s after the last editor leaves.
 const CALLBACK_TOKEN_TTL_SECS: i64 = 24 * 60 * 60;
+
+/// Clock-skew tolerance applied ONLY to the ONLYOFFICE-signed callback
+/// payload's `exp` (when present) — DocumentServer and the host may not have
+/// perfectly synced clocks. The host-issued callback token below deliberately
+/// keeps zero leeway (it is our own clock on both ends).
+const CALLBACK_CLAIMS_LEEWAY_SECS: u64 = 30;
 
 /// Document formats slice 0 accepts (ONLYOFFICE word/cell/slide editors).
 const ALLOWED_FILE_TYPES: &[&str] = &["docx", "xlsx", "pptx"];
@@ -159,14 +165,19 @@ impl OfficeState {
         store: SeaweedS3Storage,
         bucket: String,
     ) -> Option<Arc<dyn OfficeBlobStore>> {
-        let docserver_host = url::Url::parse(&config.docserver_url)
-            .ok()
-            .and_then(|u| u.host_str().map(str::to_owned))?;
+        let docserver_origin = url::Url::parse(&config.docserver_url).ok()?;
+        // Never follow redirects on the callback-produced-document fetch: a
+        // same-origin URL that 30x's to an internal host would otherwise let a
+        // forged (but same-origin) redirect target bypass the SSRF guard below.
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok()?;
         Some(Arc::new(SeaweedOfficeBlobStore {
             store,
             bucket,
-            http: reqwest::Client::new(),
-            docserver_host,
+            http,
+            docserver_origin,
         }))
     }
 }
@@ -225,10 +236,20 @@ struct SeaweedOfficeBlobStore {
     store: SeaweedS3Storage,
     bucket: String,
     http: reqwest::Client,
-    /// The DocumentServer host the callback URL MUST match — SSRF guard so a
-    /// forged (but somehow valid-token) callback cannot make us fetch an
-    /// arbitrary internal URL.
-    docserver_host: String,
+    /// The DocumentServer origin (scheme + host + port) the callback URL MUST
+    /// match — SSRF guard so a forged (but somehow valid-token) callback
+    /// cannot make us fetch an arbitrary internal URL. `host_str()` alone is
+    /// not enough: a same-host-different-port URL can reach an unrelated
+    /// internal service DocumentServer never serves from.
+    docserver_origin: url::Url,
+}
+
+/// Same-origin check (scheme + host + port, default-port-aware) used as the
+/// SSRF guard on the callback-produced-document URL.
+fn same_origin(a: &url::Url, b: &url::Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
 }
 
 impl OfficeBlobStore for SeaweedOfficeBlobStore {
@@ -236,11 +257,14 @@ impl OfficeBlobStore for SeaweedOfficeBlobStore {
         Box::pin(async move {
             let parsed = url::Url::parse(&source_url)
                 .map_err(|_| OfficeError::validation("callback document url is not a valid URL"))?;
-            if parsed.host_str() != Some(self.docserver_host.as_str()) {
+            if !same_origin(&parsed, &self.docserver_origin) {
                 return Err(OfficeError::validation(
-                    "callback document url host is not the configured DocumentServer",
+                    "callback document url origin does not match the configured DocumentServer",
                 ));
             }
+            // Belt-and-suspenders: the client is built with redirects
+            // disabled (see `seaweed_blobs`), so a 3xx here is treated as a
+            // failure rather than silently followed off-origin.
             let response = self
                 .http
                 .get(parsed)
@@ -345,6 +369,24 @@ fn version_from_row(row: &sqlx::postgres::PgRow) -> Result<DocumentVersion, Offi
     })
 }
 
+/// The latest version of a document within an already-open transaction, or
+/// `None` if it has none. Shared by [`latest_version`] (plain read) and
+/// [`issue_session_version`] (audited read, inside `with_audits`).
+async fn latest_version_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    document_ref: &str,
+) -> Result<Option<DocumentVersion>, OfficeError> {
+    let row = sqlx::query(concat!(
+        "SELECT id, document_ref, version_no, content_hash, file_type, byte_size, ",
+        "restored_from, created_by, created_at, storage_key FROM document_versions ",
+        "WHERE document_ref = $1 ORDER BY version_no DESC LIMIT 1"
+    ))
+    .bind(document_ref)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    row.as_ref().map(version_from_row).transpose()
+}
+
 /// The latest version of a document, or `None` if it has none.
 pub async fn latest_version(
     pool: &PgPool,
@@ -353,16 +395,51 @@ pub async fn latest_version(
 ) -> Result<Option<DocumentVersion>, OfficeError> {
     let document_ref = document_ref.to_owned();
     with_org_conn::<_, _, OfficeError>(pool, org, move |tx| {
+        Box::pin(async move { latest_version_tx(tx, &document_ref).await })
+    })
+    .await
+}
+
+/// Fetch the latest version AND record the sensitive "editor session issued"
+/// grant as an audit event, atomically (same pattern the person-view read
+/// audit uses — the read and its audit trail commit or roll back together).
+/// This is what backs `POST /office/sessions`: issuing an edit-capable,
+/// presigned session is a grant worth an audit trail even though it mutates
+/// no document row.
+pub async fn issue_session_version(
+    pool: &PgPool,
+    org: OrgId,
+    actor: UserId,
+    document_ref: &str,
+) -> Result<DocumentVersion, OfficeError> {
+    let document_ref_owned = document_ref.to_owned();
+    with_audits::<_, DocumentVersion, OfficeError>(pool, org, move |tx| {
         Box::pin(async move {
-            let row = sqlx::query(concat!(
-                "SELECT id, document_ref, version_no, content_hash, file_type, byte_size, ",
-                "restored_from, created_by, created_at, storage_key FROM document_versions ",
-                "WHERE document_ref = $1 ORDER BY version_no DESC LIMIT 1"
-            ))
-            .bind(&document_ref)
-            .fetch_optional(tx.as_mut())
-            .await?;
-            row.as_ref().map(version_from_row).transpose()
+            let latest = latest_version_tx(tx, &document_ref_owned)
+                .await?
+                .ok_or_else(|| {
+                    OfficeError::not_found(
+                        "document has no versions; create it via the records module first",
+                    )
+                })?;
+            let event = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("office.session.issue")?,
+                "document_version",
+                latest.id.to_string(),
+                TraceContext::generate(),
+                OffsetDateTime::now_utc(),
+            )
+            .with_org(org)
+            .with_snapshots(
+                None,
+                Some(json!({
+                    "documentRef": latest.document_ref,
+                    "versionNo": latest.version_no,
+                    "capability": "edit",
+                })),
+            );
+            Ok((latest, vec![event]))
         })
     })
     .await
@@ -618,13 +695,15 @@ fn verify_hs256<T: DeserializeOwned>(
     secret: &str,
     token: &str,
     validate_exp: bool,
+    leeway_secs: u64,
 ) -> Result<T, OfficeError> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = validate_exp;
     validation.validate_aud = false;
-    // No clock-skew grace: an expired host callback token is rejected exactly.
-    validation.leeway = 0;
-    // ONLYOFFICE's payload carries no standard registered claims; require none.
+    validation.leeway = leeway_secs;
+    // `exp` is validated when present (jsonwebtoken checks the raw claim
+    // independent of T) but never REQUIRED — ONLYOFFICE's payload otherwise
+    // carries no standard registered claims.
     validation.required_spec_claims = HashSet::new();
     decode::<T>(
         token,
@@ -717,16 +796,17 @@ async fn create_session(
         return Err(OfficeError::validation("documentRef is required"));
     }
 
-    let latest = latest_version(&state.pool, principal.org_id, &document_ref)
-        .await?
-        // Slice 0 opens an EXISTING document. Initial-version creation
-        // (upload / records-archive ingest) is a records-module concern and is
-        // DEFERRED — see the PR body.
-        .ok_or_else(|| {
-            OfficeError::not_found(
-                "document has no versions; create it via the records module first",
-            )
-        })?;
+    // Slice 0 opens an EXISTING document (initial-version creation is a
+    // records-module concern, DEFERRED — see the PR body). Issuing an
+    // edit-capable, presigned session is a sensitive grant, so the fetch is
+    // audited atomically via `issue_session_version` (`office.session.issue`).
+    let latest = issue_session_version(
+        &state.pool,
+        principal.org_id,
+        principal.user_id,
+        &document_ref,
+    )
+    .await?;
 
     let key = document_key(principal.org_id, &document_ref, latest.version_no);
     let url = blobs.presign_get(latest.storage_key.clone()).await?;
@@ -822,19 +902,27 @@ async fn handle_callback(
 ) -> Result<(), OfficeError> {
     let config = state.config()?;
 
-    // 1. Tenant binding: org + document come from OUR signed token, exp-checked.
-    let callback_token: CallbackToken = verify_hs256(&config.jwt_secret, &query.ct, true)?;
+    // 1. Tenant binding: org + document come from OUR signed token, exp-checked
+    // with NO clock-skew grace (both ends are our own clock).
+    let callback_token: CallbackToken = verify_hs256(&config.jwt_secret, &query.ct, true, 0)?;
     let org = OrgId::from_uuid(callback_token.org);
     let document_ref = callback_token.doc;
 
     // 2. Authenticity: the ONLYOFFICE-signed payload (body `token`, else the
     // Authorization: Bearer header). We use the VERIFIED claims for status/url.
+    // `exp`, if DocumentServer sets one, is enforced (small clock-skew leeway)
+    // so a captured callback token cannot be replayed indefinitely.
     let signed = body
         .token
         .clone()
         .or_else(|| bearer_token(headers))
         .ok_or_else(|| OfficeError::unauthorized("callback carries no ONLYOFFICE token"))?;
-    let claims: CallbackClaims = verify_hs256(&config.jwt_secret, &signed, false)?;
+    let claims: CallbackClaims = verify_hs256(
+        &config.jwt_secret,
+        &signed,
+        true,
+        CALLBACK_CLAIMS_LEEWAY_SECS,
+    )?;
 
     // status 2 = ready for saving, 6 = force-saved while editing. Anything else
     // (1 editing, 4 closed no-change, 3/7 errors) is a benign no-op for us.
@@ -1075,12 +1163,12 @@ mod tests {
         )
         .unwrap();
 
-        let claims: CallbackToken = verify_hs256(SECRET, &token, true).unwrap();
+        let claims: CallbackToken = verify_hs256(SECRET, &token, true, 0).unwrap();
         assert_eq!(claims.doc, "DOC-1");
         assert_eq!(claims.org, Uuid::from_u128(1));
 
         // A different secret must not verify (cross-deploy / forged token).
-        assert!(verify_hs256::<CallbackToken>("other-secret", &token, true).is_err());
+        assert!(verify_hs256::<CallbackToken>("other-secret", &token, true, 0).is_err());
     }
 
     #[test]
@@ -1094,7 +1182,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(verify_hs256::<CallbackToken>(SECRET, &token, true).is_err());
+        // The host-issued token gets NO clock-skew grace.
+        assert!(verify_hs256::<CallbackToken>(SECRET, &token, true, 0).is_err());
     }
 
     #[test]
@@ -1105,10 +1194,51 @@ mod tests {
             &json!({ "status": 2, "url": "http://ds/doc.docx", "key": "abc", "filetype": "docx" }),
         )
         .unwrap();
-        let claims: CallbackClaims = verify_hs256(SECRET, &signed, false).unwrap();
+        let claims: CallbackClaims =
+            verify_hs256(SECRET, &signed, true, CALLBACK_CLAIMS_LEEWAY_SECS).unwrap();
         assert_eq!(claims.status, 2);
         assert_eq!(claims.key.as_deref(), Some("abc"));
         assert_eq!(claims.url.as_deref(), Some("http://ds/doc.docx"));
+    }
+
+    #[test]
+    fn onlyoffice_callback_claims_reject_expired_payload_beyond_leeway() {
+        // A captured/replayed callback whose OWN exp claim has lapsed well
+        // past the clock-skew window must not verify (replay hardening).
+        let signed = sign_hs256(
+            SECRET,
+            &json!({
+                "status": 2,
+                "url": "http://ds/doc.docx",
+                "key": "abc",
+                "exp": OffsetDateTime::now_utc().unix_timestamp() - 3600,
+            }),
+        )
+        .unwrap();
+        assert!(
+            verify_hs256::<CallbackClaims>(SECRET, &signed, true, CALLBACK_CLAIMS_LEEWAY_SECS)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn onlyoffice_callback_claims_accept_expiry_within_clock_skew_leeway() {
+        // Just past `exp` but inside the tolerance — normal clock drift, not
+        // a replay attempt.
+        let signed = sign_hs256(
+            SECRET,
+            &json!({
+                "status": 2,
+                "url": "http://ds/doc.docx",
+                "key": "abc",
+                "exp": OffsetDateTime::now_utc().unix_timestamp() - 5,
+            }),
+        )
+        .unwrap();
+        assert!(
+            verify_hs256::<CallbackClaims>(SECRET, &signed, true, CALLBACK_CLAIMS_LEEWAY_SECS)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1131,7 +1261,7 @@ mod tests {
     fn config_token_signs_the_whole_config() {
         let payload = json!({ "document": { "key": "k-v1" }, "editorConfig": { "mode": "edit" } });
         let token = sign_hs256(SECRET, &payload).unwrap();
-        let claims: serde_json::Value = verify_hs256(SECRET, &token, false).unwrap();
+        let claims: serde_json::Value = verify_hs256(SECRET, &token, false, 0).unwrap();
         assert_eq!(claims["document"]["key"], "k-v1");
     }
 
@@ -1139,5 +1269,44 @@ mod tests {
     fn file_type_allowlist_rejects_unknown() {
         assert!(validate_file_type("docx").is_ok());
         assert!(validate_file_type("exe").is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // SSRF guard: the callback-produced-document URL must match the
+    // configured DocumentServer's full origin (scheme + host + port), not
+    // just its host.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn same_origin_rejects_same_host_different_port_attack_url() {
+        let configured = url::Url::parse("http://docserver.internal:8080").unwrap();
+        // A same-host-different-port URL could reach an unrelated internal
+        // service (e.g. a metadata endpoint or an admin port) that
+        // DocumentServer never serves from.
+        let attack = url::Url::parse("http://docserver.internal:9999/produced.docx").unwrap();
+        assert!(!same_origin(&attack, &configured));
+
+        let legit = url::Url::parse("http://docserver.internal:8080/produced.docx").unwrap();
+        assert!(same_origin(&legit, &configured));
+    }
+
+    #[test]
+    fn same_origin_rejects_scheme_and_host_mismatch() {
+        let configured = url::Url::parse("https://docserver.internal").unwrap();
+        assert!(!same_origin(
+            &url::Url::parse("http://docserver.internal/produced.docx").unwrap(),
+            &configured
+        ));
+        assert!(!same_origin(
+            &url::Url::parse("https://evil.example/produced.docx").unwrap(),
+            &configured
+        ));
+    }
+
+    #[test]
+    fn same_origin_is_default_port_aware() {
+        let configured = url::Url::parse("http://docserver.internal").unwrap();
+        let explicit_default_port =
+            url::Url::parse("http://docserver.internal:80/produced.docx").unwrap();
+        assert!(same_origin(&explicit_default_port, &configured));
     }
 }

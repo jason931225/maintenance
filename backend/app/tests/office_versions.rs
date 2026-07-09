@@ -20,7 +20,8 @@
 //! are covered by the in-module unit tests (`cargo test -p mnt-app office::`).
 
 use mnt_app::office::{
-    DocumentVersion, NewVersion, list_versions, record_version, restore_version,
+    DocumentVersion, NewVersion, issue_session_version, list_versions, record_version,
+    restore_version,
 };
 use mnt_kernel_core::{OrgId, UserId};
 use sqlx::PgPool;
@@ -239,4 +240,106 @@ async fn versions_are_invisible_across_tenants_as_runtime_role(owner_pool: PgPoo
         cross.is_err(),
         "restore must fail closed when armed as the wrong tenant"
     );
+}
+
+// ===========================================================================
+// Session issuance is a sensitive grant: it must be audited (review round —
+// item 3), atomically with the read that resolves the latest version.
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn issue_session_version_records_an_audit_event_as_runtime_role(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    seed_org(&owner_pool, *org.as_uuid(), "A").await;
+    let actor = seed_active_user(&owner_pool, *org.as_uuid()).await;
+
+    let v1 = record_version(
+        &rt,
+        record(org, Some(actor), "office/a/x/1.docx", "hash1", None),
+    )
+    .await
+    .expect("record v1 as mnt_rt");
+
+    let issued = issue_session_version(&rt, org, actor, DOC)
+        .await
+        .expect("issue a session for the latest version as mnt_rt");
+    assert_eq!(issued.id, v1.id, "session must resolve the latest version");
+
+    assert_eq!(
+        audit_count(&owner_pool, "office.session.issue", &v1.id.to_string()).await,
+        1,
+        "session issuance is a sensitive grant and must be audited"
+    );
+
+    // No document ⇒ not_found, and no audit noise from the failed attempt.
+    let missing = issue_session_version(&rt, org, actor, "DOC-NO-SUCH").await;
+    assert!(missing.is_err());
+    assert_eq!(
+        audit_count(&owner_pool, "office.session.issue", "DOC-NO-SUCH").await,
+        0,
+        "a not_found session request must not persist a partial audit row"
+    );
+}
+
+// ===========================================================================
+// Replay hardening (review round — item 2): a callback replay carrying an
+// OLD editing-session key — even after later versions were appended — must
+// stay provably inert: no new version, the original row returned unchanged.
+// ===========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn replay_of_old_callback_key_after_later_versions_is_inert(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    seed_org(&owner_pool, *org.as_uuid(), "A").await;
+    let actor = seed_active_user(&owner_pool, *org.as_uuid()).await;
+
+    let v1 = record_version(
+        &rt,
+        record(org, None, "office/a/x/1.docx", "hash1", Some("edit-key-1")),
+    )
+    .await
+    .expect("record v1 (callback) as mnt_rt");
+
+    let v2 = record_version(
+        &rt,
+        record(org, None, "office/a/x/2.docx", "hash2", Some("edit-key-2")),
+    )
+    .await
+    .expect("record v2 (callback) as mnt_rt");
+
+    let v3 = restore_version(&rt, org, actor, DOC, 1)
+        .await
+        .expect("restore v1 as v3");
+    assert_eq!(v3.version_no, 3);
+
+    // A stale replay of v1's ORIGINAL editing-session key, well after v2 and
+    // v3 exist, must resolve to v1 unchanged — no v4, no data corruption.
+    let replay = record_version(
+        &rt,
+        record(
+            org,
+            None,
+            "office/a/x/attacker-payload.docx",
+            "attacker-hash",
+            Some("edit-key-1"),
+        ),
+    )
+    .await
+    .expect("stale replay must be a no-op, not an error");
+    assert_eq!(
+        replay.id, v1.id,
+        "replay must resolve to the ORIGINAL v1 row"
+    );
+    assert_eq!(
+        replay.content_hash, "hash1",
+        "replay must not overwrite v1's content"
+    );
+
+    let versions: Vec<DocumentVersion> = list_versions(&rt, org, DOC).await.unwrap();
+    assert_eq!(
+        versions.iter().map(|v| v.version_no).collect::<Vec<_>>(),
+        vec![3, 2, 1],
+        "the replay must not append a v4"
+    );
+    let _ = v2;
 }
