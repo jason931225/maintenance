@@ -33,6 +33,7 @@ import { useConsoleToast } from "./useConsoleToast";
 import { FloatWindow } from "./workspace/FloatWindow";
 import { QuadrantContainer } from "./workspace/QuadrantContainer";
 import { Tray } from "./workspace/Tray";
+import { CommsRail } from "../../features/comms/CommsRail";
 
 // The two screens that live in ConsoleShell (UI-M1b). Every other route stays on
 // AppShell (two-shell coexistence). Both screens are mounted at once and toggled
@@ -274,6 +275,8 @@ function ConsoleShellContent() {
           />
         </main>
       </div>
+
+      <CommsRail />
 
       {floats.map((panel) => (
         <FloatWindow

@@ -287,6 +287,12 @@ const server = setupServer(
   http.get("*/api/messenger/threads", () => HttpResponse.json({ items: [] })),
   http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
   http.get("*/api/v1/mail/threads", () => HttpResponse.json([])),
+  http.get("*/api/v1/me/notifications", () =>
+    HttpResponse.json({ items: [], next_cursor: null }),
+  ),
+  http.get("*/api/v1/me/notifications/unread-count", () =>
+    HttpResponse.json({ unread: 0 }),
+  ),
   http.post("*/api/v1/work-orders/:workOrderId/reject", async ({ request }) => {
     rejectRequest = { url: new URL(request.url), body: await request.json() };
     return HttpResponse.json({ ...workOrders[1], status: "REJECTED" });

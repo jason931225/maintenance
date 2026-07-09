@@ -220,7 +220,7 @@
         "scrollIntoView",
         "focus({ preventScroll: true })",
         "read-receipt",
-        "connectMessengerRealtime",
+        "realtimeHub.subscribe",
         "handleComposerKeyDown",
         "event.key !== \"Enter\"",
         "MentionText",
@@ -245,14 +245,23 @@
     },
     {
       "file": "web/src/features/messenger/realtime.ts",
-      "contract": "Messenger realtime client must build authenticated ws/wss URLs with resume cursor and close/disconnect handling.",
+      "contract": "Messenger realtime client must build authenticated ws/wss URLs with the resume cursor; the socket lifecycle now lives in the shared comms realtime hub.",
       "requiredSnippets": [
         "buildMessengerWebSocketUrl",
         "/api/v1/ws",
-        "last_message_id",
-        "protocols = accessToken ? [\"bearer\", accessToken]",
-        "onDisconnect",
-        "close"
+        "last_message_id"
+      ]
+    },
+    {
+      "file": "web/src/features/comms/realtimeHub.ts",
+      "contract": "Shared realtime hub holds ONE authenticated /api/v1/ws socket (bearer subprotocol), fans message_posted and notification_created to all subscribers, and reconnects from the resume cursor on close.",
+      "requiredSnippets": [
+        "[\"bearer\", params.accessToken]",
+        "message_posted",
+        "notification_created",
+        "lastMessageId",
+        "addEventListener(\"close\"",
+        "subscribe"
       ]
     },
     {
