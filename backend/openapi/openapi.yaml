@@ -8299,6 +8299,212 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/object-types:
+    get:
+      operationId: listObjectTypes
+      summary: List the object-type registry with caller-visible instance counts
+      description: 'Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count —
+        the number of instances of that kind visible to the caller. The count respects the SAME per-kind visibility as
+        resolveObject: org via forced RLS (no cross-org counting), narrowed by the caller''s branch scope and the
+        domain feature gate; a kind the caller cannot read counts 0. Type proposal/transition flows are out of scope
+        for this slice (read surface + status only).'
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The object-type registry.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObjectTypeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/object-types/{kind}:
+    get:
+      operationId: getObjectType
+      summary: Fetch one object type with its caller-visible instance count
+      description: Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count
+        as listObjectTypes.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: path
+        required: true
+        description: Object kind slug.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The object type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectTypeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/link-types:
+    get:
+      operationId: listLinkTypes
+      summary: List the edge-type registry (object-link relationship vocabulary)
+      description: Returns the seeded, platform-wide set of relationship labels an object_link may use. createObjectLink
+        validates link_type against this registry.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The edge-type registry.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LinkTypeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/series:
+    post:
+      operationId: createSeries
+      summary: Create an SR- series and attach its first instance
+      description: 'Creates an org-scoped series with a canonical SR- code and attaches the first instance. The instance
+        must resolve for the caller (deny-by-omission): you cannot found a series on an object you cannot see. Audited.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSeriesRequest'
+      responses:
+        '200':
+          description: The created series with its first resolved instance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/series/by-instance:
+    get:
+      operationId: getSeriesByInstance
+      summary: Find which series an object belongs to
+      description: 'Returns the series a given (kind, id) instance belongs to, or null. Membership is revealed only when
+        the caller can resolve the instance, so series membership is never an existence oracle for out-of-scope objects.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: query
+        required: true
+        description: Instance object kind slug.
+        schema:
+          type: string
+      - name: id
+        in: query
+        required: true
+        description: Instance object id/reference.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The series the instance belongs to (series=null when none / not resolvable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesByInstanceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/series/{id}:
+    get:
+      operationId: getSeries
+      summary: Read a series and its ordered, caller-visible instances
+      description: 'Returns the series head and its instances resolved to ObjectHeads, ordered by attach time. Instances
+        that no longer resolve for the caller are omitted (deny-by-omission). Current/next derivation is left to the
+        client. An unknown id or another tenant''s series is 404.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The series with its ordered, resolved instances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/series/{id}/instances:
+    post:
+      operationId: attachSeriesInstance
+      summary: Attach an instance to an existing series
+      description: 'Attaches a (kind, id) instance to the series. The series must exist for the caller and the instance
+        must resolve for the caller (both deny-by-omission -> 404). An object already in a series is rejected with 409
+        (the not-yet-in-a-series promotion invariant). Audited.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachInstanceRequest'
+      responses:
+        '200':
+          description: The instance was attached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachInstanceAck'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/financial/purchase-requests/preferences:
     get:
       operationId: getPurchaseRequestPreferences
@@ -9110,6 +9316,134 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ObjectHead'
+    ObjectTypeResponse:
+      type: object
+      description: An object-type registry row plus the caller-visible active instance count.
+      required:
+      - kind
+      - description
+      - status
+      - active_count
+      properties:
+        kind:
+          type: string
+        code_prefix:
+          type: string
+          nullable: true
+          description: Canonical per-kind code prefix (e.g. AP-, CS-); absent for id/name-referenced kinds.
+        description:
+          type: string
+        status:
+          type: string
+          description: Type lifecycle state (draft, active, archived).
+        active_count:
+          type: integer
+          format: int64
+          description: Instances of this kind visible to the caller (same per-kind visibility as resolveObject).
+    LinkTypeResponse:
+      type: object
+      description: A registered edge type (object-link relationship label).
+      required:
+      - link_type
+      - description
+      - status
+      properties:
+        link_type:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          description: Edge-type lifecycle state (draft, active, archived).
+    CreateSeriesRequest:
+      type: object
+      description: Create a series and attach its first instance.
+      required:
+      - label
+      - kind
+      - id
+      properties:
+        label:
+          type: string
+          description: Human label for the series (1-200 chars).
+        kind:
+          type: string
+          description: First instance object kind slug.
+        id:
+          type: string
+          description: First instance object id/reference (≤200 chars).
+    AttachInstanceRequest:
+      type: object
+      description: Attach an instance (kind, id) to a series.
+      required:
+      - kind
+      - id
+      properties:
+        kind:
+          type: string
+          description: Instance object kind slug.
+        id:
+          type: string
+          description: Instance object id/reference (≤200 chars).
+    AttachInstanceAck:
+      type: object
+      required:
+      - attached
+      properties:
+        attached:
+          type: boolean
+    SeriesHead:
+      type: object
+      required:
+      - id
+      - code
+      - label
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        code:
+          type: string
+          description: Canonical SR- code.
+        label:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    SeriesDetailResponse:
+      type: object
+      description: A series head plus its instances resolved to ObjectHeads, ordered by attach time. Instances not
+        resolvable for the caller are omitted (deny-by-omission).
+      required:
+      - id
+      - code
+      - label
+      - created_at
+      - instances
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        code:
+          type: string
+          description: Canonical SR- code.
+        label:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        instances:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObjectHead'
+    SeriesByInstanceResponse:
+      type: object
+      description: The series an instance belongs to, or null.
+      required:
+      - series
+      properties:
+        series:
+          oneOf:
+          - $ref: '#/components/schemas/SeriesHead'
+          - type: 'null'
+
     CollaborationScopeType:
       type: string
       enum:
