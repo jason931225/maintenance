@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -54,6 +55,7 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const titleId = useId();
+  const sectionId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -256,63 +258,94 @@ export function CommandPalette({ onClose, onPinObject }: CommandPaletteProps) {
             {ko.shell.commandPalette.empty}
           </p>
         ) : (
-          <ul aria-label={ko.shell.commandPalette.resultsLabel} className="grid gap-1">
-            <PaletteGroup label={ko.shell.commandPalette.sections.screens} rows={screenRows} />
-            {screenRows.map((row) => (
-              <ScreenRowButton
-                key={row.key}
-                command={row.command}
-                active={rows[boundedActiveIndex]?.key === row.key}
-                currentPath={location.pathname}
-                onHover={() => {
-                  setActiveIndex(rows.findIndex((r) => r.key === row.key));
-                }}
-                onRun={() => {
-                  runScreen(row.command);
-                }}
-              />
-            ))}
-            <PaletteGroup label={ko.shell.commandPalette.sections.work} rows={workRows} />
-            {workRows.map((row) => (
-              <ObjectRowButton
-                key={row.key}
-                candidate={row.candidate}
-                active={rows[boundedActiveIndex]?.key === row.key}
-                onHover={() => {
-                  setActiveIndex(rows.findIndex((r) => r.key === row.key));
-                }}
-                onRun={() => {
-                  runObject(row.candidate);
-                }}
-              />
-            ))}
-            <PaletteGroup label={ko.shell.commandPalette.sections.people} rows={peopleRows} />
-            {peopleRows.map((row) => (
-              <ObjectRowButton
-                key={row.key}
-                candidate={row.candidate}
-                active={rows[boundedActiveIndex]?.key === row.key}
-                onHover={() => {
-                  setActiveIndex(rows.findIndex((r) => r.key === row.key));
-                }}
-                onRun={() => {
-                  runObject(row.candidate);
-                }}
-              />
-            ))}
-          </ul>
+          <>
+            <PaletteSection
+              labelId={`${sectionId}-screens`}
+              label={ko.shell.commandPalette.sections.screens}
+              hasRows={screenRows.length > 0}
+            >
+              {screenRows.map((row) => (
+                <ScreenRowButton
+                  key={row.key}
+                  command={row.command}
+                  active={rows[boundedActiveIndex]?.key === row.key}
+                  currentPath={location.pathname}
+                  onHover={() => {
+                    setActiveIndex(rows.findIndex((r) => r.key === row.key));
+                  }}
+                  onRun={() => {
+                    runScreen(row.command);
+                  }}
+                />
+              ))}
+            </PaletteSection>
+            <PaletteSection
+              labelId={`${sectionId}-work`}
+              label={ko.shell.commandPalette.sections.work}
+              hasRows={workRows.length > 0}
+            >
+              {workRows.map((row) => (
+                <ObjectRowButton
+                  key={row.key}
+                  candidate={row.candidate}
+                  active={rows[boundedActiveIndex]?.key === row.key}
+                  onHover={() => {
+                    setActiveIndex(rows.findIndex((r) => r.key === row.key));
+                  }}
+                  onRun={() => {
+                    runObject(row.candidate);
+                  }}
+                />
+              ))}
+            </PaletteSection>
+            <PaletteSection
+              labelId={`${sectionId}-people`}
+              label={ko.shell.commandPalette.sections.people}
+              hasRows={peopleRows.length > 0}
+            >
+              {peopleRows.map((row) => (
+                <ObjectRowButton
+                  key={row.key}
+                  candidate={row.candidate}
+                  active={rows[boundedActiveIndex]?.key === row.key}
+                  onHover={() => {
+                    setActiveIndex(rows.findIndex((r) => r.key === row.key));
+                  }}
+                  onRun={() => {
+                    runObject(row.candidate);
+                  }}
+                />
+              ))}
+            </PaletteSection>
+          </>
         )}
       </div>
     </Dialog>
   );
 }
 
-function PaletteGroup({ label, rows }: { label: string; rows: PaletteRow[] }) {
-  if (rows.length === 0) return null;
+// One labeled section: heading (a real <p>) sits OUTSIDE the <ul>, which then
+// only contains <li> rows — valid list semantics, zero axe violations. The
+// group is named via aria-labelledby so SR users hear the section.
+function PaletteSection({
+  labelId,
+  label,
+  hasRows,
+  children,
+}: {
+  labelId: string;
+  label: string;
+  hasRows: boolean;
+  children: ReactNode;
+}) {
+  if (!hasRows) return null;
   return (
-    <li role="presentation" className="px-3 pb-1 pt-2 text-[10px] font-extrabold uppercase text-steel">
-      {label}
-    </li>
+    <div role="group" aria-labelledby={labelId} className="mb-1">
+      <p id={labelId} className="px-3 pb-1 pt-2 text-[10px] font-extrabold uppercase text-steel">
+        {label}
+      </p>
+      <ul className="grid gap-1">{children}</ul>
+    </div>
   );
 }
 

@@ -127,7 +127,12 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
             &token,
         )
         .await;
-        assert_eq!(self_profile.status, StatusCode::OK, "{:?}", self_profile.json);
+        assert_eq!(
+            self_profile.status,
+            StatusCode::OK,
+            "{:?}",
+            self_profile.json
+        );
 
         let out_of_branch = get_json(
             service.clone(),
