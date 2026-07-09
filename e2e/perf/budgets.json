@@ -1,0 +1,6 @@
+{
+  "$comment": "Console CWV budgets (charter D1 hyperscaler layer). ms for lcp/inp, unitless for cls. Thresholds = Core Web Vitals 'good'. One entry per console screen; the shell entry covers the /console root today (P0.1 shell converges onto it).",
+  "screens": {
+    "shell": { "route": "/console", "lcp": 2500, "inp": 200, "cls": 0.1 }
+  }
+}
