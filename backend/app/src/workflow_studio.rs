@@ -3605,12 +3605,12 @@ async fn create_trigger_binding(
     authorize_workflow_manage(&principal)?;
 
     // Trigger type must be one of the reserved event-shaped TriggerType values
-    // (MANUAL/SCHEDULE/API are not event bindings; 0100 CHECK backs this up).
+    // (MANUAL/SCHEDULE/API are not event bindings; 0105 CHECK backs this up).
     let trigger_type =
         TriggerType::from_db_str(body.trigger_type.trim()).map_err(WorkflowStudioError::from)?;
     if !trigger_type.is_event_binding() {
         return Err(WorkflowStudioError::validation(
-            "trigger_type must be an event trigger (OBJECT/IMPORT/MAIL/MESSENGER/CALENDAR/POLL_EVENT)",
+            "trigger_type must be an event trigger (OBJECT_EVENT/IMPORT_EVENT/MAIL_EVENT/MESSENGER_EVENT/CALENDAR_EVENT/POLL_EVENT)",
         ));
     }
     // Only registered event keys have a real dispatcher producer; anything else
@@ -4037,104 +4037,113 @@ async fn update_schedule(
 
     let actor = principal.user_id;
     let org = principal.org_id;
-    let event = AuditEvent::new(
-        Some(actor),
-        AuditAction::new("workflow_schedule.update")?,
-        "workflow_schedule",
-        id.to_string(),
-        TraceContext::generate(),
-        OffsetDateTime::now_utc(),
-    )
-    .with_org(org)
-    .with_snapshots(
-        None,
-        Some(json!({
-            "label": body.label,
-            "cron_expr": body.cron_expr,
-            "timezone": body.timezone,
-            "enabled": body.enabled,
-        })),
-    );
-    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
-        Box::pin(async move {
-            let current = sqlx::query(
-                "SELECT id, label, cron_expr, timezone, definition_id, enabled, \
+    let response =
+        mnt_platform_db::with_audits::<_, _, WorkflowStudioError>(&state.pool, org, move |tx| {
+            Box::pin(async move {
+                let current = sqlx::query(
+                    "SELECT id, label, cron_expr, timezone, definition_id, enabled, \
                         next_run_at, last_run_at, last_status, created_at, updated_at \
                  FROM workflow_schedules WHERE id = $1 FOR UPDATE",
-            )
-            .bind(id)
-            .fetch_optional(tx.as_mut())
-            .await?;
-            let Some(current) = current else {
-                return Err(WorkflowStudioError::from(KernelError::not_found(
-                    "workflow schedule not found",
-                )));
-            };
-            let current = schedule_from_row(&current).map_err(WorkflowStudioError::from)?;
-
-            let label = body
-                .label
-                .as_deref()
-                .map(str::trim)
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| current.label.clone());
-            let cron_expr = body
-                .cron_expr
-                .as_deref()
-                .map(str::trim)
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| current.cron_expr.clone());
-            let timezone = body
-                .timezone
-                .as_deref()
-                .map(str::trim)
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| current.timezone.clone());
-            let enabled = body.enabled.unwrap_or(current.enabled);
-
-            // Recompute the next fire whenever the effective firing inputs
-            // change or the schedule (re-)enables — a stale past next_run_at
-            // must never fire the OLD pattern once, and a re-enabled schedule
-            // resumes in the future rather than firing for downtime.
-            let firing_inputs_changed = cron_expr != current.cron_expr
-                || timezone != current.timezone
-                || (enabled && !current.enabled);
-            let next_run_at = if !enabled {
-                None
-            } else if firing_inputs_changed || current.next_run_at.is_none() {
-                Some(
-                    crate::workflow_schedules::next_occurrence(
-                        &cron_expr,
-                        &timezone,
-                        OffsetDateTime::now_utc(),
-                    )
-                    .map_err(WorkflowStudioError::from)?,
                 )
-            } else {
-                current.next_run_at
-            };
+                .bind(id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let Some(current) = current else {
+                    return Err(WorkflowStudioError::from(KernelError::not_found(
+                        "workflow schedule not found",
+                    )));
+                };
+                let current = schedule_from_row(&current).map_err(WorkflowStudioError::from)?;
 
-            let row = sqlx::query(
-                "UPDATE workflow_schedules \
+                let label = body
+                    .label
+                    .as_deref()
+                    .map(str::trim)
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| current.label.clone());
+                let cron_expr = body
+                    .cron_expr
+                    .as_deref()
+                    .map(str::trim)
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| current.cron_expr.clone());
+                let timezone = body
+                    .timezone
+                    .as_deref()
+                    .map(str::trim)
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| current.timezone.clone());
+                let enabled = body.enabled.unwrap_or(current.enabled);
+
+                // Recompute the next fire whenever the effective firing inputs
+                // change or the schedule (re-)enables — a stale past next_run_at
+                // must never fire the OLD pattern once, and a re-enabled schedule
+                // resumes in the future rather than firing for downtime.
+                let firing_inputs_changed = cron_expr != current.cron_expr
+                    || timezone != current.timezone
+                    || (enabled && !current.enabled);
+                let next_run_at = if !enabled {
+                    None
+                } else if firing_inputs_changed || current.next_run_at.is_none() {
+                    Some(
+                        crate::workflow_schedules::next_occurrence(
+                            &cron_expr,
+                            &timezone,
+                            OffsetDateTime::now_utc(),
+                        )
+                        .map_err(WorkflowStudioError::from)?,
+                    )
+                } else {
+                    current.next_run_at
+                };
+
+                let row = sqlx::query(
+                    "UPDATE workflow_schedules \
                  SET label = $2, cron_expr = $3, timezone = $4, enabled = $5, \
                      next_run_at = $6, updated_by = $7, updated_at = now() \
                  WHERE id = $1 \
                  RETURNING id, label, cron_expr, timezone, definition_id, enabled, \
                            next_run_at, last_run_at, last_status, created_at, updated_at",
-            )
-            .bind(id)
-            .bind(&label)
-            .bind(&cron_expr)
-            .bind(&timezone)
-            .bind(enabled)
-            .bind(next_run_at)
-            .bind(*actor.as_uuid())
-            .fetch_one(tx.as_mut())
-            .await?;
-            schedule_from_row(&row).map_err(WorkflowStudioError::from)
+                )
+                .bind(id)
+                .bind(&label)
+                .bind(&cron_expr)
+                .bind(&timezone)
+                .bind(enabled)
+                .bind(next_run_at)
+                .bind(*actor.as_uuid())
+                .fetch_one(tx.as_mut())
+                .await?;
+                let response = schedule_from_row(&row).map_err(WorkflowStudioError::from)?;
+                let event = AuditEvent::new(
+                    Some(actor),
+                    AuditAction::new("workflow_schedule.update")?,
+                    "workflow_schedule",
+                    id.to_string(),
+                    TraceContext::generate(),
+                    OffsetDateTime::now_utc(),
+                )
+                .with_org(org)
+                .with_snapshots(
+                    Some(json!({
+                        "label": current.label,
+                        "cron_expr": current.cron_expr,
+                        "timezone": current.timezone,
+                        "enabled": current.enabled,
+                        "next_run_at": current.next_run_at,
+                    })),
+                    Some(json!({
+                        "label": label,
+                        "cron_expr": cron_expr,
+                        "timezone": timezone,
+                        "enabled": enabled,
+                        "next_run_at": next_run_at,
+                    })),
+                );
+                Ok((response, vec![event]))
+            })
         })
-    })
-    .await?;
+        .await?;
     record_workflow_studio_request("schedule_update", "success");
     Ok(Json(response))
 }

@@ -10,7 +10,7 @@
 //!      now the first binding this mechanism evaluates. Behavior is identical:
 //!      strangler-flag-gated, pinned to the graph-less
 //!      `work_order.completion` template, driven by its own completion tail;
-//!   2. every ENABLED `workflow_trigger_bindings` row (0100) for the event,
+//!   2. every ENABLED `workflow_trigger_bindings` row (0105) for the event,
 //!      oldest first — each starts one idempotent run through the shared
 //!      [`mnt_workflow_runtime::start_bound_run`] path (`start_run` →
 //!      synchronous graph drive), exactly like `POST /api/v1/workflow-runs`.
@@ -104,12 +104,6 @@ pub async fn dispatch_event_bindings(
         return Ok(0);
     }
 
-    let audit = AuditContext {
-        actor,
-        trace: TraceContext::generate(),
-        occurred_at: OffsetDateTime::now_utc(),
-    };
-
     let mut started = 0u32;
     for binding in bindings {
         // Resolve the binding's ACTIVE wf.exec.v1 definition; a binding whose
@@ -161,6 +155,11 @@ pub async fn dispatch_event_bindings(
             context_payload: json!({}),
             initiated_by: actor,
             schedule_id: None,
+        };
+        let audit = AuditContext {
+            actor,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
         };
 
         match start_bound_run(runtime, request, &definition, &audit).await {

@@ -12,7 +12,7 @@
 --
 -- MANUAL / SCHEDULE / API are deliberately NOT bindable trigger types: manual
 -- and API starts go through POST /api/v1/workflow-runs, schedules through
--- workflow_schedules (0101). Bindings cover the event-shaped sources only.
+-- workflow_schedules (0106). Bindings cover the event-shaped sources only.
 
 -- mnt-gate: audited-table workflow_trigger_bindings
 CREATE TABLE workflow_trigger_bindings (

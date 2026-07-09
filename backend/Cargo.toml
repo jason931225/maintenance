@@ -83,7 +83,7 @@ infer = { version = "0.19.0", default-features = false, features = ["std"] }
 # transitively; `time` stays the workspace-wide datetime type and chrono is
 # confined to the cron boundary.
 croner = "3.0.1"
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 chrono-tz = "0.10.4"
 # Versions verified live against crates.io 2026-06-12:
 # axum 0.8.9, tower-http 0.7.0, tower 0.5.3, http 1.4.2,
