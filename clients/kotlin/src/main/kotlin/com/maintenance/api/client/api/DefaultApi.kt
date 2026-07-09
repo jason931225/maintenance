@@ -176,6 +176,7 @@ import com.maintenance.api.client.model.NotificationReadAllResponse
 import com.maintenance.api.client.model.NotificationSummary
 import com.maintenance.api.client.model.ObjectActionCatalogResponse
 import com.maintenance.api.client.model.ObjectActionExecutionResponse
+import com.maintenance.api.client.model.ObjectGraphResponse
 import com.maintenance.api.client.model.ObjectHead
 import com.maintenance.api.client.model.ObjectLifecycle
 import com.maintenance.api.client.model.ObjectLinkResponse
@@ -5941,8 +5942,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * DELETE /api/v1/sales/listings/{id}
-     * Delete a sales listing (#6)
-     * Admin-gated (SalesManage). Removes a listing from the catalog.
+     * Archive a sales listing (#6)
+     * Admin-gated (SalesManage). Soft-archives the listing (status -&gt; WITHDRAWN) and removes it from the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
      * @param id
      * @return void
      * @throws IllegalStateException If the request is not correctly configured
@@ -5972,8 +5973,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * DELETE /api/v1/sales/listings/{id}
-     * Delete a sales listing (#6)
-     * Admin-gated (SalesManage). Removes a listing from the catalog.
+     * Archive a sales listing (#6)
+     * Admin-gated (SalesManage). Soft-archives the listing (status -&gt; WITHDRAWN) and removes it from the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
      * @param id
      * @return ApiResponse<Unit?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -8695,6 +8696,90 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/object-actions/catalog",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/objects/{kind}/{id}/graph
+     * Walk the bounded object-link neighborhood of an object
+     * Bounded level-by-level walk over object_links up to &#x60;depth&#x60; hops (clamped 1-5), org-scoped under RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. &#x60;truncated&#x60; is true when the response was cut short by the node cap before &#x60;depth&#x60; was exhausted.
+     * @param kind Root object kind slug.
+     * @param id Root object id.
+     * @param depth Walk depth in hops, clamped to 1-5 (default 1). (optional)
+     * @return ObjectGraphResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getObjectGraph(kind: kotlin.String, id: kotlin.String, depth: kotlin.Long? = null) : ObjectGraphResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getObjectGraphWithHttpInfo(kind = kind, id = id, depth = depth)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectGraphResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/objects/{kind}/{id}/graph
+     * Walk the bounded object-link neighborhood of an object
+     * Bounded level-by-level walk over object_links up to &#x60;depth&#x60; hops (clamped 1-5), org-scoped under RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. &#x60;truncated&#x60; is true when the response was cut short by the node cap before &#x60;depth&#x60; was exhausted.
+     * @param kind Root object kind slug.
+     * @param id Root object id.
+     * @param depth Walk depth in hops, clamped to 1-5 (default 1). (optional)
+     * @return ApiResponse<ObjectGraphResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getObjectGraphWithHttpInfo(kind: kotlin.String, id: kotlin.String, depth: kotlin.Long?) : ApiResponse<ObjectGraphResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getObjectGraphRequestConfig(kind = kind, id = id, depth = depth)
+
+        return@withContext request<Unit, ObjectGraphResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getObjectGraph
+     *
+     * @param kind Root object kind slug.
+     * @param id Root object id.
+     * @param depth Walk depth in hops, clamped to 1-5 (default 1). (optional)
+     * @return RequestConfig
+     */
+    fun getObjectGraphRequestConfig(kind: kotlin.String, id: kotlin.String, depth: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (depth != null) {
+                    put("depth", listOf(depth.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/objects/{kind}/{id}/graph".replace("{"+"kind"+"}", encodeURIComponent(kind.toString())).replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -16452,8 +16537,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * GET /api/objects/{kind}/{id}
-     * Resolve any object to a compact head (code, title, status, route hint)
-     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+     * Resolve any object to a compact head (code, title, status)
+     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry&#39;s responsibility; this endpoint never returns a route/URL.
      * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
      * @param id
      * @return ObjectHead
@@ -16485,8 +16570,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * GET /api/objects/{kind}/{id}
-     * Resolve any object to a compact head (code, title, status, route hint)
-     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+     * Resolve any object to a compact head (code, title, status)
+     * Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain&#39;s tenant + branch scoping: an object outside the caller&#39;s org/branch scope resolves identically to a missing id (exists&#x3D;false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry&#39;s responsibility; this endpoint never returns a route/URL.
      * @param kind Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run).
      * @param id
      * @return ApiResponse<ObjectHead?>

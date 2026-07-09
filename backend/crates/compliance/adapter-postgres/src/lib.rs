@@ -43,7 +43,9 @@ impl PgComplianceError {
         match self {
             Self::Domain(error) => error.kind,
             Self::Db(DbError::Sqlx(sqlx::Error::RowNotFound)) => ErrorKind::NotFound,
-            Self::Db(DbError::Sqlx(_)) | Self::Db(DbError::Serialize(_)) => ErrorKind::Internal,
+            Self::Db(DbError::Sqlx(_))
+            | Self::Db(DbError::Serialize(_))
+            | Self::Db(DbError::CodeIssuance(_)) => ErrorKind::Internal,
         }
     }
 }

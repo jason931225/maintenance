@@ -5883,8 +5883,9 @@ paths:
           $ref: '#/components/responses/ValidationError'
     delete:
       operationId: deleteListing
-      summary: Delete a sales listing (#6)
-      description: Admin-gated (SalesManage). Removes a listing from the catalog.
+      summary: Archive a sales listing (#6)
+      description: Admin-gated (SalesManage). Soft-archives the listing (status -> WITHDRAWN) and removes it from
+        the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
       security:
       - bearerAuth: []
       parameters:
@@ -5895,7 +5896,7 @@ paths:
           $ref: '#/components/schemas/Uuid'
       responses:
         '204':
-          description: The listing was deleted.
+          description: The listing was archived (status set to WITHDRAWN).
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -7653,10 +7654,11 @@ paths:
   /api/objects/{kind}/{id}:
     get:
       operationId: resolveObject
-      summary: Resolve any object to a compact head (code, title, status, route hint)
+      summary: Resolve any object to a compact head (code, title, status)
       description: 'Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated.
         Reuses each domain''s tenant + branch scoping: an object outside the caller''s org/branch scope resolves identically
-        to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.'
+        to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+        Routing is the frontend objectRegistry''s responsibility; this endpoint never returns a route/URL.'
       security:
       - bearerAuth: []
       parameters:
@@ -7686,6 +7688,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/objects/{kind}/{id}/graph:
+    get:
+      operationId: getObjectGraph
+      summary: Walk the bounded object-link neighborhood of an object
+      description: 'Bounded level-by-level walk over object_links up to `depth` hops (clamped 1-5), org-scoped under
+        RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs
+        discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a
+        stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. `truncated`
+        is true when the response was cut short by the node cap before `depth` was exhausted.'
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: path
+        required: true
+        description: Root object kind slug.
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: Root object id.
+        schema:
+          type: string
+      - name: depth
+        in: query
+        required: false
+        description: Walk depth in hops, clamped to 1-5 (default 1).
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: The bounded neighborhood of the root object (empty if the root itself does not resolve).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectGraphResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/financial/purchase-requests/preferences:
     get:
       operationId: getPurchaseRequestPreferences
@@ -8187,11 +8233,11 @@ components:
     ObjectHead:
       type: object
       description: Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the
-        caller's scope (indistinguishable, by design).
+        caller's scope (indistinguishable, by design). Carries no route/URL — objectRegistry (frontend) is the sole
+        kind->URL authority.
       required:
       - kind
       - id
-      - url_path
       - exists
       properties:
         kind:
@@ -8210,9 +8256,6 @@ components:
           type: string
           nullable: true
           description: Domain status string if available.
-        url_path:
-          type: string
-          description: Frontend route hint for navigating to the object.
         exists:
           type: boolean
     CreateObjectLinkRequest:
@@ -8285,6 +8328,28 @@ components:
           description: Links where the queried object is the destination.
           items:
             $ref: '#/components/schemas/ObjectLinkResponse'
+    ObjectGraphResponse:
+      type: object
+      description: The bounded, caller-visible neighborhood of an object, walked over object_links. Unresolvable
+        nodes are omitted entirely (never returned as stubs), and edges touching an omitted node are omitted too.
+      required:
+      - nodes
+      - edges
+      - truncated
+      properties:
+        nodes:
+          type: array
+          description: Every object the caller can resolve, each passed through the same visibility guard as resolveObject.
+          items:
+            $ref: '#/components/schemas/ObjectHead'
+        edges:
+          type: array
+          description: Links between resolved nodes (the induced subgraph over the visible node set).
+          items:
+            $ref: '#/components/schemas/ObjectLinkResponse'
+        truncated:
+          type: boolean
+          description: True if the node cap was hit before the walk exhausted the requested depth.
     CollaborationScopeType:
       type: string
       enum:
@@ -13763,6 +13828,7 @@ components:
         body:
           type: string
           minLength: 1
+          maxLength: 4000
         attachment_evidence_ids:
           type: array
           items:

@@ -9,4 +9,7 @@ pub enum DbError {
 
     #[error("serialization error: {0}")]
     Serialize(#[from] serde_json::Error),
+
+    #[error("code issuance error: {0}")]
+    CodeIssuance(String),
 }

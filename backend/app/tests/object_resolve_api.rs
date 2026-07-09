@@ -66,9 +66,11 @@ async fn resolves_kinds_and_denies_by_omission(pool: PgPool) {
             .unwrap()
             .starts_with("User MECHANIC")
     );
-    assert_eq!(
-        person.1["url_path"],
-        format!("/settings/employees?person={}", subject.as_uuid())
+    assert!(
+        person.1.get("url_path").is_none(),
+        "ObjectHead must not carry a route/URL field — objectRegistry is the \
+         sole kind->URL authority: {}",
+        person.1
     );
 
     // person absent: a random id resolves to exists=false (not an error).

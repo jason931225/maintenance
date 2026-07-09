@@ -306,7 +306,16 @@ impl PgSalesStore {
         .await
     }
 
-    /// Delete a listing (cascades its media).
+    /// Archive a listing by moving it to WITHDRAWN (soft delete). The platform
+    /// convention is soft archival, never a hard DELETE (audit gap 23): a
+    /// disposed listing must stay in the object graph so its code never dangles
+    /// and its history stays reconstructable. The media rows are preserved with
+    /// it. WITHDRAWN is already excluded from the public catalog, so the
+    /// endpoint's effect is unchanged for consumers.
+    ///
+    /// No-op guard: a listing already WITHDRAWN is left untouched and audits
+    /// nothing — a repeat/retried delete call must not write an identical
+    /// before==after audit event every time.
     // mnt-gate: state-changing-handler
     pub async fn delete_listing(&self, command: DeleteListingCommand) -> Result<(), PgSalesError> {
         let org = current_org().map_err(KernelError::from)?;
@@ -314,11 +323,19 @@ impl PgSalesStore {
             .get_listing(command.listing_id, true)
             .await?
             .ok_or_else(|| KernelError::not_found("listing was not found"))?;
+        if existing.status == ListingStatus::Withdrawn {
+            return Ok(());
+        }
         let before = listing_view_snapshot(&existing);
+        let mut after = before.clone();
+        if let Some(obj) = after.as_object_mut() {
+            obj.insert("status".into(), ListingStatus::Withdrawn.as_db_str().into());
+        }
         let event = listing_delete_audit_event(
             command.actor,
             command.listing_id,
             before,
+            after,
             command.trace,
             command.occurred_at,
         )?
@@ -327,10 +344,13 @@ impl PgSalesStore {
 
         with_audit::<_, (), PgSalesError>(&self.pool, event, move |tx| {
             Box::pin(async move {
-                sqlx::query("DELETE FROM sales_listings WHERE id = $1")
-                    .bind(listing_uuid)
-                    .execute(tx.as_mut())
-                    .await?;
+                sqlx::query(
+                    "UPDATE sales_listings SET status = $2, updated_at = now() WHERE id = $1",
+                )
+                .bind(listing_uuid)
+                .bind(ListingStatus::Withdrawn.as_db_str())
+                .execute(tx.as_mut())
+                .await?;
                 Ok(())
             })
         })

@@ -2632,6 +2632,7 @@ impl From<DbError> for AppError {
         match value {
             DbError::Sqlx(err) => Self::Database(err),
             DbError::Serialize(err) => Self::Internal(err.to_string()),
+            DbError::CodeIssuance(err) => Self::Internal(err),
         }
     }
 }

@@ -1189,9 +1189,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PATCH /api/v1/sales/listings/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/sales/listings/{id}/patch(updateListing)`.
     func updateListing(_ input: Operations.UpdateListing.Input) async throws -> Operations.UpdateListing.Output
-    /// Delete a sales listing (#6)
+    /// Archive a sales listing (#6)
     ///
-    /// Admin-gated (SalesManage). Removes a listing from the catalog.
+    /// Admin-gated (SalesManage). Soft-archives the listing (status -> WITHDRAWN) and removes it from the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
     ///
     /// - Remark: HTTP `DELETE /api/v1/sales/listings/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/sales/listings/{id}/delete(deleteListing)`.
@@ -1562,13 +1562,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/v1/object-links/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/object-links/{id}/delete(deleteObjectLink)`.
     func deleteObjectLink(_ input: Operations.DeleteObjectLink.Input) async throws -> Operations.DeleteObjectLink.Output
-    /// Resolve any object to a compact head (code, title, status, route hint)
+    /// Resolve any object to a compact head (code, title, status)
     ///
-    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry's responsibility; this endpoint never returns a route/URL.
     ///
     /// - Remark: HTTP `GET /api/objects/{kind}/{id}`.
     /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)`.
     func resolveObject(_ input: Operations.ResolveObject.Input) async throws -> Operations.ResolveObject.Output
+    /// Walk the bounded object-link neighborhood of an object
+    ///
+    /// Bounded level-by-level walk over object_links up to `depth` hops (clamped 1-5), org-scoped under RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. `truncated` is true when the response was cut short by the node cap before `depth` was exhausted.
+    ///
+    /// - Remark: HTTP `GET /api/objects/{kind}/{id}/graph`.
+    /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/graph/get(getObjectGraph)`.
+    func getObjectGraph(_ input: Operations.GetObjectGraph.Input) async throws -> Operations.GetObjectGraph.Output
     /// Fetch the current user's purchase request workspace preferences
     ///
     /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/preferences`.
@@ -4312,9 +4319,9 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// Delete a sales listing (#6)
+    /// Archive a sales listing (#6)
     ///
-    /// Admin-gated (SalesManage). Removes a listing from the catalog.
+    /// Admin-gated (SalesManage). Soft-archives the listing (status -> WITHDRAWN) and removes it from the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
     ///
     /// - Remark: HTTP `DELETE /api/v1/sales/listings/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/sales/listings/{id}/delete(deleteListing)`.
@@ -5117,9 +5124,9 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// Resolve any object to a compact head (code, title, status, route hint)
+    /// Resolve any object to a compact head (code, title, status)
     ///
-    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry's responsibility; this endpoint never returns a route/URL.
     ///
     /// - Remark: HTTP `GET /api/objects/{kind}/{id}`.
     /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)`.
@@ -5129,6 +5136,23 @@ extension APIProtocol {
     ) async throws -> Operations.ResolveObject.Output {
         try await resolveObject(Operations.ResolveObject.Input(
             path: path,
+            headers: headers
+        ))
+    }
+    /// Walk the bounded object-link neighborhood of an object
+    ///
+    /// Bounded level-by-level walk over object_links up to `depth` hops (clamped 1-5), org-scoped under RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. `truncated` is true when the response was cut short by the node cap before `depth` was exhausted.
+    ///
+    /// - Remark: HTTP `GET /api/objects/{kind}/{id}/graph`.
+    /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/graph/get(getObjectGraph)`.
+    public func getObjectGraph(
+        path: Operations.GetObjectGraph.Input.Path,
+        query: Operations.GetObjectGraph.Input.Query = .init(),
+        headers: Operations.GetObjectGraph.Input.Headers = .init()
+    ) async throws -> Operations.GetObjectGraph.Output {
+        try await getObjectGraph(Operations.GetObjectGraph.Input(
+            path: path,
+            query: query,
             headers: headers
         ))
     }
@@ -5296,7 +5320,7 @@ public enum Servers {}
 public enum Components {
     /// Types generated from the `#/components/schemas` section of the OpenAPI document.
     public enum Schemas {
-        /// Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design).
+        /// Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design). Carries no route/URL — objectRegistry (frontend) is the sole kind->URL authority.
         ///
         /// - Remark: Generated from `#/components/schemas/ObjectHead`.
         public struct ObjectHead: Codable, Hashable, Sendable {
@@ -5316,10 +5340,6 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/ObjectHead/status`.
             public var status: Swift.String?
-            /// Frontend route hint for navigating to the object.
-            ///
-            /// - Remark: Generated from `#/components/schemas/ObjectHead/url_path`.
-            public var urlPath: Swift.String
             /// - Remark: Generated from `#/components/schemas/ObjectHead/exists`.
             public var exists: Swift.Bool
             /// Creates a new `ObjectHead`.
@@ -5330,7 +5350,6 @@ public enum Components {
             ///   - code: Canonical issued code if the kind has one (e.g. work-order request_no); absent otherwise.
             ///   - title: Human display label if available.
             ///   - status: Domain status string if available.
-            ///   - urlPath: Frontend route hint for navigating to the object.
             ///   - exists:
             public init(
                 kind: Swift.String,
@@ -5338,7 +5357,6 @@ public enum Components {
                 code: Swift.String? = nil,
                 title: Swift.String? = nil,
                 status: Swift.String? = nil,
-                urlPath: Swift.String,
                 exists: Swift.Bool
             ) {
                 self.kind = kind
@@ -5346,7 +5364,6 @@ public enum Components {
                 self.code = code
                 self.title = title
                 self.status = status
-                self.urlPath = urlPath
                 self.exists = exists
             }
             public enum CodingKeys: String, CodingKey {
@@ -5355,7 +5372,6 @@ public enum Components {
                 case code
                 case title
                 case status
-                case urlPath = "url_path"
                 case exists
             }
         }
@@ -5498,6 +5514,43 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case outgoing
                 case incoming
+            }
+        }
+        /// The bounded, caller-visible neighborhood of an object, walked over object_links. Unresolvable nodes are omitted entirely (never returned as stubs), and edges touching an omitted node are omitted too.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ObjectGraphResponse`.
+        public struct ObjectGraphResponse: Codable, Hashable, Sendable {
+            /// Every object the caller can resolve, each passed through the same visibility guard as resolveObject.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectGraphResponse/nodes`.
+            public var nodes: [Components.Schemas.ObjectHead]
+            /// Links between resolved nodes (the induced subgraph over the visible node set).
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectGraphResponse/edges`.
+            public var edges: [Components.Schemas.ObjectLinkResponse]
+            /// True if the node cap was hit before the walk exhausted the requested depth.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ObjectGraphResponse/truncated`.
+            public var truncated: Swift.Bool
+            /// Creates a new `ObjectGraphResponse`.
+            ///
+            /// - Parameters:
+            ///   - nodes: Every object the caller can resolve, each passed through the same visibility guard as resolveObject.
+            ///   - edges: Links between resolved nodes (the induced subgraph over the visible node set).
+            ///   - truncated: True if the node cap was hit before the walk exhausted the requested depth.
+            public init(
+                nodes: [Components.Schemas.ObjectHead],
+                edges: [Components.Schemas.ObjectLinkResponse],
+                truncated: Swift.Bool
+            ) {
+                self.nodes = nodes
+                self.edges = edges
+                self.truncated = truncated
+            }
+            public enum CodingKeys: String, CodingKey {
+                case nodes
+                case edges
+                case truncated
             }
         }
         /// - Remark: Generated from `#/components/schemas/CollaborationScopeType`.
@@ -65629,9 +65682,9 @@ public enum Operations {
             }
         }
     }
-    /// Delete a sales listing (#6)
+    /// Archive a sales listing (#6)
     ///
-    /// Admin-gated (SalesManage). Removes a listing from the catalog.
+    /// Admin-gated (SalesManage). Soft-archives the listing (status -> WITHDRAWN) and removes it from the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
     ///
     /// - Remark: HTTP `DELETE /api/v1/sales/listings/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/sales/listings/{id}/delete(deleteListing)`.
@@ -65681,13 +65734,13 @@ public enum Operations {
                 /// Creates a new `NoContent`.
                 public init() {}
             }
-            /// The listing was deleted.
+            /// The listing was archived (status set to WITHDRAWN).
             ///
             /// - Remark: Generated from `#/paths//api/v1/sales/listings/{id}/delete(deleteListing)/responses/204`.
             ///
             /// HTTP response code: `204 noContent`.
             case noContent(Operations.DeleteListing.Output.NoContent)
-            /// The listing was deleted.
+            /// The listing was archived (status set to WITHDRAWN).
             ///
             /// - Remark: Generated from `#/paths//api/v1/sales/listings/{id}/delete(deleteListing)/responses/204`.
             ///
@@ -77772,9 +77825,9 @@ public enum Operations {
             }
         }
     }
-    /// Resolve any object to a compact head (code, title, status, route hint)
+    /// Resolve any object to a compact head (code, title, status)
     ///
-    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404.
+    /// Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry's responsibility; this endpoint never returns a route/URL.
     ///
     /// - Remark: HTTP `GET /api/objects/{kind}/{id}`.
     /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/get(resolveObject)`.
@@ -77967,6 +78020,234 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Walk the bounded object-link neighborhood of an object
+    ///
+    /// Bounded level-by-level walk over object_links up to `depth` hops (clamped 1-5), org-scoped under RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. `truncated` is true when the response was cut short by the node cap before `depth` was exhausted.
+    ///
+    /// - Remark: HTTP `GET /api/objects/{kind}/{id}/graph`.
+    /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/graph/get(getObjectGraph)`.
+    public enum GetObjectGraph {
+        public static let id: Swift.String = "getObjectGraph"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// Root object kind slug.
+                ///
+                /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/path/kind`.
+                public var kind: Swift.String
+                /// Root object id.
+                ///
+                /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - kind: Root object kind slug.
+                ///   - id: Root object id.
+                public init(
+                    kind: Swift.String,
+                    id: Swift.String
+                ) {
+                    self.kind = kind
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetObjectGraph.Input.Path
+            /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Walk depth in hops, clamped to 1-5 (default 1).
+                ///
+                /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/query/depth`.
+                public var depth: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - depth: Walk depth in hops, clamped to 1-5 (default 1).
+                public init(depth: Swift.Int64? = nil) {
+                    self.depth = depth
+                }
+            }
+            public var query: Operations.GetObjectGraph.Input.Query
+            /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetObjectGraph.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetObjectGraph.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetObjectGraph.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - query:
+            ///   - headers:
+            public init(
+                path: Operations.GetObjectGraph.Input.Path,
+                query: Operations.GetObjectGraph.Input.Query = .init(),
+                headers: Operations.GetObjectGraph.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/objects/{kind}/{id}/graph/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectGraphResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectGraphResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetObjectGraph.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetObjectGraph.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The bounded neighborhood of the root object (empty if the root itself does not resolve).
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/graph/get(getObjectGraph)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetObjectGraph.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetObjectGraph.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/graph/get(getObjectGraph)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/graph/get(getObjectGraph)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/objects/{kind}/{id}/graph/get(getObjectGraph)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
                             response: self
                         )
                     }
