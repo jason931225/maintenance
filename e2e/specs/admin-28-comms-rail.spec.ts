@@ -1,4 +1,11 @@
-import { test, expect, sql, ROLE_CONFIG, TENANT_ORG_ID } from "../fixtures/roles";
+import {
+  test,
+  expect,
+  sql,
+  loginAsLanding,
+  ROLE_CONFIG,
+  TENANT_ORG_ID,
+} from "../fixtures/roles";
 import { navigateByHref } from "../fixtures/ux";
 
 const ADMIN_USER_ID = ROLE_CONFIG.ADMIN.userId;
@@ -25,7 +32,6 @@ const RAIL = {
  */
 test("ADMIN-28 comms rail hosts notifications and yields the messenger section on promotion", async ({
   page,
-  loginAs,
 }) => {
   // Seed exactly one unread notification so the mark-all path always runs
   // (link shape mirrors the domain's serde: {type,screen}).
@@ -36,7 +42,11 @@ test("ADMIN-28 comms rail hosts notifications and yields the messenger section o
       `'{"type":"screen","screen":"approvals"}'::jsonb, true)`,
   );
 
-  await loginAs("ADMIN");
+  // loginAs (the fixture) deliberately lands on /dispatch for legacy
+  // dispatch-oriented specs; this spec asserts rail behavior on the real
+  // authenticated landing route, so it drives the ceremony via
+  // loginAsLanding directly (same pattern as admin-21/22/23/24).
+  await loginAsLanding(page, "ADMIN");
   await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
 
   const rail = page.getByRole("complementary", { name: RAIL.label });

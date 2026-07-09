@@ -95,11 +95,15 @@ export async function postNotificationRead(
   accessToken: string,
   id: string,
 ): Promise<void> {
+  // keepalive: the store fires this optimistically (UI hides the unread state
+  // synchronously) and never awaits it before the caller may navigate/reload;
+  // without keepalive the browser aborts the in-flight POST on unload, so the
+  // read never persists and the stale unread state comes right back.
   await notificationsFetch(
     baseUrl,
     accessToken,
     `/api/v1/me/notifications/${encodeURIComponent(id)}/read`,
-    { method: "POST" },
+    { method: "POST", keepalive: true },
   );
 }
 
@@ -107,7 +111,10 @@ export async function postNotificationsReadAll(
   baseUrl: string,
   accessToken: string,
 ): Promise<void> {
+  // keepalive: see postNotificationRead — same fire-and-forget-then-navigate
+  // pattern in markAllNotificationsRead.
   await notificationsFetch(baseUrl, accessToken, "/api/v1/me/notifications/read-all", {
     method: "POST",
+    keepalive: true,
   });
 }
