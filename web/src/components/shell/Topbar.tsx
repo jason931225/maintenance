@@ -8,11 +8,9 @@ import { GroupScopeSwitcher } from "../../features/group/GroupScopeSwitcher";
 import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
 import { useActiveBranchName } from "../../lib/useActiveBranchName";
-import { NOTIFICATION_COUNTS_INVALIDATED } from "../../lib/notification-events";
 import { cn, identityLabel, safeLabel } from "../../lib/utils";
+import { useCommsStore } from "../../features/comms/store";
 import {
-  FEATURES,
-  hasAnyFeatureGrant,
   hasGroupAdminRole,
   hasGrantedConsoleAccess,
   isNavItemVisible,
@@ -71,7 +69,7 @@ export function Topbar({
 
       <GroupScopeSwitcher />
 
-      <NotificationBell />
+      <NotificationRailToggle />
 
       {/* Branch chip */}
       <BranchChip />
@@ -82,259 +80,26 @@ export function Topbar({
   );
 }
 
-interface NotificationCounts {
-  pendingApprovals: number;
-  submittedDocuments: number;
-  completedApprovals: number;
-  messenger: number;
-  mail: number;
-  supportUnread: number;
-  supportOpen: number;
-  other: number;
-}
-
-const emptyNotificationCounts: NotificationCounts = {
-  pendingApprovals: 0,
-  submittedDocuments: 0,
-  completedApprovals: 0,
-  messenger: 0,
-  mail: 0,
-  supportUnread: 0,
-  supportOpen: 0,
-  other: 0,
-};
-const MAIL_BADGE_FEATURES = [FEATURES.MAIL_USE] as const;
-
-
-function notificationTotal(counts: NotificationCounts): number {
-  return counts.pendingApprovals + counts.messenger + counts.mail + counts.supportUnread + counts.other;
-}
-
-function notificationBadge(count: number): string {
-  return count > 99 ? "99+" : String(count);
-}
-
-function isCompletedApprovalStatus(status: string): boolean {
-  return ["APPROVED", "ADMIN_APPROVED", "EXECUTIVE_APPROVED", "COMPLETED"].includes(status);
-}
-
-function isOpenSupportStatus(status: string): boolean {
-  return status === "OPEN" || status === "IN_PROGRESS" || status === "ON_HOLD";
-}
-
-function NotificationBell() {
-  const { api, session } = useAuth();
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [counts, setCounts] = useState<NotificationCounts>(emptyNotificationCounts);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const roles = session?.roles;
-  const groupRoles = session?.group_roles;
-  const featureGrants = session?.feature_grants;
-  const canLoadApprovals = isNavItemVisible("approvals", roles, groupRoles, featureGrants);
-  const canLoadMessenger = isNavItemVisible("messenger", roles, groupRoles, featureGrants);
-  const canLoadMail = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
-  const canLoadSupport = isNavItemVisible("support", roles, groupRoles, featureGrants);
-  const notificationItems = notificationRows(counts);
-  const total = notificationTotal(counts);
-
-  useEffect(() => {
-    let ignore = false;
-    async function loadNotifications() {
-      let failed = false;
-      setLoading(true);
-      const next: NotificationCounts = { ...emptyNotificationCounts };
-      await Promise.all([
-        canLoadApprovals
-          ? api
-              .GET("/api/approval-items", { params: { query: { limit: 100, offset: 0 } } })
-              .then((response) => {
-                const approvalItems = response.data?.items ?? [];
-                const sourceTotal = response.data?.sources.reduce(
-                  (sum, source) => sum + source.count,
-                  0,
-                );
-                next.pendingApprovals = response.data?.total ?? approvalItems.length;
-                next.submittedDocuments = sourceTotal ?? next.pendingApprovals;
-                next.completedApprovals = approvalItems.filter((item) =>
-                  isCompletedApprovalStatus(item.status),
-                ).length;
-              })
-              .catch(() => { failed = true; })
-          : Promise.resolve(),
-        canLoadMessenger
-          ? api
-              .GET("/api/messenger/threads", { params: { query: { limit: 100 } } })
-              .then((response) => {
-                next.messenger = response.data?.items.reduce(
-                  (sum, thread) => sum + Math.max(0, thread.unread_count),
-                  0,
-                ) ?? 0;
-              })
-              .catch(() => { failed = true; })
-          : Promise.resolve(),
-        canLoadMail
-          ? api
-              .GET("/api/v1/mail/folders")
-              .then((response) => {
-                next.mail = response.data?.reduce(
-                  (sum, folder) => sum + Math.max(0, folder.unread_count),
-                  0,
-                ) ?? 0;
-              })
-              .catch(() => { failed = true; })
-          : Promise.resolve(),
-        canLoadSupport
-          ? api
-              .GET("/api/v1/support/tickets", {
-                params: { query: { include_untriaged: true, limit: 100 } },
-              })
-              .then((response) => {
-                const tickets = response.data?.items ?? [];
-                next.supportOpen = tickets.filter((ticket) =>
-                  isOpenSupportStatus(ticket.status),
-                ).length;
-                next.supportUnread = tickets.filter(
-                  (ticket) => ticket.origin === "CUSTOMER" && isOpenSupportStatus(ticket.status),
-                ).length;
-              })
-              .catch(() => { failed = true; })
-          : Promise.resolve(),
-      ]);
-      if (!ignore) {
-        setCounts(next);
-        setLoadError(failed);
-        setLoading(false);
-      }
-    }
-    void loadNotifications();
-    function reloadNotifications() {
-      void loadNotifications();
-    }
-    window.addEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadNotifications);
-    const timer = window.setInterval(() => { void loadNotifications(); }, 30_000);
-    return () => {
-      ignore = true;
-      window.removeEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadNotifications);
-      window.clearInterval(timer);
-    };
-  }, [api, canLoadApprovals, canLoadMail, canLoadMessenger, canLoadSupport]);
-
+// The rail's 알림 section is the notification surface now; the topbar keeps only
+// a bell that opens/expands the rail there, carrying the unread badge from the
+// shared comms store.
+function NotificationRailToggle() {
+  const notificationUnread = useCommsStore((s) => s.notificationUnread);
+  const openRail = useCommsStore((s) => s.openRailToNotifications);
   return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-label={ko.shell.notifications.open}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => { setOpen((value) => !value); }}
-        className="relative rounded-md p-2 text-console-steel hover:bg-console-muted hover:text-console-ink focus-visible:outline-2 focus-visible:outline-console-ink"
-      >
-        <Bell size={18} aria-hidden="true" />
-        {total > 0 ? (
-          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-console-danger-solid px-1 text-[10px] font-bold leading-none text-console-surface">
-            {notificationBadge(total)}
-          </span>
-        ) : null}
-      </button>
-      {open ? (
-        <div
-          className="absolute right-0 top-full z-50 mt-1 w-72 rounded-md border border-console-border bg-console-surface p-3 shadow-console-pop"
-          role="dialog"
-          aria-label={ko.shell.notifications.title}
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-console-ink">{ko.shell.notifications.title}</p>
-            <span className="rounded-full bg-console-danger-solid px-2 py-0.5 text-xs font-bold text-console-surface">
-              {notificationBadge(total)}
-            </span>
-          </div>
-          {loading ? (
-            <p className="mb-2 rounded-md bg-console-muted px-2 py-1 text-xs text-console-steel">
-              {ko.shell.notifications.loading}
-            </p>
-          ) : null}
-          {loadError ? (
-            <p role="alert" className="mb-2 rounded-md bg-console-warn-bg px-2 py-1 text-xs font-medium text-console-warn-tx">
-              {ko.shell.notifications.loadFailed}
-            </p>
-          ) : null}
-          {!loading && !loadError && total === 0 ? (
-            <p className="mb-2 rounded-md border border-dashed border-console-border px-2 py-2 text-sm text-console-steel">
-              {ko.shell.notifications.empty}
-            </p>
-          ) : null}
-          <ul className="grid gap-2 text-sm text-console-steel">
-            {notificationItems.map((item) => (
-              <NotificationCountRow
-                key={item.href}
-                label={item.label}
-                count={item.count}
-                onClick={() => {
-                  setOpen(false);
-                  void navigate(item.href);
-                }}
-              />
-            ))}
-          </ul>
-        </div>
+    <button
+      type="button"
+      aria-label={ko.shell.commsRail.openNotifications}
+      onClick={openRail}
+      className="relative rounded-md p-2 text-console-steel hover:bg-console-muted hover:text-console-ink focus-visible:outline-2 focus-visible:outline-console-ink"
+    >
+      <Bell size={18} aria-hidden="true" />
+      {notificationUnread > 0 ? (
+        <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-console-danger-solid px-1 text-[10px] font-bold leading-none text-console-surface">
+          {notificationUnread > 99 ? "99+" : String(notificationUnread)}
+        </span>
       ) : null}
-    </div>
-  );
-}
-
-interface NotificationRowItem {
-  label: string;
-  count: number;
-  href: string;
-}
-
-function notificationRows(counts: NotificationCounts): NotificationRowItem[] {
-  return [
-    {
-      label: ko.shell.notifications.approvals,
-      count: counts.pendingApprovals,
-      href: "/approvals",
-    },
-    {
-      label: ko.shell.notifications.messages,
-      count: counts.messenger,
-      href: "/messenger",
-    },
-    {
-      label: ko.shell.notifications.mail,
-      count: counts.mail,
-      href: "/mail",
-    },
-    {
-      label: ko.shell.notifications.supportUnread,
-      count: counts.supportUnread,
-      href: "/support",
-    },
-  ].filter((item) => item.count > 0);
-}
-
-function NotificationCountRow({
-  label,
-  count,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  onClick: () => void;
-}) {
-  return (
-    <li>
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-console-muted focus-visible:outline-2 focus-visible:outline-console-signal"
-        onClick={onClick}
-      >
-        <span>{label}</span>
-        <strong className="text-console-ink">{count}</strong>
-      </button>
-    </li>
+    </button>
   );
 }
 

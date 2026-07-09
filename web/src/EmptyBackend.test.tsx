@@ -145,6 +145,12 @@ const server = setupServer(
     HttpResponse.json({ items: [] }),
   ),
   http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
+  http.get("*/api/v1/me/notifications", () =>
+    HttpResponse.json({ items: [], next_cursor: null }),
+  ),
+  http.get("*/api/v1/me/notifications/unread-count", () =>
+    HttpResponse.json({ unread: 0 }),
+  ),
   http.get("*/api/daily-work-plans", () =>
     HttpResponse.json({ items: [] }),
   ),

@@ -268,30 +268,18 @@ describe("AppShell navigation fabric", () => {
     expect(await within(approvals).findByText("3")).toBeVisible();
     expect(support).toHaveAccessibleName(/읽지 않은 문의 1건, 열린 티켓 2건/);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: ko.shell.notifications.open }),
-    );
-    const notifications = screen.getByRole("dialog", {
-      name: ko.shell.notifications.title,
-    });
-    expect(within(notifications).getByText(ko.shell.notifications.approvals)).toBeVisible();
-    expect(within(notifications).getByText(ko.shell.notifications.messages)).toBeVisible();
-    expect(within(notifications).getByText(ko.shell.notifications.mail)).toBeVisible();
-    expect(within(notifications).getByText(ko.shell.notifications.supportUnread)).toBeVisible();
+    // The topbar bell is now a rail toggle (UI-M2b) — the legacy dropdown was
+    // retired in favour of the comms rail 알림 section. It carries only the
+    // notification unread badge; the count breakdown lives in the rail.
+    const header = screen.getByRole("banner");
     expect(
-      within(notifications).queryByText(ko.shell.notifications.submittedDocuments),
+      within(header).getByRole("button", {
+        name: ko.shell.commsRail.openNotifications,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("dialog", { name: ko.shell.notifications.title }),
     ).not.toBeInTheDocument();
-    expect(
-      within(notifications).queryByText(ko.shell.notifications.completedApprovals),
-    ).not.toBeInTheDocument();
-    expect(
-      within(notifications).queryByText(ko.shell.notifications.supportOpen),
-    ).not.toBeInTheDocument();
-    expect(
-      within(notifications)
-        .getByText(ko.shell.notifications.supportUnread)
-        .closest("button"),
-    ).toHaveTextContent("1");
   });
 
   it("keeps keyboard focus inside the command palette", async () => {

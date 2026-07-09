@@ -1,21 +1,14 @@
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { NavLink } from "react-router-dom";
 
-import type { components } from "@maintenance/api-client-ts";
 import type { AuthSession } from "../../context/auth";
-import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
-import { NOTIFICATION_COUNTS_INVALIDATED } from "../../lib/notification-events";
 import { cn } from "../../lib/utils";
 import { consoleIcons } from "../console/icons";
-import {
-  FEATURES,
-  hasAnyFeatureGrant,
-  NAV_GROUPS,
-  isNavItemVisible,
-} from "./nav";
+import { NAV_GROUPS, isNavItemVisible } from "./nav";
 import { navGroupLabel, navItemLabel } from "./nav-labels";
+import { useCommsStore } from "../../features/comms/store";
 
 // ponytail: the brand tile reuses the existing "overview" console icon as the
 // app mark instead of a per-tenant logo upload pipeline — swap for real
@@ -29,8 +22,6 @@ interface SidebarProps {
   onMobileClose: () => void;
   session: AuthSession | undefined;
 }
-
-type SupportTicketSummary = components["schemas"]["SupportTicketSummary"];
 
 interface NavBadge {
   primary: number;
@@ -54,12 +45,6 @@ function navBadgeAria(template: string, label: string, count: number): string {
   return template.replace("{label}", label).replace("{count}", String(count));
 }
 
-function isOpenSupportTicket(ticket: Pick<SupportTicketSummary, "status">): boolean {
-  return ticket.status === "OPEN" || ticket.status === "IN_PROGRESS" || ticket.status === "ON_HOLD";
-}
-
-const MAIL_BADGE_FEATURES = [FEATURES.MAIL_USE] as const;
-
 export function Sidebar({
   collapsed,
   mobileOpen,
@@ -67,12 +52,67 @@ export function Sidebar({
   onMobileClose,
   session,
 }: SidebarProps) {
-  const { api } = useAuth();
   const panelRef = useRef<HTMLElement>(null);
   const roles = session?.roles;
   const groupRoles = session?.group_roles;
   const featureGrants = session?.feature_grants;
-  const [counts, setCounts] = useState<NavCounts>({});
+
+  // Badge counts come from the shared comms store (fetched once by the comms
+  // rail runtime) instead of the sidebar re-fetching them itself.
+  const approvals = useCommsStore((s) => s.counts.approvals);
+  const messengerUnread = useCommsStore((s) => s.counts.messenger);
+  const mailUnread = useCommsStore((s) => s.counts.mail);
+  const supportOpen = useCommsStore((s) => s.counts.supportOpen);
+  const supportUnread = useCommsStore((s) => s.counts.supportUnread);
+
+  const counts = useMemo<NavCounts>(() => {
+    const next: NavCounts = {};
+    if (approvals > 0) {
+      next.approvals = {
+        primary: approvals,
+        tone: "attention",
+        ariaLabel: navBadgeAria(
+          ko.shell.navBadges.pendingApprovals,
+          navItemLabel("approvals"),
+          approvals,
+        ),
+      };
+    }
+    if (messengerUnread > 0) {
+      next.messenger = {
+        primary: messengerUnread,
+        tone: "attention",
+        ariaLabel: navBadgeAria(
+          ko.shell.navBadges.unreadMessages,
+          navItemLabel("messenger"),
+          messengerUnread,
+        ),
+      };
+    }
+    if (mailUnread > 0) {
+      next.mail = {
+        primary: mailUnread,
+        tone: "attention",
+        ariaLabel: navBadgeAria(
+          ko.shell.navBadges.unreadMail,
+          navItemLabel("mail"),
+          mailUnread,
+        ),
+      };
+    }
+    if (supportOpen > 0 || supportUnread > 0) {
+      next.support = {
+        primary: supportUnread,
+        secondary: supportOpen,
+        tone: supportUnread > 0 ? "attention" : "neutral",
+        ariaLabel: ko.shell.navBadges.supportSummary
+          .replace("{unread}", String(supportUnread))
+          .replace("{open}", String(supportOpen)),
+        secondaryLabel: ko.shell.navBadges.openShort,
+      };
+    }
+    return next;
+  }, [approvals, messengerUnread, mailUnread, supportOpen, supportUnread]);
 
   const filteredGroups = useMemo(
     () =>
@@ -84,11 +124,6 @@ export function Sidebar({
       })).filter((group) => group.items.length > 0),
     [featureGrants, groupRoles, roles],
   );
-  const visibleItemKeys = useMemo(
-    () => new Set(filteredGroups.flatMap((group) => group.items.map((item) => item.key))),
-    [filteredGroups],
-  );
-  const canLoadMailBadge = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
 
   useEffect(() => {
     if (!mobileOpen) return undefined;
@@ -162,115 +197,6 @@ export function Sidebar({
       }
     };
   }, [mobileOpen]);
-
-  useEffect(() => {
-    let ignore = false;
-    async function loadCounts() {
-      const next: NavCounts = {};
-      await Promise.all([
-        visibleItemKeys.has("approvals")
-          ? api
-              .GET("/api/approval-items", { params: { query: { limit: 100, offset: 0 } } })
-              .then((response) => {
-                const count = response.data?.total ?? response.data?.items.length ?? 0;
-                if (count > 0) {
-                  next.approvals = {
-                    primary: count,
-                    tone: "attention",
-                    ariaLabel: navBadgeAria(
-                      ko.shell.navBadges.pendingApprovals,
-                      navItemLabel("approvals"),
-                      count,
-                    ),
-                  };
-                }
-              })
-              .catch(() => undefined)
-          : Promise.resolve(),
-        visibleItemKeys.has("messenger")
-          ? api
-              .GET("/api/messenger/threads", { params: { query: { limit: 100 } } })
-              .then((response) => {
-                const count =
-                  response.data?.items.reduce(
-                    (sum, thread) => sum + Math.max(0, thread.unread_count),
-                    0,
-                  ) ?? 0;
-                if (count > 0) {
-                  next.messenger = {
-                    primary: count,
-                    tone: "attention",
-                    ariaLabel: navBadgeAria(
-                      ko.shell.navBadges.unreadMessages,
-                      navItemLabel("messenger"),
-                      count,
-                    ),
-                  };
-                }
-              })
-              .catch(() => undefined)
-          : Promise.resolve(),
-        visibleItemKeys.has("mail") && canLoadMailBadge
-          ? api
-              .GET("/api/v1/mail/folders")
-              .then((response) => {
-                const count =
-                  response.data?.reduce(
-                    (sum, folder) => sum + Math.max(0, folder.unread_count),
-                    0,
-                  ) ?? 0;
-                if (count > 0) {
-                  next.mail = {
-                    primary: count,
-                    tone: "attention",
-                    ariaLabel: navBadgeAria(
-                      ko.shell.navBadges.unreadMail,
-                      navItemLabel("mail"),
-                      count,
-                    ),
-                  };
-                }
-              })
-              .catch(() => undefined)
-          : Promise.resolve(),
-        visibleItemKeys.has("support")
-          ? api
-              .GET("/api/v1/support/tickets", {
-                params: { query: { include_untriaged: true, limit: 100 } },
-              })
-              .then((response) => {
-                const tickets = response.data?.items ?? [];
-                const open = tickets.filter(isOpenSupportTicket).length;
-                const customerUnread = tickets.filter(
-                  (ticket) => ticket.origin === "CUSTOMER" && isOpenSupportTicket(ticket),
-                ).length;
-                if (open > 0 || customerUnread > 0) {
-                  next.support = {
-                    primary: customerUnread,
-                    secondary: open,
-                    tone: customerUnread > 0 ? "attention" : "neutral",
-                    ariaLabel: ko.shell.navBadges.supportSummary
-                      .replace("{unread}", String(customerUnread))
-                      .replace("{open}", String(open)),
-                    secondaryLabel: ko.shell.navBadges.openShort,
-                  };
-                }
-              })
-              .catch(() => undefined)
-          : Promise.resolve(),
-      ]);
-      if (!ignore) setCounts(next);
-    }
-    void loadCounts();
-    function reloadCounts() {
-      void loadCounts();
-    }
-    window.addEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadCounts);
-    return () => {
-      ignore = true;
-      window.removeEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadCounts);
-    };
-  }, [api, canLoadMailBadge, visibleItemKeys]);
 
   return (
     <>
