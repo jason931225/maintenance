@@ -16,7 +16,7 @@ const MinimizeIcon = consoleIcons.minz;
 const PopoutIcon = consoleIcons.share;
 const CloseIcon = consoleIcons.close;
 
-const KIND_TONE: Record<PinKind, "info" | "accent" | "warn" | "ok" | "purple"> =
+const KIND_TONE: Record<PinKind, "info" | "accent" | "warn" | "ok" | "purple" | "neutral"> =
   {
     workOrder: "info",
     support: "warn",
@@ -25,6 +25,7 @@ const KIND_TONE: Record<PinKind, "info" | "accent" | "warn" | "ok" | "purple"> =
     conversation: "ok",
     attendance: "ok",
     person: "purple",
+    org: "neutral",
   };
 
 export interface PinPanelProps {

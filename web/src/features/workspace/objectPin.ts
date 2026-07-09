@@ -28,7 +28,32 @@ export async function fetchPinnedObject(
   if (kind === "person") return fetchPersonPin(api, args.id, args.branchId);
   if (kind === "workOrder") return fetchWorkOrderPin(api, args.id);
   if (kind === "support") return fetchSupportPin(api, args.id);
+  if (kind === "org") return fetchOrgPin(api, args.id);
   return null;
+}
+
+async function fetchOrgPin(
+  api: ConsoleApiClient,
+  branchId: string,
+): Promise<PinnedObject | null> {
+  let branch;
+  try {
+    const response = await api.GET("/api/v1/branches/{id}", {
+      params: { path: { id: branchId } },
+    });
+    branch = response.data;
+  } catch {
+    return null;
+  }
+  if (!branch) return null;
+
+  return {
+    kind: "org",
+    code: branchId,
+    title: safeLabel(branch.name),
+    fields: [],
+    href: objectRegistry.org.route({ id: branchId }),
+  };
 }
 
 async function fetchSupportPin(

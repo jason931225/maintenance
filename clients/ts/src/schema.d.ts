@@ -3108,7 +3108,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Fetch one branch's summary for an org-unit pin panel
+         * @description Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller's org. No audit — org-structure metadata, not PII. A branch outside the caller's org returns 404.
+         */
+        get: operations["getBranch"];
         put?: never;
         post?: never;
         /**
@@ -12321,6 +12325,31 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    getBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     deactivateBranch: {

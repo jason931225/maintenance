@@ -38,6 +38,7 @@ export const PIN_KINDS = [
   "conversation",
   "attendance",
   "person",
+  "org",
 ] as const;
 export type PinKind = (typeof PIN_KINDS)[number];
 

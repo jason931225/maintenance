@@ -126,3 +126,28 @@ describe("fetchPinnedObject — support ticket (#21)", () => {
     expect(await fetchPinnedObject(api, "support", { id: "x", code: "CS-x", branchId })).toBeNull();
   });
 });
+
+describe("fetchPinnedObject — org unit (#21)", () => {
+  it("fetches the branch summary and builds an org pin", async () => {
+    const id = "44444444-4444-4444-8444-444444444444";
+    server.use(
+      http.get("*/api/v1/branches/:id", () =>
+        HttpResponse.json({ id, region_id: "r", name: "창원지점", created_at: "2026-07-09T00:00:00Z" }),
+      ),
+    );
+    const api = createConsoleApiClient("test-token");
+
+    const pin = await fetchPinnedObject(api, "org", { id, code: id, branchId });
+
+    expect(pin).toMatchObject({ kind: "org", code: id, title: "창원지점" });
+  });
+
+  it("returns null (no pin) when the branch is not found or out of org", async () => {
+    server.use(
+      http.get("*/api/v1/branches/:id", () => HttpResponse.json({ error: "nf" }, { status: 404 })),
+    );
+    const api = createConsoleApiClient("test-token");
+
+    expect(await fetchPinnedObject(api, "org", { id: "x", code: "x", branchId })).toBeNull();
+  });
+});
