@@ -29,7 +29,8 @@ use mnt_comms_credential_cipher::{
 };
 use mnt_comms_domain::MailSecurity;
 use mnt_comms_rest::{CommsRestState, MAIL_MOX_WEBHOOK_PATH, router};
-use mnt_kernel_core::{OrgId, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
+use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_request_context::CURRENT_ORG;
 use mnt_platform_test_support::runtime_role_pool;
 use serde_json::{Value, json};
@@ -65,43 +66,71 @@ fn seal(
         .unwrap()
 }
 
-/// Seed the org row (RLS FK target) as the owner, row-security off.
+/// Seed the org row (RLS FK target) as the owner, row-security off. The SQL
+/// write is still wrapped in `with_audit` because this `rest/` integration test
+/// file is scanned by the backend audit-coverage gate.
 async fn seed_org(owner_pool: &PgPool, org: OrgId) {
-    let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
-    )
-    .bind(*org.as_uuid())
-    .bind("org-knl")
-    .bind("Org KNL")
-    .execute(&mut *tx)
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_org").unwrap(),
+        "organization",
+        org.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    );
+    with_audit::<_, (), DbError>(owner_pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query("SET LOCAL row_security = off")
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            sqlx::query(
+                "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+            )
+            .bind(*org.as_uuid())
+            .bind("org-knl")
+            .bind("Org KNL")
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-    tx.commit().await.unwrap();
 }
 
 /// Seed an active user (the audit `actor_user_id` FK target) as the owner.
 async fn seed_active_user(owner_pool: &PgPool, org: OrgId) -> UserId {
-    let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    let user_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO users (display_name, roles, org_id, is_active) VALUES ($1, $2, $3, true) RETURNING id",
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_active_user").unwrap(),
+        "user",
+        org.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
     )
-    .bind(format!("Persona B {}", uuid::Uuid::new_v4()))
-    .bind(vec!["ADMIN".to_owned()])
-    .bind(*org.as_uuid())
-    .fetch_one(&mut *tx)
+    .with_org(org);
+    with_audit::<_, UserId, DbError>(owner_pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query("SET LOCAL row_security = off")
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            let user_id: uuid::Uuid = sqlx::query_scalar(
+                "INSERT INTO users (display_name, roles, org_id, is_active) VALUES ($1, $2, $3, true) RETURNING id",
+            )
+            .bind(format!("Persona B {}", uuid::Uuid::new_v4()))
+            .bind(vec!["ADMIN".to_owned()])
+            .bind(*org.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok(UserId::from_uuid(user_id))
+        })
+    })
     .await
-    .unwrap();
-    tx.commit().await.unwrap();
-    UserId::from_uuid(user_id)
+    .unwrap()
 }
 
 /// Seed an ACTIVE mailbox for KNL whose address is `RECIPIENT`.

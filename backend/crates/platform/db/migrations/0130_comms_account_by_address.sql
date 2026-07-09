@@ -24,6 +24,10 @@
 -- ORDER BY is defense-in-depth for any single-row consumer, not the correctness
 -- fix — the correctness fix is the caller's row-count check. No Korean copy.
 
+CREATE INDEX IF NOT EXISTS idx_email_accounts_active_lower_email_address
+    ON email_accounts (lower(email_address))
+    WHERE status = 'ACTIVE';
+
 CREATE OR REPLACE FUNCTION comms_account_by_address(
     p_address TEXT
 )

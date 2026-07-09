@@ -424,8 +424,15 @@ impl PgMailStore {
                 let thread_id =
                     resolve_inbound_thread_tx(tx, org_uuid, account_uuid, &upsert).await?;
 
-                // 4. Insert the IN message.
-                insert_inbound_message_tx(tx, org_uuid, account_uuid, thread_id, &upsert).await?;
+                // 4. Insert the IN message. If a concurrent webhook redelivery won
+                // the same IMAP-identity race, the insert is an idempotent no-op
+                // and the handler reports `ingested=false` instead of surfacing
+                // a unique-constraint service error.
+                if !insert_inbound_message_tx(tx, org_uuid, account_uuid, thread_id, &upsert)
+                    .await?
+                {
+                    return Ok(false);
+                }
 
                 // 5. Insert its attachment rows.
                 for att in &upsert.stored_attachments {
@@ -547,7 +554,6 @@ impl PgMailStore {
             }
             _ => {
                 tracing::error!(
-                    address,
                     match_count = rows.len(),
                     "mox webhook: recipient address matched ACTIVE accounts in more than one org; quarantining delivery (no message content logged)"
                 );
@@ -1100,7 +1106,7 @@ async fn insert_inbound_message_tx(
     account_uuid: uuid::Uuid,
     thread_id: uuid::Uuid,
     upsert: &InboundUpsert,
-) -> Result<(), PgMailError> {
+) -> Result<bool, PgMailError> {
     let m = &upsert.message;
     let snippet: String = m
         .body_text
@@ -1116,7 +1122,7 @@ async fn insert_inbound_message_tx(
     let references = m.references.clone();
     let has_attachments = !upsert.stored_attachments.is_empty();
 
-    sqlx::query(
+    let inserted: Option<uuid::Uuid> = sqlx::query_scalar(
         r#"
         INSERT INTO email_messages (
             id, org_id, account_id, folder_id, thread_id,
@@ -1131,6 +1137,10 @@ async fn insert_inbound_message_tx(
             $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24
         )
+        ON CONFLICT (org_id, account_id, folder_id, imap_uid_validity, imap_uid)
+            WHERE imap_uid IS NOT NULL
+            DO NOTHING
+        RETURNING id
         "#,
     )
     .bind(*upsert.id.as_uuid())
@@ -1157,9 +1167,9 @@ async fn insert_inbound_message_tx(
     .bind(m.draft)
     .bind(has_attachments)
     .bind(m.received_at)
-    .execute(tx.as_mut())
+    .fetch_optional(tx.as_mut())
     .await?;
-    Ok(())
+    Ok(inserted.is_some())
 }
 
 async fn insert_attachment_tx(
