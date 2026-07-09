@@ -37,6 +37,7 @@ pub async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) ->
         sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("{region_name}-{}", uuid::Uuid::new_v4()))
             .bind(*OrgId::knl().as_uuid())
+            // rls-arming: ok test fixture seeds RLS tables as owner during setup, before the mnt_rt role switch
             .fetch_one(pool)
             .await
             .unwrap();
@@ -46,6 +47,7 @@ pub async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) ->
     .bind(region_id)
     .bind(format!("{branch_name}-{}", uuid::Uuid::new_v4()))
     .bind(*OrgId::knl().as_uuid())
+    // rls-arming: ok test fixture seeds RLS tables as owner during setup, before the mnt_rt role switch
     .fetch_one(pool)
     .await
     .unwrap();
@@ -60,6 +62,7 @@ pub async fn seed_user(pool: &PgPool, name: &str, role: &str, branch: BranchId) 
         .bind(name)
         .bind(Vec::from([role]))
         .bind(*OrgId::knl().as_uuid())
+        // rls-arming: ok test fixture seeds RLS tables as owner during setup, before the mnt_rt role switch
         .execute(pool)
         .await
         .unwrap();
@@ -67,6 +70,7 @@ pub async fn seed_user(pool: &PgPool, name: &str, role: &str, branch: BranchId) 
         .bind(*id.as_uuid())
         .bind(*branch.as_uuid())
         .bind(*OrgId::knl().as_uuid())
+        // rls-arming: ok test fixture seeds RLS tables as owner during setup, before the mnt_rt role switch
         .execute(pool)
         .await
         .unwrap();
