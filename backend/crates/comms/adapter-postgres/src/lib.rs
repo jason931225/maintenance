@@ -17,11 +17,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_comms_application::{
-    AccountUpsert, AddressLookup, AttachmentRef, AttachmentView, DueAccount, EmailAccountId,
-    EmailMessageId, FolderCursor, FolderView, ImapFolder, InboundUpsert, MailFuture, MailNotifier,
-    MailReadStore, MailServiceError, MailStore, MessageView, OutboundRecord, SealedCredential,
-    StoredAccount, StoredAttachment, ThreadDetail, ThreadQuery, ThreadView,
-    address_ambiguous_audit_event, thread_grouping_key,
+    AccountUpsert, AddressAccount, AddressLookup, AttachmentRef, AttachmentView, DueAccount,
+    EmailAccountId, EmailMessageId, FolderCursor, FolderView, ImapFolder, InboundUpsert,
+    MailFuture, MailNotifier, MailReadStore, MailServiceError, MailStore, MessageView,
+    OutboundRecord, SealedCredential, StoredAccount, StoredAttachment, ThreadDetail, ThreadQuery,
+    ThreadView, address_ambiguous_audit_event, thread_grouping_key,
 };
 use mnt_comms_domain::{MailSecurity, MessageAddress, normalize_subject};
 use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, TraceContext, UserId};
@@ -591,7 +591,7 @@ impl PgMailStore {
             0 => Ok(AddressLookup::NotFound),
             1 => {
                 let row = &rows[0];
-                Ok(AddressLookup::Found(DueAccount {
+                Ok(AddressLookup::Found(AddressAccount {
                     org_id: OrgId::from_uuid(row.try_get("org_id")?),
                     account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
                 }))

@@ -1544,6 +1544,15 @@ pub struct DueAccount {
     pub claim_token: uuid::Uuid,
 }
 
+/// An account resolved from a recipient address for the mox delivery webhook.
+/// This is an id-only tenant selector, NOT a scheduler claim: it intentionally
+/// carries no sync `claim_token`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddressAccount {
+    pub org_id: OrgId,
+    pub account_id: EmailAccountId,
+}
+
 /// The outcome of resolving a recipient address to its owning tenant (the mox
 /// delivery webhook's cross-tenant, id-only lookup). `email_accounts` is unique
 /// only per `(org_id, email_address)`, so the SAME address can exist under two
@@ -1554,7 +1563,7 @@ pub enum AddressLookup {
     /// No ACTIVE account anywhere has this address.
     NotFound,
     /// Exactly one ACTIVE account, in exactly one org, has this address.
-    Found(DueAccount),
+    Found(AddressAccount),
     /// ACTIVE accounts in more than one org have this address.
     Ambiguous,
 }

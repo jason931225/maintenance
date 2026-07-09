@@ -40,13 +40,23 @@ services:
   # Default account: mox@localhost / moxmoxmox (admin moxadmin). See §14 HANDOFF.
   mox:
     image: r.xmox.nl/mox:v0.0.15
-    command: ["/bin/mox", "localserve", "-ip", "0.0.0.0", "-dir", "/mox-data"]
+    command:
+      - /bin/sh
+      - -ceu
+      - |
+        if [ -f /mox-data/localserve/mox.conf ]; then
+          exec /bin/mox localserve -dir /mox-data/localserve
+        fi
+        exec /bin/mox localserve -ip 0.0.0.0 -dir /mox-data/localserve
     ports:
       - "127.0.0.1:${MNT_MOX_WEBAPI_PORT:-1080}:1080"
       - "127.0.0.1:${MNT_MOX_SUBMISSION_PORT:-1587}:1587"
       - "127.0.0.1:${MNT_MOX_IMAP_PORT:-1143}:1143"
       - "127.0.0.1:${MNT_MOX_IMAPS_PORT:-1993}:1993"
     volumes:
+      # localserve requires -ip only when creating its config; the Docker volume
+      # mount pre-creates /mox-data, so let mox create a child dir and omit -ip
+      # on restarts after mox.conf exists.
       - mox-data:/mox-data
     healthcheck:
       # The mox image is alpine (busybox); it has `wget` but no bash/curl. Hitting
