@@ -642,8 +642,8 @@ public protocol APIProtocol: Sendable {
     /// Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
     ///
     ///
-    /// - Remark: HTTP `GET /api/messenger/members/{user_id}`.
-    /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)`.
+    /// - Remark: HTTP `GET /api/messenger/members/{userId}`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)`.
     func getMessengerMember(_ input: Operations.GetMessengerMember.Input) async throws -> Operations.GetMessengerMember.Output
     /// List branch-scoped messenger threads for the authenticated member
     ///
@@ -2852,8 +2852,8 @@ extension APIProtocol {
     /// Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
     ///
     ///
-    /// - Remark: HTTP `GET /api/messenger/members/{user_id}`.
-    /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)`.
+    /// - Remark: HTTP `GET /api/messenger/members/{userId}`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)`.
     public func getMessengerMember(
         path: Operations.GetMessengerMember.Input.Path,
         query: Operations.GetMessengerMember.Input.Query,
@@ -42273,14 +42273,14 @@ public enum Operations {
     /// Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
     ///
     ///
-    /// - Remark: HTTP `GET /api/messenger/members/{user_id}`.
-    /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)`.
+    /// - Remark: HTTP `GET /api/messenger/members/{userId}`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)`.
     public enum GetMessengerMember {
         public static let id: Swift.String = "getMessengerMember"
         public struct Input: Sendable, Hashable {
-            /// - Remark: Generated from `#/paths/api/messenger/members/{user_id}/GET/path`.
+            /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/path`.
             public struct Path: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/api/messenger/members/{user_id}/GET/path/user_id`.
+                /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/path/userId`.
                 public var userId: Components.Schemas.Uuid
                 /// Creates a new `Path`.
                 ///
@@ -42291,9 +42291,9 @@ public enum Operations {
                 }
             }
             public var path: Operations.GetMessengerMember.Input.Path
-            /// - Remark: Generated from `#/paths/api/messenger/members/{user_id}/GET/query`.
+            /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/query`.
             public struct Query: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/api/messenger/members/{user_id}/GET/query/branch_id`.
+                /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/query/branch_id`.
                 public var branchId: Components.Schemas.Uuid
                 /// Creates a new `Query`.
                 ///
@@ -42304,7 +42304,7 @@ public enum Operations {
                 }
             }
             public var query: Operations.GetMessengerMember.Input.Query
-            /// - Remark: Generated from `#/paths/api/messenger/members/{user_id}/GET/header`.
+            /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMessengerMember.AcceptableContentType>]
                 /// Creates a new `Headers`.
@@ -42334,9 +42334,9 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/api/messenger/members/{user_id}/GET/responses/200/content`.
+                /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/api/messenger/members/{user_id}/GET/responses/200/content/application\/json`.
+                    /// - Remark: Generated from `#/paths/api/messenger/members/{userId}/GET/responses/200/content/application\/json`.
                     case json(Components.Schemas.MessengerMemberSummary)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
@@ -42363,7 +42363,7 @@ public enum Operations {
             }
             /// The branch member's summary.
             ///
-            /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)/responses/200`.
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/200`.
             ///
             /// HTTP response code: `200 ok`.
             case ok(Operations.GetMessengerMember.Output.Ok)
@@ -42386,7 +42386,7 @@ public enum Operations {
             }
             /// Missing or invalid bearer token.
             ///
-            /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)/responses/401`.
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/401`.
             ///
             /// HTTP response code: `401 unauthorized`.
             case unauthorized(Components.Responses.Unauthorized)
@@ -42409,7 +42409,7 @@ public enum Operations {
             }
             /// Principal lacks role or branch authority.
             ///
-            /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)/responses/403`.
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/403`.
             ///
             /// HTTP response code: `403 forbidden`.
             case forbidden(Components.Responses.Forbidden)
@@ -42432,7 +42432,7 @@ public enum Operations {
             }
             /// Resource was not found in branch scope.
             ///
-            /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)/responses/404`.
+            /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)/responses/404`.
             ///
             /// HTTP response code: `404 notFound`.
             case notFound(Components.Responses.NotFound)

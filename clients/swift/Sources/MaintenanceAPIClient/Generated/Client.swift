@@ -13337,8 +13337,8 @@ public struct Client: APIProtocol {
     /// Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
     ///
     ///
-    /// - Remark: HTTP `GET /api/messenger/members/{user_id}`.
-    /// - Remark: Generated from `#/paths//api/messenger/members/{user_id}/get(getMessengerMember)`.
+    /// - Remark: HTTP `GET /api/messenger/members/{userId}`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/{userId}/get(getMessengerMember)`.
     public func getMessengerMember(_ input: Operations.GetMessengerMember.Input) async throws -> Operations.GetMessengerMember.Output {
         try await client.send(
             input: input,
