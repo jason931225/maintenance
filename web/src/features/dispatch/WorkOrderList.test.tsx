@@ -1,9 +1,28 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
+import { TokenComposer } from "../../components/console/TokenComposer";
+import { OBJECT_DND_MIME } from "../../lib/objectDrag";
 import { WorkOrderList } from "./WorkOrderList";
 import { workOrderListItems } from "../../test/fixtures";
+
+// A minimal store-backed DataTransfer — jsdom's is inert, so the drag source
+// and drop target must share one that actually retains setData/getData.
+function fakeDataTransfer(): DataTransfer {
+  const store: Record<string, string> = {};
+  return {
+    setData: (type: string, value: string) => {
+      store[type] = value;
+    },
+    getData: (type: string) => store[type] ?? "",
+    get types() {
+      return Object.keys(store);
+    },
+    effectAllowed: "none",
+  } as unknown as DataTransfer;
+}
 
 // WorkOrderList rows deep-link to /work-orders/:id, so a router context is
 // required to render the <Link>.
@@ -49,5 +68,32 @@ describe("WorkOrderList", () => {
     expect(screen.getAllByRole("link", { name: /010-2625-0987/ })).toHaveLength(
       1,
     );
+  });
+
+  it("makes each row a drag source that a token composer resolves into a chip (AC1)", () => {
+    renderList();
+    const row = screen.getByText("20260612-001").closest("article");
+    if (!row) throw new Error("work-order row not found");
+    expect(row).toHaveAttribute("draggable", "true");
+
+    // 1. Drag the real row — it writes the object payload onto the transfer.
+    const transfer = fakeDataTransfer();
+    fireEvent.dragStart(row, { dataTransfer: transfer });
+    expect(transfer.getData(OBJECT_DND_MIME)).toContain("WO-20260612-001");
+
+    // 2. Drop that SAME transfer on a real composer — the chip inserts + resolves.
+    function Composer() {
+      const [value, setValue] = useState("");
+      return (
+        <TokenComposer value={value} onChange={setValue} providers={{}} ariaLabel="작성" />
+      );
+    }
+    render(<Composer />);
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>("작성");
+    fireEvent.drop(textarea, { dataTransfer: transfer });
+
+    expect(textarea.value).toContain("!WO-20260612-001");
+    const preview = screen.getByTestId("token-composer-preview");
+    expect(within(preview).getByRole("button", { name: /WO-20260612-001/ })).toBeInTheDocument();
   });
 });
