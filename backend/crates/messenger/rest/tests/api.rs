@@ -108,6 +108,40 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
             denied_members.json
         );
 
+        // GET /api/messenger/members/{id} (person pin, AC4): non-self in-branch
+        // → 200 + summary; self → 200; a target not in the branch → 404 (NOT
+        // 403 — deny-by-omission via not_found, the audit rolled back).
+        let profile = get_json(
+            service.clone(),
+            &format!("/api/messenger/members/{recipient}?branch_id={branch_id}"),
+            &token,
+        )
+        .await;
+        assert_eq!(profile.status, StatusCode::OK, "{:?}", profile.json);
+        assert_eq!(profile.json["id"], recipient.to_string());
+        assert!(profile.json["display_name"].is_string());
+
+        let self_profile = get_json(
+            service.clone(),
+            &format!("/api/messenger/members/{sender}?branch_id={branch_id}"),
+            &token,
+        )
+        .await;
+        assert_eq!(self_profile.status, StatusCode::OK, "{:?}", self_profile.json);
+
+        let out_of_branch = get_json(
+            service.clone(),
+            &format!("/api/messenger/members/{outsider}?branch_id={branch_id}"),
+            &token,
+        )
+        .await;
+        assert_eq!(
+            out_of_branch.status,
+            StatusCode::NOT_FOUND,
+            "{:?}",
+            out_of_branch.json
+        );
+
         let invalid_thread = post_json(
             service.clone(),
             "/api/messenger/threads",
