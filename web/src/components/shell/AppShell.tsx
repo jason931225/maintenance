@@ -13,6 +13,7 @@ import { ConsoleToast } from "../console/primitives";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { useConsoleToast } from "./useConsoleToast";
+import { CommsRail } from "../../features/comms/CommsRail";
 
 export function AppShell() {
   return (
@@ -108,6 +109,7 @@ function AppShellContent() {
           </RouteErrorBoundary>
         </main>
       </div>
+      <CommsRail />
       {commandPaletteOpen ? (
         <CommandPalette onClose={() => { setCommandPaletteOpen(false); }} />
       ) : null}

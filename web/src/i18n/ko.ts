@@ -798,6 +798,38 @@ export const ko = {
       supportOpen: "열린 고객지원",
       other: "기타 알림",
     },
+    commsRail: {
+      label: "커뮤니케이션",
+      expand: "커뮤니케이션 레일 펼치기",
+      collapse: "커뮤니케이션 레일 접기",
+      openNotifications: "알림 열기",
+      back: "뒤로",
+      openMessenger: "메신저 열기",
+      openMail: "메일 열기",
+      openSection: {
+        messenger: "메신저 열기",
+        mail: "메일 열기",
+        notifications: "알림 열기",
+      },
+      sections: {
+        messenger: "메신저",
+        mail: "메일",
+        notifications: "알림",
+      },
+      markAllRead: "모두 읽음",
+      empty: {
+        messenger: "새 메시지가 없습니다",
+        mail: "메일이 없습니다",
+        notifications: "새 알림이 없습니다",
+      },
+      loadFailed: "불러오지 못했습니다",
+      mailUnavailable: "메일을 불러올 수 없습니다",
+      composer: "메시지 입력",
+      send: "보내기",
+      sending: "보내는 중",
+      openFull: "크게 열기",
+      unreadPill: "{count}",
+    },
     /** Role chip shown for a user with no role grant yet (MEMBER / empty roles). */
     pendingApproval: "승인 대기",
     /** Role chip shown when tenant roles are minimal but a group-admin grant exists. */
