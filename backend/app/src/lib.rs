@@ -1743,7 +1743,7 @@ async fn audit_log(
 /// `audit_events` range — a FULL-CHAIN re-verify, not an incremental one, so
 /// wall time scales with the org's total sealed audit history. Bounded today
 /// by (a) ADMIN/SUPER_ADMIN-only, so callers are trusted and infrequent, and
-/// (b) mnt_rt's 30s `statement_timeout` (migration 0109) capping any single
+/// (b) mnt_rt's 30s `statement_timeout` (migration 0112) capping any single
 /// pass. A head-N-seals or cached-verdict endpoint variant for orgs with a
 /// long history is a PR-3 item (charter F1 anchor), not built here.
 async fn audit_attestation(

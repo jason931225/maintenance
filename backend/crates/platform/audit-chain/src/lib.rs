@@ -90,14 +90,14 @@ pub struct SealConfig {
     /// A row is sealed only once `created_at <= now - seal_lag`, so its
     /// transaction has certainly committed (commit order ≠ `now()` order). The
     /// invariant `seal_lag > max audited-txn duration` ⟹ no gaps is now
-    /// ENFORCED, not merely assumed: migration `0109_mnt_rt_statement_timeout`
+    /// ENFORCED, not merely assumed: migration `0112_mnt_rt_statement_timeout`
     /// pins `statement_timeout` and `idle_in_transaction_session_timeout` at 30s
     /// on the `mnt_rt` login role, so no background writer transaction can
-    /// outlive the default 60s `seal_lag`. (Before 0109 `mnt_rt` had no such
+    /// outlive the default 60s `seal_lag`. (Before 0112 `mnt_rt` had no such
     /// bound — post-merge review F2 — and a >60s txn could commit a row below an
     /// advanced cursor and trip a false-positive `CoverageGap`.)
     // ponytail: time-lag watermark. Correct while max txn duration < seal_lag,
-    // enforced by the mnt_rt statement timeout (0109, 30s < 60s). If a
+    // enforced by the mnt_rt statement timeout (0112, 30s < 60s). If a
     // long-running audited txn is ever genuinely needed, raise BOTH the timeout
     // and seal_lag together, or upgrade to an xmin-snapshot watermark
     // (pg_snapshot_xmin(pg_current_snapshot())).
