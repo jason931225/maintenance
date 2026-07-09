@@ -8,7 +8,7 @@ import {
   hasAnyFeatureGrant,
   isNavItemVisible,
 } from "../../components/shell/nav";
-import { realtimeHub } from "./realtimeHub";
+import { realtimeHub, type RealtimeEvent } from "./realtimeHub";
 import {
   loadCounts,
   loadMessengerThreads,
@@ -74,29 +74,34 @@ export function useCommsRuntime(
   useEffect(() => {
     if (!token) return undefined;
     return realtimeHub.subscribe({ baseUrl: apiBaseUrl, accessToken: token }, (event) => {
-      const store = useCommsStore.getState();
-      if (event.type === "message_posted") {
-        // Suppress the unread bump for a thread the rail already has open (its
-        // thread view marks read server-side).
-        const openThreadId =
-          store.subview.kind === "thread" ? store.subview.threadId : undefined;
-        store.dispatchMessenger({
-          type: "realtimeEventReceived",
-          event,
-          selectedThreadId: openThreadId,
-          currentUserId,
-        });
-        // Keep the badge live: bump for another user's message outside the open
-        // thread. Reading (which fires the counts-invalidated event) re-pulls the
-        // authoritative count.
-        const fromMe = event.message.sender_id === currentUserId;
-        const isOpen = event.message.thread_id === openThreadId;
-        if (!fromMe && !isOpen) {
-          store.setCounts({ messenger: store.counts.messenger + 1 });
-        }
-      } else {
-        store.applyNotificationCreated(event.notification);
-      }
+      ingestRealtimeEvent(event, currentUserId);
     });
   }, [token, currentUserId]);
+}
+
+// The socket→store fan-out. A notification_created (e.g. a messenger @-mention)
+// lands as a notification-center row; a message_posted updates messenger state
+// and bumps the badge for another user's message outside the open thread.
+export function ingestRealtimeEvent(
+  event: RealtimeEvent,
+  currentUserId: string | undefined,
+): void {
+  const store = useCommsStore.getState();
+  if (event.type === "message_posted") {
+    const openThreadId =
+      store.subview.kind === "thread" ? store.subview.threadId : undefined;
+    store.dispatchMessenger({
+      type: "realtimeEventReceived",
+      event,
+      selectedThreadId: openThreadId,
+      currentUserId,
+    });
+    const fromMe = event.message.sender_id === currentUserId;
+    const isOpen = event.message.thread_id === openThreadId;
+    if (!fromMe && !isOpen) {
+      store.setCounts({ messenger: store.counts.messenger + 1 });
+    }
+  } else {
+    store.applyNotificationCreated(event.notification);
+  }
 }

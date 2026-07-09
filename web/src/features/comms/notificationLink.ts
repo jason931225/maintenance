@@ -20,6 +20,13 @@ const SCREEN_ROUTES: Record<string, string> = {
 
 const FALLBACK_ROUTE = "/";
 
+// Object kinds with no console detail route (and no registry entry) but a
+// sensible screen home — e.g. a messenger @-mention (#202) links kind
+// "messenger_thread", and the app has no per-thread route, so land on /messenger.
+const OBJECT_KIND_SCREENS: Record<string, string> = {
+  messenger_thread: "/messenger",
+};
+
 function isObjectKind(kind: string): kind is ObjectKind {
   return Object.prototype.hasOwnProperty.call(objectRegistry, kind);
 }
@@ -31,5 +38,5 @@ export function notificationRoute(link: NotificationLink): string {
   if (isObjectKind(link.kind)) {
     return objectRegistry[link.kind].route({ id: link.id });
   }
-  return FALLBACK_ROUTE;
+  return OBJECT_KIND_SCREENS[link.kind] ?? FALLBACK_ROUTE;
 }
