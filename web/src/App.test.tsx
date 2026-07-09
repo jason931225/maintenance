@@ -673,7 +673,7 @@ describe("routing", () => {
   it("renders /approvals page", async () => {
     // /approvals is admin-only (RequireAdminRoute) — render with an admin session.
     renderAt("/approvals", adminSession);
-    expect(await waitForRouteReady("전자결제 대기")).toBeVisible();
+    expect(await waitForRouteReady("전자결재시스템 대기")).toBeVisible();
   });
 
   it("renders /kpi page", async () => {

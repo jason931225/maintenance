@@ -246,7 +246,7 @@ describe("OverviewPage", () => {
     expect(
       screen.getByRole("button", { name: "전체 5건" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "결재 2건" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "전자결재시스템 2건" })).toBeVisible();
     expect(screen.getByRole("button", { name: "출동 1건" })).toBeVisible();
     expect(screen.getByRole("button", { name: "지원 1건" })).toBeVisible();
     expect(screen.getByRole("button", { name: "근태 예외 1건" })).toBeVisible();
@@ -280,7 +280,7 @@ describe("OverviewPage", () => {
     ).toBeVisible();
     expect(
       screen.getByText(
-        "결재·출동·지원·근태 액션과 오늘의 할 일을 한 화면에서 처리합니다.",
+        "전자결재시스템·출동·지원·근태 액션과 오늘의 할 일을 한 화면에서 처리합니다.",
       ),
     ).toBeVisible();
     expect(screen.queryByText("업무 객체 중심 실행 흐름")).not.toBeInTheDocument();
@@ -455,7 +455,7 @@ describe("OverviewPage", () => {
     expect(await screen.findByText("지게차 배터리 교체 요청")).toBeVisible();
     // …and the failed one is named.
     expect(
-      await screen.findByText("일부 원천을 불러오지 못했습니다: 결재"),
+      await screen.findByText("일부 원천을 불러오지 못했습니다: 전자결재시스템"),
     ).toBeVisible();
   });
 });
