@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.44](https://github.com/jason931225/maintenance/compare/v0.1.43...v0.1.44) (2026-07-09)
+
+
+### Features
+
+* **console:** UI-M1b — ConsoleShell window engine + server-side workspace persistence ([#196](https://github.com/jason931225/maintenance/issues/196)) ([4ad7aa3](https://github.com/jason931225/maintenance/commit/4ad7aa3684f0d28f8d07f7fd7e23459cdc1c5f5c))
+* **console:** UI-M2a core — object registry + @/#/! token grammar (standalone modules) ([#194](https://github.com/jason931225/maintenance/issues/194)) ([aff9dc9](https://github.com/jason931225/maintenance/commit/aff9dc92837d542152fe06f77addb17167b1d717))
+* **notifications:** notification center backend — outbox drain, REST, realtime fan-out ([#198](https://github.com/jason931225/maintenance/issues/198)) ([8db3d17](https://github.com/jason931225/maintenance/commit/8db3d1770f9754c94977416512c2cbc6fac9a387))
+
 ## [0.1.43](https://github.com/jason931225/maintenance/compare/v0.1.42...v0.1.43) (2026-07-08)
 
 
