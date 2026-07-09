@@ -30,9 +30,12 @@
 //! `comms_due_email_accounts`-style SECURITY DEFINER "orgs with pending JOB
 //! events" function if org count or event volume ever makes the empty passes hurt.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use mnt_kernel_core::OrgId;
+use mnt_notifications_adapter_postgres::PgNotificationStore;
+use mnt_platform_realtime::PostgresNotificationNotifier;
 use mnt_platform_request_context::scope_org;
 use mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore;
 use tokio::sync::watch;
@@ -63,6 +66,11 @@ impl WorkflowDrainHandle {
 pub fn spawn(pool: sqlx::PgPool) -> WorkflowDrainHandle {
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let store = PgWorkflowRuntimeStore::new(pool.clone());
+    // The compensation NOTIFICATION outbox drains into real notification rows
+    // through this sink; its realtime notifier means a bridged approval-line
+    // notification also fans out over the WebSocket, same as a REST-created one.
+    let notification_sink = PgNotificationStore::new(pool.clone())
+        .with_notifier(Arc::new(PostgresNotificationNotifier::new(pool.clone())));
 
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(DEFAULT_TICK_SECS));
@@ -81,7 +89,7 @@ pub fn spawn(pool: sqlx::PgPool) -> WorkflowDrainHandle {
                     }
                 }
                 _ = ticker.tick() => {
-                    run_tick(&pool, &store).await;
+                    run_tick(&pool, &store, &notification_sink).await;
                 }
             }
         }
@@ -91,7 +99,11 @@ pub fn spawn(pool: sqlx::PgPool) -> WorkflowDrainHandle {
 }
 
 /// One drain tick: enumerate tenants, then drain each under its armed org.
-async fn run_tick(pool: &sqlx::PgPool, store: &PgWorkflowRuntimeStore) {
+async fn run_tick(
+    pool: &sqlx::PgPool,
+    store: &PgWorkflowRuntimeStore,
+    notification_sink: &PgNotificationStore,
+) {
     let orgs: Vec<Uuid> = match sqlx::query_scalar("SELECT id FROM platform_list_organizations()")
         .fetch_all(pool)
         .await
@@ -148,6 +160,28 @@ async fn run_tick(pool: &sqlx::PgPool, store: &PgWorkflowRuntimeStore) {
                 org = %org,
                 error = %err,
                 "workflow drain: tenant pass failed"
+            ),
+        }
+
+        // Compensation bridge: NOTIFICATION outbox -> real notification rows for
+        // the approval line. Idempotent per (outbox event, recipient), so a
+        // re-drain never doubles a notification.
+        match scope_org(
+            org,
+            store.drain_notification_outbox(org, DRAIN_BATCH_LIMIT, notification_sink),
+        )
+        .await
+        {
+            Ok(0) => {}
+            Ok(emitted) => tracing::info!(
+                org = %org,
+                notifications_emitted = emitted,
+                "workflow drain: bridged approval-line notifications"
+            ),
+            Err(err) => tracing::warn!(
+                org = %org,
+                error = %err,
+                "workflow drain: notification bridge pass failed"
             ),
         }
     }
