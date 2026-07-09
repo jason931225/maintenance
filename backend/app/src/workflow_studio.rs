@@ -1177,7 +1177,7 @@ fn principal_holds_feature(
 
 /// The authority role keys this principal holds (security M3), for the personal
 /// inbox's OPEN-task filter (`assignee_role_key = ANY(...)`).
-fn held_authority_role_keys(
+pub(crate) fn held_authority_role_keys(
     principal: &Principal,
     org: mnt_kernel_core::OrgId,
     branch: BranchId,
@@ -3545,7 +3545,7 @@ fn record_workflow_studio_request(surface: &'static str, outcome: &'static str) 
     .increment(1);
 }
 
-fn guard_branch(principal: &Principal) -> BranchId {
+pub(crate) fn guard_branch(principal: &Principal) -> BranchId {
     match &principal.branch_scope {
         BranchScope::All => BranchId::new(),
         BranchScope::Branches(branches) => branches

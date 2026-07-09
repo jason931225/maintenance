@@ -347,6 +347,14 @@ async fn resolve_object(
     let org = principal.org_id;
     let scope = principal.branch_scope.clone();
     let caller = *principal.user_id.as_uuid();
+    // Authority role keys the caller holds, computed exactly as the waiting-task
+    // inbox does, so approval_run resolves for the same principals the inbox
+    // exposes the run to (claimers + assignee-role holders), not just initiators.
+    let held_role_keys = crate::workflow_studio::held_authority_role_keys(
+        &principal,
+        org,
+        crate::workflow_studio::guard_branch(&principal),
+    );
 
     // Every resolver reads under the caller's armed org (RLS) and, for
     // branch-scoped kinds, drops rows outside the caller's branch scope — so an
@@ -361,8 +369,8 @@ async fn resolve_object(
                     "equipment" => resolve_equipment(tx, &scope, &id).await,
                     "support_ticket" => resolve_support_ticket(tx, &scope, &id).await,
                     "org_unit" => resolve_org_unit(tx, &scope, &id).await,
-                    "person" => resolve_person(tx, &id).await,
-                    "approval_run" => resolve_approval_run(tx, caller, &id).await,
+                    "person" => resolve_person(tx, &scope, &id).await,
+                    "approval_run" => resolve_approval_run(tx, caller, &held_role_keys, &id).await,
                     // RESOLVABLE_KINDS gates this match; unreachable otherwise.
                     _ => Ok(None),
                 }
@@ -494,45 +502,81 @@ async fn resolve_org_unit(
 
 async fn resolve_person(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &BranchScope,
     id: &str,
 ) -> Result<Option<ResolvedHead>, ObjectError> {
     let Some(uuid) = parse_uuid(id) else {
         return Ok(None);
     };
-    // Users are org-scoped (RLS), not branch-scoped; display_name is already
-    // exposed on the messenger member surface, so no extra PII is revealed.
-    let row = sqlx::query("SELECT display_name, is_active FROM users WHERE id = $1")
-        .bind(uuid)
-        .fetch_optional(tx.as_mut())
-        .await?;
+    // Match GET /api/messenger/members exactly (messenger adapter list_members):
+    // is_active = true AND the user shares a branch with the caller's scope.
+    // Out-of-scope OR inactive -> no row -> exists:false, byte-identical to a
+    // missing id (no cross-branch existence/deactivation oracle).
+    let row = match scope {
+        BranchScope::All => {
+            sqlx::query("SELECT display_name FROM users WHERE id = $1 AND is_active = true")
+                .bind(uuid)
+                .fetch_optional(tx.as_mut())
+                .await?
+        }
+        BranchScope::Branches(set) => {
+            let branches: Vec<Uuid> = set.iter().map(|b| *b.as_uuid()).collect();
+            sqlx::query(
+                r#"
+                SELECT u.display_name
+                FROM users u
+                JOIN user_branches ub ON ub.user_id = u.id AND ub.branch_id = ANY($2)
+                WHERE u.id = $1 AND u.is_active = true
+                LIMIT 1
+                "#,
+            )
+            .bind(uuid)
+            .bind(branches)
+            .fetch_optional(tx.as_mut())
+            .await?
+        }
+    };
     let Some(row) = row else { return Ok(None) };
-    let active: bool = row.try_get("is_active")?;
     Ok(Some(ResolvedHead {
         code: None,
         title: Some(row.try_get("display_name")?),
-        status: Some(if active { "active" } else { "inactive" }.to_owned()),
+        status: None,
     }))
 }
 
 async fn resolve_approval_run(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     caller: Uuid,
+    held_role_keys: &[String],
     id: &str,
 ) -> Result<Option<ResolvedHead>, ObjectError> {
     let Some(uuid) = parse_uuid(id) else {
         return Ok(None);
     };
-    let row = sqlx::query("SELECT status, initiated_by FROM workflow_runs WHERE id = $1")
-        .bind(uuid)
-        .fetch_optional(tx.as_mut())
-        .await?;
+    // Visible to the same principals the waiting-task inbox exposes the run to:
+    // the initiator, anyone who has claimed a task on it, and holders of a role
+    // a task is routed to. Everyone else -> exists:false (deny-by-omission).
+    let row = sqlx::query(
+        r#"
+        SELECT r.status
+        FROM workflow_runs r
+        WHERE r.id = $1
+          AND (
+              r.initiated_by = $2
+              OR EXISTS (
+                  SELECT 1 FROM workflow_waiting_tasks t
+                  WHERE t.run_id = r.id AND t.org_id = r.org_id
+                    AND (t.claimed_by = $2 OR t.assignee_role_key = ANY($3))
+              )
+          )
+        "#,
+    )
+    .bind(uuid)
+    .bind(caller)
+    .bind(held_role_keys)
+    .fetch_optional(tx.as_mut())
+    .await?;
     let Some(row) = row else { return Ok(None) };
-    // The only run-read surface today is initiator-scoped (list_runs_for_initiator);
-    // match it fail-closed — a non-initiator resolves as not-found.
-    let initiated_by: Option<Uuid> = row.try_get("initiated_by")?;
-    if initiated_by != Some(caller) {
-        return Ok(None);
-    }
     Ok(Some(ResolvedHead {
         code: None,
         title: None,

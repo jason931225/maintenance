@@ -83,6 +83,69 @@ async fn resolves_kinds_and_denies_by_omission(pool: PgPool) {
     assert_eq!(absent.0, StatusCode::OK);
     assert_eq!(absent.1["exists"], false);
 
+    // Auth gate before kind-specific resolution: even an otherwise valid,
+    // in-scope person id must be rejected before `resolve_person` runs when the
+    // principal has no Login-authorizing role/grant.
+    let no_login_caller = UserId::new();
+    seed_user_in_branch(&pool, no_login_caller, "MECHANIC", branch_x).await;
+    let no_login_token = issue_token_with_roles(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        no_login_caller,
+        vec![branch_x],
+        Vec::new(),
+    );
+    let forbidden = resolve(
+        &pool,
+        &public_key_pem,
+        &no_login_token,
+        "person",
+        &subject.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(forbidden.0, StatusCode::FORBIDDEN);
+
+    // person cross-branch: a user who belongs ONLY to branch_y (not the caller's
+    // scope) must resolve exists=false — no cross-branch PII/existence leak.
+    let branch_b_user = UserId::new();
+    seed_user_in_branch(&pool, branch_b_user, "MECHANIC", branch_y).await;
+    let cross = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &branch_b_user.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        cross.1["exists"], false,
+        "branch-B-only user must be denied by omission: {}",
+        cross.1
+    );
+
+    // person inactive: a deactivated user in the caller's own branch must also
+    // resolve exists=false (no deactivation oracle).
+    let inactive = UserId::new();
+    seed_user_in_branch(&pool, inactive, "MECHANIC", branch_x).await;
+    sqlx::query("UPDATE users SET is_active = false WHERE id = $1")
+        .bind(*inactive.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let inactive_res = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "person",
+        &inactive.as_uuid().to_string(),
+    )
+    .await;
+    assert_eq!(
+        inactive_res.1["exists"], false,
+        "inactive user must be denied by omission: {}",
+        inactive_res.1
+    );
+
     // org_unit in scope: branch_x is in the caller's scope -> exists=true.
     let unit_in = resolve(
         &pool,
@@ -148,6 +211,23 @@ async fn resolves_kinds_and_denies_by_omission(pool: PgPool) {
         run_theirs.1["exists"], false,
         "another initiator's run is denied by omission: {}",
         run_theirs.1
+    );
+
+    // approver-on-the-line: once the caller has CLAIMED a task on theirs, they
+    // resolve the run (widened beyond initiator to the inbox's scoping).
+    seed_claimed_task(&pool, theirs, caller).await;
+    let run_claimed = resolve(
+        &pool,
+        &public_key_pem,
+        &token,
+        "approval_run",
+        &theirs.to_string(),
+    )
+    .await;
+    assert_eq!(
+        run_claimed.1["exists"], true,
+        "a claimer on the line resolves the run: {}",
+        run_claimed.1
     );
 
     // Unknown (well-formed but unregistered) kind -> 404.
@@ -285,11 +365,45 @@ async fn seed_workflow_run(pool: &PgPool, initiated_by: Option<UserId>) -> Uuid 
     id
 }
 
+async fn seed_claimed_task(pool: &PgPool, run_id: Uuid, claimed_by: UserId) {
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_waiting_tasks (
+            id, org_id, run_id, waiting_key, title, status, required_policy, claimed_by
+        )
+        VALUES ($1, $2, $3, 'approval_step', 'Approve', 'CLAIMED', 'approval_finalize', $4)
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(*OrgId::knl().as_uuid())
+    .bind(run_id)
+    .bind(*claimed_by.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 fn issue_token(
     private_key_pem: &[u8],
     public_key_pem: &[u8],
     user_id: UserId,
     branches: Vec<BranchId>,
+) -> String {
+    issue_token_with_roles(
+        private_key_pem,
+        public_key_pem,
+        user_id,
+        branches,
+        vec!["ADMIN".to_owned()],
+    )
+}
+
+fn issue_token_with_roles(
+    private_key_pem: &[u8],
+    public_key_pem: &[u8],
+    user_id: UserId,
+    branches: Vec<BranchId>,
+    roles: Vec<String>,
 ) -> String {
     let issuer = JwtIssuer::from_es256_pem(
         JwtSettings {
@@ -305,7 +419,7 @@ fn issue_token(
         .issue_access_token(AccessTokenInput {
             subject: user_id,
             org_id: OrgId::knl(),
-            roles: vec!["ADMIN".to_owned()],
+            roles,
             branches,
             platform: false,
             view_as: false,
