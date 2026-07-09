@@ -1033,7 +1033,16 @@ impl AppState {
         // per tenant for each sync pass. GRACEFUL — only runs when the master KEK,
         // object storage, and `MNT_MAIL_ENABLED` are all present; otherwise a
         // no-op so the app boots normally and mail endpoints still mount.
-        if let DatabaseDependency::Postgres(pool) = &state.database {
+        //
+        // WORKER-ROLE ONLY: this background ticker belongs on the worker, never on
+        // the horizontally-scaled API pods — every API replica running its own
+        // ticker would sync the same mailboxes concurrently. Even on the worker it
+        // is HA-safe because the due-account claim leases each row with FOR UPDATE
+        // SKIP LOCKED (migration 0116), so >1 worker replica still claim disjoint
+        // batches.
+        if let DatabaseDependency::Postgres(pool) = &state.database
+            && config.role == AppRole::Worker
+        {
             state.mail_sync_handle = mail_sync::spawn(
                 pool.clone(),
                 state.mail_cipher.clone(),
