@@ -1405,6 +1405,30 @@
       "denialScopeTest": "ProtectedRoute + hasGrantedConsoleAccess gate /console/* like all authenticated routes; PBAC deny-by-omission scope tests arrive with the P0.1 nav filter and per-screen slices",
       "screenshotTraceEvidence": "Fidelity rig manifest (e2e/.artifacts/fidelity/manifest.json) captures the reference/build screenshot pair and records sampled console backgrounds from the reference .console selector and built [data-console-root] selector for visual-verdict comparison",
       "groupScopeStory": "Scope switcher (그룹 전체 = union of authorized 법인) arrives in P0.1; P0.0 only establishes the authenticated viewport shell with no cross-org surface yet"
+    },
+    {
+      "rawPath": "/console-dev/lifecycle",
+      "canonicalPath": "/console-dev/lifecycle",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "manager",
+        "executive",
+        "group-admin",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "Dev-only P0.5 capture harness for the standalone lifecycle card (charter §3 P0.5). Shell-less like /console under ProtectedRoute; ?state= renders deterministic fixtures for the component-state captures, ?live=1 mounts the real LifecycleCard bound to a document object for real-backend driving. Not a product surface.",
+      "accessibilityEvidence": "Native controls only (button/input[type=text|date|checkbox]); the stepper is an ordered list with an aria-label; axe coverage is asserted per screen when a lifecycle-bearing screen hosts the card (P3, e2e/fixtures/ux.ts assertNoAxeViolations)",
+      "ownerLane": "feat/console-cc-p0-lifecycle P0.5 lane — LifecycleCard under web/src/console/lifecycle/** behind check-console-purity; every affordance routed through web/src/console/policy PolicyGated",
+      "dataClass": "object lifecycle state, append-only transition log, legal-hold/retention flags — read/written via the real BE-LC REST surface (#211), org-wide LifecycleManage authority, every mutation audited server-side",
+      "sourceObject": "object_lifecycles / object_lifecycle_transitions rows for a document object, resolved by GET /api/v1/lifecycles/{objectType}/{objectId}",
+      "lifecycleStates": "draft, submitted, approved, active, revised, archived, disposed (seeded document FSM, migration 0107); card states captured: stepper mid-flow, version history, dispose gate blocked, as-of read-only lens",
+      "e2eSpec": "Required browser story: the fidelity component-state rig (e2e/fidelity/lifecycle-states.mjs) captures the four lifecycle-card states (stepper mid-flow, version history, dispose gate blocked, as-of read-only lens) at /console-dev/lifecycle at 1440px with animations disabled; the REAL BE-LC endpoints are driven end-to-end in web/src/console/lifecycle/LifecycleCard.test.tsx (msw: GET lifecycle on mount renders the stepper, POST .../transition with the typed {toState,reason} body reflects the server's updated state, POST .../hold sends {legalHold,retentionUntil}). No prototype dual-capture — the generic lifecycle engine is POST-SNAPSHOT (prototype-anatomy 03-systems §7), absent from the Jul-4 dc.html; the real-backend persona browser story arrives when a lifecycle-bearing screen hosts the card (P3).",
+      "denialScopeTest": "ProtectedRoute gates the route; org-wide LifecycleManage gates every transition/hold server-side, and the console PolicyGate omits the transition + hold affordances entirely (deny-by-omission) for a persona without lifecycle authority — asserted in LifecycleCard.test.tsx (RECEPTIONIST) and LifecycleCardView.test.tsx (denying decider)",
+      "screenshotTraceEvidence": "Component-state manifest (e2e/.artifacts/fidelity/lifecycle-states.manifest.json) records the four per-state PNGs; the dispose gate mirrors the server's fail-closed legal-hold/retention rule",
+      "groupScopeStory": "Lifecycle authority is org-wide LifecycleManage; the card carries no cross-org surface of its own — group scope is resolved by the hosting screen's scope switcher (P1+)"
     }
   ],
   "epEvidence": [
