@@ -113,6 +113,18 @@ describe("window engine grammar", () => {
     expect(state(container, "issues")).toBe("grid");
   });
 
+  it("re-anchors a right-pinned card to follow the viewport's right edge on resize", () => {
+    const { container } = render(<Harness />);
+    fireEvent.doubleClick(header(card(container, "issues")), { clientX: 200, clientY: 10 });
+    expect(state(container, "issues")).toBe("pin-split");
+    const before = parseFloat(card(container, "issues").style.left);
+    // Widen the viewport; the resize listener re-flows anchored floats.
+    (window as unknown as { innerWidth: number }).innerWidth = 1680;
+    fireEvent(window, new Event("resize"));
+    const after = parseFloat(card(container, "issues").style.left);
+    expect(after).toBeGreaterThan(before); // x tracked the wider right edge
+  });
+
   it("a float survives a screen switch and back (mounted-persistent state)", () => {
     const { container, getByTestId } = render(<Harness />);
     fireEvent.doubleClick(header(card(container, "issues")), { clientX: 200, clientY: 10 });

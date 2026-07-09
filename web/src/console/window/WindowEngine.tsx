@@ -43,12 +43,9 @@ export function WindowEngine({ engine, scr, registry, titles, renderBody }: Prop
   const meta = lookup(registry, scr);
   const layout = lookup(engine.state.layout, scr);
   if (!meta || !layout) return null;
-  const { state, viewport, hover } = engine;
+  const { state, viewport, hover, chrome } = engine;
   const comp = computeCardLay(meta, layout, state.min, state.float, scr, viewport);
-  const pad = bodyPad(state.float, viewport, {
-    sidebarCollapsed: false,
-    railCollapsed: false,
-  });
+  const pad = bodyPad(state.float, viewport, chrome);
   const titleOf = (id: string) => {
     const m = lookup(titles, scr);
     const v = m ? lookup(m, id) : undefined;

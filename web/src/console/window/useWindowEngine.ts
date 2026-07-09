@@ -16,6 +16,7 @@ import {
   NARROW_MAX,
   pinnedFloat,
   popoutFloatAtCursor,
+  reanchorFloat,
   snapFloat,
   TRAY_GRAB,
 } from "./geometry";
@@ -48,6 +49,8 @@ export interface WindowEngine {
   setHover: (t: HoverTarget | null) => void;
   /** True while the initial server load has not yet succeeded/failed. */
   loading: boolean;
+  /** The chrome (sidebar/rail collapse) the engine resolves floats against. */
+  chrome: Chrome;
 }
 
 /** Return a copy of `obj` without `key` (avoids the `delete` operator). */
@@ -114,6 +117,27 @@ export function useWindowEngine(opts: {
       window.removeEventListener("resize", onResize);
     };
   }, []);
+
+  // Re-resolve anchored floats when the viewport or chrome changes (prototype
+  // componentDidUpdate). Anchored pins/floats follow their edge; free floats
+  // keep their pixel position (clamped). A re-flow is not a user edit, so it
+  // never schedules a save.
+  useEffect(() => {
+    setState((s) => {
+      let changed = false;
+      const float: Record<string, CardFloat> = {};
+      for (const [key, f] of Object.entries(s.float)) {
+        const { x, y } = reanchorFloat(f, viewport, chrome);
+        if (x !== f.x || y !== f.y) {
+          changed = true;
+          float[key] = { ...f, x, y };
+        } else {
+          float[key] = f;
+        }
+      }
+      return changed ? { ...s, float } : s;
+    });
+  }, [viewport, chrome]);
 
   // --- persistence: full workspace blob minus our key, preserved on write ----
   const apiRef = useRef(api);
@@ -391,5 +415,6 @@ export function useWindowEngine(opts: {
     minToggle,
     setHover,
     loading,
+    chrome,
   };
 }

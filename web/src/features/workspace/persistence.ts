@@ -24,9 +24,12 @@ interface PendingSave {
 }
 
 // The endpoint stores an opaque JSON object under `layout`; our schema-versioned
-// envelope lives inside it.
-function toLayout(panels: Panel[]) {
+// envelope lives inside it. Unknown top-level keys another workspace consumer
+// wrote (e.g. the console window engine's `consoleWindow`) are carried through
+// so a legacy save never wipes them — our `v`/`panels` win on collision.
+function toLayout(panels: Panel[], carry: Record<string, unknown> = {}) {
   return {
+    ...carry,
     v: WORKSPACE_SCHEMA_VERSION,
     panels: panels.map((p) => ({
       screen: p.screen,
@@ -59,6 +62,9 @@ export function useWorkspacePersistence(
   );
   const pendingSave = useRef<PendingSave | null>(null);
   const saveInFlightOwner = useRef<string | null>(null);
+  // Unknown top-level keys from the loaded blob (another consumer's data),
+  // carried through on write so a legacy save never wipes them.
+  const otherKeysRef = useRef<Record<string, unknown>>({});
   const liveRef = useRef(false);
   const ownerKeyRef = useRef<string | undefined>(ownerKey);
   // `api` changes on token refresh (memoized on the access token); pin the
@@ -96,7 +102,7 @@ export function useWorkspacePersistence(
       return;
     }
     const panels = pending.panels;
-    const layout = toLayout(panels);
+    const layout = toLayout(panels, otherKeysRef.current);
     pendingSave.current = null;
     if (saveTimer.current !== undefined) {
       globalThis.clearTimeout(saveTimer.current);
@@ -164,6 +170,9 @@ export function useWorkspacePersistence(
     ownerKeyRef.current = ownerKey;
     liveRef.current = true;
     pendingSave.current = null;
+    // A new owner's blob is loaded fresh; never carry the previous owner's
+    // foreign keys into it.
+    otherKeysRef.current = {};
     if (saveTimer.current !== undefined) {
       globalThis.clearTimeout(saveTimer.current);
       saveTimer.current = undefined;
@@ -198,6 +207,17 @@ export function useWorkspacePersistence(
       if (res?.response?.ok !== true) {
         hydrate(editedDuringLoad ? currentPanels : [], false, ownerKey);
         return;
+      }
+      const rawLayout = res.data?.layout;
+      if (
+        typeof rawLayout === "object" &&
+        rawLayout !== null &&
+        !Array.isArray(rawLayout)
+      ) {
+        const others = { ...(rawLayout as Record<string, unknown>) };
+        Reflect.deleteProperty(others, "v");
+        Reflect.deleteProperty(others, "panels");
+        otherKeysRef.current = others;
       }
       const loadedPanels = sanitizeEnvelope(res.data?.layout).panels;
       const panels = editedDuringLoad
