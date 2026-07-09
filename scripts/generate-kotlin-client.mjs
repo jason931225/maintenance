@@ -157,6 +157,19 @@ try {
     throw new Error("Kotlin client generation did not produce clients/kotlin/build.gradle");
   }
 
+  // Guardrail: keep the client split into per-domain Api classes. openapi-generator
+  // only emits DefaultApi.kt when an operation carries no `tags:` — that is exactly
+  // how the 22.8k-line monolith (and its kotlinc GC-overhead OOM) arose. Fail closed
+  // so an untagged route can never regenerate the monolith unnoticed; this runs in CI
+  // through the api-drift regeneration, not just locally.
+  if (existsSync(resolve(stagingDir, "src/main/kotlin/com/maintenance/api/client/api/DefaultApi.kt"))) {
+    throw new Error(
+      "Kotlin generation produced DefaultApi.kt: an openapi.yaml operation is missing a `tags:` entry.\n" +
+        "Every operation must be tagged (domain = its /api/v1/<segment> path) so the client stays split per-domain.\n" +
+        "Find it: a path whose get/post/put/patch/delete block has no `tags:` list.",
+    );
+  }
+
   normalizeGeneratedTextFiles(stagingDir);
   writeFileSync(
     resolve(stagingDir, "gradle.properties"),
