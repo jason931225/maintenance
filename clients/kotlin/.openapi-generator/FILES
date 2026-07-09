@@ -31,6 +31,9 @@ src/main/kotlin/com/maintenance/api/client/infrastructure/URLAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/UUIDAdapter.kt
 src/main/kotlin/com/maintenance/api/client/model/AccountStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/AcquisitionBasis.kt
+src/main/kotlin/com/maintenance/api/client/model/ActionInboxItem.kt
+src/main/kotlin/com/maintenance/api/client/model/ActionInboxLink.kt
+src/main/kotlin/com/maintenance/api/client/model/ActionInboxResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AddCommentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetResponse.kt

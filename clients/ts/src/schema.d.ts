@@ -3196,6 +3196,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/action-inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Unified action inbox for the authenticated principal
+         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+         */
+        get: operations["listMyActionInbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -6981,6 +7001,37 @@ export interface components {
         };
         MyDispatchOfferPage: {
             items: components["schemas"]["MyDispatchOffer"][];
+        };
+        /** @description A bounded cross-object reference for an action-inbox item. */
+        ActionInboxLink: {
+            /** @description Object type label (e.g. work_order, workflow_run). */
+            kind: string;
+            id: string;
+            label?: string;
+        };
+        /** @description One unified actionable item. Field names mirror the overview prototype's items[] shape. Source-partial fields (site/who/due/submitted) are absent when the originating source does not carry them. */
+        ActionInboxItem: {
+            /** @description "{kind}:{uuid}" — source-namespaced so ids never collide. */
+            id: string;
+            /** @enum {string} */
+            kind: "approval" | "dispatch" | "work" | "support";
+            /** @enum {string} */
+            urg: "now" | "today" | "wait";
+            /** @description Source reference (work order request_no, ticket id, or the workflow run/object id). Not a canonical AP-/CS- object code. */
+            ref: string;
+            title: string;
+            site?: string;
+            who?: string;
+            due?: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            dueTone: "danger" | "warn" | "neutral";
+            submitted?: components["schemas"]["Timestamp"];
+            links: components["schemas"]["ActionInboxLink"][];
+            done: boolean;
+        };
+        ActionInboxResponse: {
+            items: components["schemas"]["ActionInboxItem"][];
+            total: number;
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -13330,6 +13381,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyDispatchOfferPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyActionInbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's actionable items, most urgent first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionInboxResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

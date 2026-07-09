@@ -46,6 +46,8 @@ mnt-identity-rest = { workspace = true }
 mnt-inspection-adapter-postgres = { workspace = true }
 mnt-inspection-rest = { workspace = true }
 mnt-support-adapter-postgres = { workspace = true }
+mnt-support-application = { workspace = true }
+mnt-support-domain = { workspace = true }
 mnt-support-rest = { workspace = true }
 mnt-sales-adapter-postgres = { workspace = true }
 mnt-sales-rest = { workspace = true }

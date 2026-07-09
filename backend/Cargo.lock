@@ -2787,6 +2787,8 @@ dependencies = [
  "mnt-sales-adapter-postgres",
  "mnt-sales-rest",
  "mnt-support-adapter-postgres",
+ "mnt-support-application",
+ "mnt-support-domain",
  "mnt-support-rest",
  "mnt-todos-adapter-postgres",
  "mnt-todos-rest",
