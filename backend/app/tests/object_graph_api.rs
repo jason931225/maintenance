@@ -388,6 +388,115 @@ async fn graph_omits_work_order_node_for_member_without_feature_grant(owner_pool
     );
 }
 
+/// Composition test for the account/UserManage feature gate reconciled into the
+/// BFS walk's `resolve_head`: a MEMBER (Login-only, no UserManage) walking a
+/// graph that touches an account node must get 200 with that node OMITTED,
+/// while an ADMIN's same walk includes the account lifecycle head. This keeps
+/// the graph's quiet omission path in lockstep with `resolve_object`'s direct
+/// 403 for account heads without creating an existence oracle mid-walk.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn graph_omits_account_node_for_member_without_user_manage(owner_pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let branch_x = seed_branch(&owner_pool, "Region U", "Branch U").await;
+    let member = UserId::new();
+    seed_user_in_branch(&owner_pool, member, "MEMBER", branch_x).await;
+    let member_token = issue_token_with_roles(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        member,
+        vec![branch_x],
+        vec!["MEMBER".to_owned()],
+    );
+
+    let admin = UserId::new();
+    seed_user_in_branch(&owner_pool, admin, "ADMIN", branch_x).await;
+    let admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin,
+        vec![branch_x],
+    );
+
+    let subject = UserId::new();
+    seed_user_in_branch(&owner_pool, subject, "MECHANIC", branch_x).await;
+    let root = branch_x.as_uuid().to_string();
+    let account_id = subject.as_uuid().to_string();
+    seed_link(
+        &owner_pool,
+        OrgId::knl(),
+        "org_unit",
+        &root,
+        "account",
+        &account_id,
+    )
+    .await;
+
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let member_result = graph(
+        &rt_pool,
+        &public_key_pem,
+        &member_token,
+        "org_unit",
+        &root,
+        Some(1),
+    )
+    .await;
+    assert_eq!(
+        member_result.0,
+        StatusCode::OK,
+        "a graph containing a UserManage-gated node must still 200, not 403: {}",
+        member_result.1
+    );
+    let member_nodes = member_result.1["nodes"].as_array().unwrap();
+    assert!(
+        find_node_opt(member_nodes, "account", &account_id).is_none(),
+        "account node must be OMITTED for a MEMBER without UserManage: {member_nodes:?}"
+    );
+    let member_edges = member_result.1["edges"].as_array().unwrap();
+    assert!(
+        member_edges
+            .iter()
+            .all(|e| e["src_kind"] != "account" && e["dst_kind"] != "account"),
+        "the edge to the omitted account must be omitted too: {member_edges:?}"
+    );
+
+    let admin_result = graph(
+        &rt_pool,
+        &public_key_pem,
+        &admin_token,
+        "org_unit",
+        &root,
+        Some(1),
+    )
+    .await;
+    assert_eq!(
+        admin_result.0,
+        StatusCode::OK,
+        "ADMIN graph should resolve the account node: {}",
+        admin_result.1
+    );
+    let admin_nodes = admin_result.1["nodes"].as_array().unwrap();
+    let account_node = find_node(admin_nodes, "account", &account_id);
+    assert_eq!(
+        account_node["exists"], true,
+        "ADMIN resolves in-scope account node: {account_node}"
+    );
+    assert_eq!(account_node["status"], "active");
+    let admin_edges = admin_result.1["edges"].as_array().unwrap();
+    assert!(
+        admin_edges
+            .iter()
+            .any(|e| e["src_kind"] == "org_unit" && e["dst_kind"] == "account"),
+        "ADMIN graph should include the edge to the visible account: {admin_edges:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
