@@ -318,6 +318,76 @@ async fn terminates_on_dense_cyclic_graph_and_respects_node_cap(owner_pool: PgPo
     );
 }
 
+/// Composition test for the WorkOrderReadAll feature gate (#222) reconciled
+/// into the BFS walk's `resolve_head`: a MEMBER (Login-only, no
+/// WorkOrderReadAll) walking a graph that happens to touch a work_order node
+/// must get 200 with that node OMITTED — never a 403 for the whole graph
+/// request. A 403 here would be the safe-but-wrong failure mode; a VISIBLE
+/// work_order node would be the real leak (the one #222 fixed for
+/// resolve_object but which the graph's independent node-discovery path could
+/// have reopened without this composition).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn graph_omits_work_order_node_for_member_without_feature_grant(owner_pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let branch_x = seed_branch(&owner_pool, "Region F", "Branch F").await;
+    let member = UserId::new();
+    seed_user_in_branch(&owner_pool, member, "MEMBER", branch_x).await;
+    let member_token = issue_token_with_roles(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        member,
+        vec![branch_x],
+        vec!["MEMBER".to_owned()],
+    );
+
+    let root = branch_x.as_uuid().to_string();
+    let work_order_id = seed_work_order(&owner_pool, branch_x, member).await;
+    seed_link(
+        &owner_pool,
+        OrgId::knl(),
+        "org_unit",
+        &root,
+        "work_order",
+        &work_order_id.to_string(),
+    )
+    .await;
+
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let result = graph(
+        &rt_pool,
+        &public_key_pem,
+        &member_token,
+        "org_unit",
+        &root,
+        Some(1),
+    )
+    .await;
+    assert_eq!(
+        result.0,
+        StatusCode::OK,
+        "a graph containing a guarded node must still 200, not 403: {}",
+        result.1
+    );
+    let nodes = result.1["nodes"].as_array().unwrap();
+    assert!(
+        find_node_opt(nodes, "work_order", &work_order_id.to_string()).is_none(),
+        "work_order node must be OMITTED for a MEMBER without WorkOrderReadAll: {nodes:?}"
+    );
+    let edges = result.1["edges"].as_array().unwrap();
+    assert!(
+        edges
+            .iter()
+            .all(|e| e["src_kind"] != "work_order" && e["dst_kind"] != "work_order"),
+        "the edge to the omitted work_order must be omitted too: {edges:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
@@ -417,6 +487,77 @@ async fn seed_user_in_branch(pool: &PgPool, user_id: UserId, role: &str, branch:
         .unwrap();
 }
 
+/// Seeds a minimal work_order (plus its required customer/site/equipment
+/// FKs) directly via the owner/BYPASSRLS pool, mirroring the working pattern
+/// in `platform/db/tests/rls_isolation.rs`'s `seed_org`. Returns the
+/// work_order id.
+async fn seed_work_order(pool: &PgPool, branch: BranchId, requested_by: UserId) -> Uuid {
+    let branch_uuid = *branch.as_uuid();
+    let org = *OrgId::knl().as_uuid();
+
+    let customer = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO registry_customers (id, branch_id, name, org_id) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(customer)
+    .bind(branch_uuid)
+    .bind(format!("Customer {customer}"))
+    .bind(org)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let site = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO registry_sites (id, branch_id, customer_id, name, org_id) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(site)
+    .bind(branch_uuid)
+    .bind(customer)
+    .bind(format!("Site {site}"))
+    .bind(org)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let equipment = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO registry_equipment \
+            (id, branch_id, customer_id, site_id, equipment_no, manufacturer_code, \
+             kind_code, power_code, status, specification, ton_text, source_sheet, \
+             source_row, org_id) \
+         VALUES ($1, $2, $3, $4, 'ABC01-0001', 'M', 'K', 'P', '임대', 'spec', '1t', 's', 1, $5)",
+    )
+    .bind(equipment)
+    .bind(branch_uuid)
+    .bind(customer)
+    .bind(site)
+    .bind(org)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let work_order = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO work_orders \
+            (id, request_no, branch_id, equipment_id, customer_id, site_id, \
+             requested_by, status, symptom, org_id) \
+         VALUES ($1, '20260709-001', $2, $3, $4, $5, $6, 'RECEIVED', 'sym', $7)",
+    )
+    .bind(work_order)
+    .bind(branch_uuid)
+    .bind(equipment)
+    .bind(customer)
+    .bind(site)
+    .bind(*requested_by.as_uuid())
+    .bind(org)
+    .execute(pool)
+    .await
+    .unwrap();
+    work_order
+}
+
 /// Plants a link directly via the owner/BYPASSRLS pool, exactly like
 /// `object_links_api.rs`'s cross-org isolation test — the fixture, not the
 /// thing under test (`object_graph`'s own RLS-scoped read, exercised as
@@ -481,6 +622,22 @@ fn issue_token(
     user_id: UserId,
     branches: Vec<BranchId>,
 ) -> String {
+    issue_token_with_roles(
+        private_key_pem,
+        public_key_pem,
+        user_id,
+        branches,
+        vec!["ADMIN".to_owned()],
+    )
+}
+
+fn issue_token_with_roles(
+    private_key_pem: &[u8],
+    public_key_pem: &[u8],
+    user_id: UserId,
+    branches: Vec<BranchId>,
+    roles: Vec<String>,
+) -> String {
     let issuer = JwtIssuer::from_es256_pem(
         JwtSettings {
             issuer: TEST_ISSUER.to_owned(),
@@ -495,7 +652,7 @@ fn issue_token(
         .issue_access_token(AccessTokenInput {
             subject: user_id,
             org_id: OrgId::knl(),
-            roles: vec!["ADMIN".to_owned()],
+            roles,
             branches,
             platform: false,
             view_as: false,
