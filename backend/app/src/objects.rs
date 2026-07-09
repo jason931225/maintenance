@@ -52,6 +52,17 @@ pub const OBJECT_ROUTE_PATHS: &[&str] = &[
 const GRAPH_MAX_DEPTH: i64 = 5;
 const GRAPH_MAX_NODES: usize = 200;
 
+/// Defense-in-depth caps on the two otherwise-unbounded `object_links` scans.
+/// Neither is an expected ceiling — a real object's neighborhood is tiny — they
+/// bound a pathological fan-out so a single densely-linked object cannot
+/// materialize an unbounded row set before the node cap / list trims.
+/// `OBJECT_LINK_LIST_MAX` caps each direction of `list_object_links` (which has
+/// no pagination params), matching sibling list caps and `GRAPH_MAX_NODES`;
+/// `GRAPH_MAX_LINKS_PER_LEVEL` caps one BFS level's link fetch — set well above
+/// any realistic frontier's edge count so a normal graph is never trimmed.
+const OBJECT_LINK_LIST_MAX: i64 = 200;
+const GRAPH_MAX_LINKS_PER_LEVEL: i64 = 1000;
+
 /// The authorization a resolvable kind requires, DECLARED per kind rather than
 /// hand-checked at each call site. `Feature(f)` = the caller must hold feature
 /// `f` (parity with the domain read endpoint the head aggregates);
@@ -364,10 +375,12 @@ async fn list_object_links(
                 FROM object_links
                 WHERE src_kind = $1 AND src_id = $2
                 ORDER BY created_at DESC, id DESC
+                LIMIT $3
                 "#,
             )
             .bind(&kind)
             .bind(&id)
+            .bind(OBJECT_LINK_LIST_MAX)
             .fetch_all(tx.as_mut())
             .await?;
             let incoming_rows = sqlx::query(
@@ -377,10 +390,12 @@ async fn list_object_links(
                 FROM object_links
                 WHERE dst_kind = $1 AND dst_id = $2
                 ORDER BY created_at DESC, id DESC
+                LIMIT $3
                 "#,
             )
             .bind(&kind)
             .bind(&id)
+            .bind(OBJECT_LINK_LIST_MAX)
             .fetch_all(tx.as_mut())
             .await?;
             let outgoing = outgoing_rows
@@ -674,10 +689,13 @@ async fn object_graph(
                             WHERE (l.src_kind = f.kind AND l.src_id = f.id)
                                OR (l.dst_kind = f.kind AND l.dst_id = f.id)
                         )
+                        ORDER BY l.created_at DESC, l.id DESC
+                        LIMIT $3
                         "#,
                     )
                     .bind(&frontier_kinds)
                     .bind(&frontier_ids)
+                    .bind(GRAPH_MAX_LINKS_PER_LEVEL)
                     .fetch_all(tx.as_mut())
                     .await?;
 
