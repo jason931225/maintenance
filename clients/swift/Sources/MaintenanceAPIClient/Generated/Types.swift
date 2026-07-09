@@ -725,7 +725,7 @@ public protocol APIProtocol: Sendable {
     func getMessengerThreadPresence(_ input: Operations.GetMessengerThreadPresence.Input) async throws -> Operations.GetMessengerThreadPresence.Output
     /// Toggle the caller's ack on a message
     ///
-    /// Idempotent toggle: if the caller's ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message's thread; a non-member gets 403.
+    /// Toggle the caller's ack: if present it is removed, else added. This is not idempotent and is not safe to blindly retry; clients should reconcile from the returned MessengerAckSummary acked and ack_count values. The caller must be a member of the message's thread; a non-member gets 403.
     ///
     ///
     /// - Remark: HTTP `POST /api/messenger/messages/{messageId}/ack`.
@@ -3366,7 +3366,7 @@ extension APIProtocol {
     }
     /// Toggle the caller's ack on a message
     ///
-    /// Idempotent toggle: if the caller's ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message's thread; a non-member gets 403.
+    /// Toggle the caller's ack: if present it is removed, else added. This is not idempotent and is not safe to blindly retry; clients should reconcile from the returned MessengerAckSummary acked and ack_count values. The caller must be a member of the message's thread; a non-member gets 403.
     ///
     ///
     /// - Remark: HTTP `POST /api/messenger/messages/{messageId}/ack`.
@@ -48623,7 +48623,7 @@ public enum Operations {
     }
     /// Toggle the caller's ack on a message
     ///
-    /// Idempotent toggle: if the caller's ack is present it is removed, else added. Returns the post-toggle state and live count. The caller must be a member of the message's thread; a non-member gets 403.
+    /// Toggle the caller's ack: if present it is removed, else added. This is not idempotent and is not safe to blindly retry; clients should reconcile from the returned MessengerAckSummary acked and ack_count values. The caller must be a member of the message's thread; a non-member gets 403.
     ///
     ///
     /// - Remark: HTTP `POST /api/messenger/messages/{messageId}/ack`.

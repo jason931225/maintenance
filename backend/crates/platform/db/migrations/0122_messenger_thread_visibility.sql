@@ -37,10 +37,3 @@ ALTER TABLE messenger_threads
         CHECK (kind <> 'group' OR visibility = 'direct') NOT VALID,
     ADD CONSTRAINT messenger_threads_work_order_direct_check
         CHECK (kind <> 'work_order' OR visibility = 'direct') NOT VALID;
-
-ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_visibility_not_null_check;
-ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_visibility_check;
-ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_channel_named_check;
-ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_dm_direct_check;
-ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_group_direct_check;
-ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_work_order_direct_check;
