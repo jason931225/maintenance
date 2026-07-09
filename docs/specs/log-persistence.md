@@ -1,11 +1,7 @@
 # Durable Log Persistence — Design + GO/NO-GO
 
-> **SUPERSEDED (observability substrate) by [ADR-0022](../decisions/ADR-0022-bare-metal-portability-and-ha.md).**
-> The target is no longer OCI: observability moves to **fully self-hosted OTel → VictoriaMetrics/LGTM → Grafana on the bare-metal, multicluster, HA Talos cluster** (adopting oyatie's `infra/observability` stack) — the managed OCI Logging/Monitoring/APM pillars below are reversed. The **OTel-collection and self-hosted-Loki** decisions in this doc carry forward; the OCI-managed backends and free-tier sizing do not. Retained here for the collection/pipeline design + the reasoning trail.
+> **SUPERSEDED (observability substrate) by [ADR-0022](../decisions/ADR-0022-bare-metal-portability-and-ha.md).** ADR-0022 is the authoritative target-stack decision for operational observability; this document remains only for collection/pipeline rationale, audit-chain boundary context, and the historical reasoning trail.
 
-Status: **DESIGN · observability substrate now governed by ADR-0022 (self-hosted, bare-metal, HA)**
-Direction: ~~A — load-bearing self-hosted Loki + managed-OCI pillars~~ → **self-hosted OTel + full LGTM on bare-metal multicluster Talos (see ADR-0022)**
-Scope: operational three-pillar observability (logs first) — target substrate is the owner's on-prem multicluster Talos, not OCI.
 Author: platform. Last grounded against repo: branch `perf/hr-read-path-indexes-*`, deploy tree under `deploy/`.
 
 > This document is for **operational logs** (observability / incident response). It is **not** the
