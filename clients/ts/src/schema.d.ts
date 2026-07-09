@@ -4790,6 +4790,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/office/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a signed DocumentServer editor config for a document
+         * @description Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller's authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+         */
+        post: operations["createOfficeSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/office/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * DocumentServer force-save callback (machine, JWT-verified)
+         * @description The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+         */
+        post: operations["officeCallback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/office/documents/{documentRef}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a document's immutable version history (newest first) */
+        get: operations["listOfficeDocumentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Non-destructively restore a version (re-publish it as a new version)
+         * @description Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+         */
+        post: operations["restoreOfficeDocumentVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -8706,6 +8783,26 @@ export interface components {
              * @description ISO date; omit or null to clear the retention deadline.
              */
             retentionUntil?: string;
+        };
+        /** @description One immutable version of an in-console office document. The storage key is internal and never returned. */
+        DocumentVersion: {
+            /** Format: uuid */
+            id: string;
+            documentRef: string;
+            versionNo: number;
+            contentHash: string;
+            fileType: string;
+            /** Format: int64 */
+            byteSize: number;
+            /** @description The version_no this version non-destructively restored, when it is a rollback. */
+            restoredFrom?: number;
+            /**
+             * Format: uuid
+             * @description Actor who produced the version; omitted for system-initiated (force-save callback) versions.
+             */
+            createdBy?: string;
+            /** Format: date-time */
+            createdAt: string;
         };
     };
     responses: {
@@ -16566,6 +16663,133 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    createOfficeSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    documentRef: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The editor config to hand to DocumentServer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        documentServerUrl: string;
+                        /** @description The ONLYOFFICE DocEditor config object, carrying its signed `token`. */
+                        config: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Office editor or document storage is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    officeCallback: {
+        parameters: {
+            query: {
+                /** @description Host-issued callback token binding the request to (org, document). */
+                ct: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The ONLYOFFICE-signed callback payload (v7.1+ in-body token). */
+                    token?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Always 200. `error` is 0 on success/ignore, non-zero on a rejected callback. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: number;
+                    };
+                };
+            };
+        };
+    };
+    listOfficeDocumentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentRef: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The append-only version list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["DocumentVersion"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    restoreOfficeDocumentVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentRef: string;
+                versionNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The newly appended (restored) version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersion"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

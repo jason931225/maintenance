@@ -52,7 +52,18 @@ const COMPOSE_FILES = [
   "ops/compose.dev.yml",
   "ops/compose.dev-deps.yml",
 ];
-const DEPS_SERVICES = ["postgres", "seaweedfs", "otel-collector", "mailpit"];
+const DEPS_SERVICES = [
+  "postgres",
+  "seaweedfs",
+  "otel-collector",
+  "mailpit",
+  "onlyoffice",
+];
+
+// Shared HS256 secret between the host and the DocumentServer container. Dev
+// only; production injects a real per-deploy secret (docs/release/SECRETS.md).
+const OFFICE_JWT_SECRET =
+  process.env.MNT_OFFICE_JWT_SECRET ?? "office-dev-shared-secret";
 
 // Deliberately NOT the compose files' own defaults (5432/8333/8080): a local
 // dev tool cannot assume it owns the only Postgres/S3/8080 on the machine.
@@ -64,6 +75,7 @@ const PORTS = {
   otel: Number(process.env.MNT_OTEL_PORT ?? 54317),
   mailpitSmtp: Number(process.env.MNT_MAILPIT_SMTP_PORT ?? 1025),
   mailpitUi: Number(process.env.MNT_MAILPIT_UI_PORT ?? 8025),
+  office: Number(process.env.MNT_OFFICE_DOCSERVER_PORT ?? 8888),
   backend: Number(process.env.MNT_DEV_HTTP_PORT ?? 8090),
   vite: Number(process.env.E2E_WEB_PORT ?? process.env.MNT_DEV_VITE_PORT ?? 5173),
 };
@@ -435,6 +447,8 @@ async function bringUpDeps() {
     MNT_OTEL_PORT: String(PORTS.otel),
     MNT_MAILPIT_SMTP_PORT: String(PORTS.mailpitSmtp),
     MNT_MAILPIT_UI_PORT: String(PORTS.mailpitUi),
+    MNT_OFFICE_DOCSERVER_PORT: String(PORTS.office),
+    MNT_OFFICE_JWT_SECRET: OFFICE_JWT_SECRET,
   };
 
   const up = runCompose(compose, ["up", "-d", ...DEPS_SERVICES], {
@@ -517,6 +531,12 @@ function buildAppEnv(role) {
     MNT_WEBAUTHN_RP_NAME: "정비 콘솔 (dev)",
     MNT_COOKIE_SECURE: "false",
     MNT_COLDSTART_OTP: process.env.MNT_COLDSTART_OTP ?? "coss0000",
+    // In-console office editor (ONLYOFFICE). The shared JWT secret matches the
+    // DocumentServer container's JWT_SECRET; DocumentServer reaches the
+    // host-run app back over host.docker.internal at the backend port.
+    MNT_OFFICE_JWT_SECRET: OFFICE_JWT_SECRET,
+    MNT_OFFICE_DOCSERVER_URL: `http://127.0.0.1:${PORTS.office}`,
+    MNT_OFFICE_CALLBACK_BASE_URL: `http://host.docker.internal:${PORTS.backend}`,
     RUST_LOG: process.env.RUST_LOG ?? "info,tower_http=info",
     SQLX_OFFLINE: "true",
   };
