@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.49](https://github.com/jason931225/maintenance/compare/v0.1.48...v0.1.49) (2026-07-09)
+
+
+### Features
+
+* **objects:** BE-OBJ slice 2 — code issuance, message refs, graph traversal, route-authority cleanup ([#227](https://github.com/jason931225/maintenance/issues/227)) ([64ceb3f](https://github.com/jason931225/maintenance/commit/64ceb3fc09aec16edde53a8084b2f78524119899))
+
+
+### Bug Fixes
+
+* **audit-chain:** tighten attestation review fixes ([#228](https://github.com/jason931225/maintenance/issues/228)) ([639e454](https://github.com/jason931225/maintenance/commit/639e45423338b7a9a5c2e98ae266925fac03e729))
+
 ## [0.1.48](https://github.com/jason931225/maintenance/compare/v0.1.47...v0.1.48) (2026-07-09)
 
 
