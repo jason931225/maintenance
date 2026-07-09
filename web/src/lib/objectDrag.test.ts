@@ -39,6 +39,12 @@ describe("objectDrag", () => {
     expect(readDraggedObject(bad)).toBeNull();
   });
 
+  it("rejects a payload whose kind is not a real object kind", () => {
+    const evil = fakeTransfer();
+    evil.setData(OBJECT_DND_MIME, JSON.stringify({ kind: "evil", code: "X-1", label: "x" }));
+    expect(readDraggedObject(evil)).toBeNull();
+  });
+
   it("maps a person to an @-mention and any coded object to a !code-link", () => {
     expect(tokenForDraggedObject({ kind: "person", code: "u-1", label: "홍길동" })).toBe("@u-1");
     expect(tokenForDraggedObject({ kind: "workOrder", code: "WO-1", label: "x" })).toBe("!WO-1");

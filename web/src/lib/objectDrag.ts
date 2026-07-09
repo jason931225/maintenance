@@ -1,4 +1,4 @@
-import type { ObjectKind } from "./objectRegistry";
+import { objectRegistry, type ObjectKind } from "./objectRegistry";
 
 /**
  * Native drag-and-drop payload for console objects (UI-M2a): dragging an object
@@ -29,18 +29,22 @@ export function readDraggedObject(transfer: DataTransfer): DraggedObject | null 
   const raw = transfer.getData(OBJECT_DND_MIME);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<DraggedObject>;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const { kind, code, label, id } = parsed;
+    // Whitelist `kind` against the real registry — a hand-crafted/bad payload
+    // must be rejected here, never reach objectRegistry[kind] and throw.
     if (
-      typeof parsed.code === "string" &&
-      parsed.code.length > 0 &&
-      typeof parsed.kind === "string" &&
-      typeof parsed.label === "string"
+      typeof kind === "string" &&
+      kind in objectRegistry &&
+      typeof code === "string" &&
+      code.length > 0 &&
+      typeof label === "string"
     ) {
       return {
-        kind: parsed.kind,
-        code: parsed.code,
-        label: parsed.label,
-        id: typeof parsed.id === "string" ? parsed.id : undefined,
+        kind: kind as ObjectKind,
+        code,
+        label,
+        id: typeof id === "string" ? id : undefined,
       };
     }
   } catch {

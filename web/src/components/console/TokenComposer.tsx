@@ -85,6 +85,7 @@ export function TokenComposer({
     setHighlightedCode,
     confirmToken,
     insertToken,
+    cancel,
     handleChange,
     handleKeyDown: grammarHandleKeyDown,
     handleSelect,
@@ -187,6 +188,10 @@ export function TokenComposer({
         onKeyDown={handleKeyDown}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
+        // Close the dropdown when focus really leaves the field. Clicking a
+        // candidate can't reach here: its button preventDefaults mousedown, so
+        // focus never leaves the textarea and confirm still fires.
+        onBlur={cancel}
         onDragOver={(event) => {
           if (readDraggedObject(event.dataTransfer) || event.dataTransfer.types.includes("application/x-oyatie-object")) {
             event.preventDefault();

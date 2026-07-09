@@ -86,4 +86,24 @@ describe("TokenComposer", () => {
     const preview = screen.getByTestId("token-composer-preview");
     expect(preview).toHaveTextContent("@홍길동");
   });
+
+  it("closes the candidate dropdown when the field loses focus", async () => {
+    const provider: CandidateProvider = () =>
+      Promise.resolve({
+        status: "ok",
+        candidates: [
+          { kind: "person", code: "11111111-1111-4111-8111-111111111111", label: "홍길동" },
+        ],
+      });
+    render(<Harness providers={{ "@": provider }} />);
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>("작성");
+
+    fireEvent.change(textarea, {
+      target: { value: "@", selectionStart: 1, selectionEnd: 1 },
+    });
+    await screen.findByRole("button", { name: /홍길동/ });
+
+    fireEvent.blur(textarea);
+    expect(screen.queryByRole("button", { name: /홍길동/ })).not.toBeInTheDocument();
+  });
 });

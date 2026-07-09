@@ -93,17 +93,22 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   // deny-by-omission (the providers are branch/RLS-scoped server-side).
   useEffect(() => {
     const guard = { live: true };
-    void (async () => {
-      const [workResult, peopleResult] = await Promise.all([
-        workProvider(query),
-        personProvider ? personProvider(query) : Promise.resolve(null),
-      ]);
-      if (!guard.live) return;
-      setWork(workResult.status === "ok" ? workResult.candidates : []);
-      setPeople(peopleResult && peopleResult.status === "ok" ? peopleResult.candidates : []);
-    })();
+    // Debounce so a burst of keystrokes fires one pair of provider calls, not
+    // one per character.
+    const timer = setTimeout(() => {
+      void (async () => {
+        const [workResult, peopleResult] = await Promise.all([
+          workProvider(query),
+          personProvider ? personProvider(query) : Promise.resolve(null),
+        ]);
+        if (!guard.live) return;
+        setWork(workResult.status === "ok" ? workResult.candidates : []);
+        setPeople(peopleResult && peopleResult.status === "ok" ? peopleResult.candidates : []);
+      })();
+    }, 200);
     return () => {
       guard.live = false;
+      clearTimeout(timer);
     };
   }, [workProvider, personProvider, query]);
 
