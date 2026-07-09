@@ -2765,6 +2765,8 @@ dependencies = [
  "mnt-inspection-rest",
  "mnt-integrity",
  "mnt-kernel-core",
+ "mnt-leave-adapter-postgres",
+ "mnt-leave-rest",
  "mnt-messenger-adapter-postgres",
  "mnt-messenger-rest",
  "mnt-notifications-adapter-postgres",
@@ -3417,6 +3419,66 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-inbox-adapter-postgres",
+ "mnt-inbox-application",
+ "mnt-inbox-domain",
+ "mnt-kernel-core",
+ "mnt-leave-application",
+ "mnt-leave-domain",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-leave-domain",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "time",
+]
+
+[[package]]
+name = "mnt-leave-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-kernel-core",
+ "mnt-leave-adapter-postgres",
+ "mnt-leave-application",
+ "mnt-leave-domain",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "time",
+ "tracing",
  "uuid",
 ]
 

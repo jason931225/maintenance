@@ -1525,6 +1525,16 @@ pub fn build_router(state: AppState) -> Router {
                     )
                     .with_passkey_step_up(state.policy_step_up.clone()),
                 ))
+                // Leave-request queue + §61 statutory push. The push delivers a
+                // receipt-gated notice through the SAME inbox vault (a fresh
+                // `PgInboxStore` over the shared pool as the `InboxDocSink`).
+                .merge(mnt_leave_rest::router(mnt_leave_rest::LeaveRestState::new(
+                    mnt_leave_adapter_postgres::PgLeaveStore::new(
+                        pool.clone(),
+                        std::sync::Arc::new(PgInboxStore::new(pool.clone())),
+                    ),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_todos_rest::router(TodoRestState::new(
                     todo_store,
                     state.jwt_verifier.clone(),

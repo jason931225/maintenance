@@ -21,6 +21,7 @@ members = [
   "crates/messenger/*",
   "crates/notifications/*",
   "crates/inbox/*",
+  "crates/leave/*",
   "crates/todos/*",
   "crates/comms/*",
   "crates/payroll/*",
@@ -213,6 +214,10 @@ mnt-inbox-domain = { path = "crates/inbox/domain" }
 mnt-inbox-application = { path = "crates/inbox/application" }
 mnt-inbox-adapter-postgres = { path = "crates/inbox/adapter-postgres" }
 mnt-inbox-rest = { path = "crates/inbox/rest" }
+mnt-leave-domain = { path = "crates/leave/domain" }
+mnt-leave-application = { path = "crates/leave/application" }
+mnt-leave-adapter-postgres = { path = "crates/leave/adapter-postgres" }
+mnt-leave-rest = { path = "crates/leave/rest" }
 mnt-todos-domain = { path = "crates/todos/domain" }
 mnt-todos-application = { path = "crates/todos/application" }
 mnt-todos-adapter-postgres = { path = "crates/todos/adapter-postgres" }

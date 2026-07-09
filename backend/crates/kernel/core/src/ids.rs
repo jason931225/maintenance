@@ -153,6 +153,19 @@ typed_id!(
     /// bound from the authenticated principal, never from request input.
     InboxDocId
 );
+typed_id!(
+    /// One leave request (연차/반차 신청) awaiting a branch approver's decision.
+    /// Branch-scoped; the requesting principal is bound from the authenticated
+    /// token, and the decider is separated from the requester (SoD).
+    LeaveRequestId
+);
+typed_id!(
+    /// One statutory leave push (근로기준법 §61 연차 사용 촉진 1차/2차, or a
+    /// 노무수령거부 notice) delivered to a target employee's 개인 수신함. Records the
+    /// receipt-document delivery and, when the submittable definition exists, the
+    /// engine AP- submission it started.
+    LeavePromotionId
+);
 
 #[cfg(test)]
 mod tests {

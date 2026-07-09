@@ -70,6 +70,9 @@ async fn openapi_yaml_covers_mounted_auth_routes() -> Result<(), Box<dyn std::er
     for path in INBOX_ROUTE_PATHS {
         assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
     }
+    for path in mnt_leave_rest::LEAVE_ROUTE_PATHS {
+        assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
+    }
     assert!(
         yaml.contains(mnt_dispatch_rest::ME_DISPATCH_OFFERS_PATH),
         "OpenAPI YAML is missing /api/v1/me/dispatch-offers"
