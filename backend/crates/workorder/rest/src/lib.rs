@@ -1537,6 +1537,7 @@ async fn complete_sync_request(
     actor: UserId,
     outcome: PendingSyncOutcome,
 ) -> Result<SyncOperationResult, RestError> {
+    let org = current_org().map_err(|err| RestError::from_kernel(err.into()))?;
     let response_body = serde_json::to_value(&outcome.result)?;
     let event: AuditEvent = AuditEvent::new(
         Some(actor),
@@ -1546,6 +1547,7 @@ async fn complete_sync_request(
         TraceContext::generate(),
         time::OffsetDateTime::now_utc(),
     )
+    .with_org(org)
     .with_snapshots(None, Some(response_body.clone()));
     let result = outcome.result.clone();
 
@@ -2072,6 +2074,9 @@ async fn record_evidence_presign_audit(
     branch_id: BranchId,
     ticket: &EvidenceUploadTicket,
 ) -> Result<(), RestError> {
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
     let event: AuditEvent = AuditEvent::new(
         Some(principal.user_id),
         AuditAction::new("evidence.presign").map_err(RestError::from_kernel)?,
@@ -2081,6 +2086,7 @@ async fn record_evidence_presign_audit(
         time::OffsetDateTime::now_utc(),
     )
     .with_branch(branch_id)
+    .with_org(org)
     .with_snapshots(
         None,
         Some(serde_json::json!({

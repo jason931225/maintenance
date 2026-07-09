@@ -297,7 +297,8 @@ impl PgSupportStore {
                             "assignee_user_id": command.assignee_user_id.to_string(),
                             "branch_id": effective_branch.to_string(),
                         })),
-                    );
+                    )
+                    .with_org(org);
                     let notifications = vec![TicketNotification::new(
                         command.ticket_id,
                         command.assignee_user_id,
@@ -366,7 +367,8 @@ impl PgSupportStore {
                     .with_snapshots(
                         Some(serde_json::json!({ "status": transition.from.as_db_str() })),
                         Some(serde_json::json!({ "status": transition.to.as_db_str() })),
-                    );
+                    )
+                    .with_org(org);
                     let notifications =
                         status_change_notifications(&ticket, command.ticket_id, command.to_status);
                     Ok(((summary, notifications), vec![event]))
@@ -433,7 +435,8 @@ impl PgSupportStore {
                         "ticket_id": command.ticket_id.to_string(),
                         "is_internal_note": command.is_internal_note,
                     })),
-                );
+                )
+                .with_org(org);
                 // Internal notes do not notify the requester; non-internal
                 // comments notify requester + assignee (excluding the author).
                 let notifications = if command.is_internal_note {

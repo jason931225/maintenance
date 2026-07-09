@@ -175,7 +175,8 @@ impl PgRegistryStore {
                     row.status,
                     trace,
                     occurred_at,
-                )?;
+                )?
+                .with_org(org);
                 Ok((equipment_id, vec![event]))
             })
         })
@@ -243,7 +244,8 @@ impl PgRegistryStore {
                     name,
                 };
                 let event =
-                    customer_create_audit_event(actor, branch_id, &customer, trace, occurred_at)?;
+                    customer_create_audit_event(actor, branch_id, &customer, trace, occurred_at)?
+                        .with_org(org);
                 Ok((customer, vec![event]))
             })
         })
@@ -359,7 +361,9 @@ impl PgRegistryStore {
                     contact_phone,
                     contact_email,
                 };
-                let event = site_create_audit_event(actor, branch_id, &site, trace, occurred_at)?;
+                let event =
+                    site_create_audit_event(actor, branch_id, &site, trace, occurred_at)?
+                        .with_org(org);
                 Ok((site, vec![event]))
             })
         })

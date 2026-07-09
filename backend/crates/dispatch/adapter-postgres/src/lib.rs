@@ -11,8 +11,8 @@ use mnt_dispatch_domain::{
     GeoPoint, P1Dispatch, TechnicianLoad, score_candidate,
 };
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId,
-    TraceContext, UserId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, OrgId, P1DispatchAlertId,
+    P1DispatchId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
@@ -658,6 +658,7 @@ impl PgDispatchStore {
                             occurred_at,
                         )
                         .with_branch(branch_id)
+                        .with_org(org)
                         .with_snapshots(None, Some(serde_json::json!({ "status": "SKIPPED" }))),
                     );
                 }
@@ -882,6 +883,7 @@ impl PgDispatchStore {
                             occurred_at,
                         )
                         .with_branch(branch_id)
+                        .with_org(org)
                         .with_snapshots(None, Some(serde_json::json!({ "status": status }))),
                     ]
                 } else {
@@ -1356,7 +1358,8 @@ async fn auto_assign_tx(
                 .map_err(|_| KernelError::validation("accepted count overflows i64"))?,
             Some(winner.mechanic_id),
         )),
-    );
+    )
+    .with_org(OrgId::from_uuid(org_uuid));
     insert_audit_event(tx, &event).await?;
     Ok(winner)
 }
