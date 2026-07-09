@@ -1232,7 +1232,7 @@ function WorkflowCanvasAuthoringCard({
   };
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
