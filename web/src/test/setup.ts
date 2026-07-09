@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 import { realtimeHub } from "../features/comms/realtimeHub";
@@ -43,6 +43,11 @@ function ensureStorage(name: "localStorage" | "sessionStorage") {
 
 ensureStorage("localStorage");
 ensureStorage("sessionStorage");
+
+// AppRouter/page tests lazy-load large route modules. Cold Vite transforms can
+// exceed Testing Library's 1s default async query timeout even when the route
+// renders correctly within Vitest's test timeout.
+configure({ asyncUtilTimeout: 30_000 });
 
 afterEach(() => {
   cleanup();

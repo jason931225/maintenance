@@ -40,6 +40,10 @@ export default defineConfig({
       },
     },
     setupFiles: ["./src/test/setup.ts"],
+    // AppRouter/full-suite jsdom workers lazily transform large route modules;
+    // the default 5s test timeout races that cold path on CI/local Macs even
+    // when the page eventually renders correctly.
+    testTimeout: 45_000,
     // Workers rendering <AppRouter /> with lazy routes can keep the jsdom event
     // loop alive after tests complete, causing the fork to hang until OOM (seen
     // as a ~80min CI run). Cap the teardown window so the fork is forcibly
