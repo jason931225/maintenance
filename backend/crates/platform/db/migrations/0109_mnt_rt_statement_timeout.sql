@@ -26,44 +26,35 @@
 -- ALTER ROLE ... SET writes the cluster-global pg_db_role_setting tuple for
 -- mnt_rt (pg_authid/pg_db_role_setting are shared catalogs, not per-database).
 -- When sqlx::test applies every migration into N fresh databases in parallel,
--- concurrent writes to that one shared tuple race with "tuple concurrently
--- updated" (XX000). The advisory lock below is BEST-EFFORT ONLY, same caveat as
--- 0031: PostgreSQL advisory locks are scoped to the connecting session's
--- database (LOCKTAG_ADVISORY carries the database OID), so it does NOT
--- serialize writers connected to DIFFERENT databases — exactly what parallel
--- `#[sqlx::test]` does. The real guard is the exception handler below: whichever
--- racer's write commits is sufficient, because the setting is a single
--- cluster-wide role default, not a per-database value — a swallowed loser
--- changes nothing that the winner didn't already set. In production (one
--- migration applier, uncontended) both statements just succeed.
-SELECT pg_advisory_xact_lock(hashtext('mnt_rt_role_setup'));
+-- concurrent writers race on that one shared tuple ("tuple concurrently
+-- updated", XX000) unless actually serialized.
+--
+-- `pg_advisory_xact_lock` does NOT serialize this, despite 0031 using it for an
+-- analogous race: advisory locks are scoped to the CONNECTING SESSION'S
+-- DATABASE, not the cluster — verified empirically (a lock held by a session in
+-- database A does not block an identical lock request from a session in
+-- database B; a real `FOR UPDATE` row lock on a shared catalog, by contrast,
+-- does block cross-database). So the advisory lock is a no-op across parallel
+-- `#[sqlx::test]` databases — exactly the case that matters here.
+--
+-- Lock the ACTUAL shared row instead: `pg_authid` is a genuinely global
+-- catalog (one physical table, not per-database; it backs both role attributes
+-- AND `pg_db_role_setting`'s role-default GUCs). `SELECT ... FOR UPDATE` against
+-- mnt_rt's own row blocks a concurrent session in ANY database on the same
+-- Postgres instance until this transaction commits (verified empirically:
+-- session B in a different database timed out waiting on the row lock held by
+-- session A in this database). This makes the ALTERs and the post-migration
+-- assertion below genuinely race-free — no exception handler needed.
+SELECT rolname FROM pg_authid WHERE rolname = 'mnt_rt' FOR UPDATE;
 
-DO $$
-BEGIN
-    ALTER ROLE mnt_rt SET statement_timeout = '30s';
-EXCEPTION
-    WHEN internal_error THEN
-        -- XX000 tuple-concurrently-updated race; see above. NOTICE (not silent)
-        -- so a real failure is at least visible in migration-apply logs; the
-        -- assertion below is the actual pass/fail gate.
-        RAISE NOTICE 'mnt_rt statement_timeout ALTER lost a concurrent-update race; a racer already set it (or will)';
-END
-$$;
+ALTER ROLE mnt_rt SET statement_timeout = '30s';
+ALTER ROLE mnt_rt SET idle_in_transaction_session_timeout = '30s';
 
-DO $$
-BEGIN
-    ALTER ROLE mnt_rt SET idle_in_transaction_session_timeout = '30s';
-EXCEPTION
-    WHEN internal_error THEN
-        RAISE NOTICE 'mnt_rt idle_in_transaction_session_timeout ALTER lost a concurrent-update race; a racer already set it (or will)';
-END
-$$;
-
--- Post-migration assertion: a swallowed exception above is only safe if SOME
--- racer's write actually landed. Confirm both GUCs are present on mnt_rt's
--- role-default settings (regardless of which statement/attempt won) and fail
--- the migration loudly if not — a silently-lost race here would defeat the
--- whole F2 invariant with no signal at all.
+-- Post-migration assertion: confirm both GUCs actually landed on mnt_rt's
+-- role-default settings, and fail the migration loudly if not. Safe to assert
+-- unconditionally (no retry/tolerance needed) — the FOR UPDATE lock above
+-- means no other session can be concurrently writing this row, so a genuine
+-- ALTER failure can no longer silently defeat the F2 invariant.
 DO $$
 DECLARE
     settings TEXT[];
