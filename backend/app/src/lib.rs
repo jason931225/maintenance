@@ -101,6 +101,7 @@ use url::Url;
 mod collaboration;
 mod hr;
 mod mail_sync;
+pub mod objects;
 mod workflow_drain;
 mod workflow_studio;
 
@@ -1076,7 +1077,9 @@ struct AuditQuery {
     limit: Option<i64>,
     offset: Option<i64>,
     target_type: Option<String>,
+    target_id: Option<String>,
     actor: Option<uuid::Uuid>,
+    trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1084,7 +1087,9 @@ struct NormalizedAuditQuery {
     limit: i64,
     offset: i64,
     target_type: Option<String>,
+    target_id: Option<String>,
     actor: Option<uuid::Uuid>,
+    trace_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -1384,6 +1389,10 @@ pub fn build_router(state: AppState) -> Router {
                         state.jwt_verifier.clone(),
                     ),
                 ))
+                .merge(objects::router(objects::ObjectState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_sales_rest::router({
                     let mut sales_state =
                         SalesRestState::new(sales_store, state.jwt_verifier.clone())
@@ -1770,12 +1779,22 @@ fn normalize_audit_query(query: AuditQuery) -> Result<NormalizedAuditQuery, ApiE
         .target_type
         .map(|target_type| target_type.trim().to_owned())
         .filter(|target_type| !target_type.is_empty());
+    let target_id = query
+        .target_id
+        .map(|target_id| target_id.trim().to_owned())
+        .filter(|target_id| !target_id.is_empty());
+    let trace_id = query
+        .trace_id
+        .map(|trace_id| trace_id.trim().to_owned())
+        .filter(|trace_id| !trace_id.is_empty());
 
     Ok(NormalizedAuditQuery {
         limit,
         offset,
         target_type,
+        target_id,
         actor: query.actor,
+        trace_id,
     })
 }
 
@@ -1839,8 +1858,16 @@ async fn fetch_audit_records(
     if let Some(target_type) = query.target_type {
         builder.push(" AND target_type = ").push_bind(target_type);
     }
+    if let Some(target_id) = query.target_id {
+        builder.push(" AND target_id = ").push_bind(target_id);
+    }
     if let Some(actor) = query.actor {
         builder.push(" AND actor = ").push_bind(actor);
+    }
+    // `trace_id` is CHAR(32); cast to text so the bound String compares as
+    // text=text (matching the SELECT projection) rather than bpchar padding.
+    if let Some(trace_id) = query.trace_id {
+        builder.push(" AND trace_id::text = ").push_bind(trace_id);
     }
     builder
         .push(" ORDER BY occurred_at DESC, id DESC LIMIT ")

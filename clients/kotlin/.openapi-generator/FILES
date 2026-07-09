@@ -100,6 +100,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreateInternalTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateListingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateListingResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateObjectLinkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOutsourceWorkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOwnershipTransferRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatePolicyRoleRequest.kt
@@ -253,6 +254,9 @@ src/main/kotlin/com/maintenance/api/client/model/ObjectActionDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionExecutionResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionFieldDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/ObjectActionFieldOption.kt
+src/main/kotlin/com/maintenance/api/client/model/ObjectHead.kt
+src/main/kotlin/com/maintenance/api/client/model/ObjectLinkResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/ObjectLinksListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsEquipmentStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsFunnel.kt
 src/main/kotlin/com/maintenance/api/client/model/OpsMechanicLoad.kt

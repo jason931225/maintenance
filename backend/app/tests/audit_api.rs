@@ -132,6 +132,115 @@ async fn mechanic_role_is_denied_audit_read(pool: PgPool) {
     assert_eq!(read_count, 0);
 }
 
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn target_id_filter_isolates_one_object_and_trace_id_correlates_across_objects(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let user_id = UserId::new();
+    let branch_id = seed_branch(&pool, "Audit Region", "Audit Branch")
+        .await
+        .unwrap();
+    seed_user_with_branch(&pool, user_id, "ADMIN", branch_id)
+        .await
+        .unwrap();
+    let token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        user_id,
+        vec!["ADMIN".to_owned()],
+        vec![branch_id],
+    )
+    .unwrap();
+
+    // A shared trace threads two different objects (the approval that authorized
+    // work order A, then A itself); a second work order B is on its own trace.
+    let shared_trace = TraceContext::generate();
+    insert_audit_with_trace(
+        &pool,
+        Some(user_id),
+        "approval",
+        "approval-1",
+        branch_id,
+        &shared_trace,
+    )
+    .await
+    .unwrap();
+    insert_audit_with_trace(
+        &pool,
+        Some(user_id),
+        "work_order",
+        "wo-a",
+        branch_id,
+        &shared_trace,
+    )
+    .await
+    .unwrap();
+    insert_audit_with_trace(
+        &pool,
+        Some(user_id),
+        "work_order",
+        "wo-b",
+        branch_id,
+        &TraceContext::generate(),
+    )
+    .await
+    .unwrap();
+
+    let service = build_router(app_state(pool.clone(), public_key_pem.clone()).unwrap());
+
+    // target_id filter returns ONLY that object's events (not the sibling wo-b).
+    let response = service
+        .oneshot(
+            Request::builder()
+                .uri("/api/audit?target_type=work_order&target_id=wo-a")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "target_id filter isolates one object");
+    assert_eq!(items[0]["target_id"], "wo-a");
+
+    // trace_id filter correlates events ACROSS objects (approval-1 + wo-a share
+    // the trace; wo-b does not appear).
+    let service = build_router(app_state(pool.clone(), public_key_pem).unwrap());
+    let response = service
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/audit?trace_id={}", shared_trace.trace_id()))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let items = json["items"].as_array().unwrap();
+    let target_ids: Vec<&str> = items
+        .iter()
+        .map(|item| item["target_id"].as_str().unwrap())
+        .collect();
+    assert!(
+        target_ids.contains(&"approval-1") && target_ids.contains(&"wo-a"),
+        "trace_id correlates across objects: {target_ids:?}"
+    );
+    assert!(
+        !target_ids.contains(&"wo-b"),
+        "an unrelated trace's object must not appear: {target_ids:?}"
+    );
+}
+
 fn issue_token(
     private_key_pem: &[u8],
     public_key_pem: &[u8],
@@ -229,12 +338,31 @@ async fn insert_audit(
     target_id: &str,
     branch_id: BranchId,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    insert_audit_with_trace(
+        pool,
+        actor,
+        target_type,
+        target_id,
+        branch_id,
+        &TraceContext::generate(),
+    )
+    .await
+}
+
+async fn insert_audit_with_trace(
+    pool: &PgPool,
+    actor: Option<UserId>,
+    target_type: &str,
+    target_id: &str,
+    branch_id: BranchId,
+    trace: &TraceContext,
+) -> Result<(), Box<dyn std::error::Error>> {
     let event = AuditEvent::new(
         actor,
         AuditAction::new("work_order.view")?,
         target_type,
         target_id,
-        TraceContext::generate(),
+        trace.clone(),
         OffsetDateTime::now_utc(),
     )
     .with_branch(branch_id);
