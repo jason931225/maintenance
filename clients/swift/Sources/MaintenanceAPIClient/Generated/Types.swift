@@ -946,6 +946,21 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/users`.
     /// - Remark: Generated from `#/paths//api/v1/users/post(createUser)`.
     func createUser(_ input: Operations.CreateUser.Input) async throws -> Operations.CreateUser.Output
+    /// List the authenticated user's notifications, newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)`.
+    func listMyNotifications(_ input: Operations.ListMyNotifications.Input) async throws -> Operations.ListMyNotifications.Output
+    /// Mark all of the authenticated user's unread notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/read-all`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)`.
+    func markAllMyNotificationsRead(_ input: Operations.MarkAllMyNotificationsRead.Input) async throws -> Operations.MarkAllMyNotificationsRead.Output
+    /// Mark one of the authenticated user's notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
+    func markMyNotificationRead(_ input: Operations.MarkMyNotificationRead.Input) async throws -> Operations.MarkMyNotificationRead.Output
     /// Get the authenticated user's own profile
     ///
     /// - Remark: HTTP `GET /api/v1/users/me`.
@@ -3565,6 +3580,39 @@ extension APIProtocol {
         try await createUser(Operations.CreateUser.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// List the authenticated user's notifications, newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)`.
+    public func listMyNotifications(
+        query: Operations.ListMyNotifications.Input.Query = .init(),
+        headers: Operations.ListMyNotifications.Input.Headers = .init()
+    ) async throws -> Operations.ListMyNotifications.Output {
+        try await listMyNotifications(Operations.ListMyNotifications.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Mark all of the authenticated user's unread notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/read-all`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)`.
+    public func markAllMyNotificationsRead(headers: Operations.MarkAllMyNotificationsRead.Input.Headers = .init()) async throws -> Operations.MarkAllMyNotificationsRead.Output {
+        try await markAllMyNotificationsRead(Operations.MarkAllMyNotificationsRead.Input(headers: headers))
+    }
+    /// Mark one of the authenticated user's notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
+    public func markMyNotificationRead(
+        path: Operations.MarkMyNotificationRead.Input.Path,
+        headers: Operations.MarkMyNotificationRead.Input.Headers = .init()
+    ) async throws -> Operations.MarkMyNotificationRead.Output {
+        try await markMyNotificationRead(Operations.MarkMyNotificationRead.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Get the authenticated user's own profile
@@ -15052,6 +15100,206 @@ public enum Components {
                 case lastReadMessageId = "last_read_message_id"
                 case readAt = "read_at"
                 case updatedAt = "updated_at"
+            }
+        }
+        /// Deep-link target — an object reference (kind + id) or a bare app screen.
+        ///
+        /// - Remark: Generated from `#/components/schemas/NotificationLink`.
+        @frozen public enum NotificationLink: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case1`.
+            public struct Case1Payload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/type`.
+                @frozen public enum _TypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case object = "object"
+                }
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/type`.
+                public var _type: Components.Schemas.NotificationLink.Case1Payload._TypePayload
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/kind`.
+                public var kind: Swift.String
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case1/id`.
+                public var id: Swift.String
+                /// Creates a new `Case1Payload`.
+                ///
+                /// - Parameters:
+                ///   - _type:
+                ///   - kind:
+                ///   - id:
+                public init(
+                    _type: Components.Schemas.NotificationLink.Case1Payload._TypePayload,
+                    kind: Swift.String,
+                    id: Swift.String
+                ) {
+                    self._type = _type
+                    self.kind = kind
+                    self.id = id
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case _type = "type"
+                    case kind
+                    case id
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case1`.
+            case case1(Components.Schemas.NotificationLink.Case1Payload)
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case2`.
+            public struct Case2Payload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case2/type`.
+                @frozen public enum _TypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case screen = "screen"
+                }
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case2/type`.
+                public var _type: Components.Schemas.NotificationLink.Case2Payload._TypePayload
+                /// - Remark: Generated from `#/components/schemas/NotificationLink/case2/screen`.
+                public var screen: Swift.String
+                /// Creates a new `Case2Payload`.
+                ///
+                /// - Parameters:
+                ///   - _type:
+                ///   - screen:
+                public init(
+                    _type: Components.Schemas.NotificationLink.Case2Payload._TypePayload,
+                    screen: Swift.String
+                ) {
+                    self._type = _type
+                    self.screen = screen
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case _type = "type"
+                    case screen
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/NotificationLink/case2`.
+            case case2(Components.Schemas.NotificationLink.Case2Payload)
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self = .case1(try .init(from: decoder))
+                    return
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self = .case2(try .init(from: decoder))
+                    return
+                } catch {
+                    errors.append(error)
+                }
+                throw Swift.DecodingError.failedToDecodeOneOfSchema(
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                switch self {
+                case let .case1(value):
+                    try value.encode(to: encoder)
+                case let .case2(value):
+                    try value.encode(to: encoder)
+                }
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NotificationSummary`.
+        public struct NotificationSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/recipient_user_id`.
+            public var recipientUserId: Components.Schemas.Uuid
+            /// Extensible category (결재/멘션/문서/공지/근태/급여 and beyond).
+            ///
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/category`.
+            public var category: Swift.String
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/text`.
+            public var text: Swift.String
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/link`.
+            public var link: Components.Schemas.NotificationLink
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/unread`.
+            public var unread: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// When the notification was first marked read; null while unread.
+            ///
+            /// - Remark: Generated from `#/components/schemas/NotificationSummary/read_at`.
+            public var readAt: Foundation.Date?
+            /// Creates a new `NotificationSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - recipientUserId:
+            ///   - category: Extensible category (결재/멘션/문서/공지/근태/급여 and beyond).
+            ///   - text:
+            ///   - link:
+            ///   - unread:
+            ///   - createdAt:
+            ///   - readAt: When the notification was first marked read; null while unread.
+            public init(
+                id: Components.Schemas.Uuid,
+                recipientUserId: Components.Schemas.Uuid,
+                category: Swift.String,
+                text: Swift.String,
+                link: Components.Schemas.NotificationLink,
+                unread: Swift.Bool,
+                createdAt: Components.Schemas.Timestamp,
+                readAt: Foundation.Date? = nil
+            ) {
+                self.id = id
+                self.recipientUserId = recipientUserId
+                self.category = category
+                self.text = text
+                self.link = link
+                self.unread = unread
+                self.createdAt = createdAt
+                self.readAt = readAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case recipientUserId = "recipient_user_id"
+                case category
+                case text
+                case link
+                case unread
+                case createdAt = "created_at"
+                case readAt = "read_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NotificationPage`.
+        public struct NotificationPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NotificationPage/items`.
+            public var items: [Components.Schemas.NotificationSummary]
+            /// - Remark: Generated from `#/components/schemas/NotificationPage/next_cursor`.
+            public var nextCursor: Swift.String?
+            /// Creates a new `NotificationPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - nextCursor:
+            public init(
+                items: [Components.Schemas.NotificationSummary],
+                nextCursor: Swift.String? = nil
+            ) {
+                self.items = items
+                self.nextCursor = nextCursor
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case nextCursor = "next_cursor"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NotificationReadAllResponse`.
+        public struct NotificationReadAllResponse: Codable, Hashable, Sendable {
+            /// The number of notifications marked read.
+            ///
+            /// - Remark: Generated from `#/components/schemas/NotificationReadAllResponse/marked`.
+            public var marked: Swift.Int64
+            /// Creates a new `NotificationReadAllResponse`.
+            ///
+            /// - Parameters:
+            ///   - marked: The number of notifications marked read.
+            public init(marked: Swift.Int64) {
+                self.marked = marked
+            }
+            public enum CodingKeys: String, CodingKey {
+                case marked
             }
         }
         /// - Remark: Generated from `#/components/schemas/EquipmentStatus`.
@@ -54363,6 +54611,635 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.CreateUser.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the authenticated user's notifications, newest first
+    ///
+    /// - Remark: HTTP `GET /api/v1/me/notifications`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)`.
+    public enum ListMyNotifications {
+        public static let id: Swift.String = "listMyNotifications"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// When true, return only unread notifications.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query/unread`.
+                public var unread: Swift.Bool?
+                /// Keyset cursor; return notifications strictly older than this id.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query/before`.
+                public var before: Components.Schemas.Uuid?
+                /// Page size (clamped server-side to 1..=200; default 50).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - unread: When true, return only unread notifications.
+                ///   - before: Keyset cursor; return notifications strictly older than this id.
+                ///   - limit: Page size (clamped server-side to 1..=200; default 50).
+                public init(
+                    unread: Swift.Bool? = nil,
+                    before: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.unread = unread
+                    self.before = before
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMyNotifications.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyNotifications.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMyNotifications.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMyNotifications.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMyNotifications.Input.Query = .init(),
+                headers: Operations.ListMyNotifications.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.NotificationPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.NotificationPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyNotifications.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyNotifications.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// A page of the caller's notifications.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMyNotifications.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMyNotifications.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMyNotifications.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMyNotifications.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/get(listMyNotifications)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListMyNotifications.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListMyNotifications.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mark all of the authenticated user's unread notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/read-all`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)`.
+    public enum MarkAllMyNotificationsRead {
+        public static let id: Swift.String = "markAllMyNotificationsRead"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkAllMyNotificationsRead.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkAllMyNotificationsRead.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.MarkAllMyNotificationsRead.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.MarkAllMyNotificationsRead.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.NotificationReadAllResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.NotificationReadAllResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkAllMyNotificationsRead.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkAllMyNotificationsRead.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The number of notifications marked read.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.MarkAllMyNotificationsRead.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.MarkAllMyNotificationsRead.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/read-all/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/read-all/post(markAllMyNotificationsRead)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.MarkAllMyNotificationsRead.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mark one of the authenticated user's notifications read
+    ///
+    /// - Remark: HTTP `POST /api/v1/me/notifications/{id}/read`.
+    /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)`.
+    public enum MarkMyNotificationRead {
+        public static let id: Swift.String = "markMyNotificationRead"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.MarkMyNotificationRead.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkMyNotificationRead.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkMyNotificationRead.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.MarkMyNotificationRead.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.MarkMyNotificationRead.Input.Path,
+                headers: Operations.MarkMyNotificationRead.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.NotificationSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.NotificationSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkMyNotificationRead.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkMyNotificationRead.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The updated notification.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.MarkMyNotificationRead.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.MarkMyNotificationRead.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/me/notifications/{id}/read/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkMyNotificationRead.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkMyNotificationRead.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/me/notifications/{id}/read/post(markMyNotificationRead)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.MarkMyNotificationRead.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.MarkMyNotificationRead.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):
