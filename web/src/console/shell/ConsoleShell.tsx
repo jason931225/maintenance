@@ -8,6 +8,7 @@ import { defaultScreen, visibleConsoleNav } from "./nav";
 import { Sidebar } from "./Sidebar";
 import type { NavBadge } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { markConsoleRoute } from "../rum/rum";
 import type { ThemeMode } from "./theme";
 
 const S = ko.console.shell;
@@ -40,7 +41,7 @@ export function ConsoleShell({
   onCycleTheme: () => void;
 }) {
   const { session } = useAuth();
-  const { grants } = useConsoleAuthz();
+  const { grants, source: authzSource } = useConsoleAuthz();
   const groups = useMemo(() => visibleConsoleNav(grants), [grants]);
   const { options: scopeOptions } = useConsoleScopes(S.scope.all);
 
@@ -71,6 +72,23 @@ export function ConsoleShell({
     screen && groups.some((g) => g.items.some((i) => i.screen === screen))
       ? screen
       : defaultScreen(grants);
+
+  const routeSampleReady = useRef(false);
+  const lastSampledScreen = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const markOnce = () => {
+      lastSampledScreen.current = activeScreen;
+      markConsoleRoute(activeScreen);
+    };
+    if (!routeSampleReady.current) {
+      if (authzSource === "authz" || screen !== null) {
+        routeSampleReady.current = true;
+        markOnce();
+      }
+      return;
+    }
+    if (lastSampledScreen.current !== activeScreen) markOnce();
+  }, [activeScreen, authzSource, screen]);
 
   const [scopeOpen, setScopeOpen] = useState(false);
   const closeScope = useCallback(() => {

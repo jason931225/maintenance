@@ -75,6 +75,8 @@ import com.maintenance.api.client.model.CreateListingRequest
 import com.maintenance.api.client.model.CreateListingResponse
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateObjectLinkRequest
+import com.maintenance.api.client.model.CreateOfficeSession200Response
+import com.maintenance.api.client.model.CreateOfficeSessionRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreateOwnershipTransferRequest
 import com.maintenance.api.client.model.CreatePeriodLockRequest
@@ -106,6 +108,7 @@ import com.maintenance.api.client.model.DeviceLoginPollResponse
 import com.maintenance.api.client.model.DeviceLoginStartResponse
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
+import com.maintenance.api.client.model.DocumentVersion
 import com.maintenance.api.client.model.EmployeeAttendanceRecord
 import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.EmployeeImportDryRunSummary
@@ -151,6 +154,7 @@ import com.maintenance.api.client.model.InspectionSchedulePage
 import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
 import com.maintenance.api.client.model.LeaveBalancePage
+import com.maintenance.api.client.model.ListOfficeDocumentVersions200Response
 import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
 import com.maintenance.api.client.model.ListingType
@@ -187,6 +191,8 @@ import com.maintenance.api.client.model.ObjectHead
 import com.maintenance.api.client.model.ObjectLifecycle
 import com.maintenance.api.client.model.ObjectLinkResponse
 import com.maintenance.api.client.model.ObjectLinksListResponse
+import com.maintenance.api.client.model.OfficeCallback200Response
+import com.maintenance.api.client.model.OfficeCallbackRequest
 import com.maintenance.api.client.model.OpsSummary
 import com.maintenance.api.client.model.OtpRedeemRequest
 import com.maintenance.api.client.model.OtpRedeemResponse
@@ -4535,6 +4541,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/object-links",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/office/sessions
+     * Issue a signed DocumentServer editor config for a document
+     * Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller&#39;s authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+     * @param createOfficeSessionRequest
+     * @return CreateOfficeSession200Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createOfficeSession(createOfficeSessionRequest: CreateOfficeSessionRequest) : CreateOfficeSession200Response = withContext(Dispatchers.IO) {
+        val localVarResponse = createOfficeSessionWithHttpInfo(createOfficeSessionRequest = createOfficeSessionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreateOfficeSession200Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/office/sessions
+     * Issue a signed DocumentServer editor config for a document
+     * Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller&#39;s authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+     * @param createOfficeSessionRequest
+     * @return ApiResponse<CreateOfficeSession200Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createOfficeSessionWithHttpInfo(createOfficeSessionRequest: CreateOfficeSessionRequest) : ApiResponse<CreateOfficeSession200Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createOfficeSessionRequestConfig(createOfficeSessionRequest = createOfficeSessionRequest)
+
+        return@withContext request<CreateOfficeSessionRequest, CreateOfficeSession200Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createOfficeSession
+     *
+     * @param createOfficeSessionRequest
+     * @return RequestConfig
+     */
+    fun createOfficeSessionRequestConfig(createOfficeSessionRequest: CreateOfficeSessionRequest) : RequestConfig<CreateOfficeSessionRequest> {
+        val localVariableBody = createOfficeSessionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/office/sessions",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -13358,6 +13438,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/office/documents/{documentRef}/versions
+     * List a document&#39;s immutable version history (newest first)
+     *
+     * @param documentRef
+     * @return ListOfficeDocumentVersions200Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listOfficeDocumentVersions(documentRef: kotlin.String) : ListOfficeDocumentVersions200Response = withContext(Dispatchers.IO) {
+        val localVarResponse = listOfficeDocumentVersionsWithHttpInfo(documentRef = documentRef)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ListOfficeDocumentVersions200Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/office/documents/{documentRef}/versions
+     * List a document&#39;s immutable version history (newest first)
+     *
+     * @param documentRef
+     * @return ApiResponse<ListOfficeDocumentVersions200Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listOfficeDocumentVersionsWithHttpInfo(documentRef: kotlin.String) : ApiResponse<ListOfficeDocumentVersions200Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listOfficeDocumentVersionsRequestConfig(documentRef = documentRef)
+
+        return@withContext request<Unit, ListOfficeDocumentVersions200Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listOfficeDocumentVersions
+     *
+     * @param documentRef
+     * @return RequestConfig
+     */
+    fun listOfficeDocumentVersionsRequestConfig(documentRef: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/office/documents/{documentRef}/versions".replace("{"+"documentRef"+"}", encodeURIComponent(documentRef.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/passkeys
      * List the authenticated user&#39;s own passkey credentials
      * Returns the caller&#39;s own WebAuthn credentials (id and registration / last-use timestamps). No secret material is ever returned.
@@ -15202,6 +15355,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/office/callback
+     * DocumentServer force-save callback (machine, JWT-verified)
+     * The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+     * @param ct Host-issued callback token binding the request to (org, document).
+     * @param officeCallbackRequest
+     * @return OfficeCallback200Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun officeCallback(ct: kotlin.String, officeCallbackRequest: OfficeCallbackRequest) : OfficeCallback200Response = withContext(Dispatchers.IO) {
+        val localVarResponse = officeCallbackWithHttpInfo(ct = ct, officeCallbackRequest = officeCallbackRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OfficeCallback200Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/office/callback
+     * DocumentServer force-save callback (machine, JWT-verified)
+     * The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+     * @param ct Host-issued callback token binding the request to (org, document).
+     * @param officeCallbackRequest
+     * @return ApiResponse<OfficeCallback200Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun officeCallbackWithHttpInfo(ct: kotlin.String, officeCallbackRequest: OfficeCallbackRequest) : ApiResponse<OfficeCallback200Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = officeCallbackRequestConfig(ct = ct, officeCallbackRequest = officeCallbackRequest)
+
+        return@withContext request<OfficeCallbackRequest, OfficeCallback200Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation officeCallback
+     *
+     * @param ct Host-issued callback token binding the request to (org, document).
+     * @param officeCallbackRequest
+     * @return RequestConfig
+     */
+    fun officeCallbackRequestConfig(ct: kotlin.String, officeCallbackRequest: OfficeCallbackRequest) : RequestConfig<OfficeCallbackRequest> {
+        val localVariableBody = officeCallbackRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("ct", listOf(ct.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/office/callback",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
             body = localVariableBody
         )
     }
@@ -17235,6 +17468,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/restart".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore
+     * Non-destructively restore a version (re-publish it as a new version)
+     * Rollback is non-destructive — it appends a NEW version that re-publishes the target version&#39;s blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+     * @param documentRef
+     * @param versionNo
+     * @return DocumentVersion
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun restoreOfficeDocumentVersion(documentRef: kotlin.String, versionNo: kotlin.Int) : DocumentVersion = withContext(Dispatchers.IO) {
+        val localVarResponse = restoreOfficeDocumentVersionWithHttpInfo(documentRef = documentRef, versionNo = versionNo)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DocumentVersion
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore
+     * Non-destructively restore a version (re-publish it as a new version)
+     * Rollback is non-destructive — it appends a NEW version that re-publishes the target version&#39;s blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+     * @param documentRef
+     * @param versionNo
+     * @return ApiResponse<DocumentVersion?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun restoreOfficeDocumentVersionWithHttpInfo(documentRef: kotlin.String, versionNo: kotlin.Int) : ApiResponse<DocumentVersion?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = restoreOfficeDocumentVersionRequestConfig(documentRef = documentRef, versionNo = versionNo)
+
+        return@withContext request<Unit, DocumentVersion>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation restoreOfficeDocumentVersion
+     *
+     * @param documentRef
+     * @param versionNo
+     * @return RequestConfig
+     */
+    fun restoreOfficeDocumentVersionRequestConfig(documentRef: kotlin.String, versionNo: kotlin.Int) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore".replace("{"+"documentRef"+"}", encodeURIComponent(documentRef.toString())).replace("{"+"versionNo"+"}", encodeURIComponent(versionNo.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

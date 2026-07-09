@@ -1692,6 +1692,32 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/lifecycles/{objectType}/{objectId}/hold`.
     /// - Remark: Generated from `#/paths//api/v1/lifecycles/{objectType}/{objectId}/hold/post(setObjectLifecycleHold)`.
     func setObjectLifecycleHold(_ input: Operations.SetObjectLifecycleHold.Input) async throws -> Operations.SetObjectLifecycleHold.Output
+    /// Issue a signed DocumentServer editor config for a document
+    ///
+    /// Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller's authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/sessions`.
+    /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)`.
+    func createOfficeSession(_ input: Operations.CreateOfficeSession.Input) async throws -> Operations.CreateOfficeSession.Output
+    /// DocumentServer force-save callback (machine, JWT-verified)
+    ///
+    /// The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/callback`.
+    /// - Remark: Generated from `#/paths//api/v1/office/callback/post(officeCallback)`.
+    func officeCallback(_ input: Operations.OfficeCallback.Input) async throws -> Operations.OfficeCallback.Output
+    /// List a document's immutable version history (newest first)
+    ///
+    /// - Remark: HTTP `GET /api/v1/office/documents/{documentRef}/versions`.
+    /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/get(listOfficeDocumentVersions)`.
+    func listOfficeDocumentVersions(_ input: Operations.ListOfficeDocumentVersions.Input) async throws -> Operations.ListOfficeDocumentVersions.Output
+    /// Non-destructively restore a version (re-publish it as a new version)
+    ///
+    /// Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore`.
+    /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/post(restoreOfficeDocumentVersion)`.
+    func restoreOfficeDocumentVersion(_ input: Operations.RestoreOfficeDocumentVersion.Input) async throws -> Operations.RestoreOfficeDocumentVersion.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -5447,6 +5473,66 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// Issue a signed DocumentServer editor config for a document
+    ///
+    /// Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller's authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/sessions`.
+    /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)`.
+    public func createOfficeSession(
+        headers: Operations.CreateOfficeSession.Input.Headers = .init(),
+        body: Operations.CreateOfficeSession.Input.Body
+    ) async throws -> Operations.CreateOfficeSession.Output {
+        try await createOfficeSession(Operations.CreateOfficeSession.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// DocumentServer force-save callback (machine, JWT-verified)
+    ///
+    /// The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/callback`.
+    /// - Remark: Generated from `#/paths//api/v1/office/callback/post(officeCallback)`.
+    public func officeCallback(
+        query: Operations.OfficeCallback.Input.Query,
+        headers: Operations.OfficeCallback.Input.Headers = .init(),
+        body: Operations.OfficeCallback.Input.Body
+    ) async throws -> Operations.OfficeCallback.Output {
+        try await officeCallback(Operations.OfficeCallback.Input(
+            query: query,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// List a document's immutable version history (newest first)
+    ///
+    /// - Remark: HTTP `GET /api/v1/office/documents/{documentRef}/versions`.
+    /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/get(listOfficeDocumentVersions)`.
+    public func listOfficeDocumentVersions(
+        path: Operations.ListOfficeDocumentVersions.Input.Path,
+        headers: Operations.ListOfficeDocumentVersions.Input.Headers = .init()
+    ) async throws -> Operations.ListOfficeDocumentVersions.Output {
+        try await listOfficeDocumentVersions(Operations.ListOfficeDocumentVersions.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Non-destructively restore a version (re-publish it as a new version)
+    ///
+    /// Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore`.
+    /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/post(restoreOfficeDocumentVersion)`.
+    public func restoreOfficeDocumentVersion(
+        path: Operations.RestoreOfficeDocumentVersion.Input.Path,
+        headers: Operations.RestoreOfficeDocumentVersion.Input.Headers = .init()
+    ) async throws -> Operations.RestoreOfficeDocumentVersion.Output {
+        try await restoreOfficeDocumentVersion(Operations.RestoreOfficeDocumentVersion.Input(
+            path: path,
+            headers: headers
         ))
     }
 }
@@ -24724,6 +24810,83 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case legalHold
                 case retentionUntil
+            }
+        }
+        /// One immutable version of an in-console office document. The storage key is internal and never returned.
+        ///
+        /// - Remark: Generated from `#/components/schemas/DocumentVersion`.
+        public struct DocumentVersion: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/documentRef`.
+            public var documentRef: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/versionNo`.
+            public var versionNo: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/contentHash`.
+            public var contentHash: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/fileType`.
+            @frozen public enum FileTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case docx = "docx"
+                case xlsx = "xlsx"
+                case pptx = "pptx"
+            }
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/fileType`.
+            public var fileType: Components.Schemas.DocumentVersion.FileTypePayload
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/byteSize`.
+            public var byteSize: Swift.Int64
+            /// The version_no this version non-destructively restored, when it is a rollback.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/restoredFrom`.
+            public var restoredFrom: Swift.Int?
+            /// Actor who produced the version; omitted for system-initiated (force-save callback) versions.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/createdBy`.
+            public var createdBy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DocumentVersion/createdAt`.
+            public var createdAt: Foundation.Date
+            /// Creates a new `DocumentVersion`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - documentRef:
+            ///   - versionNo:
+            ///   - contentHash:
+            ///   - fileType:
+            ///   - byteSize:
+            ///   - restoredFrom: The version_no this version non-destructively restored, when it is a rollback.
+            ///   - createdBy: Actor who produced the version; omitted for system-initiated (force-save callback) versions.
+            ///   - createdAt:
+            public init(
+                id: Swift.String,
+                documentRef: Swift.String,
+                versionNo: Swift.Int,
+                contentHash: Swift.String,
+                fileType: Components.Schemas.DocumentVersion.FileTypePayload,
+                byteSize: Swift.Int64,
+                restoredFrom: Swift.Int? = nil,
+                createdBy: Swift.String? = nil,
+                createdAt: Foundation.Date
+            ) {
+                self.id = id
+                self.documentRef = documentRef
+                self.versionNo = versionNo
+                self.contentHash = contentHash
+                self.fileType = fileType
+                self.byteSize = byteSize
+                self.restoredFrom = restoredFrom
+                self.createdBy = createdBy
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case documentRef
+                case versionNo
+                case contentHash
+                case fileType
+                case byteSize
+                case restoredFrom
+                case createdBy
+                case createdAt
             }
         }
     }
@@ -83089,6 +83252,994 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Issue a signed DocumentServer editor config for a document
+    ///
+    /// Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller's authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/sessions`.
+    /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)`.
+    public enum CreateOfficeSession {
+        public static let id: Swift.String = "createOfficeSession"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateOfficeSession.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateOfficeSession.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateOfficeSession.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/requestBody/json`.
+                public struct JsonPayload: Codable, Hashable, Sendable {
+                    /// Trimmed logical document reference; control characters are rejected.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/requestBody/json/documentRef`.
+                    public var documentRef: Swift.String
+                    /// Creates a new `JsonPayload`.
+                    ///
+                    /// - Parameters:
+                    ///   - documentRef: Trimmed logical document reference; control characters are rejected.
+                    public init(documentRef: Swift.String) {
+                        self.documentRef = documentRef
+                    }
+                    public enum CodingKeys: String, CodingKey {
+                        case documentRef
+                    }
+                }
+                /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/requestBody/content/application\/json`.
+                case json(Operations.CreateOfficeSession.Input.Body.JsonPayload)
+            }
+            public var body: Operations.CreateOfficeSession.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateOfficeSession.Input.Headers = .init(),
+                body: Operations.CreateOfficeSession.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/responses/200/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/responses/200/content/json/documentServerUrl`.
+                        public var documentServerUrl: Swift.String
+                        /// The ONLYOFFICE DocEditor config object, carrying its signed `token`.
+                        ///
+                        /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/responses/200/content/json/config`.
+                        public struct ConfigPayload: Codable, Hashable, Sendable {
+                            /// A container of undocumented properties.
+                            public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                            /// Creates a new `ConfigPayload`.
+                            ///
+                            /// - Parameters:
+                            ///   - additionalProperties: A container of undocumented properties.
+                            public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                                self.additionalProperties = additionalProperties
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                try encoder.encodeAdditionalProperties(additionalProperties)
+                            }
+                        }
+                        /// The ONLYOFFICE DocEditor config object, carrying its signed `token`.
+                        ///
+                        /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/responses/200/content/json/config`.
+                        public var config: Operations.CreateOfficeSession.Output.Ok.Body.JsonPayload.ConfigPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - documentServerUrl:
+                        ///   - config: The ONLYOFFICE DocEditor config object, carrying its signed `token`.
+                        public init(
+                            documentServerUrl: Swift.String,
+                            config: Operations.CreateOfficeSession.Output.Ok.Body.JsonPayload.ConfigPayload
+                        ) {
+                            self.documentServerUrl = documentServerUrl
+                            self.config = config
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case documentServerUrl
+                            case config
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/api/v1/office/sessions/POST/responses/200/content/application\/json`.
+                    case json(Operations.CreateOfficeSession.Output.Ok.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.CreateOfficeSession.Output.Ok.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateOfficeSession.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateOfficeSession.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The editor config to hand to DocumentServer.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.CreateOfficeSession.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.CreateOfficeSession.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// Office editor or document storage is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreateOfficeSession.Output.ServiceUnavailable)
+            /// Office editor or document storage is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/sessions/post(createOfficeSession)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreateOfficeSession.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// DocumentServer force-save callback (machine, JWT-verified)
+    ///
+    /// The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/callback`.
+    /// - Remark: Generated from `#/paths//api/v1/office/callback/post(officeCallback)`.
+    public enum OfficeCallback {
+        public static let id: Swift.String = "officeCallback"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/query`.
+            public struct Query: Sendable, Hashable {
+                /// Host-issued callback token binding the request to (org, document).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/query/ct`.
+                public var ct: Swift.String
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - ct: Host-issued callback token binding the request to (org, document).
+                public init(ct: Swift.String) {
+                    self.ct = ct
+                }
+            }
+            public var query: Operations.OfficeCallback.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.OfficeCallback.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.OfficeCallback.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.OfficeCallback.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json`.
+                public struct JsonPayload: Codable, Hashable, Sendable {
+                    /// The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/token`.
+                    public var token: Swift.String?
+                    /// ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/status`.
+                    public var status: Swift.Int?
+                    /// Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/url`.
+                    public var url: Swift.String?
+                    /// The document.key of the editing session that produced this callback.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/key`.
+                    public var key: Swift.String?
+                    /// ONLYOFFICE file type for the produced document.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/filetype`.
+                    @frozen public enum FiletypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                        case docx = "docx"
+                        case xlsx = "xlsx"
+                        case pptx = "pptx"
+                    }
+                    /// ONLYOFFICE file type for the produced document.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/filetype`.
+                    public var filetype: Operations.OfficeCallback.Input.Body.JsonPayload.FiletypePayload?
+                    /// ONLYOFFICE user identifiers participating in the callback, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/users`.
+                    public var users: [Swift.String]?
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/ActionsPayload`.
+                    public struct ActionsPayloadPayload: Codable, Hashable, Sendable {
+                        /// A container of undocumented properties.
+                        public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                        /// Creates a new `ActionsPayloadPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - additionalProperties: A container of undocumented properties.
+                        public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                            self.additionalProperties = additionalProperties
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                        }
+                        public func encode(to encoder: any Swift.Encoder) throws {
+                            try encoder.encodeAdditionalProperties(additionalProperties)
+                        }
+                    }
+                    /// ONLYOFFICE action metadata, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/actions`.
+                    public typealias ActionsPayload = [Operations.OfficeCallback.Input.Body.JsonPayload.ActionsPayloadPayload]
+                    /// ONLYOFFICE action metadata, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/actions`.
+                    public var actions: Operations.OfficeCallback.Input.Body.JsonPayload.ActionsPayload?
+                    /// ONLYOFFICE history payload, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/history`.
+                    public struct HistoryPayload: Codable, Hashable, Sendable {
+                        /// A container of undocumented properties.
+                        public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                        /// Creates a new `HistoryPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - additionalProperties: A container of undocumented properties.
+                        public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                            self.additionalProperties = additionalProperties
+                        }
+                        public init(from decoder: any Swift.Decoder) throws {
+                            additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                        }
+                        public func encode(to encoder: any Swift.Encoder) throws {
+                            try encoder.encodeAdditionalProperties(additionalProperties)
+                        }
+                    }
+                    /// ONLYOFFICE history payload, when supplied.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/json/history`.
+                    public var history: Operations.OfficeCallback.Input.Body.JsonPayload.HistoryPayload?
+                    /// Creates a new `JsonPayload`.
+                    ///
+                    /// - Parameters:
+                    ///   - token: The ONLYOFFICE-signed callback payload (v7.1+ in-body token).
+                    ///   - status: ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops).
+                    ///   - url: Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                    ///   - key: The document.key of the editing session that produced this callback.
+                    ///   - filetype: ONLYOFFICE file type for the produced document.
+                    ///   - users: ONLYOFFICE user identifiers participating in the callback, when supplied.
+                    ///   - actions: ONLYOFFICE action metadata, when supplied.
+                    ///   - history: ONLYOFFICE history payload, when supplied.
+                    public init(
+                        token: Swift.String? = nil,
+                        status: Swift.Int? = nil,
+                        url: Swift.String? = nil,
+                        key: Swift.String? = nil,
+                        filetype: Operations.OfficeCallback.Input.Body.JsonPayload.FiletypePayload? = nil,
+                        users: [Swift.String]? = nil,
+                        actions: Operations.OfficeCallback.Input.Body.JsonPayload.ActionsPayload? = nil,
+                        history: Operations.OfficeCallback.Input.Body.JsonPayload.HistoryPayload? = nil
+                    ) {
+                        self.token = token
+                        self.status = status
+                        self.url = url
+                        self.key = key
+                        self.filetype = filetype
+                        self.users = users
+                        self.actions = actions
+                        self.history = history
+                    }
+                    public enum CodingKeys: String, CodingKey {
+                        case token
+                        case status
+                        case url
+                        case key
+                        case filetype
+                        case users
+                        case actions
+                        case history
+                    }
+                }
+                /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/requestBody/content/application\/json`.
+                case json(Operations.OfficeCallback.Input.Body.JsonPayload)
+            }
+            public var body: Operations.OfficeCallback.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            ///   - body:
+            public init(
+                query: Operations.OfficeCallback.Input.Query,
+                headers: Operations.OfficeCallback.Input.Headers = .init(),
+                body: Operations.OfficeCallback.Input.Body
+            ) {
+                self.query = query
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/responses/200/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/responses/200/content/json/error`.
+                        public var error: Swift.Int
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        public init(error: Swift.Int) {
+                            self.error = error
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/api/v1/office/callback/POST/responses/200/content/application\/json`.
+                    case json(Operations.OfficeCallback.Output.Ok.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.OfficeCallback.Output.Ok.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.OfficeCallback.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.OfficeCallback.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Always 200. `error` is 0 on success/ignore, non-zero on a rejected callback.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/callback/post(officeCallback)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.OfficeCallback.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.OfficeCallback.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List a document's immutable version history (newest first)
+    ///
+    /// - Remark: HTTP `GET /api/v1/office/documents/{documentRef}/versions`.
+    /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/get(listOfficeDocumentVersions)`.
+    public enum ListOfficeDocumentVersions {
+        public static let id: Swift.String = "listOfficeDocumentVersions"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/GET/path/documentRef`.
+                public var documentRef: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - documentRef:
+                public init(documentRef: Swift.String) {
+                    self.documentRef = documentRef
+                }
+            }
+            public var path: Operations.ListOfficeDocumentVersions.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListOfficeDocumentVersions.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListOfficeDocumentVersions.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListOfficeDocumentVersions.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ListOfficeDocumentVersions.Input.Path,
+                headers: Operations.ListOfficeDocumentVersions.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/GET/responses/200/content/json`.
+                    public struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/GET/responses/200/content/json/items`.
+                        public var items: [Components.Schemas.DocumentVersion]
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - items:
+                        public init(items: [Components.Schemas.DocumentVersion]) {
+                            self.items = items
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case items
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/GET/responses/200/content/application\/json`.
+                    case json(Operations.ListOfficeDocumentVersions.Output.Ok.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Operations.ListOfficeDocumentVersions.Output.Ok.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListOfficeDocumentVersions.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListOfficeDocumentVersions.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The append-only version list.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/get(listOfficeDocumentVersions)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListOfficeDocumentVersions.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListOfficeDocumentVersions.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/get(listOfficeDocumentVersions)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/get(listOfficeDocumentVersions)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Non-destructively restore a version (re-publish it as a new version)
+    ///
+    /// Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+    ///
+    /// - Remark: HTTP `POST /api/v1/office/documents/{documentRef}/versions/{versionNo}/restore`.
+    /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/post(restoreOfficeDocumentVersion)`.
+    public enum RestoreOfficeDocumentVersion {
+        public static let id: Swift.String = "restoreOfficeDocumentVersion"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/POST/path/documentRef`.
+                public var documentRef: Swift.String
+                /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/POST/path/versionNo`.
+                public var versionNo: Swift.Int
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - documentRef:
+                ///   - versionNo:
+                public init(
+                    documentRef: Swift.String,
+                    versionNo: Swift.Int
+                ) {
+                    self.documentRef = documentRef
+                    self.versionNo = versionNo
+                }
+            }
+            public var path: Operations.RestoreOfficeDocumentVersion.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RestoreOfficeDocumentVersion.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RestoreOfficeDocumentVersion.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RestoreOfficeDocumentVersion.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.RestoreOfficeDocumentVersion.Input.Path,
+                headers: Operations.RestoreOfficeDocumentVersion.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DocumentVersion)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.DocumentVersion {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RestoreOfficeDocumentVersion.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RestoreOfficeDocumentVersion.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The newly appended (restored) version.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/post(restoreOfficeDocumentVersion)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.RestoreOfficeDocumentVersion.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.RestoreOfficeDocumentVersion.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/post(restoreOfficeDocumentVersion)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/post(restoreOfficeDocumentVersion)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/office/documents/{documentRef}/versions/{versionNo}/restore/post(restoreOfficeDocumentVersion)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }

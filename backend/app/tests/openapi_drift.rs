@@ -92,5 +92,8 @@ async fn openapi_yaml_covers_mounted_auth_routes() -> Result<(), Box<dyn std::er
     for path in mnt_app::lifecycle::LIFECYCLE_ROUTE_PATHS {
         assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
     }
+    for path in mnt_app::office::OFFICE_ROUTE_PATHS {
+        assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
+    }
     Ok(())
 }

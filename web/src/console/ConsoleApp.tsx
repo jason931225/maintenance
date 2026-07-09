@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ConsoleShell } from "./shell/ConsoleShell";
 import { nextTheme, themeAttribute } from "./shell/theme";
 import type { ThemeMode } from "./shell/theme";
 import "./tokens.css";
+import { initConsoleRum } from "./rum/rum";
 
 /**
  * ConsoleApp — the carbon-copy console's root, mounted at `/console` inside the
@@ -16,6 +17,9 @@ import "./tokens.css";
  * `components/{ui,shell}` — the carbon-copy mandate is zero visual inheritance
  * from the legacy AppShell, enforced by `scripts/check-console-purity.mjs`.
  *
+ * RUM is armed here (once, on mount) so every console surface reports CWV/route/
+ * error events from the moment it loads (charter hyperscaler layer).
+ *
  * Internal navigation is `state.screen`-driven (owned by `ConsoleShell`), not
  * React-Router pages.
  */
@@ -25,6 +29,7 @@ export function ConsoleApp() {
     setTheme((t) => nextTheme(t));
   }, []);
   const themeMode = themeAttribute(theme);
+  useEffect(() => initConsoleRum(), []);
 
   return (
     <div
