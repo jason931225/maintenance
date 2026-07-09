@@ -586,9 +586,11 @@ impl PgMessengerStore {
     ) -> Result<ThreadSummary, PgMessengerError> {
         let (branch_id, visibility) =
             thread_branch_and_visibility(&self.pool, command.thread_id).await?;
-        ensure_branch_scope(&command.branch_scope, branch_id)?;
+        if !command.branch_scope.allows(branch_id) {
+            return Err(KernelError::not_found("messenger thread was not found").into());
+        }
         if visibility != ThreadVisibility::Channel {
-            return Err(KernelError::forbidden("only channel threads are joinable").into());
+            return Err(KernelError::not_found("messenger thread was not found").into());
         }
         let actor = command.actor;
         let org = current_org().map_err(KernelError::from)?;
@@ -1083,7 +1085,7 @@ fn validate_thread_shape(command: &CreateThreadCommand) -> Result<(), PgMessenge
 /// Validate the thread shape, then resolve the taxonomy `visibility`: use the
 /// caller's explicit choice if given, else the `kind`/title default. Enforces
 /// the DB invariants up front with clear errors: a channel must be named, and
-/// DMs / work-order threads are always direct.
+/// DMs, groups, and work-order threads are always direct.
 fn resolve_visibility(command: &CreateThreadCommand) -> Result<ThreadVisibility, PgMessengerError> {
     validate_thread_shape(command)?;
     let has_title = command
@@ -1097,9 +1099,12 @@ fn resolve_visibility(command: &CreateThreadCommand) -> Result<ThreadVisibility,
         if !has_title {
             return Err(KernelError::validation("a channel thread requires a title").into());
         }
-        if matches!(command.kind, ThreadKind::Dm | ThreadKind::WorkOrder) {
+        if matches!(
+            command.kind,
+            ThreadKind::Dm | ThreadKind::Group | ThreadKind::WorkOrder
+        ) {
             return Err(KernelError::validation(
-                "DM and work-order threads are always direct, not channels",
+                "DM, group, and work-order threads are always direct, not channels",
             )
             .into());
         }
@@ -1576,11 +1581,7 @@ fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
                quoted.body AS quoted_body,
                quoted_sender.display_name AS quoted_sender_name,
                m.sent_at, m.created_at, sender.display_name AS sender_name,
-               COALESCE(
-                   array_agg(a.evidence_id ORDER BY a.sort_order)
-                       FILTER (WHERE a.evidence_id IS NOT NULL),
-                   ARRAY[]::uuid[]
-               ) AS attachment_evidence_ids,
+               COALESCE(att.attachment_evidence_ids, ARRAY[]::uuid[]) AS attachment_evidence_ids,
                COUNT(DISTINCT tm_read_target.user_id)::BIGINT AS read_target_count,
                COUNT(DISTINCT tm_read_target.user_id) FILTER (
                    WHERE read_receipt_message.id IS NOT NULL
@@ -1594,7 +1595,11 @@ fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
     builder.push(
         r#") AS acked_by_me
         FROM messenger_messages m
-        LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        LEFT JOIN LATERAL (
+            SELECT array_agg(a.evidence_id ORDER BY a.sort_order) AS attachment_evidence_ids
+            FROM messenger_message_attachments a
+            WHERE a.message_id = m.id
+        ) att ON true
         LEFT JOIN messenger_message_acks ack ON ack.message_id = m.id
         LEFT JOIN messenger_thread_members tm_read_target
           ON tm_read_target.thread_id = m.thread_id
@@ -1617,8 +1622,7 @@ fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
     builder
 }
 
-const MESSAGE_GROUP_BY: &str =
-    " GROUP BY m.id, sender.display_name, quoted.body, quoted_sender.display_name";
+const MESSAGE_GROUP_BY: &str = " GROUP BY m.id, sender.display_name, quoted.body, quoted_sender.display_name, att.attachment_evidence_ids";
 
 async fn fetch_message_summary_tx(
     tx: &mut Transaction<'_, Postgres>,

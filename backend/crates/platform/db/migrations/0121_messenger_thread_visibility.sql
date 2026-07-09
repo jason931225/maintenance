@@ -8,34 +8,39 @@
 --   * direct  = a fixed member set (DMs, work-order auto-threads, ad-hoc groups)
 --     with no join-by-discovery.
 --
--- Honest backfill rule: a `team` thread that ALREADY has a name is exactly a
--- named branch room, so it becomes a channel; EVERY other existing thread
--- (work-order auto-threads, DMs, groups, and any untitled team thread) is a
--- fixed-member conversation and becomes direct. The channel-is-named invariant
+-- Honest backfill rule: a `team` thread that ALREADY has a non-empty name is
+-- exactly a named branch room, so it becomes a channel; EVERY other existing
+-- thread (work-order auto-threads, DMs, groups, and any untitled team thread) is
+-- a fixed-member conversation and becomes direct. The channel-is-named invariant
 -- then holds for every backfilled row.
 
 ALTER TABLE messenger_threads ADD COLUMN visibility TEXT;
 
 UPDATE messenger_threads
 SET visibility = CASE
-    WHEN kind = 'team' AND title IS NOT NULL THEN 'channel'
+    WHEN kind = 'team' AND btrim(title) <> '' THEN 'channel'
     ELSE 'direct'
 END;
 
 ALTER TABLE messenger_threads
-    ALTER COLUMN visibility SET NOT NULL,
+    ADD CONSTRAINT messenger_threads_visibility_not_null_check
+        CHECK (visibility IS NOT NULL) NOT VALID,
     ADD CONSTRAINT messenger_threads_visibility_check
-        CHECK (visibility IN ('channel', 'direct')),
-    -- A channel is named (has a title); a direct thread need not be.
+        CHECK (visibility IN ('channel', 'direct')) NOT VALID,
+    -- A channel is named (has a non-empty title); a direct thread need not be.
     ADD CONSTRAINT messenger_threads_channel_named_check
-        CHECK (visibility <> 'channel' OR title IS NOT NULL),
-    -- DMs and work-order auto-threads are always a fixed member set.
+        CHECK (visibility <> 'channel' OR (title IS NOT NULL AND btrim(title) <> '')) NOT VALID,
+    -- Direct conversations are always a fixed member set.
     ADD CONSTRAINT messenger_threads_dm_direct_check
-        CHECK (kind <> 'dm' OR visibility = 'direct'),
+        CHECK (kind <> 'dm' OR visibility = 'direct') NOT VALID,
+    ADD CONSTRAINT messenger_threads_group_direct_check
+        CHECK (kind <> 'group' OR visibility = 'direct') NOT VALID,
     ADD CONSTRAINT messenger_threads_work_order_direct_check
-        CHECK (kind <> 'work_order' OR visibility = 'direct');
+        CHECK (kind <> 'work_order' OR visibility = 'direct') NOT VALID;
 
--- Channel discovery within a branch (the joinable browse list scans this).
-CREATE INDEX idx_messenger_threads_channel
-    ON messenger_threads (branch_id, updated_at DESC)
-    WHERE visibility = 'channel';
+ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_visibility_not_null_check;
+ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_visibility_check;
+ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_channel_named_check;
+ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_dm_direct_check;
+ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_group_direct_check;
+ALTER TABLE messenger_threads VALIDATE CONSTRAINT messenger_threads_work_order_direct_check;

@@ -1415,11 +1415,7 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                quoted.body AS quoted_body,
                quoted_sender.display_name AS quoted_sender_name,
                m.sent_at, m.created_at, sender.display_name AS sender_name,
-               COALESCE(
-                   array_agg(a.evidence_id ORDER BY a.sort_order)
-                       FILTER (WHERE a.evidence_id IS NOT NULL),
-                   ARRAY[]::uuid[]
-               ) AS attachment_evidence_ids,
+               COALESCE(att.attachment_evidence_ids, ARRAY[]::uuid[]) AS attachment_evidence_ids,
                COUNT(DISTINCT tm_read_target.user_id)::BIGINT AS read_target_count,
                COUNT(DISTINCT tm_read_target.user_id) FILTER (
                    WHERE read_receipt_message.id IS NOT NULL
@@ -1427,7 +1423,11 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                )::BIGINT AS read_count,
                COUNT(DISTINCT ack.user_id)::BIGINT AS ack_count
         FROM messenger_messages m
-        LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        LEFT JOIN LATERAL (
+            SELECT array_agg(a.evidence_id ORDER BY a.sort_order) AS attachment_evidence_ids
+            FROM messenger_message_attachments a
+            WHERE a.message_id = m.id
+        ) att ON true
         LEFT JOIN messenger_message_acks ack ON ack.message_id = m.id
         LEFT JOIN messenger_thread_members tm_read_target
           ON tm_read_target.thread_id = m.thread_id
@@ -1446,8 +1446,7 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
     )
 }
 
-const REALTIME_MESSAGE_GROUP_BY: &str =
-    " GROUP BY m.id, sender.display_name, quoted.body, quoted_sender.display_name";
+const REALTIME_MESSAGE_GROUP_BY: &str = " GROUP BY m.id, sender.display_name, quoted.body, quoted_sender.display_name, att.attachment_evidence_ids";
 
 fn message_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<MessageSummary, sqlx::Error> {
     let attachment_ids: Vec<uuid::Uuid> = row.try_get("attachment_evidence_ids")?;

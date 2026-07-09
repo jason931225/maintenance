@@ -27,8 +27,13 @@ GRANT SELECT, INSERT, DELETE ON messenger_message_acks TO mnt_rt;
 -- the send path, since a CHECK cannot read the quoted row's thread. ON DELETE
 -- SET NULL keeps a reply intact if the quoted message is later removed.
 ALTER TABLE messenger_messages
-    ADD COLUMN quoted_message_id UUID REFERENCES messenger_messages(id) ON DELETE SET NULL;
+    ADD COLUMN quoted_message_id UUID;
 
-CREATE INDEX idx_messenger_messages_quoted
-    ON messenger_messages (quoted_message_id)
-    WHERE quoted_message_id IS NOT NULL;
+ALTER TABLE messenger_messages
+    ADD CONSTRAINT messenger_messages_quoted_message_fk
+        FOREIGN KEY (quoted_message_id)
+        REFERENCES messenger_messages(id)
+        ON DELETE SET NULL
+        NOT VALID;
+
+ALTER TABLE messenger_messages VALIDATE CONSTRAINT messenger_messages_quoted_message_fk;
