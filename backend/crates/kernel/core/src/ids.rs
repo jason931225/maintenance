@@ -133,6 +133,12 @@ typed_id!(CustomerInquiryId);
 typed_id!(SupportTicketId);
 typed_id!(SupportTicketCommentId);
 typed_id!(AuditEventId);
+typed_id!(
+    /// A notification — one recipient-scoped pointer object in the general
+    /// notifications domain (결재/멘션/문서/공지/근태/급여, extensible). Persistence
+    /// is the source of truth; realtime `LISTEN/NOTIFY` carries only this id.
+    NotificationId
+);
 
 #[cfg(test)]
 mod tests {

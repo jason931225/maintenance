@@ -4641,6 +4641,97 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/notifications:
+    get:
+      operationId: listMyNotifications
+      summary: List the authenticated user's notifications, newest first
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: unread
+        in: query
+        required: false
+        description: When true, return only unread notifications.
+        schema:
+          type: boolean
+      - name: before
+        in: query
+        required: false
+        description: Keyset cursor; return notifications strictly older than this id.
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        description: Page size (clamped server-side to 1..=200; default 50).
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: A page of the caller's notifications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/notifications/read-all:
+    post:
+      operationId: markAllMyNotificationsRead
+      summary: Mark all of the authenticated user's unread notifications read
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The number of notifications marked read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationReadAllResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/notifications/{id}/read:
+    post:
+      operationId: markMyNotificationRead
+      summary: Mark one of the authenticated user's notifications read
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The updated notification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/me:
     get:
       operationId: getCurrentUser
@@ -12388,6 +12479,91 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    NotificationLink:
+      description: Deep-link target — an object reference (kind + id) or a bare app screen.
+      oneOf:
+      - type: object
+        required:
+        - type
+        - kind
+        - id
+        properties:
+          type:
+            type: string
+            enum:
+            - object
+          kind:
+            type: string
+          id:
+            type: string
+      - type: object
+        required:
+        - type
+        - screen
+        properties:
+          type:
+            type: string
+            enum:
+            - screen
+          screen:
+            type: string
+    NotificationSummary:
+      type: object
+      required:
+      - id
+      - recipient_user_id
+      - category
+      - text
+      - link
+      - unread
+      - created_at
+      - read_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        recipient_user_id:
+          $ref: '#/components/schemas/Uuid'
+        category:
+          type: string
+          description: Extensible category (결재/멘션/문서/공지/근태/급여 and beyond).
+        text:
+          type: string
+        link:
+          $ref: '#/components/schemas/NotificationLink'
+        unread:
+          type: boolean
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        read_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When the notification was first marked read; null while unread.
+    NotificationPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationSummary'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+    NotificationReadAllResponse:
+      type: object
+      required:
+      - marked
+      properties:
+        marked:
+          type: integer
+          format: int64
+          description: The number of notifications marked read.
     EquipmentStatus:
       type: string
       enum:

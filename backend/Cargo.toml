@@ -19,6 +19,7 @@ members = [
   "crates/workorder/*",
   "crates/workflow/*",
   "crates/messenger/*",
+  "crates/notifications/*",
   "crates/comms/*",
   "crates/payroll/*",
   "crates/erp/*",
@@ -192,6 +193,10 @@ mnt-messenger-domain = { path = "crates/messenger/domain" }
 mnt-messenger-application = { path = "crates/messenger/application" }
 mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }
 mnt-messenger-rest = { path = "crates/messenger/rest" }
+mnt-notifications-domain = { path = "crates/notifications/domain" }
+mnt-notifications-application = { path = "crates/notifications/application" }
+mnt-notifications-adapter-postgres = { path = "crates/notifications/adapter-postgres" }
+mnt-notifications-rest = { path = "crates/notifications/rest" }
 mnt-comms-domain = { path = "crates/comms/domain" }
 mnt-comms-credential-cipher = { path = "crates/comms/credential-cipher" }
 mnt-comms-application = { path = "crates/comms/application" }

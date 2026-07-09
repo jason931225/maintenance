@@ -2947,6 +2947,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the authenticated user's notifications, newest first */
+        get: operations["listMyNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark all of the authenticated user's unread notifications read */
+        post: operations["markAllMyNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark one of the authenticated user's notifications read */
+        post: operations["markMyNotificationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -6071,6 +6122,44 @@ export interface components {
             last_read_message_id: components["schemas"]["Uuid"];
             read_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
+        };
+        /** @description Deep-link target — an object reference (kind + id) or a bare app screen. */
+        NotificationLink: {
+            /** @enum {string} */
+            type: "object";
+            kind: string;
+            id: string;
+        } | {
+            /** @enum {string} */
+            type: "screen";
+            screen: string;
+        };
+        NotificationSummary: {
+            id: components["schemas"]["Uuid"];
+            recipient_user_id: components["schemas"]["Uuid"];
+            /** @description Extensible category (결재/멘션/문서/공지/근태/급여 and beyond). */
+            category: string;
+            text: string;
+            link: components["schemas"]["NotificationLink"];
+            unread: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: date-time
+             * @description When the notification was first marked read; null while unread.
+             */
+            read_at: string | null;
+        };
+        NotificationPage: {
+            items: components["schemas"]["NotificationSummary"][];
+            /** Format: uuid */
+            next_cursor: string | null;
+        };
+        NotificationReadAllResponse: {
+            /**
+             * Format: int64
+             * @description The number of notifications marked read.
+             */
+            marked: number;
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -11818,6 +11907,106 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyNotifications: {
+        parameters: {
+            query?: {
+                /** @description When true, return only unread notifications. */
+                unread?: boolean;
+                /** @description Keyset cursor; return notifications strictly older than this id. */
+                before?: components["schemas"]["Uuid"];
+                /** @description Page size (clamped server-side to 1..=200; default 50). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    markAllMyNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of notifications marked read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationReadAllResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    markMyNotificationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The updated notification. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {

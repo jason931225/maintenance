@@ -49,6 +49,8 @@ mnt-sales-rest = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-messenger-adapter-postgres = { workspace = true }
 mnt-messenger-rest = { workspace = true }
+mnt-notifications-adapter-postgres = { workspace = true }
+mnt-notifications-rest = { workspace = true }
 mnt-payroll-domain = { workspace = true }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
